@@ -17,8 +17,7 @@ namespace arch50xx {
 // Passes
 //
 
-std::unique_ptr<mlir::Pass> createInsertDelayDPUVariantPass(bool dpuProfilingEnabled = false,
-                                                            bool fwPdecDelayEnabled = false,
+std::unique_ptr<mlir::Pass> createInsertDelayDPUVariantPass(bool fwPdecDelayEnabled = false,
                                                             Logger log = Logger::global());
 
 //

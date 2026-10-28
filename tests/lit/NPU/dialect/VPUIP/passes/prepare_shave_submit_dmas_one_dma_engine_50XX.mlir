@@ -107,7 +107,7 @@ module @Activation attributes {config.compilationMode = #config.compilation_mode
 
   // Release
   // CHECK: VPURT.Task waits([[BAR4]] : !VPURT.Barrier)
-  // CHECK: VPUIP.SyncDMA {{.*logical_task = 0 : i64, shv_release_dma.*port = 0 : i64.*}} inputs([[FETCH_IN]] : memref<0x0x0x0xi32, @DDR>) outputs([[FETCH_OUT]] : memref<0x0x0x0xi32, @DDR>) -> memref<0x0x0x0xi32, @DDR>
+  // CHECK: VPUIP.SyncDMA {{.*logical_task = 0 : i64.*port = 0 : i64.*}} inputs([[FETCH_IN]] : memref<0x0x0x0xi32, @DDR>) outputs([[FETCH_OUT]] : memref<0x0x0x0xi32, @DDR>) -> memref<0x0x0x0xi32, @DDR>
   // CHECK: VPURT.Task waits([[BAR4]] : !VPURT.Barrier)
-  // CHECK: VPUIP.SyncDMA {{.*logical_task = 0 : i64, shv_release_dma.*port = 0 : i64.*}} inputs([[SYNC_CMX_IN]] : memref<0x0x0x0xi32, [@CMX_NN, 0]>) outputs([[FETCH_OUT]] : memref<0x0x0x0xi32, @DDR>) -> memref<0x0x0x0xi32, @DDR>
+  // CHECK: VPUIP.SyncDMA {{.*logical_task = 0 : i64.*port = 0 : i64.*}} inputs([[SYNC_CMX_IN]] : memref<0x0x0x0xi32, [@CMX_NN, 0]>) outputs([[FETCH_OUT]] : memref<0x0x0x0xi32, @DDR>) -> memref<0x0x0x0xi32, @DDR>
 }

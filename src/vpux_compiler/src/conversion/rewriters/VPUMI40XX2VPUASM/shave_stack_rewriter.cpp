@@ -12,7 +12,7 @@ namespace vpumi40xx2vpuasm {
 mlir::FailureOr<SymbolizationResult> ShaveStackRewriter::symbolize(VPUMI40XX::ShaveStackFrameBuffOp op, SymbolMapper&,
                                                                    mlir::ConversionPatternRewriter& rewriter) const {
     auto symName = findSym(op).getRootReference();
-    auto newOp = rewriter.create<VPUASM::ShaveStackFrameBuffOp>(op.getLoc(), symName, op.getStackSize());
+    auto newOp = VPUASM::ShaveStackFrameBuffOp::create(rewriter, op.getLoc(), symName, op.getStackSize());
     rewriter.eraseOp(op);
     return SymbolizationResult(newOp);
 }

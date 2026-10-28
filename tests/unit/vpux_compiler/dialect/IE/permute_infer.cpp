@@ -34,7 +34,7 @@ Const::DeclareOp buildConstant(mlir::MLIRContext& ctx, const ShapeRef shape, con
     auto contentAttr = baseContentAttr.transform().reorder(inputOrder).castElemType(quantType).get();
     const auto quantDataType = contentAttr.getType();
     mlir::OpBuilder builder(&ctx);
-    return builder.create<Const::DeclareOp>(mlir::UnknownLoc::get(&ctx), quantDataType, std::move(contentAttr));
+    return Const::DeclareOp::create(builder, mlir::UnknownLoc::get(&ctx), quantDataType, std::move(contentAttr));
 }
 
 TEST_P(MLIR_IE_PermuteInfer, inferPermuteReturnTypeComponents) {

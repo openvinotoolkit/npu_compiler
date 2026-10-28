@@ -31,8 +31,16 @@ namespace {
 template <typename OpTy>
 mlir::Value replaceCastWith(mlir::Operation* op, mlir::Value sourceRoot, mlir::Type outType, mlir::Value inputValue) {
     mlir::OpBuilder builder(op);
-    builder.setInsertionPoint(sourceRoot.getDefiningOp());
-    auto newOperation = builder.create<OpTy>(op->getLoc(), outType, inputValue);
+    // this function is usually called to modify e.g. a function output.
+    // however, this function output could sometimes be wrapped into a
+    // pure-view-op in which case OpTy created here must be inserted after that
+    // pure-view-op.
+    if (mlir::isa<mlir::BlockArgument>(inputValue)) {
+        builder.setInsertionPoint(sourceRoot.getDefiningOp());
+    } else {
+        builder.setInsertionPointAfter(inputValue.getDefiningOp());
+    }
+    auto newOperation = OpTy::create(builder, op->getLoc(), outType, inputValue);
     return newOperation.getResult();
 };
 
@@ -161,8 +169,8 @@ void fuseLastCopy(VPUIP::CopyOp copyOp, const AliasesInfo& aliasesInfo, Logger l
                 mlir::OpBuilder builder(permuteCastOp);
                 builder.setInsertionPoint(sourceRoot.getDefiningOp());
 
-                auto newPermuteCast = builder.create<VPUIP::PermuteCastOp>(
-                        permuteCastOp.getLoc(), permuteCastOp->getOperand(0).getType(), newBuffer,
+                auto newPermuteCast = VPUIP::PermuteCastOp::create(
+                        builder, permuteCastOp.getLoc(), permuteCastOp->getOperand(0).getType(), newBuffer,
                         permuteCastOp.getDstOrderAttr(), permuteCastOp.getMemPermAttr());
 
                 newBuffer = newPermuteCast.getResult();
@@ -180,10 +188,10 @@ void fuseLastCopy(VPUIP::CopyOp copyOp, const AliasesInfo& aliasesInfo, Logger l
                 // do the shape cast in output
                 mlir::OpBuilder builder(shapeCastOp);
                 builder.setInsertionPoint(sourceRoot.getDefiningOp());
-                auto newShapeCast = builder.create<VPUIP::ShapeCastOp>(
-                        shapeCastOp.getLoc(), newOutType, newBuffer,
-                        getIntArrayAttr(shapeCastOp.getContext(), newOutShape),
-                        shapeCastOp.getExplicitOutputShapesAttr(), shapeCastOp.getExplicitOutputOffsetsAttr());
+                auto newShapeCast = VPUIP::ShapeCastOp::create(builder, shapeCastOp.getLoc(), newOutType, newBuffer,
+                                                               getIntArrayAttr(shapeCastOp.getContext(), newOutShape),
+                                                               shapeCastOp.getExplicitOutputShapesAttr(),
+                                                               shapeCastOp.getExplicitOutputOffsetsAttr());
                 newBuffer = newShapeCast.getResult();
             } else if (mlir::isa<Core::ReinterpretCastOp>(preOfTypeCastOp)) {
                 newBuffer = replaceCastWith<Core::ReinterpretCastOp>(
@@ -219,7 +227,7 @@ void fuseLastCopy(VPUIP::CopyOp copyOp, const AliasesInfo& aliasesInfo, Logger l
                 return;
             }
             mlir::OpBuilder builder(sourceRoot.getDefiningOp());
-            newBuffer = builder.create<Core::ReinterpretCastOp>(copyOp->getLoc(), sourceRoot.getType(), newBuffer)
+            newBuffer = Core::ReinterpretCastOp::create(builder, copyOp->getLoc(), sourceRoot.getType(), newBuffer)
                                 .getResult();
         }
     }
@@ -267,15 +275,28 @@ private:
     void safeRunOnFunc() final;
 };
 
-//
-// safeRunOnFunc
-//
+mlir::Value getSourceThroughPureViewLikeOps(mlir::Value value) {
+    auto sourceOp = value.getDefiningOp();
+    // Note: VPUIP::isPureViewOp() imposes additional restrictions but it also
+    // allows many classes of view-like operations (such as group operations);
+    // the logic here is fairly brittle when it comes to how copy operations can
+    // be optimized, so a conservative decision is to only consider
+    // mlir::ViewLikeOpInterface which is a single-input, single-output
+    // interface. This is sufficient to cover the new cases where copies can be
+    // wrapped with view-like operations on output buffers (host compilation).
+    while (mlir::isa_and_nonnull<mlir::ViewLikeOpInterface>(sourceOp) && VPUIP::isPureViewOp(sourceOp)) {
+        value = mlir::cast<mlir::ViewLikeOpInterface>(sourceOp).getViewSource();
+        sourceOp = value.getDefiningOp();
+    }
+    return value;
+}
 
 void FuseLastCopyPass::safeRunOnFunc() {
     auto func = getOperation();
 
     func->walk([&](VPUIP::CopyOp op) {
-        if (!mlir::isa<mlir::BlockArgument>(op.getOutputBuff())) {
+        auto outputBuffSource = getSourceThroughPureViewLikeOps(op.getOutputBuff());
+        if (!mlir::isa<mlir::BlockArgument>(outputBuffSource)) {
             return;
         }
 

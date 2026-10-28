@@ -505,7 +505,7 @@ void FuseDynamicQuantizePass::safeRunOnFunc() {
         if (newEltType == origEltType) {
             return newInput;
         }
-        auto cvtOrigType = builder.create<IE::ConvertOp>(loc, newInput, origEltType);
+        auto cvtOrigType = IE::ConvertOp::create(builder, loc, newInput, origEltType);
         return cvtOrigType.getOutput();
     };
 
@@ -721,13 +721,11 @@ void FuseDynamicQuantizePass::safeRunOnFunc() {
         const auto useUnsignedQuantizedType =
                 isUnsignedQuantizeClamp(clampQuantZp) && isUnsignedQuantizeClamp(clampQuant);
 
-        // Verify that the detected quantSpan from the original graph matches the kernel's
-        // hardcoded quantSpan (qMax - qMin): 255 for unsigned, 254 for signed.
-        // For signed types, quantSpan=127 is also accepted — handled by doubling the range
-        // so the kernel's (max-min)/254 yields the same scale as the original range/127.
+        // Preserve the existing PR25163 matching rules. The signed 127-point
+        // Key variant is the only new internal-reduction case.
         const float expectedKernelQuantSpan = useUnsignedQuantizedType ? 255.0f : 254.0f;
-        const bool needsRangeDoubling = !useUnsignedQuantizedType && isDoubleEqual(detectedQuantSpan, 127.0);
-        if (!isDoubleEqual(detectedQuantSpan, expectedKernelQuantSpan) && !needsRangeDoubling) {
+        const bool useSignedInternalReduction = !useUnsignedQuantizedType && isDoubleEqual(detectedQuantSpan, 127.0);
+        if (!isDoubleEqual(detectedQuantSpan, expectedKernelQuantSpan) && !useSignedInternalReduction) {
             nestLog.trace("Detected quantSpan {0} does not match kernel expectation {1}", detectedQuantSpan,
                           expectedKernelQuantSpan);
             continue;
@@ -772,28 +770,30 @@ void FuseDynamicQuantizePass::safeRunOnFunc() {
 
         const auto loc = clampQuantZp->getLoc();
         const auto dstElemTypeAttr = mlir::TypeAttr::get(quantizedElemType);
+        const auto axesValueAttr = getIntArrayAttr(builder.getContext(), reduceMinAxesValue);
 
-        // When needsRangeDoubling: model uses scale=range/127 but kernel uses (max-min)/254.
-        // Pass maxArg = 2*max - min (== min + 2*(max-min)) so kernel's (maxArg - min)/254 =
-        // 2*range/254 = range/127. Compute it from min/max directly (not from subtractSpanOp,
-        // which is erased) so the helper ops only depend on values that dominate the insertion
-        // point.
-        mlir::Value maxArg = maxValue;
-        if (needsRangeDoubling) {
-            const auto maxTensorType = mlir::cast<mlir::RankedTensorType>(maxValue.getType());
-            // Use splat (size==1) to avoid IR/memory bloat for per-axis min/max tensors.
-            auto twoConst = Const::createFloatConst(builder, appendLoc(loc, "two"), maxTensorType, {2.0f});
-            auto doubledMax =
-                    builder.create<IE::MultiplyOp>(appendLoc(loc, "doubled_max"), maxValue, twoConst,
-                                                   IE::AutoBroadcastType::NUMPY, nullptr, nullptr, nullptr, nullptr);
-            maxArg = builder.create<IE::SubtractOp>(appendLoc(loc, "adjusted_max"), doubledMax.getOutput(), minValue,
-                                                    IE::AutoBroadcastType::NUMPY, nullptr, nullptr, nullptr, nullptr)
-                             .getOutput();
+        // Keep the original explicit min/max path for all existing variants.
+        // Only the signed asymmetric Key variant is converted to internal
+        // reduction; its kernel uses the 127-point formulation.
+        const bool useInternalReduction = useSignedInternalReduction;
+        const auto minArg = useInternalReduction ? mlir::Value() : minValue;
+        const auto maxArg = useInternalReduction ? mlir::Value() : maxValue;
+
+        const auto addOpToErase = [&opsToErase](mlir::Operation* op) {
+            if (op != nullptr && !llvm::is_contained(opsToErase, op)) {
+                opsToErase.push_back(op);
+            }
+        };
+        if (useInternalReduction) {
+            addOpToErase(minValue.getDefiningOp());
+            addOpToErase(maxValue.getDefiningOp());
+            addOpToErase(reduceMinOp.getOperation());
+            addOpToErase(reduceMaxOp.getOperation());
         }
 
-        auto dqOp = builder.create<IE::DynamicQuantizeOp>(
-                appendLoc(loc, "dq_linear"), mlir::TypeRange{dqOutputType, outputScale.getType(), dqZpType},
-                dynamicQuantizeInput, minValue, maxArg, dstElemTypeAttr);
+        auto dqOp = IE::DynamicQuantizeOp::create(builder, appendLoc(loc, "dq_linear"),
+                                                  mlir::TypeRange{dqOutputType, outputScale.getType(), dqZpType},
+                                                  dynamicQuantizeInput, minArg, maxArg, axesValueAttr, dstElemTypeAttr);
         auto dqZpResult = createConvert(builder, dqOp.getZeroPoint(), outputZp, appendLoc(loc, "zp"));
         auto dqOutputResult = createConvert(builder, dqOp.getOutput(), outputQuant, appendLoc(loc, "output"));
         auto dqScale = createConvert(builder, dqOp.getScale(), outputScale, appendLoc(loc, "scale"));
@@ -804,8 +804,25 @@ void FuseDynamicQuantizePass::safeRunOnFunc() {
 
         _log.trace("DynamicQuantizeOp fused");
 
-        for (auto op : opsToErase | reversed) {
-            op->erase();
+        // Erase matched operations from leaves to roots. The matched reduction
+        // producers can be added after their consumers while the pattern is
+        // assembled, so a single reverse traversal is not sufficient here.
+        // Keep an operation if an unhandled use remains.
+        while (!opsToErase.empty()) {
+            bool erasedAny = false;
+            for (auto it = opsToErase.begin(); it != opsToErase.end();) {
+                auto* op = *it;
+                if (!op->use_empty()) {
+                    ++it;
+                    continue;
+                }
+                op->erase();
+                it = opsToErase.erase(it);
+                erasedAny = true;
+            }
+            if (!erasedAny) {
+                break;
+            }
         }
     }
 }

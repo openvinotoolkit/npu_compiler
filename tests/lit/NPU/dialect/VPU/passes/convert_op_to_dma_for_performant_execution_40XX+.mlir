@@ -182,17 +182,21 @@ func.func @Gather4BitsTiling(%arg0: tensor<645632x224xsi4>, %arg1: tensor<1x1024
 
     // CHECK:       [[RESHAPE:%.+]] = VPU.Reshape([[ARG1]]) {shape_value = [1024, 1]} : tensor<1x1024xsi32> -> tensor<1024x1xsi32>
     // CHECK:       [[INDICES:%.+]] = VPU.Convert([[RESHAPE]]) {dstElemType = i64} : tensor<1024x1xsi32> -> tensor<1024x1xi64>
-    // CHECK:       [[GATHER:%.+]] = VPU.GatherDMA([[ARG0]], [[INDICES]]) {axis_value = 0 : i64, batch_dims = 0 : i64} : tensor<645632x224xsi4>, tensor<1024x1xi64> -> tensor<1024x224xsi4>
-    // CHECK:       [[OUT_RESHAPE:%.+]] = VPU.Reshape([[GATHER]]) {shape_value = [1, 1024, 224]} : tensor<1024x224xsi4> -> tensor<1x1024x224xsi4>
+    // ConvertGatherDMATo4D fires: input [645632,224] → [645632,1,224,1]; indices [1024,1] → [1024,1,1,1].
+    // CHECK:       [[IN4D:%.+]] = VPU.Reshape([[ARG0]]) {shape_value = [645632, 1, 224, 1]} : tensor<645632x224xsi4> -> tensor<645632x1x224x1xsi4>
+    // CHECK:       [[IDX4D:%.+]] = VPU.Reshape([[INDICES]]) {shape_value = [1024, 1, 1, 1]} : tensor<1024x1xi64> -> tensor<1024x1x1x1xi64>
+    // CHECK:       [[GATHER:%.+]] = VPU.GatherDMA([[IN4D]], [[IDX4D]]) {axis_value = 0 : i64, batch_dims = 0 : i64} : tensor<645632x1x224x1xsi4>, tensor<1024x1x1x1xi64> -> tensor<1024x1x224x1xsi4>
+    // CHECK:       [[GATHER_RESHAPE:%.+]] = VPU.Reshape([[GATHER]]) {shape_value = [1024, 224]} : tensor<1024x1x224x1xsi4> -> tensor<1024x224xsi4>
+    // CHECK:       [[OUT_RESHAPE:%.+]] = VPU.Reshape([[GATHER_RESHAPE]]) {shape_value = [1, 1024, 224]} : tensor<1024x224xsi4> -> tensor<1x1024x224xsi4>
     // CHECK:       return [[OUT_RESHAPE]] : tensor<1x1024x224xsi4>
 }
 
 // -----
 
-!quantileType = !QuantileType.quantile<ui4:f16, {-1.000000e+00,-0.69619280099868774,-0.52507305145263672,-0.39491748809814453,-0.28444138169288635,-0.18477343022823334,-0.091050036251544952,0.000000e+00,0.07958029955625534,0.16093020141124725,0.24611230194568634,0.33791524171829224,0.44070982933044434,0.56261700391769409,0.72295683622360229,1.000000e+00}>
+!quantileType = !quant.quantile<ui4:f16, {-1.000000e+00,-0.69619280099868774,-0.52507305145263672,-0.39491748809814453,-0.28444138169288635,-0.18477343022823334,-0.091050036251544952,0.000000e+00,0.07958029955625534,0.16093020141124725,0.24611230194568634,0.33791524171829224,0.44070982933044434,0.56261700391769409,0.72295683622360229,1.000000e+00}>
 
 // CHECK-LABEL: @GatherNon4DWithQuantileType
-// CHECK-SAME:  [[ARG0:%.+]]: tensor<184320x2880x!QuantileType.quantile<ui4:f16, {{.+}}>>, [[ARG1:%.+]]: tensor<23040xsi32>
+// CHECK-SAME:  [[ARG0:%.+]]: tensor<184320x2880x!quantileType>, [[ARG1:%.+]]: tensor<23040xsi32>
 func.func @GatherNon4DWithQuantileType(%arg0: tensor<184320x2880x!quantileType>, %arg1: tensor<23040xsi32>) -> tensor<23040x2880x!quantileType> {
     %0 = VPU.Gather(%arg0, %arg1) {axis_value = 0 : i64, batch_dims = 0 : i64, indices_rank = 1 : i64} : tensor<184320x2880x!quantileType>, tensor<23040xsi32> -> tensor<23040x2880x!quantileType>
     return %0 : tensor<23040x2880x!quantileType>
@@ -201,9 +205,46 @@ func.func @GatherNon4DWithQuantileType(%arg0: tensor<184320x2880x!quantileType>,
     // CHECK:       [[RESHAPE1:%.+]] = VPU.Reshape([[RESHAPE0]]) {shape_value = [1, 23040, 1, 1]} : tensor<23040x1xsi32> -> tensor<1x23040x1x1xsi32>
     // CHECK:       [[CONVERT:%.+]] = VPU.Convert([[RESHAPE1]]) {dstElemType = i64} : tensor<1x23040x1x1xsi32> -> tensor<1x23040x1x1xi64>
     // CHECK:       [[RESHAPE2:%.+]] = VPU.Reshape([[CONVERT]]) {shape_value = [23040, 1]} : tensor<1x23040x1x1xi64> -> tensor<23040x1xi64>
-    // CHECK:       [[GATHER_DMA:%.+]] = VPU.GatherDMA([[ARG0]], [[RESHAPE2]]) {
-    // CHECK-SAME:      axis_value = 0 : i64, batch_dims = 0 : i64} : tensor<184320x2880x!QuantileType.quantile<ui4:f16, {{.+}}>>, tensor<23040x1xi64> -> tensor<23040x2880x!QuantileType.quantile<ui4:f16, {{.+}}>>
-    // CHECK:       [[RESHAPE3:%.+]] = VPU.Reshape([[GATHER_DMA]]) {shape_value = [23040, 2880]} : tensor<23040x2880x!QuantileType.quantile<ui4:f16, {{.+}}>> -> tensor<23040x2880x!QuantileType.quantile<ui4:f16, {{.+}}>>
+    // ConvertGatherDMATo4D fires: input [184320,2880] → [184320,1,2880,1]; indices [23040,1] → [23040,1,1,1].
+    // CHECK:       [[IN4D:%.+]] = VPU.Reshape([[ARG0]]) {shape_value = [184320, 1, 2880, 1]}
+    // CHECK:       [[IDX4D:%.+]] = VPU.Reshape([[RESHAPE2]]) {shape_value = [23040, 1, 1, 1]}
+    // CHECK:       [[GATHER_DMA:%.+]] = VPU.GatherDMA([[IN4D]], [[IDX4D]]) {
+    // CHECK-SAME:      axis_value = 0 : i64, batch_dims = 0 : i64} : tensor<184320x1x2880x1x!quantileType>, tensor<23040x1x1x1xi64> -> tensor<23040x1x2880x1x!quantileType>
+    // CHECK:       [[RESHAPE3:%.+]] = VPU.Reshape([[GATHER_DMA]]) {shape_value = [23040, 2880]} : tensor<23040x1x2880x1x!quantileType> -> tensor<23040x2880x!quantileType>
+    // CHECK:       [[RESHAPE4:%.+]] = VPU.Reshape([[RESHAPE3]]) {shape_value = [23040, 2880]} : tensor<23040x2880x!quantileType> -> tensor<23040x2880x!quantileType>
 
-    // CHECK:       return [[RESHAPE3]] : tensor<23040x2880x!QuantileType.quantile<ui4:f16, {{.+}}>>
+    // CHECK:       return [[RESHAPE4]] : tensor<23040x2880x!quantileType>
+}
+
+// -----
+
+// CHECK-LABEL: @ConvertGatherDMATo4DForSOB
+// CHECK-SAME:  ([[ARG0:%.+]]: tensor<16512x128xi8>, [[ARG1:%.+]]: tensor<16512x1xi64>)
+func.func @ConvertGatherDMATo4DForSOB(%arg0: tensor<16512x128xi8>, %arg1: tensor<16512x1xi64>) -> tensor<16512x128xi8> {
+    %0 = VPU.GatherDMA(%arg0, %arg1) {axis_value = 0 : i64, batch_dims = 0 : i64} :
+            tensor<16512x128xi8>, tensor<16512x1xi64> -> tensor<16512x128xi8>
+    return %0 : tensor<16512x128xi8>
+
+    // CHECK: [[IN4D:%.+]]  = VPU.Reshape([[ARG0]]) {shape_value = [16512, 1, 128, 1]}
+    //                          : tensor<16512x128xi8> -> tensor<16512x1x128x1xi8>
+    // CHECK: [[IDX4D:%.+]] = VPU.Reshape([[ARG1]]) {shape_value = [16512, 1, 1, 1]}
+    //                          : tensor<16512x1xi64> -> tensor<16512x1x1x1xi64>
+    // CHECK: [[DMA:%.+]]   = VPU.GatherDMA([[IN4D]], [[IDX4D]]) {axis_value = 0 : i64, batch_dims = 0 : i64}
+    //                          : tensor<16512x1x128x1xi8>, tensor<16512x1x1x1xi64> -> tensor<16512x1x128x1xi8>
+    // CHECK: [[OUT:%.+]]   = VPU.Reshape([[DMA]]) {shape_value = [16512, 128]}
+    //                          : tensor<16512x1x128x1xi8> -> tensor<16512x128xi8>
+    // CHECK: return [[OUT]] : tensor<16512x128xi8>
+}
+
+// -----
+
+// CHECK-LABEL: @ConvertGatherDMATo4DAlready4D
+// CHECK-SAME:  ([[ARG0:%.+]]: tensor<16512x1x128x1xi8>, [[ARG1:%.+]]: tensor<16512x1x1x1xi64>)
+func.func @ConvertGatherDMATo4DAlready4D(%arg0: tensor<16512x1x128x1xi8>, %arg1: tensor<16512x1x1x1xi64>) -> tensor<16512x1x128x1xi8> {
+    %0 = VPU.GatherDMA(%arg0, %arg1) {axis_value = 0 : i64, batch_dims = 0 : i64} :
+            tensor<16512x1x128x1xi8>, tensor<16512x1x1x1xi64> -> tensor<16512x1x128x1xi8>
+    return %0 : tensor<16512x1x128x1xi8>
+
+    // CHECK-NOT: VPU.Reshape
+    // CHECK: VPU.GatherDMA([[ARG0]], [[ARG1]]) {axis_value = 0 : i64, batch_dims = 0 : i64}
 }

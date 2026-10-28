@@ -19,6 +19,7 @@ void vpux::VPU::arch50xx::registerLayerWithDmaInterface(mlir::DialectRegistry& r
         IE::TopKOp::attachInterface<VPU::LayerWithDmaInterfaceTopK>(*ctx);
         IE::InterpolateOp::attachInterface<VPU::LayerWithDmaInterfaceFwlm<IE::InterpolateOp>>(*ctx);
         IE::ScatterUpdateOp::attachInterface<VPU::LayerWithDmaInterfaceScatterUpdate>(*ctx);
+        IE::PadOp::attachInterface<VPU::LayerWithDmaInterfacePad>(*ctx);
         IE::AttentionDMAOp::attachInterface<VPU::LayerWithDmaInterfaceFwlm<IE::AttentionDMAOp>>(*ctx);
     });
 }

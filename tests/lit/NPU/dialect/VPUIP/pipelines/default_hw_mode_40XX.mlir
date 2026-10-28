@@ -206,7 +206,7 @@ module @TwoFunctions attributes {config.platform = #config.platform<NPU4000>, co
                                         to !DistributedBuffer0
 
         %4 = VPURT.AllocDistributed -> !DistributedBuffer1
-        %5 = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 153 : i64, resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{is_permute_quantize, task_type = #VPUIP.nce_task_type<ELTWISE>}>
+        %5 = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 153 : i64} <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>, is_permute_quantize, task_type = #VPUIP.nce_task_type<ELTWISE>}>
                 input(%3 : !DistributedBuffer0)
                 weights(%3 : !DistributedBuffer0)
                 parent_input(%3 : !DistributedBuffer0)
@@ -325,7 +325,7 @@ module @TwoFunctions attributes {config.platform = #config.platform<NPU4000>, co
                                         compute_offsets = [[0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]],
                                         memory_shapes = [[1, 32, 4, 4], [1, 32, 4, 4], [1, 32, 4, 4], [1, 32, 4, 4], [1, 32, 4, 4], [1, 32, 4, 4]],
                                         memory_offsets = [[0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]]}>
-        %17 = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 689 : i64, resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{is_superdense, kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
+        %17 = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 689 : i64} <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>, is_superdense, kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
                      kernel_size = [3, 3], kernel_strides = [1, 1], task_type = #VPUIP.nce_task_type<CONV>}>
                 input(%11 : !VPUIP.DistributedBuffer<1x16x6x6xf16, #NHWC, @CMX_NN,
                             {mode = "DUPLICATED", num_clusters = 6 : i64, alignment = [1, 16, 1, 1], uniform_distributed_segments,

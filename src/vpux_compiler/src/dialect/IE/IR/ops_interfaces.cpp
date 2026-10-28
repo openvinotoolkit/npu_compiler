@@ -17,6 +17,9 @@
 #include <llvm/ADT/TypeSwitch.h>
 #include <mlir/IR/BuiltinTypes.h>
 #include <mlir/IR/IRMapping.h>
+#include <mlir/Support/LLVM.h>
+#include <algorithm>
+#include <cmath>
 
 using namespace vpux;
 
@@ -45,6 +48,20 @@ mlir::DictionaryAttr mergeClampAttrs(mlir::DictionaryAttr currentClampAttr, IE::
 
     return mlir::DictionaryAttr::get(clampOp.getContext(), newClampAttr);
 }
+
+constexpr auto activationRelu = [](double val) {
+    return std::max(val, 0.0);
+};
+constexpr auto activationTanh = [](double val) {
+    return std::tanh(val);
+};
+constexpr auto activationSigmoid = [](double val) {
+    return 1.0 / (1.0 + std::exp(-val));
+};
+constexpr auto activationExp = [](double val) {
+    return std::exp(val);
+};
+
 }  // namespace
 
 //
@@ -167,6 +184,10 @@ mlir::LogicalResult vpux::IE::inferTensorTypes(InferTypeComponentsCb componentsC
 //
 
 IE::PostOpAttr vpux::IE::attributizePostOp(mlir::Operation* postOp) {
+    if (postOp == nullptr) {
+        return nullptr;
+    }
+
     return llvm::TypeSwitch<mlir::Operation*, IE::PostOpAttr>(postOp)
             .Case<IE::ReLUOp>([](auto reluOp) {
                 return IE::ReluAttr::get(reluOp.getContext());
@@ -177,7 +198,9 @@ IE::PostOpAttr vpux::IE::attributizePostOp(mlir::Operation* postOp) {
             .Case<IE::PReluOp>([](auto pReluOp) -> IE::PostOpAttr {
                 const auto ctx = pReluOp.getContext();
                 const auto slopesConst = pReluOp.getNegativeSlope().template getDefiningOp<Const::DeclareOp>();
-                VPUX_THROW_WHEN(slopesConst == nullptr, "Cannon attributize PRelu operation with non-constant slopes.");
+                if (slopesConst == nullptr) {
+                    return nullptr;
+                }
 
                 const auto slopesContent = slopesConst.getContentAttr().fold();
                 if (slopesContent.isSplat()) {
@@ -194,10 +217,17 @@ IE::PostOpAttr vpux::IE::attributizePostOp(mlir::Operation* postOp) {
             .Case<IE::SigmoidOp>([](auto sigmoidOp) {
                 return IE::SigmoidAttr::get(sigmoidOp.getContext());
             })
-            .Case<IE::SwishOp>([](auto swishOp) {
-                const auto beta = swishOp.getBetaValueAttr();
-                VPUX_THROW_WHEN(beta == nullptr, "Cannot attributize Swish operation with non-constant beta.");
-                return IE::SwishAttr::get(swishOp.getContext(), beta);
+            .Case<IE::SwishOp>([](auto swishOp) -> IE::PostOpAttr {
+                const auto ctx = swishOp.getContext();
+                auto beta = swishOp.getBetaValueAttr();
+                if (beta == nullptr) {
+                    if (swishOp.getBeta() != nullptr) {
+                        // Non-constant beta, see the SwishOp canonicalizer
+                        return nullptr;
+                    }
+                    beta = getFPAttr(ctx, 1.0);
+                }
+                return IE::SwishAttr::get(ctx, beta);
             })
             .Case<IE::GeluOp>([](auto geluOp) {
                 return IE::GeluAttr::get(geluOp.getContext());
@@ -208,10 +238,95 @@ IE::PostOpAttr vpux::IE::attributizePostOp(mlir::Operation* postOp) {
             .Case<IE::HSwishOp>([](auto hswishOp) {
                 return IE::HSwishAttr::get(hswishOp.getContext());
             })
-            .Default([](auto unknownOp) {
-                VPUX_THROW("Failed to attributize operation: {0}", unknownOp->getName());
+            .Default([](auto) -> IE::PostOpAttr {
                 return nullptr;
             });
+}
+
+bool vpux::IE::isMonotonicActivationFunctionNonDecreasing(mlir::Operation* postOp) {
+    return isMonotonicActivationFunctionNonDecreasing(attributizePostOp(postOp));
+}
+
+bool vpux::IE::isMonotonicActivationFunctionNonDecreasing(IE::PostOpAttr postOpAttr) {
+    // LeakyRelu is only monotonically increasing if slope is non-negative
+    if (auto attr = mlir::dyn_cast<IE::LeakyReluAttr>(postOpAttr)) {
+        const auto slope = attr.getNegativeSlope().getValueAsDouble();
+        return slope >= 0.0;
+    }
+
+    return mlir::isa_and_nonnull<IE::ReluAttr, IE::TanhAttr, IE::SigmoidAttr, IE::ExpAttr>(postOpAttr);
+}
+
+bool vpux::IE::applyMonotonicActivationFunction(IE::PostOpAttr postOpAttr, IE::ActivationFunctionCb callback) {
+    if (postOpAttr == nullptr) {
+        return false;
+    }
+
+    return llvm::TypeSwitch<mlir::Attribute, bool>(postOpAttr)
+            .Case<IE::ReluAttr>([&](IE::ReluAttr) {
+                callback(activationRelu);
+                return true;
+            })
+            .Case<IE::LeakyReluAttr>([&](IE::LeakyReluAttr attr) {
+                const auto slope = attr.getNegativeSlope().getValueAsDouble();
+                if (slope < 0.0) {
+                    // A negative slope makes LeakyReLU non-monotonic
+                    return false;
+                }
+                auto activationLeakyRelu = [slope](double val) {
+                    return val < 0.0 ? val * slope : val;
+                };
+                callback(activationLeakyRelu);
+                return true;
+            })
+            .Case<IE::TanhAttr>([&](IE::TanhAttr) {
+                callback(activationTanh);
+                return true;
+            })
+            .Case<IE::SigmoidAttr>([&](IE::SigmoidAttr) {
+                callback(activationSigmoid);
+                return true;
+            })
+            .Case<IE::ExpAttr>([&](IE::ExpAttr) {
+                callback(activationExp);
+                return true;
+            })
+            .Default([](mlir::Attribute) {
+                // Swish, Gelu, HSwish and per-channel PRelu are not monotonically non-decreasing
+                return false;
+            });
+}
+
+bool vpux::IE::applyMonotonicActivationFunction(mlir::Operation* postOp, IE::ActivationFunctionCb callback) {
+    if (postOp == nullptr) {
+        return false;
+    }
+
+    auto postOpAttr = attributizePostOp(postOp);
+    if (!isMonotonicActivationFunctionNonDecreasing(postOpAttr)) {
+        return false;
+    }
+
+    return applyMonotonicActivationFunction(postOpAttr, callback);
+}
+
+mlir::DictionaryAttr vpux::IE::remapClampThroughActivation(mlir::DictionaryAttr clampAttr, IE::PostOpAttr postOpAttr) {
+    if (clampAttr == nullptr) {
+        return nullptr;
+    }
+
+    if (postOpAttr == nullptr) {
+        return clampAttr;
+    }
+
+    mlir::DictionaryAttr result = nullptr;
+    auto applied = applyMonotonicActivationFunction(postOpAttr, [&](IE::ActivationFunction activationFunc) {
+        const auto min = activationFunc(clampAttr.getAs<mlir::FloatAttr>("min").getValueAsDouble());
+        const auto max = activationFunc(clampAttr.getAs<mlir::FloatAttr>("max").getValueAsDouble());
+        result = createClampAttr(clampAttr.getContext(), min, max);
+    });
+
+    return applied ? result : nullptr;
 }
 
 void vpux::IE::setClampOp(mlir::Operation* mainOp, mlir::Operation* maybeClampOp) {
@@ -226,6 +341,54 @@ void vpux::IE::setClampOp(mlir::Operation* mainOp, mlir::Operation* maybeClampOp
         clampOpInfo = clampOp->getAttrDictionary();
     }
     mainOp->setAttr(vpux::OperationAttrName::CLAMP, clampOpInfo);
+}
+
+mlir::DictionaryAttr vpux::IE::createClampAttr(mlir::MLIRContext* ctx, double min, double max) {
+    const auto minAttr = mlir::NamedAttribute(mlir::StringAttr::get(ctx, "min"), getFPAttr(ctx, min));
+    const auto maxAttr = mlir::NamedAttribute(mlir::StringAttr::get(ctx, "max"), getFPAttr(ctx, max));
+    return mlir::DictionaryAttr::get(ctx, {minAttr, maxAttr});
+}
+
+std::optional<mlir::DictionaryAttr> vpux::IE::getFusedClamp(const Logger& log, mlir::DictionaryAttr producerClamp,
+                                                            IE::PostOpAttr consumerPostOp,
+                                                            mlir::DictionaryAttr consumerClamp,
+                                                            IE::LayerWithPostOpInterface fusedOp, mlir::Type type) {
+    auto fusedClamp = producerClamp;
+    if (consumerPostOp != nullptr && fusedClamp != nullptr) {
+        fusedClamp = IE::remapClampThroughActivation(fusedClamp, consumerPostOp);
+        if (fusedClamp == nullptr) {
+            log.nest().trace("Producer clamp cannot be moved past the consumer post-op '{0}'", consumerPostOp);
+            return std::nullopt;
+        }
+    }
+
+    if (consumerClamp != nullptr) {
+        auto min = consumerClamp.getAs<mlir::FloatAttr>("min").getValueAsDouble();
+        auto max = consumerClamp.getAs<mlir::FloatAttr>("max").getValueAsDouble();
+        if (fusedClamp != nullptr) {
+            min = std::max(min, fusedClamp.getAs<mlir::FloatAttr>("min").getValueAsDouble());
+            max = std::min(max, fusedClamp.getAs<mlir::FloatAttr>("max").getValueAsDouble());
+        }
+
+        fusedClamp = IE::createClampAttr(consumerClamp.getContext(), min, max);
+    }
+
+    // If producerClamp and consumerClamp are nullptr then there is no clamp to fuse
+    if (fusedClamp == nullptr) {
+        return nullptr;
+    }
+
+    const auto logCb = [&](const formatv_object_base& msg) {
+        log.trace("{0}", msg.str());
+    };
+    auto min = fusedClamp.getAs<mlir::FloatAttr>("min").getValueAsDouble();
+    auto max = fusedClamp.getAs<mlir::FloatAttr>("max").getValueAsDouble();
+    if (!fusedOp.isSupportedClampProperties(min, max, type, logCb)) {
+        log.nest().trace("Operation at '{0}' does not support the clamp range [{1}, {2}]", fusedOp.getLoc(), min, max);
+        return std::nullopt;
+    }
+
+    return fusedClamp;
 }
 
 //

@@ -119,12 +119,6 @@ public:
     BoolOption enableLoopOutliner{*this, "loop-outlining", llvm::cl::desc("Apply outlining for body of Loop op"),
                                   llvm::cl::init(false)};
 
-    // This is a temporary option to enable running profiling passes along with outlining passes.
-    // It will be removed after all profiling engines are updated to support outlined functions.
-    // Ticket: E#159100
-    BoolOption enableProfilingWithOutlining{*this, "profiling-with-outlining",
-                                            llvm::cl::desc("Enable profiling with outlining"), llvm::cl::init(false)};
-
     BoolOption enableIntermediateBufferOutput{
             *this, "enable-intermediate-buffer-output",
             llvm::cl::desc("Enable intermediate output of defined operation buffer at specified insertion place"),
@@ -150,6 +144,11 @@ public:
             *this, "concat-repeating-block-outlining-min-seq-length",
             llvm::cl::desc("Threshold for length of concat input sequence for repeating blocks outlining"),
             llvm::cl::init(5)};
+
+    IntOption concatRepeatingBlockOutliningSdpaHeadThreshold{
+            *this, "concat-repeating-block-outlining-sdpa-head-threshold",
+            llvm::cl::desc("Maximum number of SDPA input branches for skipping concat repeating blocks outlining"),
+            llvm::cl::init(8)};
 
     BoolOption enableConcatRepeatingBlockOutlining{*this, "concat-repeating-block-outlining",
                                                    llvm::cl::desc("Enable concat input as repeating blocks outlining"),
@@ -349,6 +348,13 @@ public:
                                "Merge based on cost comparison between merged and non-merged cases"),
                     clEnumValN(VFMergeConfiguration::GREEDY, "GREEDY", "Merge greedily without considering cost"))};
 
+    mlir::detail::PassOptions::Option<VFMergeCostMode> vfMergeCostMode{
+            *this, "vf-merge-cost-mode", ::llvm::cl::desc("Objective used by v2/FWLM VF merging"),
+            ::llvm::cl::init(VFMergeCostMode::PERFORMANCE),
+            ::llvm::cl::values(clEnumValN(VFMergeCostMode::PERFORMANCE, "performance",
+                                          "Select the existing VPUNN performance objective"),
+                               clEnumValN(VFMergeCostMode::POWER, "power", "Select the DMA-byte power proxy"))};
+
     mlir::detail::PassOptions::Option<AllocateDDRStackFrames> allocateDDRStackFrames{
             *this, "allocate-ddr-stack-frames",
             ::llvm::cl::desc("Enable the computation and allocation of a new section which "
@@ -372,6 +378,13 @@ struct MCAndTilingOptionsBase : mlir::PassPipelineOptions<MCAndTilingOptionsBase
 
     BoolOption enableVerticalFusion{*this, "vertical-fusion", llvm::cl::desc("Enable vertical fusion feature"),
                                     llvm::cl::init(false)};
+
+    mlir::detail::PassOptions::Option<VFMergeCostMode> vfMergeCostMode{
+            *this, "vf-merge-cost-mode", llvm::cl::desc("Objective used by v2/FWLM VF merging"),
+            llvm::cl::init(VFMergeCostMode::PERFORMANCE),
+            llvm::cl::values(clEnumValN(VFMergeCostMode::PERFORMANCE, "performance",
+                                        "Select the existing VPUNN performance objective"),
+                             clEnumValN(VFMergeCostMode::POWER, "power", "Select the DMA-byte power proxy"))};
 
     BoolOption enablePipelining{*this, "pipelining", llvm::cl::desc("Enable vertical fusion pipelining"),
                                 llvm::cl::init(false)};
@@ -405,12 +418,6 @@ struct MCAndTilingOptionsBase : mlir::PassPipelineOptions<MCAndTilingOptionsBase
                                      llvm::cl::desc("Enable vertical fusion scheduling trace"), llvm::cl::init(false)};
 
     BoolOption enableProfiling{*this, "profiling", llvm::cl::desc("Enable profiling"), llvm::cl::init(false)};
-
-    // This is a temporary option to enable running profiling passes along with outlining passes.
-    // It will be removed after all profiling engines are updated to support outlined functions.
-    // Ticket: E#159100
-    BoolOption enableProfilingWithOutlining{*this, "profiling-with-outlining",
-                                            llvm::cl::desc("Enable profiling with outlining"), llvm::cl::init(false)};
 
     // Extended Tiling options - Incremental Pipeline
     BoolOption readStrategyFromJson{*this, "read-strategy-from-json",
@@ -703,17 +710,11 @@ struct BatchUnrollOptions : mlir::PassPipelineOptions<BatchUnrollOptions> {
 };
 
 template <class OptionsType>
-bool canOutlineFromProfilingPerspective(const OptionsType& options) {
-    // TODO: E#140041 enable profiling unconditionally
-    return !options.enableProfiling || options.enableProfilingWithOutlining;
-}
-
-template <class OptionsType>
 bool isOutliningEnabled(const OptionsType& options) {
     bool isAnyTypeOfOutliningEnabled = options.functionOutlining.hasValue() || DebatcherOptions::isAvailable(options) ||
                                        options.enableVerticalFusionOutlining ||
                                        options.enableConcatRepeatingBlockOutlining ||
                                        options.enableEntireMainContentOutlining || options.enableAsyncRegionOutlining;
-    return isAnyTypeOfOutliningEnabled && canOutlineFromProfilingPerspective(options);
+    return isAnyTypeOfOutliningEnabled;
 }
 }  // namespace vpux

@@ -172,31 +172,31 @@ mlir::LogicalResult LegalizeNDMemPermute::matchAndRewrite(IE::MemPermuteOp origO
 
     // Cast to canonical order for convenience
     auto identityMap = mlir::AffineMap::getMultiDimIdentityMap(checked_cast<uint32_t>(inputType.getRank()), ctx);
-    auto inputCast = rewriter.create<IE::PermuteCastOp>(origOp.getLoc(), origOp.getInput(), identityMap, identityMap);
+    auto inputCast = IE::PermuteCastOp::create(rewriter, origOp.getLoc(), origOp.getInput(), identityMap, identityMap);
 
     // Build input reshape operation
     auto reducedShapeAttr = getIntArrayAttr(ctx, mergedShape);
-    auto inputReshape = rewriter.create<IE::ReshapeOp>(origOp.getLoc(), inputCast.getOutput(), reducedShapeAttr);
+    auto inputReshape = IE::ReshapeOp::create(rewriter, origOp.getLoc(), inputCast.getOutput(), reducedShapeAttr);
 
     // Build reduced permutation operation
     mlir::Value permuteInput = inputReshape.getOutput();
     mlir::Value permuteOutput;
     if (decomposedPermMaps.empty()) {
-        permuteOutput = rewriter.create<IE::MemPermuteOp>(appendLoc(origOp.getLoc(), "mempermute"), permuteInput,
-                                                          mlir::AffineMap::getMultiDimIdentityMap(
-                                                                  checked_cast<uint32_t>(mergedShape.size()), ctx),
-                                                          reducedPermutation)
+        permuteOutput = IE::MemPermuteOp::create(rewriter, appendLoc(origOp.getLoc(), "mempermute"), permuteInput,
+                                                 mlir::AffineMap::getMultiDimIdentityMap(
+                                                         checked_cast<uint32_t>(mergedShape.size()), ctx),
+                                                 reducedPermutation)
                                 .getOutput();
     } else {
         // decompose permutation
         for (const auto& item : decomposedPermMaps | indexed) {
             const auto& perm = item.value();
-            permuteOutput = rewriter.create<IE::MemPermuteOp>(
-                                            appendLoc(origOp.getLoc(), "mempermute_{0}", item.index()), permuteInput,
-                                            mlir::AffineMap::getMultiDimIdentityMap(
-                                                    checked_cast<uint32_t>(mergedShape.size()), ctx),
-                                            perm)
-                                    .getOutput();
+            permuteOutput =
+                    IE::MemPermuteOp::create(
+                            rewriter, appendLoc(origOp.getLoc(), "mempermute_{0}", item.index()), permuteInput,
+                            mlir::AffineMap::getMultiDimIdentityMap(checked_cast<uint32_t>(mergedShape.size()), ctx),
+                            perm)
+                            .getOutput();
 
             permuteInput = permuteOutput;
         }
@@ -205,12 +205,12 @@ mlir::LogicalResult LegalizeNDMemPermute::matchAndRewrite(IE::MemPermuteOp origO
     // Reshape to original output shape
     auto outputShape = outputType.getMemShape();
     auto outputShapeAttr = getIntArrayAttr(ctx, outputShape);
-    auto outputReshape = rewriter.create<IE::ReshapeOp>(origOp.getLoc(), permuteOutput, outputShapeAttr);
+    auto outputReshape = IE::ReshapeOp::create(rewriter, origOp.getLoc(), permuteOutput, outputShapeAttr);
 
     // Set destination order
     auto dstOrder = origOp.getDstOrder();
-    auto newSequence = rewriter.create<IE::PermuteCastOp>(
-            origOp.getLoc(), outputReshape.getOutput(), dstOrder,
+    auto newSequence = IE::PermuteCastOp::create(
+            rewriter, origOp.getLoc(), outputReshape.getOutput(), dstOrder,
             mlir::AffineMap::getMultiDimIdentityMap(checked_cast<uint32_t>(outputShape.size()), ctx));
 
     rewriter.replaceOp(origOp, newSequence.getOutput());

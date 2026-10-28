@@ -123,6 +123,7 @@ TEST_P(MatMulWithDivideTestCommon, NPU5010_TestKindSubgraph) {
     setDefaultHardwareMode();
     run(Platform::NPU5010);
 }
+
 TEST_P(MatMulWithDivideTestCommon, NPU5020_TestKindSubgraph) {
     setDefaultHardwareMode();
     run(Platform::NPU5020);

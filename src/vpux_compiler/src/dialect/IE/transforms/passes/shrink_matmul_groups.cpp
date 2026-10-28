@@ -198,7 +198,7 @@ mlir::LogicalResult ShrinkMatmulGroups::matchAndRewrite(IE::MatMulOp origOp, mli
     VPUX_THROW_WHEN(origLhsShape[Dims4D::Act::C] % newGroupNum != 0, "Unexpected origLhsShape {0} and newGroupNum {1}",
                     origLhsShape, newGroupNum);
     const auto lhsTargetShapeAttr = getIntArrayAttr(ctx, lhsTargetShape);
-    auto newLhs = rewriter.create<IE::ReshapeOp>(appendLoc(origOp->getLoc(), "lhs_reshape"), lhs, lhsTargetShapeAttr)
+    auto newLhs = IE::ReshapeOp::create(rewriter, appendLoc(origOp->getLoc(), "lhs_reshape"), lhs, lhsTargetShapeAttr)
                           .getOutput();
 
     // Build new RHS: drop the unit d2 from the 5D broadcast input to get a 4D base shape,
@@ -207,22 +207,22 @@ mlir::LogicalResult ShrinkMatmulGroups::matchAndRewrite(IE::MatMulOp origOp, mli
     const SmallVector<int64_t> rhsBaseShape = {broadcastInputShape[Dims5D::Act::N], newGroupNum,
                                                broadcastInputShape[Dims5D::Act::H],
                                                broadcastInputShape[Dims5D::Act::W]};
-    mlir::Value newRhs = rewriter.create<IE::ReshapeOp>(appendLoc(origOp->getLoc(), "rhs_reshape"),
-                                                        broadCastOp.getInput(), getIntArrayAttr(ctx, rhsBaseShape))
+    mlir::Value newRhs = IE::ReshapeOp::create(rewriter, appendLoc(origOp->getLoc(), "rhs_reshape"),
+                                               broadCastOp.getInput(), getIntArrayAttr(ctx, rhsBaseShape))
                                  .getOutput();
 
     if (innerTransposeOp != nullptr) {
         // Re-apply the inner 5D last-2-dims swap as a 4D NCWH transpose.
         const auto ncwhOrder =
                 mlir::AffineMapAttr::get(mlir::AffineMap::getPermutationMap(SmallVector<unsigned>{0, 1, 3, 2}, ctx));
-        newRhs = rewriter.create<IE::TransposeOp>(appendLoc(origOp->getLoc(), "rhs_inner_transpose"), newRhs, nullptr,
-                                                  ncwhOrder)
+        newRhs = IE::TransposeOp::create(rewriter, appendLoc(origOp->getLoc(), "rhs_inner_transpose"), newRhs, nullptr,
+                                         ncwhOrder)
                          .getOutput();
     }
 
     if (outerTransposeOp != nullptr) {
-        newRhs = rewriter.create<IE::TransposeOp>(appendLoc(origOp->getLoc(), "rhs_transpose"), newRhs, nullptr,
-                                                  outerTransposeOp.getOrderValueAttr())
+        newRhs = IE::TransposeOp::create(rewriter, appendLoc(origOp->getLoc(), "rhs_transpose"), newRhs, nullptr,
+                                         outerTransposeOp.getOrderValueAttr())
                          .getOutput();
     }
 
@@ -232,8 +232,8 @@ mlir::LogicalResult ShrinkMatmulGroups::matchAndRewrite(IE::MatMulOp origOp, mli
 
     auto outputShape = getShape(origOp.getOutput());
     const auto outputShapeAttr = getIntArrayAttr(ctx, outputShape);
-    auto outReshape = rewriter.create<IE::ReshapeOp>(appendLoc(origOp->getLoc(), "output_reshape"),
-                                                     newMatMul->getResult(0), outputShapeAttr);
+    auto outReshape = IE::ReshapeOp::create(rewriter, appendLoc(origOp->getLoc(), "output_reshape"),
+                                            newMatMul->getResult(0), outputShapeAttr);
 
     _log.trace("Successfully shrunk number of groups at {0}", origOp.getLoc());
     rewriter.replaceOp(origOp, outReshape.getOutput());

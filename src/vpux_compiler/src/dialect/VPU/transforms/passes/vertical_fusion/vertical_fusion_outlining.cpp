@@ -85,7 +85,7 @@ void VerticalFusionOutliner::buildFuncOps(mlir::ModuleOp moduleOp, ArrayRef<Smal
         const auto funcType = mlir::FunctionType::get(ctx, ArrayRef(funcsInfo[targetIdx][sliceIdx].inputTypes),
                                                       ArrayRef(funcsInfo[targetIdx][sliceIdx].outputTypes));
         const auto funcLoc = appendLoc(netFunc.getLoc(), "part{0}", targetIdx + 1);
-        auto func = builder.create<mlir::func::FuncOp>(funcLoc, funcsInfo[targetIdx][sliceIdx].funcName, funcType);
+        auto func = mlir::func::FuncOp::create(builder, funcLoc, funcsInfo[targetIdx][sliceIdx].funcName, funcType);
         if (config::getWeightsTableReuseMode(func) == WeightsTableReuseMode::VF_ENABLED && isPureVFRegion(slice)) {
             func->setAttr(VPU::PureVerticalFusionRegionAttrName, mlir::UnitAttr::get(ctx));
         }
@@ -113,7 +113,7 @@ void VerticalFusionOutliner::buildFuncOps(mlir::ModuleOp moduleOp, ArrayRef<Smal
             funcOutputFromSlices.push_back(oldToNewMap[output]);
         }
         const auto returnLoc = appendLoc(netFunc.getLoc(), "part{0}_return", targetIdx + 1);
-        builder.create<mlir::func::ReturnOp>(returnLoc, funcOutputFromSlices);
+        mlir::func::ReturnOp::create(builder, returnLoc, funcOutputFromSlices);
     }
 }
 
@@ -138,8 +138,8 @@ void VerticalFusionOutliner::buildCallOps(mlir::ModuleOp moduleOp, ArrayRef<Smal
         }
 
         const auto callLoc = appendLoc(netFunc.getLoc(), "part{0}_call", targetIdx + 1);
-        auto newCall = builder.create<mlir::func::CallOp>(callLoc, funcsInfo[targetIdx][sliceIdx].funcName,
-                                                          funcsInfo[targetIdx][sliceIdx].outputTypes, newInputs);
+        auto newCall = mlir::func::CallOp::create(builder, callLoc, funcsInfo[targetIdx][sliceIdx].funcName,
+                                                  funcsInfo[targetIdx][sliceIdx].outputTypes, newInputs);
         for (const auto& res : newCall.getResults()) {
             size_t idx = res.getResultNumber();
             oldToNewArgMap[slice.outputs[idx]] = res;

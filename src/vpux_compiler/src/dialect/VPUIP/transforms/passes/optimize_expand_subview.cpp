@@ -142,7 +142,7 @@ mlir::LogicalResult ExpandSubviewConverter::matchAndRewrite(VPUIP::ExpandOp expa
     staticSizes[expandDim.ind()] = inShape[expandDim] - staticOffsets[expandDim.ind()];
 
     auto newSubviewOp =
-            rewriter.create<VPUIP::SubViewOp>(lastSubviewOp.getLoc(), expandOp.getInput(), staticOffsets, staticSizes);
+            VPUIP::SubViewOp::create(rewriter, lastSubviewOp.getLoc(), expandOp.getInput(), staticOffsets, staticSizes);
 
     auto outputBuffers = VPUIP::allocateBuffers(_log, expandOp->getLoc(), rewriter, lastSubviewOp->getOpResults(),
                                                 /*individualBuffers =*/false);

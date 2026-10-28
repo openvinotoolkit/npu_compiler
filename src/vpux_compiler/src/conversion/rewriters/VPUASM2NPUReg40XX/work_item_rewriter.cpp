@@ -62,8 +62,8 @@ mlir::LogicalResult WorkItemRewriter::matchAndRewrite(VPUASM::WorkItemOp origOp,
     workItemDescriptor.write<Fields::wi_sub_unit>(listIndex);
     workItemDescriptor.write<Fields::next_workitem_idx>(nextWorkItemIdxValue);
 
-    rewriter.create<NPUReg40XX::WorkItemOp>(origOp.getLoc(), origOp.getSymNameAttr(), origOp.getTaskTypeAttr(),
-                                            origOp.getFirstTaskAttr(), std::move(workItemDescriptor));
+    NPUReg40XX::WorkItemOp::create(rewriter, origOp.getLoc(), origOp.getSymNameAttr(), origOp.getTaskTypeAttr(),
+                                   origOp.getFirstTaskAttr(), std::move(workItemDescriptor));
 
     rewriter.eraseOp(origOp);
     _log.trace("[{0}] Got '{1}' at '{2}'", getDebugName(), origOp->getName(), origOp->getLoc());

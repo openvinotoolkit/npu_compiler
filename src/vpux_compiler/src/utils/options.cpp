@@ -75,6 +75,17 @@ StringLiteral vpux::stringifyEnum(VFMergeConfiguration val) {
     }
 }
 
+StringLiteral vpux::stringifyEnum(VFMergeCostMode val) {
+    switch (val) {
+    case VFMergeCostMode::PERFORMANCE:
+        return "PERFORMANCE";
+    case VFMergeCostMode::POWER:
+        return "POWER";
+    default:
+        return "UNKNOWN";
+    }
+}
+
 StringLiteral vpux::stringifyEnum(WorkloadManagementMode val) {
     switch (val) {
     case WorkloadManagementMode::PWLM_V0_1_PAGES:

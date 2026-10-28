@@ -42,14 +42,17 @@ std::pair<mlir::SmallVector<std::string>, mlir::DictionaryAttr> getPrimaryLocati
     } else if (auto nameLoc = mlir::dyn_cast<mlir::NameLoc>(location)) {
         locParts.push_back(nameLoc.getName().str());
     } else if (auto callSiteLoc = mlir::dyn_cast<mlir::CallSiteLoc>(location)) {
-        // CallSiteLoc consist of Caller location and Callee location. At this moment compile doesn't support recursive
-        // and nested calls, so Caller locations is @main func loc with some extra suffix. Caller metadata will be
-        // always same and doesn't represent actual layer type, so we will forward metadata from the Callee
+        // CallSiteLoc consists of Caller location and Callee location. It is produced e.g. when function outlining
+        // splits ops into a separate function and the inliner pass later merges that function back into the caller,
+        // wrapping each inlined op's original location as Callee and the call site location (e.g. @main func loc with
+        // some extra suffix) as Caller. The Callee location is the real one - it carries the original layer name and
+        // the type metadata - so it must stay primary (first). The Caller location doesn't represent the actual layer
+        // name/type and is only extra context, so it is appended after the Callee parts.
         const auto calleeParts = getPrimaryLocationComponents(callSiteLoc.getCallee());
         const auto callerParts = getPrimaryLocationComponents(callSiteLoc.getCaller());
 
-        locParts = callerParts.first;
-        locParts.append(calleeParts.first.begin(), calleeParts.first.end());
+        locParts = calleeParts.first;
+        locParts.append(callerParts.first.begin(), callerParts.first.end());
         metadata = calleeParts.second;
     } else if (mlir::dyn_cast<mlir::UnknownLoc>(location) || mlir::dyn_cast<mlir::FileLineColLoc>(location)) {
         // NOTE: This behavior is here to prevent breaking 100+ lit tests which assume that

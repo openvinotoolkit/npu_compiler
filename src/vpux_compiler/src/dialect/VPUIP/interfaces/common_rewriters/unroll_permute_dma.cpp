@@ -44,8 +44,8 @@ NDTypeInterface getPerClusterInputType(NDTypeInterface inputType, NDTypeInterfac
         // The channel size need align with the input
         auto inLogicShape = to_small_vector(subOutShape);
         if (inputType.getShape().totalSize() != outputType.getShape().totalSize()) {
-            VPUX_THROW_UNLESS(subOutShape[Dims4D::Act::C] != inputShape[Dims4D::Act::C],
-                              "Got unexpected input {0} output {1} type of PermuteDMA", inputType, outputType);
+            VPUX_THROW_WHEN(subOutShape[Dims4D::Act::C] == inputShape[Dims4D::Act::C],
+                            "Got unexpected input {0} output {1} type of PermuteDMA", inputType, outputType);
             inLogicShape[Dims4D::Act::C.ind()] = inputShape[Dims4D::Act::C];
         }
 
@@ -139,7 +139,7 @@ mlir::LogicalResult SingleClusterPermuteDMARewriter::unroll(VPUIP::PermuteDMAOp 
     auto ctx = permuteDMAOp->getContext();
 
     auto origTaskOp = permuteDMAOp->getParentOfType<VPURT::TaskOp>();
-    VPUX_THROW_UNLESS(origTaskOp != nullptr, "Can't get VPURT task operation");
+    VPUX_THROW_WHEN(origTaskOp == nullptr, "Can't get VPURT task operation");
     rewriter.setInsertionPointAfter(origTaskOp);
 
     auto origInType = mlir::cast<NDTypeInterface>(permuteDMAOp.getInput().getType());
@@ -467,13 +467,13 @@ mlir::LogicalResult MultiClusterPermuteDMARewriter::unrollSegmentedOrOverlappedO
     const auto getOperand = [&](int64_t clusterId, mlir::Value operand, vpux::NDTypeInterface newType,
                                 mlir::Operation* insertionPoint, Byte offset) -> mlir::Value {
         if (auto cst = operand.getDefiningOp<Const::DeclareOp>()) {
-            return rewriter.create<VPUIP::SubViewOp>(permuteDMAOp->getLoc(), cst,
-                                                     perClusterShapeOffsets[clusterId].raw(),
-                                                     perClusterOutShapes[clusterId].raw());
+            return VPUIP::SubViewOp::create(rewriter, permuteDMAOp->getLoc(), cst,
+                                            perClusterShapeOffsets[clusterId].raw(),
+                                            perClusterOutShapes[clusterId].raw());
         }
 
         auto declBuff = operand.getDefiningOp<VPURT::DeclareBufferOp>();
-        VPUX_THROW_UNLESS(declBuff != nullptr, "Can't get buffer offset");
+        VPUX_THROW_WHEN(declBuff == nullptr, "Can't get buffer offset");
 
         if (newType.getMemoryKind() == VPU::MemoryKind::CMX_NN) {
             const auto symbolAttr = vpux::IndexedSymbolAttr::get(ctx, {cmxNameAttr, vpux::getIntAttr(ctx, clusterId)});
@@ -532,7 +532,7 @@ mlir::LogicalResult MultiClusterPermuteDMARewriter::unrollSegmentedOrOverlappedO
     const auto tileDimIter = std::find_if(numTileSize.begin(), numTileSize.end(), [](const int64_t dim) {
         return dim > 1;
     });
-    VPUX_THROW_UNLESS(tileDimIter != numTileSize.end(), "Can not find tile dim.");
+    VPUX_THROW_WHEN(tileDimIter == numTileSize.end(), "Can not find tile dim.");
     auto tileDim = Dim(std::distance(numTileSize.begin(), tileDimIter));
 
     auto getSrcOffset = [&](vpux::ShapeRef offset) -> vpux::Byte {
@@ -634,13 +634,13 @@ mlir::LogicalResult MultiClusterPermuteDMARewriter::unrollDuplicatedOutput(VPUIP
 
     const auto getOperand = [&](mlir::Value operand, vpux::NDTypeInterface newType) -> mlir::Value {
         if (auto cst = operand.getDefiningOp<Const::DeclareOp>()) {
-            return rewriter.create<VPUIP::SubViewOp>(permuteDMAOp->getLoc(), cst, perClusterShapeOffset.raw(),
-                                                     perClusterOutShape.raw());
+            return VPUIP::SubViewOp::create(rewriter, permuteDMAOp->getLoc(), cst, perClusterShapeOffset.raw(),
+                                            perClusterOutShape.raw());
         }
         auto insertionPoint = operand.getDefiningOp();
 
         auto declBuff = operand.getDefiningOp<VPURT::DeclareBufferOp>();
-        VPUX_THROW_UNLESS(declBuff != nullptr, "Can't get buffer offset");
+        VPUX_THROW_WHEN(declBuff == nullptr, "Can't get buffer offset");
 
         if (newType.getMemoryKind() == VPU::MemoryKind::CMX_NN) {
             return VPURT::createOp<VPURT::DeclareBufferOp>(rewriter, insertionPoint, permuteDMAOp->getLoc(), newType,
@@ -758,7 +758,7 @@ mlir::LogicalResult MultiClusterPermuteDMARewriter::unrollDuplicatedInputAndOutp
 
     // create new input buffer
     auto inDeclBuff = input.getDefiningOp<VPURT::DeclareBufferOp>();
-    VPUX_THROW_UNLESS(inDeclBuff != nullptr, "Can't get input buffer offset");
+    VPUX_THROW_WHEN(inDeclBuff == nullptr, "Can't get input buffer offset");
     const auto cmxNameAttr = mlir::FlatSymbolRefAttr::get(ctx, stringifyEnum(VPU::MemoryKind::CMX_NN));
     const auto symbolAttr = vpux::IndexedSymbolAttr::get(ctx, {cmxNameAttr, vpux::getIntAttr(ctx, 0)});
     const auto inType = mlir::cast<vpux::NDTypeInterface>(inDistributedType.getCompactType());
@@ -770,7 +770,7 @@ mlir::LogicalResult MultiClusterPermuteDMARewriter::unrollDuplicatedInputAndOutp
 
     // create new output buffer
     auto outDeclBuff = output.getDefiningOp<VPURT::DeclareBufferOp>();
-    VPUX_THROW_UNLESS(outDeclBuff != nullptr, "Can't get output buffer offset");
+    VPUX_THROW_WHEN(outDeclBuff == nullptr, "Can't get output buffer offset");
     auto outBuffer = VPURT::createOp<VPURT::DeclareBufferOp>(
             rewriter, outDeclBuff, loc, outDeclBuff.getType(), VPURT::BufferSection::CMX_NN,
             getIntArrayAttr(ctx, ArrayRef(clusters)), outDeclBuff.getByteOffset(), outDeclBuff.getSwizzlingKeyAttr());
@@ -829,7 +829,7 @@ mlir::LogicalResult MultiClusterPermuteDMARewriter::unrollDuplicatedInput(VPUIP:
 
     // create new input buffer
     auto inDeclBuff = input.getDefiningOp<VPURT::DeclareBufferOp>();
-    VPUX_THROW_UNLESS(inDeclBuff != nullptr, "Can't get input buffer offset");
+    VPUX_THROW_WHEN(inDeclBuff == nullptr, "Can't get input buffer offset");
     const auto cmxNameAttr = mlir::FlatSymbolRefAttr::get(ctx, stringifyEnum(VPU::MemoryKind::CMX_NN));
     const auto symbolAttr = vpux::IndexedSymbolAttr::get(ctx, {cmxNameAttr, vpux::getIntAttr(ctx, 0)});
     const auto newInType = inputType.changeMemSpace(symbolAttr);

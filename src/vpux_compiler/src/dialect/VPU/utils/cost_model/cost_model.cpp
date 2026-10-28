@@ -7,7 +7,7 @@
 #include "vpux/compiler/core/attributes/shape.hpp"
 #include "vpux/compiler/core/cost_model_utils.hpp"
 #include "vpux/compiler/core/interfaces/dialect_cache.hpp"
-#include "vpux/compiler/core/types/quantile_float/types.hpp"
+#include "vpux/compiler/core/types/quantile_types/types.hpp"
 #include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/internal.hpp"
 #include "vpux/compiler/dialect/VPU/utils/auto_padding_utils.hpp"
@@ -282,7 +282,7 @@ std::optional<VPUNN::DataType> vpux::VPU::getVPUNNElementType(mlir::Type type) {
         return VPUNN::DataType::BF8;
     } else if (mlir::isa<mlir::Float8E4M3FNType>(type)) {
         return VPUNN::DataType::HF8;
-    } else if (mlir::isa<type::QuantileType>(type)) {
+    } else if (mlir::isa<mlir::quant::QuantileType>(type)) {
         return VPUNN::DataType::INT4;
     }
 
@@ -629,6 +629,12 @@ std::vector<VPUNN::DPULayer> vpux::VPU::getPerClusterDPULayers(VPU::NCEOpInterfa
     auto outputPerClusterPaddings = SmallVector<PadInfo>(outputPerClusterShapes.size(), params.padInfo);
     const auto numClusters = outputPerClusterShapes.size();
 
+    // For ops with active ODU transforms (S2D/D2S), track per-cluster pre-ODU shapes
+    // so the VPUNN output tensors reflect what the hardware actually processes.
+    auto outputPerClusterPreODUShapes =
+            SmallVector<Shape>(outputPerClusterShapes.begin(), outputPerClusterShapes.end());
+    const auto oduScalesForClusters = VPU::getODUScaling(nceOp.getOperation());
+
     if (outputDistributedType.getDistribution().getMode().getValue() != VPU::DistributionMode::DUPLICATED) {
         auto outputPerClusterOffsets = outputDistributedType.getPerClusterComputeShapeOffsets();
         auto numTiles = vpux::parseIntArrayAttr<int64_t>(outputDistributedType.getDistribution().getNumTiles());
@@ -636,16 +642,29 @@ std::vector<VPUNN::DPULayer> vpux::VPU::getPerClusterDPULayers(VPU::NCEOpInterfa
 
         for (auto index : irange(numClusters)) {
             TileInfo outputTile(outputPerClusterShapes[index], outputPerClusterOffsets[index], numTilesShape);
-            auto result = VPU::invertODUScaling(getODUScaling(nceOp.getOperation()), outputTile, nceOp->getLoc());
+            auto result = VPU::invertODUScaling(oduScalesForClusters, outputTile, nceOp->getLoc());
             // We should never generate a tile that cannot be inverted to pre-ODU tile
             VPUX_THROW_WHEN(mlir::failed(result), "Failed to invert to pre-ODU tile at cluster {0}, op '{1}' at '{2}'",
                             index, nceOp->getName(), nceOp.getLoc());
             outputTile = result.value();
+            outputPerClusterPreODUShapes[index] = outputTile.shape;
             auto padsTileConf = backInferPadsTile(outputTile, params.fullInputShape, params.padInfo, ArrayRef({KY, KX}),
                                                   ArrayRef({SY, SX}));
             outputPerClusterPaddings[index] = padsTileConf;
         }
+    } else if (!oduScalesForClusters.empty()) {
+        // DUPLICATED: all clusters share the same full output; still need pre-ODU shape.
+        for (auto index : irange(numClusters)) {
+            const auto result = VPU::invertODUScaling(
+                    oduScalesForClusters, SmallVector<int64_t>(outputPerClusterShapes[index].raw()), nceOp->getLoc());
+            VPUX_THROW_WHEN(mlir::failed(result), "Failed to invert to pre-ODU tile at cluster {0}, op '{1}' at '{2}'",
+                            index, nceOp->getName(), nceOp.getLoc());
+            outputPerClusterPreODUShapes[index] = Shape(result.value());
+        }
     }
+
+    // From this point onwards, use only preODU shapes for output tensors, as they reflect the actual compute shapes for
+    // the DPU.
 
     auto adjustInputOutputShape = [&]() {
         // For non-conv operations, the compute IC equal to OC
@@ -653,7 +672,7 @@ std::vector<VPUNN::DPULayer> vpux::VPU::getPerClusterDPULayers(VPU::NCEOpInterfa
         const auto useOCAsIC =
                 (!mlir::isa<VPU::NCEConvolutionOp, VPU::NCECompressConvolutionOp, VPU::NCEPermuteOp>(
                         nceOp.getOperation())) &&
-                (outputPerClusterShapes[0][Dims4D::Act::C] != actInputPerClusterShapes[0][Dims4D::Act::C]) &&
+                (outputPerClusterPreODUShapes[0][Dims4D::Act::C] != actInputPerClusterShapes[0][Dims4D::Act::C]) &&
                 !canAutopadOutput(nceOp.getOperation());
         const auto inputMode = actInputDistributedType.getDistribution().getMode().getValue();
         // Only have memory shapes for input
@@ -661,38 +680,42 @@ std::vector<VPUNN::DPULayer> vpux::VPU::getPerClusterDPULayers(VPU::NCEOpInterfa
         // Back infer input shapes from output shapes for these cases
         const auto useBackInferredHW =
                 inputMode == VPU::DistributionMode::OVERLAPPED || inputMode == VPU::DistributionMode::DUPLICATED;
-        for (auto clusterId : irange(outputPerClusterShapes.size())) {
+        for (auto clusterId : irange(outputPerClusterPreODUShapes.size())) {
             if (useOCAsIC) {
-                actInputPerClusterShapes[clusterId][Dims4D::Act::C] = outputPerClusterShapes[clusterId][Dims4D::Act::C];
+                actInputPerClusterShapes[clusterId][Dims4D::Act::C] =
+                        outputPerClusterPreODUShapes[clusterId][Dims4D::Act::C];
             }
             if (useBackInferredHW) {
+                // Use pre-ODU output shape so that the back-inferred input H/W matches
+                // the actual DPU computation dimensions rather than the post-transform values.
                 actInputPerClusterShapes[clusterId][Dims4D::Act::W] =
-                        (outputPerClusterShapes[clusterId][Dims4D::Act::W] - 1) * SX + KX -
+                        (outputPerClusterPreODUShapes[clusterId][Dims4D::Act::W] - 1) * SX + KX -
                         outputPerClusterPaddings[clusterId].left - outputPerClusterPaddings[clusterId].right;
                 actInputPerClusterShapes[clusterId][Dims4D::Act::H] =
-                        (outputPerClusterShapes[clusterId][Dims4D::Act::H] - 1) * SY + KY -
+                        (outputPerClusterPreODUShapes[clusterId][Dims4D::Act::H] - 1) * SY + KY -
                         outputPerClusterPaddings[clusterId].top - outputPerClusterPaddings[clusterId].bottom;
             }
 
             // [VPUNN error code fix] Correct pad and align compute shape for NCE.Permute workloads
             if (params.isNcePermute) {
                 auto adjustActInputShape = actInputPerClusterShapes[clusterId];
-                auto adjustOutputShape = outputPerClusterShapes[clusterId];
+                auto adjustOutputShape = outputPerClusterPreODUShapes[clusterId];
                 auto adjustPadding = outputPerClusterPaddings[clusterId];
                 correctParamsForNcePermute(adjustActInputShape, adjustOutputShape, adjustPadding);
                 outputPerClusterPaddings[clusterId] = std::move(adjustPadding);
                 actInputPerClusterShapes[clusterId] = std::move(adjustActInputShape);
-                outputPerClusterShapes[clusterId] = std::move(adjustOutputShape);
+                outputPerClusterPreODUShapes[clusterId] = std::move(adjustOutputShape);
             }
         }
     };
 
     adjustInputOutputShape();
 
-    VPUX_THROW_UNLESS(outputPerClusterShapes.size() == outputPerClusterPaddings.size() &&
-                              outputPerClusterShapes.size() == actInputPerClusterShapes.size(),
+    VPUX_THROW_UNLESS(outputPerClusterPreODUShapes.size() == outputPerClusterPaddings.size() &&
+                              outputPerClusterPreODUShapes.size() == actInputPerClusterShapes.size(),
                       "Invalid per cluster split, shape size {0} but padding size {1}, act input size {2}",
-                      outputPerClusterShapes.size(), outputPerClusterPaddings.size(), actInputPerClusterShapes.size());
+                      outputPerClusterPreODUShapes.size(), outputPerClusterPaddings.size(),
+                      actInputPerClusterShapes.size());
 
     log.trace("Split op {0} into {1} clusters", nceOp->getName(), numClusters);
 
@@ -704,7 +727,7 @@ std::vector<VPUNN::DPULayer> vpux::VPU::getPerClusterDPULayers(VPU::NCEOpInterfa
     outputPaddings.reserve(numClusters);
 
     for (auto index : irange(numClusters)) {
-        const auto outputOneClusterShape = outputPerClusterShapes[index];
+        const auto& outputOneClusterShape = outputPerClusterPreODUShapes[index];
         auto inputOneClusterShape = actInputPerClusterShapes[index];
         outputTensors.push_back(VPU::getVPUTensor(outputOneClusterShape, params.outDataType, params.outOrder));
         actInputTensors.push_back(VPU::getVPUTensor(inputOneClusterShape, params.inDataType, params.inOrder));
@@ -744,7 +767,7 @@ std::vector<VPUNN::DPULayer> vpux::VPU::getPerClusterDPULayers(VPU::NCEOpInterfa
         if (params.ppeAttr != nullptr) {
             vpunnLayer.activation_function = getVPUNNActivationFunction(params.ppeAttr);
         }
-        if (VPU::NCESparsity::isSuperdenseRequired(params.outOrder, outputPerClusterShapes[index],
+        if (VPU::NCESparsity::isSuperdenseRequired(params.outOrder, outputPerClusterPreODUShapes[index],
                                                    params.outDataType)) {
             vpunnLayer.superdense_memory = true;
         }
@@ -1365,9 +1388,14 @@ VPUIP::WorkloadCostParams vpux::VPU::getWorkloadCostParamForSCF(VPU::NCEOpInterf
     params.fullInputShape = Shape(inputShape.raw());
     params.inputShape = Shape(inputShape.raw());
     params.outputShape = Shape(outputShape.raw());
-    // In the SCF flow, ops with active ODU transforms are not supported (excluded upstream).
-    // preODUShape equals outputShape when no ODU transform is active.
-    params.preODUShape = Shape(outputShape.raw());
+    // Compute preODUShape by inverting ODU scaling. For ops with active ODU transforms
+    // (e.g., NCEPermute), the DPU operates in a different coordinate space than the output.
+    const auto oduScales = VPU::getODUScaling(nceOp.getOperation());
+    const auto preODUShapeResult =
+            VPU::invertODUScaling(oduScales, SmallVector<int64_t>(outputShape.raw()), nceOp->getLoc());
+    VPUX_THROW_UNLESS(mlir::succeeded(preODUShapeResult),
+                      "Failed to invert ODU scaling for SCF workload cost parameters for op at '{0}'", nceOp->getLoc());
+    params.preODUShape = Shape(preODUShapeResult.value());
 
     // Derive pad info from the op itself. In the SCF tiling flow, when tensor.pad
     // handles boundary padding, the NCE op's pad attribute is [0,0,0,0] and the actual

@@ -208,69 +208,6 @@ std::string configMapToString(const std::map<std::string, std::string>& config) 
     return oss.str();
 }
 
-uint8_t* allocateBlob(uint64_t size) {
-    uint8_t* ptr = static_cast<uint8_t*>(std::calloc(static_cast<size_t>(size), sizeof(uint8_t)));
-
-    if (ptr == nullptr) {
-        throw std::runtime_error("Memory allocation failed in allocateBlob!");
-    }
-
-    return ptr;
-}
-
-void deallocateBlob(uint8_t* ptr) {
-    if (ptr == nullptr) {
-        throw std::runtime_error("Pointer is nullptr in deallocateBlob!");
-    }
-
-    free(ptr);
-}
-
-vcl_result_t saveVclAllocatorBlob(vcl_compiler_handle_t& compiler, vcl_executable_desc_t& exeDesc,
-                                  const char* blobFileName) {
-    vcl_result_t ret = VCL_RESULT_SUCCESS;
-    vcl_allocator_t allocator;
-    allocator.allocate = allocateBlob;
-    allocator.deallocate = deallocateBlob;
-    uint8_t* blob = nullptr;
-    uint64_t size = 0;
-
-    ret = vclAllocatedExecutableCreate(compiler, exeDesc, &allocator, &blob, &size);
-
-    if (ret != VCL_RESULT_SUCCESS || blob == nullptr || size == 0) {
-        printErrorInfo("Failed to create executable handle! Result: 0x", ret);
-        if (blob != nullptr) {
-            allocator.deallocate(blob);
-        }
-        return ret;
-    }
-
-    std::ofstream outFile(blobFileName, std::ios::binary);
-    if (!outFile) {
-        std::cerr << "Cannot open " << blobFileName << ", skip dump!" << std::endl;
-        allocator.deallocate(blob);
-        return VCL_RESULT_ERROR_IO;
-    }
-
-    outFile.write(reinterpret_cast<const char*>(blob), size);
-    if (!outFile) {
-        std::cerr << "Short write to " << blobFileName << ", the file is invalid!" << std::endl;
-        ret = VCL_RESULT_ERROR_IO;
-    } else {
-        std::cout << "The output name: " << blobFileName << std::endl;
-    }
-
-    outFile.close();
-    if (!outFile) {
-        std::cerr << "Failed to close " << blobFileName << std::endl;
-        ret = VCL_RESULT_ERROR_IO;
-    }
-
-    allocator.deallocate(blob);
-
-    return ret;
-}
-
 struct vcl_allocator_vector_2 : vcl_allocator2_t {
     vcl_allocator_vector_2(): vcl_allocator2_t{vector_allocate, vector_deallocate} {
     }
@@ -298,6 +235,43 @@ struct vcl_allocator_vector_2 : vcl_allocator2_t {
 
     std::vector<std::shared_ptr<std::vector<uint8_t>>> m_vector;
 };
+
+vcl_result_t saveVclAllocatorBlob(vcl_compiler_handle_t& compiler, vcl_executable_desc_t& exeDesc,
+                                  const char* blobFileName) {
+    vcl_result_t ret = VCL_RESULT_SUCCESS;
+    vcl_allocator_vector_2 allocator;
+    uint8_t* blob = nullptr;
+    uint64_t size = 0;
+
+    ret = vclAllocatedExecutableCreate2(compiler, exeDesc, &allocator, &blob, &size);
+
+    if (ret != VCL_RESULT_SUCCESS || blob == nullptr || size == 0) {
+        printErrorInfo("Failed to create executable handle! Result: 0x", ret);
+        return ret;
+    }
+
+    std::ofstream outFile(blobFileName, std::ios::binary);
+    if (!outFile) {
+        std::cerr << "Cannot open " << blobFileName << ", skip dump!" << std::endl;
+        return VCL_RESULT_ERROR_IO;
+    }
+
+    outFile.write(reinterpret_cast<const char*>(blob), size);
+    if (!outFile) {
+        std::cerr << "Short write to " << blobFileName << ", the file is invalid!" << std::endl;
+        ret = VCL_RESULT_ERROR_IO;
+    } else {
+        std::cout << "The output name: " << blobFileName << std::endl;
+    }
+
+    outFile.close();
+    if (!outFile) {
+        std::cerr << "Failed to close " << blobFileName << std::endl;
+        ret = VCL_RESULT_ERROR_IO;
+    }
+
+    return ret;
+}
 
 vcl_result_t saveVclAllocatorBlobWS(vcl_compiler_handle_t& compiler, vcl_executable_desc_t& exeDesc,
                                     const char* blobFileName, const std::shared_ptr<ov::Model>& model) {
@@ -870,18 +844,16 @@ vcl_result_t simulateVclCompilerAllocatorOldVersion(int argc, char** argv, const
     free(layerRawData);
     query = NULL;
 
-    vcl_allocator_t allocator;
-    allocator.allocate = allocateBlob;
-    allocator.deallocate = deallocateBlob;
+    vcl_allocator_vector_2 allocator;
 
     uint8_t* blob = NULL;
     uint64_t size = 0;
     if (argc != 5) {
         vcl_executable_desc_t exeDesc = {modelIR, modelIRSize, defaultOptions, sizeof(defaultOptions)};
-        ret = vclAllocatedExecutableCreate(compiler, exeDesc, &allocator, &blob, &size);
+        ret = vclAllocatedExecutableCreate2(compiler, exeDesc, &allocator, &blob, &size);
     } else {
         vcl_executable_desc_t exeDesc = {modelIR, modelIRSize, newOptions, configSize};
-        ret = vclAllocatedExecutableCreate(compiler, exeDesc, &allocator, &blob, &size);
+        ret = vclAllocatedExecutableCreate2(compiler, exeDesc, &allocator, &blob, &size);
         free(newOptions);
     }
     free(modelIR);
@@ -907,7 +879,6 @@ vcl_result_t simulateVclCompilerAllocatorOldVersion(int argc, char** argv, const
             std::printf("The output name:%s\n", blobFileName);
         }
     }
-    allocator.deallocate(blob);
 
     ret = vclCompilerDestroy(compiler);
     if (ret != VCL_RESULT_SUCCESS) {

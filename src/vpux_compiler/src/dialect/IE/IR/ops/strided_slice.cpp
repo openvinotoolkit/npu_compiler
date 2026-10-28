@@ -204,9 +204,9 @@ mlir::LogicalResult ComposeStridedSlice::matchAndRewrite(IE::StridedSliceOp orig
     const auto stridesAttr = getIntArrayAttr(getContext(), resultStride);
 
     const auto fusedLoc = takeOpLoc(origOp, "composed");
-    const auto newOp = rewriter.create<IE::StridedSliceOp>(
-            fusedLoc, producerSliceOp.getInput(), origOp.getBegins(), origOp.getEnds(), origOp.getStrides(), beginsAttr,
-            endsAttr, stridesAttr, origOp.getBeginMask(), origOp.getEndMask(), origOp.getNewAxisMask(),
+    const auto newOp = IE::StridedSliceOp::create(
+            rewriter, fusedLoc, producerSliceOp.getInput(), origOp.getBegins(), origOp.getEnds(), origOp.getStrides(),
+            beginsAttr, endsAttr, stridesAttr, origOp.getBeginMask(), origOp.getEndMask(), origOp.getNewAxisMask(),
             origOp.getShrinkAxisMask(), origOp.getEllipsisMask());
     rewriter.replaceOp(origOp, newOp->getResults());
 

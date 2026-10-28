@@ -59,7 +59,7 @@ auto reshapeRestoreAndComplexAdd(mlir::PatternRewriter& rewriter, mlir::Location
     }
     if (newShape != shapeInput) {
         const auto newShapeAttr = getIntArrayAttr(rewriter.getContext(), newShape);
-        auto reshapeOp = rewriter.create<IE::ReshapeOp>(loc, input, newShapeAttr);
+        auto reshapeOp = IE::ReshapeOp::create(rewriter, loc, input, newShapeAttr);
         return reshapeOp.getOutput();
     }
     return input;
@@ -75,7 +75,7 @@ auto reshapeRestoreIrdftLastAxis(mlir::PatternRewriter& rewriter, mlir::Location
     newShape.pop_back();
     newShape.push_back(axisShape);
     const auto newShapeAttr = getIntArrayAttr(rewriter.getContext(), newShape);
-    auto reshapeOp = rewriter.create<IE::ReshapeOp>(loc, input, newShapeAttr);
+    auto reshapeOp = IE::ReshapeOp::create(rewriter, loc, input, newShapeAttr);
     return reshapeOp.getOutput();
 }
 
@@ -116,7 +116,7 @@ auto reshapeToMatMulNeedRank(mlir::PatternRewriter& rewriter, mlir::Location loc
     }
     if (shapeWasChanged) {
         const auto newShapeAttr = getIntArrayAttr(rewriter.getContext(), newShape);
-        auto reshapeOp = rewriter.create<IE::ReshapeOp>(loc, input, newShapeAttr);
+        auto reshapeOp = IE::ReshapeOp::create(rewriter, loc, input, newShapeAttr);
         return reshapeOp.getOutput();
     }
     return input;
@@ -242,7 +242,7 @@ auto fftOneAxisDecompose(mlir::PatternRewriter& rewriter, mlir::Location loc, An
     auto orderOutputAttr = mlir::AffineMapAttr::get(dstOrder.toAffineMap(rewriter.getContext()));
     if (axis < lastComplexAxes) {
         auto transposeOp =
-                rewriter.create<IE::TransposeOp>(appendLoc(loc, "TransposeIn"), inIter, nullptr, orderOutputAttr);
+                IE::TransposeOp::create(rewriter, appendLoc(loc, "TransposeIn"), inIter, nullptr, orderOutputAttr);
         transposesOut = transposeOp.getOutput();
     }
     auto reshapeOut =
@@ -251,7 +251,7 @@ auto fftOneAxisDecompose(mlir::PatternRewriter& rewriter, mlir::Location loc, An
     auto twiddleConstant = getTwiddleFactors(appendLoc(loc, "TwiddleFactors"), axisLength, inType.getElementType(),
                                              rewriter, isInverseFFT, isRdftLastAxisCut);
     auto multiplyOp =
-            rewriter.create<IE::MatMulOp>(appendLoc(loc, "MatMulOp"), reshapeOut, twiddleConstant, false, true);
+            IE::MatMulOp::create(rewriter, appendLoc(loc, "MatMulOp"), reshapeOut, twiddleConstant, false, true);
     // restore original shape
     auto reshapeRestoredOut =
             reshapeRestoreAndComplexAdd(rewriter, appendLoc(loc, "ReshapeOut"), multiplyOp.getOutput(), transposesOut,
@@ -265,8 +265,8 @@ auto fftOneAxisDecompose(mlir::PatternRewriter& rewriter, mlir::Location loc, An
             dstOrder = DimsOrder::fromPermutation(axisPermutation);
             orderOutputAttr = mlir::AffineMapAttr::get(dstOrder.toAffineMap(rewriter.getContext()));
         }
-        auto transposesOpRestored = rewriter.create<IE::TransposeOp>(appendLoc(loc, "TransposeOut"), reshapeRestoredOut,
-                                                                     nullptr, orderOutputAttr);
+        auto transposesOpRestored = IE::TransposeOp::create(rewriter, appendLoc(loc, "TransposeOut"),
+                                                            reshapeRestoredOut, nullptr, orderOutputAttr);
         transposesOutRestored = transposesOpRestored.getOutput();
     }
     return transposesOutRestored;
@@ -325,7 +325,7 @@ auto irdftLastAxisDecompose(mlir::PatternRewriter& rewriter, mlir::Location loc,
     auto orderOutputAttr = mlir::AffineMapAttr::get(dstOrder.toAffineMap(rewriter.getContext()));
     if (axis < lastComplexAxes) {
         auto transposeOp =
-                rewriter.create<IE::TransposeOp>(appendLoc(irdftLoc, "TransposeIn"), input, nullptr, orderOutputAttr);
+                IE::TransposeOp::create(rewriter, appendLoc(irdftLoc, "TransposeIn"), input, nullptr, orderOutputAttr);
         transposesOut = transposeOp.getOutput();
     }
     // MatMull request rank=3. Reshape in order to accumulate rank >3 in rank=3 and cut complex representation
@@ -335,7 +335,7 @@ auto irdftLastAxisDecompose(mlir::PatternRewriter& rewriter, mlir::Location loc,
                                                                   inType.getElementType(), rewriter);
     // mat mull for complex number
     auto multiplyOp =
-            rewriter.create<IE::MatMulOp>(appendLoc(irdftLoc, "MatMulOp"), reshapeOut, twiddleConstant, false, true);
+            IE::MatMulOp::create(rewriter, appendLoc(irdftLoc, "MatMulOp"), reshapeOut, twiddleConstant, false, true);
     // reshape to output size representation
     auto reshapeRestoredOut = reshapeRestoreIrdftLastAxis(rewriter, appendLoc(irdftLoc, "ReshapeOut"),
                                                           multiplyOp.getOutput(), transposesOut, _log);
@@ -345,8 +345,8 @@ auto irdftLastAxisDecompose(mlir::PatternRewriter& rewriter, mlir::Location loc,
         axisPermutation.pop_back();  // delete complex representation
         dstOrder = DimsOrder::fromPermutation(axisPermutation);
         orderOutputAttr = mlir::AffineMapAttr::get(dstOrder.toAffineMap(rewriter.getContext()));
-        auto transposesOpRestored = rewriter.create<IE::TransposeOp>(appendLoc(irdftLoc, "TransposeOut"),
-                                                                     reshapeRestoredOut, nullptr, orderOutputAttr);
+        auto transposesOpRestored = IE::TransposeOp::create(rewriter, appendLoc(irdftLoc, "TransposeOut"),
+                                                            reshapeRestoredOut, nullptr, orderOutputAttr);
         transposesOutRestored = transposesOpRestored.getOutput();
     }
     return transposesOutRestored;

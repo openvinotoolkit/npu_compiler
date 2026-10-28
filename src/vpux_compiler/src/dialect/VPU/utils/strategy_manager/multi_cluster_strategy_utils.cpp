@@ -298,6 +298,58 @@ std::pair<mlir::Type, TensorDistributionMap> LayerCostModel::getOutputWithDistri
                                                           specifiedStrategy, _siblingsOpsAnalysis));
 }
 
+double LayerCostModel::getDMACostOfType(vpux::NDTypeInterface srcType, DmaDirectionType dmaDirection) const {
+    auto distributedSrcType = mlir::dyn_cast<vpux::VPU::DistributedTensorType>(srcType);
+    auto distribution = distributedSrcType != nullptr
+                                ? DistributionInfo::getClassFromAttr(distributedSrcType.getDistribution())
+                                : DistributionInfo();
+    return getDMACostOfType(srcType, distribution, dmaDirection);
+}
+
+double LayerCostModel::getDMACostOfType(vpux::NDTypeInterface srcType, const VPU::DistributionInfo& distribution,
+                                        DmaDirectionType dmaDirection) const {
+    if (isDMACostModelAccurate(_arch)) {
+        TensorDistributionMap distributionMap;
+        distributionMap.insert(std::make_pair(srcType, distribution));
+        auto distributedType = getDistributedTypeFromDistributionMap(srcType, distributionMap);
+        return static_cast<double>(getDMACost(distributedType, _arch, _vpuDeviceType,
+                                              _layerCostModel->get_TheoreticalDMA_cost_model_shared(), _numDMAPorts,
+                                              dmaDirection));
+    }
+    // When cost model is not accurate, use a manual analytical calculation to estimate the cost
+    return getAnalyticalDMACost(srcType, distribution, _DDRLatency, _DMABandwidth, _numDMAPorts);
+}
+
+double LayerCostModel::getSpillingDMACost(vpux::NDTypeInterface srcTensorType, DmaDirectionType dmaDirection) const {
+    if (auto sparseTensorType = mlir::dyn_cast<vpux::VPU::SparseTensorType>(srcTensorType)) {
+        srcTensorType = mlir::cast<vpux::NDTypeInterface>(sparseTensorType.getData());
+    }
+    return getDMACostOfType(srcTensorType, dmaDirection);
+}
+
+double LayerCostModel::getSpillingDMACost(vpux::NDTypeInterface srcTensorType,
+                                          const TensorDistributionMap& distributions,
+                                          DmaDirectionType dmaDirection) const {
+    if (auto sparseTensorType = mlir::dyn_cast<vpux::VPU::SparseTensorType>(srcTensorType)) {
+        srcTensorType = mlir::cast<vpux::NDTypeInterface>(sparseTensorType.getData());
+    }
+    VPU::DistributionInfo distribution{};
+    if (distributions.contains(srcTensorType)) {
+        distribution = distributions.at(srcTensorType);
+    }
+    return getDMACostOfType(srcTensorType, distribution, dmaDirection);
+}
+
+double LayerCostModel::getSpillingReadCost(vpux::NDTypeInterface srcTensorType,
+                                           const TensorDistributionMap& distributions) const {
+    return getSpillingDMACost(srcTensorType, distributions, DmaDirectionType::DDR_TO_CMX);
+}
+
+double LayerCostModel::getSpillingWriteCost(vpux::NDTypeInterface srcTensorType,
+                                            const TensorDistributionMap& distributions) const {
+    return getSpillingDMACost(srcTensorType, distributions, DmaDirectionType::CMX_TO_DDR);
+}
+
 /*
  * Get the spilling cost
  * srcTensorType is the output of parent op (current op)
@@ -321,54 +373,14 @@ LayerCostModel::SpillingCost LayerCostModel::getSpillingCost(vpux::NDTypeInterfa
     // Concat is on DDR memory if there's spilling. So we don't need copy from CMX to DDR if Concat is parent. Also we
     // don't need copy from DDR to CMX if Concat is user.
     if (mlir::isa<VPU::ConcatOp>(parentOp)) {
-        return {0.0, getSpillingDMACost(dstTensorType, dstDistribution)};
+        return {0.0, getSpillingReadCost(dstTensorType, dstDistribution)};
     }
 
     if (mlir::isa<VPU::ConcatOp>(userOp)) {
-        return {getSpillingDMACost(srcTensorType, srcDistribution), 0.0};
+        return {getSpillingWriteCost(srcTensorType, srcDistribution), 0.0};
     }
 
-    return {getSpillingDMACost(srcTensorType, srcDistribution), getSpillingDMACost(dstTensorType, dstDistribution)};
-}
-
-double LayerCostModel::getDMACostOfType(vpux::NDTypeInterface srcType) const {
-    auto distributedSrcType = mlir::dyn_cast<vpux::VPU::DistributedTensorType>(srcType);
-    auto distribution = distributedSrcType != nullptr
-                                ? DistributionInfo::getClassFromAttr(distributedSrcType.getDistribution())
-                                : DistributionInfo();
-    return getDMACostOfType(srcType, distribution);
-}
-
-double LayerCostModel::getDMACostOfType(vpux::NDTypeInterface srcType,
-                                        const VPU::DistributionInfo& distribution) const {
-    if (isDMACostModelAccurate(_arch)) {
-        TensorDistributionMap distributionMap;
-        distributionMap.insert(std::make_pair(srcType, distribution));
-        auto distributedType = getDistributedTypeFromDistributionMap(srcType, distributionMap);
-        return static_cast<double>(getDMACost(distributedType, _arch, _vpuDeviceType,
-                                              _layerCostModel->get_TheoreticalDMA_cost_model_shared(), _numDMAPorts));
-    }
-    // When cost model is not accurate, use a manual analytical calculation to estimate the cost
-    return getAnalyticalDMACost(srcType, distribution, _DDRLatency, _DMABandwidth, _numDMAPorts);
-}
-
-double LayerCostModel::getSpillingDMACost(vpux::NDTypeInterface srcTensorType) const {
-    if (auto sparseTensorType = mlir::dyn_cast<vpux::VPU::SparseTensorType>(srcTensorType)) {
-        srcTensorType = mlir::cast<vpux::NDTypeInterface>(sparseTensorType.getData());
-    }
-    return getDMACostOfType(srcTensorType);
-}
-
-double LayerCostModel::getSpillingDMACost(vpux::NDTypeInterface srcTensorType,
-                                          const TensorDistributionMap& distributions) const {
-    if (auto sparseTensorType = mlir::dyn_cast<vpux::VPU::SparseTensorType>(srcTensorType)) {
-        srcTensorType = mlir::cast<vpux::NDTypeInterface>(sparseTensorType.getData());
-    }
-    VPU::DistributionInfo distribution{};
-    if (distributions.contains(srcTensorType)) {
-        distribution = distributions.at(srcTensorType);
-    }
-    return getDMACostOfType(srcTensorType, distribution);
+    return {getSpillingWriteCost(srcTensorType, srcDistribution), getSpillingReadCost(dstTensorType, dstDistribution)};
 }
 
 // The function computes the actual output tensor volume (i.e. computation that is performed)
@@ -686,19 +698,19 @@ ComputeAndDMATimeCost LayerCostModel::getComputeAndDataCosts(mlir::Operation* op
                     getDistributedTypeFromDistributionMap(tileTypes[operandIdx].first, tileTypes[operandIdx].second);
             if (operandIdx == 0) {
                 auto dmaCost = checked_cast<uint32_t>(
-                        getSpillingDMACost(tileTypes[operandIdx].first, tileTypes[operandIdx].second));
+                        getSpillingReadCost(tileTypes[operandIdx].first, tileTypes[operandIdx].second));
                 correctedStrideActDMACost |= applyStrideDMACorrectionForTile(tileType, inputTiledOnLowestDim, dmaCost,
                                                                              arch, /*isFullSearchVersion=*/true);
                 vpunnLayerActCosts.push_back(dmaCost);
             } else if (operandIdx == tileTypes.size() - 1) {
                 auto dmaCost = checked_cast<uint32_t>(
-                        getSpillingDMACost(tileTypes[operandIdx].first, tileTypes[operandIdx].second));
+                        getSpillingWriteCost(tileTypes[operandIdx].first, tileTypes[operandIdx].second));
                 correctedStrideOutputDMACost |= applyStrideDMACorrectionForTile(
                         tileType, outputTiledOnLowestDim, dmaCost, arch, /*isFullSearchVersion=*/true);
                 vpunnLayerOutputCosts.push_back(dmaCost);
             } else {
                 auto dmaCost = checked_cast<uint32_t>(
-                        getSpillingDMACost(tileTypes[operandIdx].first, tileTypes[operandIdx].second));
+                        getSpillingReadCost(tileTypes[operandIdx].first, tileTypes[operandIdx].second));
                 vpunnLayerWeightsCosts.push_back(dmaCost);
             }
         }
@@ -801,12 +813,12 @@ HwLayerTilingStrategyCosts LayerCostModel::getDPUandDMATimeCostWithCustomTiling(
 
     const auto getSpillingReadCostFunc = [&](NDTypeInterface srcType,
                                              const TensorDistributionMap& distributions) -> uint32_t {
-        return checked_cast<uint32_t>(this->getSpillingDMACost(srcType, distributions));
+        return checked_cast<uint32_t>(this->getSpillingReadCost(srcType, distributions));
     };
 
     const auto getSpillingWriteCostFunc = [&](NDTypeInterface srcType,
                                               const TensorDistributionMap& distributions) -> uint32_t {
-        return checked_cast<uint32_t>(this->getSpillingDMACost(srcType, distributions));
+        return checked_cast<uint32_t>(this->getSpillingWriteCost(srcType, distributions));
     };
 
     VPUX_THROW_WHEN(outTiles.empty(), "Empty output tiles");
@@ -1548,6 +1560,26 @@ std::optional<VPU::MultiClusterStrategy> vpux::VPU::getDefaultLayerStrategy(VPU:
         updateStrategyOrder(shaveTilingDim.value());
     }
 
+    // If the highest non-trivial dimension exactly fills all clusters, it has only one valid even split.
+    // Prioritize MC tiling on that dimension over the shave tiling preference above.
+    // Skip when any input has a smaller size along that dimension than the output: those inputs would need
+    // replication across clusters, indicating that the dimension is broadcast and should not drive the split.
+    const auto anyInputBroadcastsOnHighestDim = [&]() {
+        for (auto operand : clusteredOp->getOperands()) {
+            auto inputType = mlir::dyn_cast<vpux::NDTypeInterface>(operand.getType());
+            if (inputType == nullptr) {
+                continue;
+            }
+            if (getBoundedShape(inputType)[highestDim] < outputShape[highestDim]) {
+                return true;
+            }
+        }
+        return false;
+    };
+    if ((isEltwiseSwOp || isDQ) && outputShape[highestDim] == numTiles && !anyInputBroadcastsOnHighestDim()) {
+        updateStrategyOrder(highestDim);
+    }
+
     for (auto strategy : strategyOrder) {
         if (!clusteredOp.checkStrategyCompatibility(strategy, numTiles)) {
             continue;
@@ -1574,7 +1606,7 @@ std::optional<VPU::MultiClusterStrategy> vpux::VPU::getDefaultLayerStrategy(VPU:
                           VPU::MultiplyOp, VPU::SelectOp, VPU::DynamicDequantizeOp, VPU::DynamicQuantizeOp,
                           VPU::GreaterEqualOp, VPU::DeformableConvolutionOp, VPU::MaximumOp,
                           VPU::ScatterElementsUpdateOp, VPU::SubtractOp, VPU::AddOp, VPU::SquaredDifferenceOp,
-                          VPU::EqualOp>(clusteredOp.getOperation()) &&
+                          VPU::EqualOp, VPU::ConvertOp>(clusteredOp.getOperation()) &&
                 clusteredOp.isOperationSplitOverWidthCompatible(/*outputShape=*/ShapeRef(), /*offset=*/ShapeRef(),
                                                                 /*axis=*/ShapeRef())) {
                 return strategy;
@@ -2360,7 +2392,7 @@ bool vpux::VPU::hasLayerWithMultipleInputs(mlir::Operation* op) {
 bool vpux::VPU::isSingleBatchRequired(mlir::Operation* op) {
     return !mlir::isa<VPU::MVNOp, VPU::MVN1NormalizeOp, VPU::MVN1SumOp, VPU::LSTMSequenceOp, VPU::DequantizeOp,
                       VPU::ReverseOp, VPU::ReverseSequenceOp, VPU::GridSampleOp, VPU::DeformableConvolutionOp,
-                      VPU::MemPermuteOp>(op);
+                      VPU::MemPermuteOp, VPU::ConvertOp, VPU::GroupQuantCorrectionOp>(op);
 }
 
 bool vpux::VPU::setSOKForRuntimeDequantConvolution(VPU::NCEOpInterface nceOp, LayerCostModel& costModel) {

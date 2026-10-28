@@ -8,7 +8,9 @@
 #include <common_test_utils/ov_tensor_utils.hpp>
 #include "common_test_utils/node_builders/fake_quantize.hpp"
 
+#include "openvino/op/convolution.hpp"
 #include "openvino/op/max_pool.hpp"
+#include "openvino/op/relu.hpp"
 #include "openvino/op/reshape.hpp"
 #include "openvino/op/sigmoid.hpp"
 #include "openvino/op/strided_slice.hpp"
@@ -21,11 +23,6 @@ namespace ov::test {
 class PropagateFQSubGraphTest_NPU3720 :
         public VpuOv2LayerTest,
         public testing::WithParamInterface<std::tuple<std::vector<int64_t>>> {
-    void configure_model() override {
-        // #E-210493 - to remove quant-dequant-removal=false when proper solution is found
-        configuration[ov::intel_npu::compilation_mode_params.name()] = "quant-dequant-removal=false";
-    }
-
     void generate_inputs(const std::vector<ov::Shape>& targetInputStaticShapes) override {
         VpuOv2LayerTest::inputs.clear();
         const auto& funcInputs = VpuOv2LayerTest::function->inputs();
@@ -67,9 +64,25 @@ class PropagateFQSubGraphTest_NPU3720 :
         const auto pooling = std::make_shared<ov::op::v1::MaxPool>(dataFq, strides, pads_begin, pads_end, kernelSize,
                                                                    roundingType, padType);
 
-        const ov::ResultVector results{std::make_shared<ov::op::v0::Result>(pooling),
+        // Quantized 1x1 Convolution + output FQ so the FakeQuantize fuses into the Convolution PPE
+        // instead of being stripped as a boundary Quantize/Dequantize
+        const auto poolChannels = pooling->get_output_shape(0).at(1);
+        const auto convWShape = ov::Shape{poolChannels, poolChannels, 1, 1};
+        const auto convWeights = ov::op::v0::Constant::create(ov::element::f32, convWShape,
+                                                              std::vector<float>(ov::shape_size(convWShape), 0.0625f));
+        const auto convWeightsFq = ov::test::utils::make_fake_quantize(convWeights, ov::element::f32, dataLevels, {},
+                                                                       {0.0f}, {0.0625f}, {0.0f}, {0.0625f});
+        const auto conv = std::make_shared<ov::op::v1::Convolution>(pooling, convWeightsFq, ov::Strides{1, 1},
+                                                                    ov::CoordinateDiff{0, 0}, ov::CoordinateDiff{0, 0},
+                                                                    ov::Strides{1, 1});
+        const auto relu = std::make_shared<ov::op::v0::Relu>(conv);
+        const auto outFq = ov::test::utils::make_fake_quantize(relu, ov::element::f32, dataLevels, {}, {0.0f}, {100.0f},
+                                                               {0.0f}, {100.0f});
+
+        const ov::ResultVector results{std::make_shared<ov::op::v0::Result>(outFq),
                                        std::make_shared<ov::op::v0::Result>(lhsTranspose)};
         function = std::make_shared<ov::Model>(results, params, "PropagateFQSubGraph");
+        rel_threshold = 0.1f;
     }
 
     std::shared_ptr<ov::Node> buildTranspose(const ov::Output<ov::Node>& param, const std::vector<int64_t>& dimsOrder) {

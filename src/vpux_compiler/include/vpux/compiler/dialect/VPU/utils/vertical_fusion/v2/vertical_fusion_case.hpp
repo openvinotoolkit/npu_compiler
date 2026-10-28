@@ -67,7 +67,8 @@ public:
     /*
      Get VF cost calculated based on the cost function and current scheduling
     */
-    StrategyCost getCost(const std::unique_ptr<VPU::LayerVPUNNCost>& costFunction, Logger log);
+    StrategyCost getCost(const std::unique_ptr<VPU::LayerVPUNNCost>& costFunction, bool enableOutputTileAdjustmentForSW,
+                         Logger log);
 
     /*
      Get cached VF cost if available

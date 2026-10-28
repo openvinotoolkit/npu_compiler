@@ -100,6 +100,10 @@ enum class OpCode : uint16_t {
 
     // v1.1.0
     BUFFER_LOAD = 0x51,
+
+    // v1.2.0
+    BUFFER_FROM_CONST = 0x52,
+    BUFFER_COPY = 0x53,
 };
 
 enum class RoundingMode : int16_t {

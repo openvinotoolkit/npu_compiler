@@ -48,7 +48,7 @@ namespace {
 mlir::quant::QuantizedType extractQuantizedType(mlir::Value operand) {
     const auto elemType = mlir::cast<mlir::ShapedType>(operand.getType()).getElementType();
     const auto quantType = mlir::dyn_cast<mlir::quant::QuantizedType>(elemType);
-    VPUX_THROW_UNLESS(quantType != nullptr, "Type must be quantized, but provided {0}", elemType);
+    VPUX_THROW_WHEN(quantType == nullptr, "Type must be quantized, but provided {0}", elemType);
     return quantType;
 }
 
@@ -249,7 +249,7 @@ mlir::LogicalResult FuseQuantizeWithConvert::matchAndRewrite(IE::QuantizeOp orig
 
     // Set the insertion point to just after the original operation
     rewriter.setInsertionPointAfter(origOp.getOperation());
-    auto newQuantizeCastOp = rewriter.create<IE::QuantizeCastOp>(origOp->getLoc(), convertOpInput, outElemType);
+    auto newQuantizeCastOp = IE::QuantizeCastOp::create(rewriter, origOp->getLoc(), convertOpInput, outElemType);
     origOp.getOutput().replaceAllUsesWith(newQuantizeCastOp->getResult(0));
 
     return mlir::success();

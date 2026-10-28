@@ -13,6 +13,7 @@
 #include "openvino/op/convert.hpp"
 #include "openvino/op/divide.hpp"
 #include "openvino/op/equal.hpp"
+#include "openvino/op/maximum.hpp"
 #include "openvino/op/multiply.hpp"
 #include "openvino/op/power.hpp"
 #include "openvino/op/reduce_mean.hpp"
@@ -29,9 +30,15 @@ using IODescription = std::tuple<ShapeType, std::optional<ov::Layout>>;
 template <class ShapeType>
 using IODescriptions = std::vector<IODescription<ShapeType>>;
 
-using RMSNormDecompositionParams = std::tuple<IODescription<ov::Shape>,  // input shapes & optional layouts
-                                              ov::element::Type,         // input precision
-                                              bool,                      // useSelect (true = Select+Equal, false = Add)
+enum class TestEpsMode {
+    ADD,
+    MAX,
+    CONDITIONAL_EPS,
+};
+
+using RMSNormDecompositionParams = std::tuple<IODescription<ov::Shape>,   // input shapes & optional layouts
+                                              ov::element::Type,          // input precision
+                                              TestEpsMode,                // eps mode used in decomposition
                                               IODescription<ov::Shape>>;  // gamma shape (empty = same as input)
 
 class FuseRMSTestCommon : public VpuOv2LayerTest, public testing::WithParamInterface<RMSNormDecompositionParams> {
@@ -39,9 +46,9 @@ public:
     static std::string getTestCaseName(testing::TestParamInfo<RMSNormDecompositionParams> obj) {
         IODescription<ov::Shape> input;
         ov::element::Type inputPrecision;
-        bool useSelect;
+        TestEpsMode epsMode;
         IODescription<ov::Shape> gammaOutput;
-        std::tie(input, inputPrecision, useSelect, gammaOutput) = obj.param;
+        std::tie(input, inputPrecision, epsMode, gammaOutput) = obj.param;
 
         const std::string sep = "_";
         std::ostringstream result;
@@ -57,7 +64,17 @@ public:
             result << "GammaLayout=" << gammaLayout->to_string() << sep;
         }
         result << "TestIdx=" << obj.index << sep;
-        result << "useSelect=" << useSelect << sep;
+        switch (epsMode) {
+        case TestEpsMode::ADD:
+            result << "epsMode=ADD" << sep;
+            break;
+        case TestEpsMode::MAX:
+            result << "epsMode=MAX" << sep;
+            break;
+        case TestEpsMode::CONDITIONAL_EPS:
+            result << "epsMode=CONDITIONAL_EPS" << sep;
+            break;
+        }
         return result.str();
     }
 
@@ -86,7 +103,7 @@ public:
 
     std::shared_ptr<ov::Model> init_subgraph(const IODescriptions<ov::PartialShape>& input_info,
                                              const ov::Shape& target_shape, const ov::element::Type input_precision,
-                                             bool useSelect, const IODescription<ov::Shape>& gamma_output) {
+                                             TestEpsMode epsMode, const IODescription<ov::Shape>& gamma_output) {
         ov::ParameterVector params;
         for (const auto& [input_shape, input_layout] : input_info) {
             auto param = std::make_shared<ov::op::v0::Parameter>(input_precision, input_shape);
@@ -106,11 +123,13 @@ public:
 
         // ReduceMean(x^2,axes)+eps
         auto eps = ov::op::v0::Constant::create(input_precision, {}, {1e-5f});
-        std::shared_ptr<ov::Node> mean_plus_eps = std::make_shared<ov::op::v1::Add>(mean, eps);
-        if (useSelect) {
-            // Pattern: ReduceMean -> Equal -> Select -> Sqrt
-            //                 0  -> Equal  ->|
-            //                        Const ->|
+        std::shared_ptr<ov::Node> mean_plus_eps;
+        if (epsMode == TestEpsMode::ADD) {
+            mean_plus_eps = std::make_shared<ov::op::v1::Add>(mean, eps);
+        } else if (epsMode == TestEpsMode::MAX) {
+            mean_plus_eps = std::make_shared<ov::op::v1::Maximum>(mean, eps);
+        } else {
+            // Pattern: ReduceMean -> Equal -> Select -> Sqrt (conditional epsilon)
             auto zero_const = ov::op::v0::Constant::create(input_precision, {}, {0.f});
             auto equal_cond = std::make_shared<ov::op::v1::Equal>(mean, zero_const);
             mean_plus_eps = std::make_shared<ov::op::v1::Select>(equal_cond, eps, mean);
@@ -146,16 +165,16 @@ public:
     void SetUp() override {
         IODescription<ov::Shape> input;
         ov::element::Type input_precision;
-        bool useSelect;
+        TestEpsMode epsMode;
         IODescription<ov::Shape> gamma_output;
 
-        std::tie(input, input_precision, useSelect, gamma_output) = GetParam();
+        std::tie(input, input_precision, epsMode, gamma_output) = GetParam();
         const auto& [input_shapes, input_layout] = input;
         inType = outType = input_precision;
         init_input_shapes(ov::test::static_shapes_to_test_representation({input_shapes}));
 
         IODescriptions<ov::PartialShape> input_infos = {std::make_tuple(inputDynamicShapes.front(), input_layout)};
-        function = init_subgraph(input_infos, input_shapes, input_precision, useSelect, gamma_output);
+        function = init_subgraph(input_infos, input_shapes, input_precision, epsMode, gamma_output);
     }
 };
 
@@ -176,6 +195,7 @@ TEST_P(FuseRMSTestCommon, NPU5010_HW) {
     setDefaultHardwareMode();
     run(Platform::NPU5010);
 }
+
 TEST_P(FuseRMSTestCommon, NPU5020_HW) {
     abs_threshold = 0.11f;
     setDefaultHardwareMode();
@@ -186,13 +206,17 @@ TEST_P(FuseRMSTestCommon, NPU5020_HW) {
 
 namespace {
 const std::vector<ov::element::Type> input_precisions = {ov::element::f32};
-const std::vector<bool> use_select_options = {true, false};  // false = Add, true = Select+Equal
+const std::vector<TestEpsMode> eps_mode_options = {
+        TestEpsMode::ADD,
+        TestEpsMode::MAX,
+        TestEpsMode::CONDITIONAL_EPS,
+};
 
 const IODescriptions<ov::Shape> input_shapes_basic = {
         {IODescription<ov::Shape>{{1, 2, 6}, {}}, IODescription<ov::Shape>{{2, 2, 6}, {"CHW"}}}};
-const IODescriptions<ov::Shape> input_shapes = {{{32}, {"C"}},          {{3, 32}, {"HW"}},   {{1, 32, 16}, {}},
-                                                {{1, 4, 16, 16}, {}},   {{1, 3, 4, 64}, {}}, {{1, 128, 1, 128}, {}},
-                                                {{1, 128, 3, 256}, {}}, {{1, 77, 4096}, {}}};
+const IODescriptions<ov::Shape> input_shapes = {{{32}, {"C"}},          {{3, 32}, {"HW"}},      {{1, 32, 16}, {}},
+                                                {{1, 4, 16, 16}, {}},   {{1, 3, 4, 64}, {}},    {{1, 128, 1, 128}, {}},
+                                                {{1, 128, 3, 256}, {}}, {{1, 1, 64, 3072}, {}}, {{1, 77, 4096}, {}}};
 
 const IODescriptions<ov::Shape> gamma_shapes_default = {{}};
 const IODescriptions<ov::Shape> gamma_shapes_broadcast = {{{1, 1, 1}, {}}};
@@ -200,29 +224,21 @@ const IODescriptions<ov::Shape> gamma_shapes_broadcast = {{{1, 1, 1}, {}}};
 INSTANTIATE_TEST_SUITE_P(precommit_FuseRMS, FuseRMSTestCommon,
                          ::testing::Combine(::testing::ValuesIn(input_shapes_basic),
                                             ::testing::ValuesIn(input_precisions),
-                                            ::testing::ValuesIn(use_select_options),
+                                            ::testing::ValuesIn(eps_mode_options),
                                             ::testing::ValuesIn(gamma_shapes_default)),
                          FuseRMSTestCommon::getTestCaseName);
 
 INSTANTIATE_TEST_SUITE_P(smoke_FuseRMS, FuseRMSTestCommon,
                          ::testing::Combine(::testing::ValuesIn(input_shapes), ::testing::ValuesIn(input_precisions),
-                                            ::testing::ValuesIn(use_select_options),
+                                            ::testing::ValuesIn(eps_mode_options),
                                             ::testing::ValuesIn(gamma_shapes_default)),
                          FuseRMSTestCommon::getTestCaseName);
 
 INSTANTIATE_TEST_SUITE_P(smoke_FuseRMS_BroadcastGamma, FuseRMSTestCommon,
                          ::testing::Combine(::testing::Values(IODescription<ov::Shape>{{1, 4, 128}, {}}),
                                             ::testing::ValuesIn(input_precisions),
-                                            ::testing::ValuesIn(use_select_options),
+                                            ::testing::ValuesIn(eps_mode_options),
                                             ::testing::ValuesIn(gamma_shapes_broadcast)),
                          FuseRMSTestCommon::getTestCaseName);
-
-INSTANTIATE_TEST_SUITE_P(smoke_FuseRMS_3072, FuseRMSTestCommon,
-                         ::testing::Combine(::testing::Values(IODescription<ov::Shape>{{1, 1, 64, 3072}, {}}),
-                                            ::testing::Values(ov::element::f32),
-                                            ::testing::ValuesIn(use_select_options),
-                                            ::testing::ValuesIn(gamma_shapes_default)),
-                         FuseRMSTestCommon::getTestCaseName);
-
 }  // namespace
 }  // namespace ov::test::subgraph

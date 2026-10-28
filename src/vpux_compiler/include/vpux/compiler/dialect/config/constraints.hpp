@@ -7,6 +7,7 @@
 
 #include <mlir/IR/DialectInterface.h>
 #include "vpux/compiler/dialect/config/version.hpp"
+#include "vpux/utils/core/small_vector.hpp"
 
 #include <cstdint>
 #include <optional>
@@ -17,6 +18,11 @@ namespace vpux::config {
  * @brief Structure for aggregating configuration constants.
  */
 struct NPUConstraints {
+    struct RoPEConfig {
+        int64_t channel = 0;
+        int64_t width = 0;
+    };
+
     // PerformanceMetrics frequency values.
     struct {
         uint32_t base = 0;
@@ -43,7 +49,13 @@ struct NPUConstraints {
 
     // Maximum kernel size supported by the target DPU, used for optimizations that require this information.
     uint32_t maxKernelSize = 0;
+
+    // Supported RoPE (C, W) configurations used by IE::FuseRoPE pass.
+    SmallVector<RoPEConfig> legalRoPEConfigs;
 };
+
+// Returns the baseline set of RoPE configurations supported on all platforms.
+SmallVector<NPUConstraints::RoPEConfig> getDefaultLegalRoPEConfigs();
 
 // ConfigCache inside of the MLIRContext to be able to access NPUConstraints from other modules.
 class ConfigCache final : public mlir::DialectInterface::Base<ConfigCache> {

@@ -27,7 +27,6 @@ struct TaskStatistics {
                            // individual contributing tasks
     uint64_t dpuDuration;  // sum of interval durations of a union of DPU tasks [ns]
     uint64_t swDuration;   // sum of interval durations of a union of SW tasks [ns]
-    uint64_t m2iDuration;  // sum of interval durations of a union of M2I tasks [ns]
 
     uint64_t dmaDpuOverlapDuration;  // sum of interval durations of intersection of a union of DMA and a union of DPU
                                      // tasks [ns]
@@ -44,7 +43,6 @@ struct TaskStatistics {
     uint64_t sumOfDmaTaskDurations;  // sum of all DMA tasks durations [ns].
     uint64_t sumOfDpuTaskDurations;  // sum of all DPU tasks durations [ns]
     uint64_t sumOfSwTaskDurations;   // sum of all SW tasks durations [ns]
-    uint64_t sumOfM2ITaskDurations;  // sum of all M2I tasks durations [ns]
 
     /**
      * @brief calculate tasks timing statistics

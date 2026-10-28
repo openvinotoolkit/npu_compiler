@@ -170,9 +170,9 @@ mlir::Value reifyTileMVN1Sum(VPU::MVN1SumOp MVN1SumOp, const TileInfo& inputTile
     const auto tiledSliceInput =
             vpux::VPU::makeTile(builder, MVN1SumOp.getLoc(), MVN1SumOp.getInput(), inputTile, valInputName);
 
-    auto tileMVN1SumOp = builder.create<VPU::MVN1SumOp>(MVN1SumOp.getLoc(), tiledSliceInput,
-                                                        MVN1SumOp.getAcrossChannels(), MVN1SumOp.getNormalizeVariance(),
-                                                        numClusters, MVN1SumOp.getMultiClusterStrategyAttr());
+    auto tileMVN1SumOp = VPU::MVN1SumOp::create(builder, MVN1SumOp.getLoc(), tiledSliceInput,
+                                                MVN1SumOp.getAcrossChannels(), MVN1SumOp.getNormalizeVariance(),
+                                                numClusters, MVN1SumOp.getMultiClusterStrategyAttr());
 
     return tileMVN1SumOp.getResult();
 }
@@ -235,14 +235,10 @@ mlir::LogicalResult ApplyTilingMVN1Sum::MVN1SumTiling::matchAndRewrite(VPU::MVN1
                                                                        mlir::PatternRewriter& rewriter) const {
     _log.trace("Got '{0}' at '{1}'", origOp->getName(), origOp->getLoc());
 
-    if (mlir::isa_and_nonnull<VPU::SliceOp>(origOp.getInput().getDefiningOp())) {
-        return matchFailed(rewriter, origOp, "Op already tiled.");
-    }
-
     const auto inputType = mlir::cast<vpux::NDTypeInterface>(origOp.getInput().getType());
     const auto outputType = mlir::cast<vpux::NDTypeInterface>(origOp.getSum().getType());
     if (origOp.fitIntoCMX(SmallVector<vpux::NDTypeInterface>{inputType, outputType})) {
-        return matchFailed(rewriter, origOp, "Op fits into CMX");
+        return matchFailed(_log, rewriter, origOp, "Op fits into CMX");
     }
 
     const auto tiles = findNumOfTiles(origOp, _enablePrefetchTiling, _log);
@@ -282,17 +278,13 @@ mlir::LogicalResult ApplyTilingMVN1Sum::MVN1SumCorrectHeight::matchAndRewrite(VP
                                                                               mlir::PatternRewriter& rewriter) const {
     _log.trace("Got '{0}' at '{1}'", origOp->getName(), origOp->getLoc());
 
-    if (mlir::isa_and_nonnull<VPU::SliceOp>(origOp.getInput().getDefiningOp())) {
-        return matchFailed(rewriter, origOp, "Op height was already corrected.");
-    }
-
     auto correctHeightValue = getMVN1SumOutputHeight(origOp);
 
     const auto output = mlir::cast<vpux::NDTypeInterface>(origOp.getSum().getType());
 
     const auto newOutputShape = to_small_vector(output.getShape());
     if (newOutputShape[Dims4D::Act::H.ind()] == correctHeightValue) {
-        return matchFailed(rewriter, origOp, "Op height is already correct.");
+        return matchFailed(_log, rewriter, origOp, "Op height is already correct.");
     }
 
     rewriter.replaceOpWithNewOp<VPU::MVN1SumOp>(origOp, origOp.getInput(), origOp.getAcrossChannels(),

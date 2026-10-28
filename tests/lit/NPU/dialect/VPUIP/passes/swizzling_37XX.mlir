@@ -23,7 +23,7 @@ func.func @SetSwizzlingForDpuToDpuBuffer(%in : memref<1x16x56x56xf16, {order = #
             outputs(%buf0 : memref<1x16x56x56xf16, {order = #NHWC}, @CMX_NN>)
              -> memref<1x16x56x56xf16, {order = #NHWC}, @CMX_NN>
 
-    %1 = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
+    %1 = VPUIP.NCEClusterTask <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>,
             kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
             kernel_size = [1, 1],
             kernel_strides = [1, 1],
@@ -48,7 +48,7 @@ func.func @SetSwizzlingForDpuToDpuBuffer(%in : memref<1x16x56x56xf16, {order = #
         {
         }
 
-    %2 = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
+    %2 = VPUIP.NCEClusterTask <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>,
             kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
             kernel_size = [1, 1],
             kernel_strides = [1, 1],
@@ -107,7 +107,7 @@ func.func @DoNotSetSwizzlingDueToCmxUsageIncrease(%in : memref<1x16x176x175xf16,
             outputs(%buf0 : memref<1x16x176x175xf16, {order = #NHWC}, @CMX_NN>)
              -> memref<1x16x176x175xf16, {order = #NHWC}, @CMX_NN>
 
-    %1 = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
+    %1 = VPUIP.NCEClusterTask <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>,
             kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
             kernel_size = [1, 1],
             kernel_strides = [1, 1],
@@ -131,7 +131,7 @@ func.func @DoNotSetSwizzlingDueToCmxUsageIncrease(%in : memref<1x16x176x175xf16,
         {
         }
 
-    %2 = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
+    %2 = VPUIP.NCEClusterTask <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>,
             kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
             kernel_size = [1, 1],
             kernel_strides = [1, 1],
@@ -228,7 +228,7 @@ func.func @SetSwizzlingForDpuToDpuBufferInMultiCluster(%input : !Input_DDR,
 
     %3 = VPUIP.Copy { out_mem_space = @CMX_NN } inputs(%weights: !Weights_DDR) outputs(%weights_cmx: !WeightsDistributed) -> !WeightsDistributed
 
-    %4 = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
+    %4 = VPUIP.NCEClusterTask <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>,
             kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
             kernel_size = [1, 1],
             kernel_strides = [1, 1],
@@ -253,7 +253,7 @@ func.func @SetSwizzlingForDpuToDpuBufferInMultiCluster(%input : !Input_DDR,
         {
         }
 
-    %5 = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
+    %5 = VPUIP.NCEClusterTask <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>,
             kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
             kernel_size = [1, 1],
             kernel_strides = [1, 1],
@@ -353,7 +353,7 @@ func.func @SetSwizzlingForConstantsMultiClusterDuplicated(%input : !Input_DDR) -
 
     %3 = VPUIP.Copy { out_mem_space = @CMX_NN } inputs(%weights: !Weights_DDR) outputs(%weights_cmx: !WeightsDistributed) -> !WeightsDistributed
 
-    %4 = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
+    %4 = VPUIP.NCEClusterTask <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>,
             kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
             kernel_size = [1, 1],
             kernel_strides = [1, 1],
@@ -466,7 +466,7 @@ func.func @SetSwizzlingForConstantsSOK(%input : !Input_DDR) -> !Output_DDR
 
     %3 = VPUIP.Copy { out_mem_space = @CMX_NN } inputs(%weights: !Weights_DDR) outputs(%weights_cmx: !WeightsDistributed) -> !WeightsDistributed
 
-    %4 = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 177 : i64, resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
+    %4 = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 177 : i64} <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>,
             kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
             kernel_size = [1, 1],
             kernel_strides = [1, 1],
@@ -577,7 +577,7 @@ func.func @SetSwizzlingForQuantConstantsSOK(%input : !Input_DDR) -> !Output_DDR
 
     %3 = VPUIP.Copy { out_mem_space = @CMX_NN } inputs(%weights: memref<64x16x1x1x!qElemType3, {order = #NHWC}>) outputs(%weights_cmx: !WeightsDistributed) -> !WeightsDistributed
 
-    %4 = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 177 : i64, resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
+    %4 = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 177 : i64} <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>,
             kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
             kernel_size = [1, 1],
             kernel_strides = [1, 1],
@@ -642,7 +642,7 @@ func.func @DoNotSwizzleDueToAlignmentMemIncrease(%in : memref<1x16x180x180xf16, 
             outputs(%buf0 : memref<1x16x180x180xf16, {order = #NHWC}, @CMX_NN>)
              -> memref<1x16x180x180xf16, {order = #NHWC}, @CMX_NN>
 
-    %1 = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
+    %1 = VPUIP.NCEClusterTask <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>,
             kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
             kernel_size = [1, 1],
             kernel_strides = [1, 1],
@@ -667,7 +667,7 @@ func.func @DoNotSwizzleDueToAlignmentMemIncrease(%in : memref<1x16x180x180xf16, 
         {
         }
 
-    %2 = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
+    %2 = VPUIP.NCEClusterTask <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>,
             kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
             kernel_size = [1, 1],
             kernel_strides = [1, 1],
@@ -693,7 +693,7 @@ func.func @DoNotSwizzleDueToAlignmentMemIncrease(%in : memref<1x16x180x180xf16, 
         }
 
 
-    %3 = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
+    %3 = VPUIP.NCEClusterTask <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>,
             kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
             kernel_size = [1, 1],
             kernel_strides = [1, 1],
@@ -799,7 +799,7 @@ func.func @SetSwizzlingForConstantButNotActivationDueToCmxSizeLimit(%input : !In
 
     %3 = VPUIP.Copy { out_mem_space = @CMX_NN } inputs(%weights: !Weights_DDR) outputs(%weights_cmx: !WeightsDistributed) -> !WeightsDistributed
 
-    %4 = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
+    %4 = VPUIP.NCEClusterTask <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>,
             kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
             kernel_size = [1, 1],
             kernel_strides = [1, 1],
@@ -824,7 +824,7 @@ func.func @SetSwizzlingForConstantButNotActivationDueToCmxSizeLimit(%input : !In
         {
         }
 
-    %5 = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
+    %5 = VPUIP.NCEClusterTask <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>,
             kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
             kernel_size = [1, 1],
             kernel_strides = [1, 1],
@@ -913,7 +913,7 @@ func.func @SetSwizzlingForDpuToDpuBufferWithInplace(%in0 : memref<1x240x8x98xf16
                inputs(%in0 : memref<1x240x8x98xf16, {order = #NHWC}, @DDR>)
                outputs(%buf0 : memref<1x240x8x98xf16, {order = #NHWC}, [@CMX_NN, 0]>)
                 -> memref<1x240x8x98xf16, {order = #NHWC}, [@CMX_NN, 0]>
-        %1 = VPUIP.NCEClusterTask {constantsFused = true, resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
+        %1 = VPUIP.NCEClusterTask {constantsFused = true} <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>,
                kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
                kernel_size = [3, 3],
                kernel_strides = [1, 1],
@@ -947,7 +947,7 @@ func.func @SetSwizzlingForDpuToDpuBufferWithInplace(%in0 : memref<1x240x8x98xf16
                inputs(%in1 : memref<1x80x8x98xf16, {order = #NHWC}, @DDR>)
                outputs(%buf2 : memref<1x80x8x98xf16, {order = #NHWC}, [@CMX_NN, 0]>)
                 -> memref<1x80x8x98xf16, {order = #NHWC}, [@CMX_NN, 0]>
-    %3 = VPUIP.NCEClusterTask {constantsFused = true, resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
+    %3 = VPUIP.NCEClusterTask {constantsFused = true} <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>,
                kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
                kernel_size = [3, 3],
                kernel_strides = [1, 1],
@@ -977,7 +977,7 @@ func.func @SetSwizzlingForDpuToDpuBufferWithInplace(%in0 : memref<1x240x8x98xf16
            }
 
     // Add with is_inplace = true
-    %4 = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
+    %4 = VPUIP.NCEClusterTask <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>,
                is_inplace = true,
                task_type = #VPUIP.nce_task_type<ELTWISE>
            }>
@@ -1014,7 +1014,7 @@ func.func @SetSwizzlingForDpuToDpuBufferWithInplace(%in0 : memref<1x240x8x98xf16
                inputs(%weight_table2 : memref<80x1x1x4xsi32>)
                outputs(%buf5 : memref<80x1x1x4xsi32, [@CMX_NN, 0]>)
                 -> memref<80x1x1x4xsi32, [@CMX_NN, 0]>
-    %7 = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
+    %7 = VPUIP.NCEClusterTask <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>,
                kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
                kernel_size = [1, 1], kernel_strides = [1, 1],
                task_type = #VPUIP.nce_task_type<DWCONV>
@@ -1106,7 +1106,7 @@ func.func @CannotSwizzledDueToMultiUserWhichCannotSwizzled(%arg0 : memref<1x256x
             outputs(%buf1 : memref<1x256x7x40xf16, {order = #NHWC}, @CMX_NN>)
              -> memref<1x256x7x40xf16, {order = #NHWC}, @CMX_NN>
 
-    %2 = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 99787 : i64, resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
+    %2 = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 99787 : i64} <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>,
             is_superdense,
             kernel_padding = #VPU.Padding<left = 1 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
             kernel_size = [3, 3],
@@ -1142,7 +1142,7 @@ func.func @CannotSwizzledDueToMultiUserWhichCannotSwizzled(%arg0 : memref<1x256x
             }
         }
 
-    %3 = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 99787 : i64, resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
+    %3 = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 99787 : i64} <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>,
             is_superdense,
             kernel_padding = #VPU.Padding<left = 1 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
             kernel_size = [3, 3], kernel_strides = [2, 2],

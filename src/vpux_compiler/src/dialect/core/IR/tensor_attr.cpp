@@ -94,8 +94,8 @@ TensorAttr vpux::TensorAttr::get(mlir::MLIRContext* context, mlir::AffineMapAttr
         bool allZeroes = llvm::all_of(dynamicDimsMask, [](auto value) {
             return value == 0;
         });
-        VPUX_THROW_UNLESS(!allZeroes, "Dynamic dims mask must contain 1's that represent dynamic dimensions, got {0}",
-                          dynamicDimsMask);
+        VPUX_THROW_WHEN(allZeroes, "Dynamic dims mask must contain 1's that represent dynamic dimensions, got {0}",
+                        dynamicDimsMask);
 
         auto dynamicDimsMaskId = mlir::StringAttr::get(context, dynamicDimsMaskName);
         const auto opaqueAttr = createOpaqueI64ElementsAttr(context, dynamicDimsMask.raw());
@@ -180,7 +180,7 @@ TensorAttr vpux::getTensorAttr(mlir::MLIRContext* ctx, const DimsOrder& order, I
 TensorAttr vpux::getTensorAttr(mlir::RankedTensorType type) {
     if (const auto encoding = type.getEncoding()) {
         const auto tensorAttr = mlir::dyn_cast<vpux::TensorAttr>(encoding);
-        VPUX_THROW_UNLESS(tensorAttr != nullptr, "Unsupported tensor encoding attribute '{0}'", encoding);
+        VPUX_THROW_WHEN(tensorAttr == nullptr, "Unsupported tensor encoding attribute '{0}'", encoding);
         return tensorAttr;
     }
 

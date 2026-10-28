@@ -135,6 +135,6 @@ SmallVector<int64_t> vpux::VPU::ReduceSquareOp::getMaxNumTiles() {
 
 void vpux::VPU::ReduceSquareOp::build(::mlir::OpBuilder& builder, ::mlir::OperationState& state, ::mlir::Value input,
                                       ::mlir::ArrayAttr axes_value, ::mlir::UnitAttr keep_dims,
-                                      ::mlir::FloatAttr epsilon, ::mlir::IntegerAttr scale) {
-    build(builder, state, input, axes_value, keep_dims, epsilon, scale, {});
+                                      ::mlir::FloatAttr epsilon) {
+    build(builder, state, input, axes_value, keep_dims, epsilon, {});
 }

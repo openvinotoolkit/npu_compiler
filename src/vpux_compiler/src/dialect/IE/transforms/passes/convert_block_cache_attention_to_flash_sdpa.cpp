@@ -22,6 +22,7 @@
 //   FlashSDPA's native GQA head-broadcast handles qH > kvH without extra reshaping.
 
 #include <limits>
+#include "vpux/compiler/core/layers.hpp"
 #include "vpux/compiler/dialect/IE/IR/dialect.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/data_movement.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/data_type.hpp"
@@ -107,6 +108,42 @@ static IE::ConcatOp matchConcatInput(mlir::Value val, mlir::Operation** wrapperO
     return concatOp;
 }
 
+// Returns the total number of Q attention heads for the given Q shape and GQA fold state,
+// or 0 when the shape is not 4D (callers treat 0 as "indeterminate, skip guard").
+//   GQA head-fold path (kWrapOp != nullptr): Q is [kvH, grp, tSL, E]; heads = kvH * grp.
+//   Bare-Concat path  (kWrapOp == nullptr):  Q is [N,   qH,  tSL, E]; heads = qH.
+static int64_t computeQHeads(ShapeRef shapeQ, mlir::Operation* kWrapOp) {
+    if (shapeQ.size() != 4) {
+        return 0;
+    }
+    return kWrapOp != nullptr ? shapeQ[Dims4D::Act::N] * shapeQ[Dims4D::Act::C] : shapeQ[Dims4D::Act::C];
+}
+
+// Returns true when tSL==1 decode attention falls into the low-efficiency GQA/SOK
+// corner case where the block-cache FlashSDPA cascade is unprofitable:
+//   - kvHeads == 1 forces K/V duplication across all SOK clusters.
+//   - qHeads <= kDecodeLowQHeadsThreshold means multi-cluster DPU utilisation is low
+//     (e.g. 8 Q-heads split as [3,3,2] across 3 clusters).
+// kvHeads == 0 or qHeads == 0 means the dimension is indeterminate; the guard is
+// skipped conservatively and the function returns false.
+static bool isLowEfficiencyDecodeCase(int64_t tSL, int64_t kvHeads, int64_t qHeads) {
+    if (tSL != 1) {
+        return false;
+    }
+    // kvHeads == 0 or qHeads == 0: indeterminate; skip the guard conservatively.
+    if (kvHeads == 0 || qHeads == 0) {
+        return false;
+    }
+    if (kvHeads != 1) {
+        return false;
+    }
+    // With 8 Q-heads and SOK over typical cluster
+    // counts (e.g. 6), the split is uneven ([2,2,2,1,1,0] or similar), leaving
+    // clusters idle. Above 8 the imbalance is small enough to be profitable.
+    constexpr int64_t kDecodeLowQHeadsThreshold = 8;
+    return qHeads <= kDecodeLowQHeadsThreshold;
+}
+
 // Returns true when the op structurally matches the tiled K/V concat pattern and
 // meets the profitability thresholds for a Flash SDPA cascade rewrite.
 bool shouldConvertBlockCacheAttentionToFlashSDPA(IE::AttentionOp op, int64_t seqAlignment) {
@@ -114,25 +151,15 @@ bool shouldConvertBlockCacheAttentionToFlashSDPA(IE::AttentionOp op, int64_t seq
         return false;
     }
 
-    // Flash SDPA cascade is only beneficial for long source sequences.
-    // Below these thresholds the decomposed MatMul path is faster.
     const auto shapeQ = getShape(op.getInputQ());
-    const auto shapeK = getShape(op.getInputK());
     const auto rankQ = static_cast<int64_t>(shapeQ.size());
-    const auto rankK = static_cast<int64_t>(shapeK.size());
-    if (rankQ < 2 || rankK < 2) {
+    if (rankQ < 2) {
         return false;
     }
     const auto tSL = shapeQ[Dim(rankQ - 2)];
-    const auto sSL = shapeK[Dim(rankK - 2)];
-    constexpr int64_t kFlashPrefillMinSSL = 2048;
-    constexpr int64_t kFlashDecodeMinSSL = 8192;
-    const bool meetsThreshold = (tSL > 1 && sSL >= kFlashPrefillMinSSL) || (tSL == 1 && sSL >= kFlashDecodeMinSSL);
-    if (!meetsThreshold) {
-        return false;
-    }
 
-    auto kConcatOp = matchConcatInput(op.getInputK());
+    mlir::Operation* kWrapOp = nullptr;
+    auto kConcatOp = matchConcatInput(op.getInputK(), &kWrapOp);
     if (!kConcatOp) {
         return false;
     }
@@ -151,20 +178,40 @@ bool shouldConvertBlockCacheAttentionToFlashSDPA(IE::AttentionOp op, int64_t seq
     // Validate that K and V are concatenated along the expected sequence dimensions:
     // K layout is [N, kvH, S, E]  -> seq dim is rank-2.
     // V layout is [N, kvH, E, S]  -> seq dim is rank-1.
-    const int64_t kRank = static_cast<int64_t>(getShape(kConcatOp.getResult()).size());
-    const int64_t vRank = static_cast<int64_t>(getShape(vConcatOp.getResult()).size());
-    if (kRank < 2 || vRank < 2) {
+    const auto kConcatShape = getShape(kConcatOp.getResult());
+    const int64_t rankKConcat = static_cast<int64_t>(kConcatShape.size());
+    const int64_t rankVConcat = static_cast<int64_t>(getShape(vConcatOp.getResult()).size());
+    if (rankKConcat < 2 || rankVConcat < 2) {
         return false;
     }
+
+    // Flash SDPA cascade is only beneficial for long source sequences.
+    // Below these thresholds the decomposed MatMul path is faster.
+    const auto sSL = kConcatShape[Dim(rankKConcat - 2)];
+    constexpr int64_t kFlashPrefillMinSSL = 2048;
+    constexpr int64_t kFlashDecodeMinSSL = 8192;
+    const bool meetsThreshold = (tSL > 1 && sSL >= kFlashPrefillMinSSL) || (tSL == 1 && sSL >= kFlashDecodeMinSSL);
+    if (!meetsThreshold) {
+        return false;
+    }
+
+    // Skip the FlashSDPA cascade for decode steps that fall into the low-efficiency
+    // GQA/SOK corner case (kvHeads==1, small qHeads).  See isLowEfficiencyDecodeCase.
+    // kvHeads is 0 when K is not 4D ([N, kvH, S, E] assumed); the guard is skipped.
+    const int64_t kvHeads = (rankKConcat == 4) ? kConcatShape[Dims4D::Act::C] : 0;
+    if (isLowEfficiencyDecodeCase(tSL, kvHeads, computeQHeads(shapeQ, kWrapOp))) {
+        return false;
+    }
+
     const auto kAxis = IE::getConcatAxis(kConcatOp);
     const auto vAxis = IE::getConcatAxis(vConcatOp);
-    if (!kAxis || !vAxis || kAxis->ind() != kRank - 2 || vAxis->ind() != vRank - 1) {
+    if (!kAxis || !vAxis || kAxis->ind() != rankKConcat - 2 || vAxis->ind() != rankVConcat - 1) {
         return false;
     }
 
     // Validate tile-level structural invariants required by buildMergedTileGroups and
     // the mask-slicing logic:
-    //   1. Every K tile has rank == kRank and every V tile has rank == vRank.
+    //   1. Every K tile has rank == rankKConcat and every V tile has rank == rankVConcat.
     //   2. Each K/V tile pair has the same seq length (K rank-2 == V rank-1).
     //   3. The sum of K tile seq lengths equals sSL.
     // Violations would cause incorrect merged Concat shapes or out-of-bounds mask slices.
@@ -172,11 +219,12 @@ bool shouldConvertBlockCacheAttentionToFlashSDPA(IE::AttentionOp op, int64_t seq
     for (size_t idx = 0; idx < kInputs.size(); ++idx) {
         const auto kTileShape = getShape(kInputs[idx]);
         const auto vTileShape = getShape(vInputs[idx]);
-        if (static_cast<int64_t>(kTileShape.size()) != kRank || static_cast<int64_t>(vTileShape.size()) != vRank) {
+        if (static_cast<int64_t>(kTileShape.size()) != rankKConcat ||
+            static_cast<int64_t>(vTileShape.size()) != rankVConcat) {
             return false;
         }
-        const auto kTileSeq = kTileShape[Dim(kRank - 2)];
-        const auto vTileSeq = vTileShape[Dim(vRank - 1)];
+        const auto kTileSeq = kTileShape[Dim(rankKConcat - 2)];
+        const auto vTileSeq = vTileShape[Dim(rankVConcat - 1)];
         if (kTileSeq != vTileSeq) {
             return false;
         }
@@ -305,8 +353,8 @@ mlir::LogicalResult AttentionToFlashSDPARewrite::matchAndRewrite(IE::AttentionOp
             return mlir::failure();
         }
         SmallVector<int64_t> unfoldedShape = {1, qShape[0] * qShape[1], qShape[2], qShape[3]};
-        queryBase = rewriter.create<IE::ReshapeOp>(appendLoc(loc, "unfold_q_gqa"), queryBase,
-                                                   getIntArrayAttr(ctx, unfoldedShape))
+        queryBase = IE::ReshapeOp::create(rewriter, appendLoc(loc, "unfold_q_gqa"), queryBase,
+                                          getIntArrayAttr(ctx, unfoldedShape))
                             .getOutput();
     }
 
@@ -320,10 +368,10 @@ mlir::LogicalResult AttentionToFlashSDPARewrite::matchAndRewrite(IE::AttentionOp
     // AttentionOp, so null only occurs on the MatMul path.
     mlir::Value queryForFlash = queryBase;
     if (const auto scale = origOp.getInputScale()) {
-        queryForFlash = rewriter.create<IE::MultiplyOp>(appendLoc(loc, "query_scaled"), queryBase, scale,
-                                                        IE::AutoBroadcastType::NUMPY,
-                                                        /*postOp=*/nullptr, /*clamp=*/nullptr,
-                                                        /*outputPadding=*/nullptr, /*inputPadding=*/nullptr)
+        queryForFlash = IE::MultiplyOp::create(rewriter, appendLoc(loc, "query_scaled"), queryBase, scale,
+                                               IE::AutoBroadcastType::NUMPY,
+                                               /*postOp=*/nullptr, /*clamp=*/nullptr,
+                                               /*outputPadding=*/nullptr, /*inputPadding=*/nullptr)
                                 .getOutput();
     }
 
@@ -344,9 +392,11 @@ mlir::LogicalResult AttentionToFlashSDPARewrite::matchAndRewrite(IE::AttentionOp
 
     // running_max/sum: drop last dim from Q shape -> [N, H, tSL]
     SmallVector<int64_t> runStatShape(qShapeRaw.begin(), qShapeRaw.end() - 1);
+    // fp16 lowest, not -Inf: the kernel subtracts this seed, and -Inf survives the max reduction of
+    // a query row masked out across the whole block. See the NOTE at reduceMaxMacro in flash_sdpa.cpp.
     auto runMaxType = mlir::RankedTensorType::get(runStatShape, mlir::Float16Type::get(ctx));
     auto initRunMax = vpux::Const::createDenseConst(rewriter, appendLoc(loc, "running_max"), runMaxType,
-                                                    -std::numeric_limits<float>::infinity());
+                                                    static_cast<float>(std::numeric_limits<type::float16>::lowest()));
     auto runSumType = mlir::RankedTensorType::get(runStatShape, mlir::Float32Type::get(ctx));
     auto initRunSum = vpux::Const::createDenseConst(rewriter, appendLoc(loc, "running_sum"), runSumType, 0.0f);
 
@@ -384,9 +434,9 @@ mlir::LogicalResult AttentionToFlashSDPARewrite::matchAndRewrite(IE::AttentionOp
         auto tile0NdType = mlir::cast<vpux::NDTypeInterface>(tiles[0].getType());
         auto mergedShape = Shape(tile0NdType.getShape().raw());
         mergedShape[seqDim] = mergedSize;
-        return rewriter
-                .create<IE::ConcatOp>(appendLoc(loc, "{0}_{1}", tag, tileIdx), tile0NdType.changeShape(mergedShape),
-                                      mlir::ValueRange(tiles), getIntArrayOfArray(ctx, staticOffsets))
+        return IE::ConcatOp::create(rewriter, appendLoc(loc, "{0}_{1}", tag, tileIdx),
+                                    tile0NdType.changeShape(mergedShape), mlir::ValueRange(tiles),
+                                    getIntArrayOfArray(ctx, staticOffsets))
                 .getOutput();
     };
 
@@ -407,8 +457,8 @@ mlir::LogicalResult AttentionToFlashSDPARewrite::matchAndRewrite(IE::AttentionOp
         // Merge V tiles along seq dim ([N, kvH, E, tile_S]) if needed, then transpose.
         mlir::Value vMerged = mergeTilesAlongSeq(vGroup, vSeqDim, merged.seqSizes[i], "v_merge", i);
         // Transpose merged V: [..., E, S] -> [..., S, E]
-        mlir::Value vTile = rewriter.create<IE::TransposeOp>(appendLoc(loc, "v_tile_transpose_{0}", i), vMerged,
-                                                             nullptr, vTransposeAttr)
+        mlir::Value vTile = IE::TransposeOp::create(rewriter, appendLoc(loc, "v_tile_transpose_{0}", i), vMerged,
+                                                    nullptr, vTransposeAttr)
                                     .getOutput();
 
         // Slice attention mask for this merged tile group
@@ -420,17 +470,16 @@ mlir::LogicalResult AttentionToFlashSDPARewrite::matchAndRewrite(IE::AttentionOp
             sliceOffsets[maskRank - 1] = merged.seqOffsets[i];
             SmallVector<int64_t> sliceSizes(maskShape.raw().begin(), maskShape.raw().end());
             sliceSizes[maskRank - 1] = merged.seqSizes[i];
-            maskTile =
-                    rewriter.create<IE::SliceOp>(appendLoc(loc, "mask_slice_{0}", i), maskInput,
-                                                 getIntArrayAttr(ctx, sliceOffsets), getIntArrayAttr(ctx, sliceSizes))
-                            .getResult();
+            maskTile = IE::SliceOp::create(rewriter, appendLoc(loc, "mask_slice_{0}", i), maskInput,
+                                           getIntArrayAttr(ctx, sliceOffsets), getIntArrayAttr(ctx, sliceSizes))
+                               .getResult();
         }
 
         const auto isHead = mlir::BoolAttr::get(ctx, i == 0);
         const auto isTail = mlir::BoolAttr::get(ctx, i + 1 == numMergedTiles);
         auto tileOp =
-                rewriter.create<IE::FlashSDPAOp>(appendLoc(loc, "flash_sdpa_tile_{0}", i), queryForFlash, kTile, vTile,
-                                                 runOut, runMax, runSum, maskTile, isHead, isTail, getIntAttr(ctx, 0));
+                IE::FlashSDPAOp::create(rewriter, appendLoc(loc, "flash_sdpa_tile_{0}", i), queryForFlash, kTile, vTile,
+                                        runOut, runMax, runSum, maskTile, isHead, isTail, getIntAttr(ctx, 0));
 
         runOut = tileOp.getResultRunningOutput();
         runMax = tileOp.getResultRunningMax();
@@ -443,16 +492,16 @@ mlir::LogicalResult AttentionToFlashSDPARewrite::matchAndRewrite(IE::AttentionOp
     mlir::Value result = runOut;
     if (kWrapOp != nullptr) {
         const auto origOutShape = getShape(origOp.getOutput()).raw();
-        result = rewriter.create<IE::ReshapeOp>(
-                                 appendLoc(loc, "fold_output_gqa"), result,
-                                 getIntArrayAttr(ctx, SmallVector<int64_t>(origOutShape.begin(), origOutShape.end())))
+        result = IE::ReshapeOp::create(
+                         rewriter, appendLoc(loc, "fold_output_gqa"), result,
+                         getIntArrayAttr(ctx, SmallVector<int64_t>(origOutShape.begin(), origOutShape.end())))
                          .getOutput();
     }
 
     // Adjust output element type if needed (running output is fp16; AttentionOp may be fp32)
     const auto origElemType = mlir::cast<NDTypeInterface>(origOp.getOutput().getType()).getElementType();
     if (mlir::cast<mlir::RankedTensorType>(result.getType()).getElementType() != origElemType) {
-        result = rewriter.create<IE::ConvertOp>(appendLoc(loc, "convert"), result, origElemType);
+        result = IE::ConvertOp::create(rewriter, appendLoc(loc, "convert"), result, origElemType);
     }
 
     rewriter.replaceOp(origOp, result);

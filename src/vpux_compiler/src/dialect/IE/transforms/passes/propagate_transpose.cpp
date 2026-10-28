@@ -66,13 +66,13 @@ mlir::LogicalResult MoveThroughSoftmax::matchAndRewrite(IE::SoftMaxOp origOp, ml
     const auto transposePerm = DimsOrder::fromAffineMap(transposeOp.getOrderValue().value());
     const auto newSoftmaxAxisInd = transposePerm.dimAt(softmaxAxisInd).ind();
 
-    auto newSoftmaxOp = rewriter.create<IE::SoftMaxOp>(
-            takeOpLoc(origOp, "as_softmax"), transposeOp.getInput().getType(), transposeOp.getInput(),
-            getIntAttr(getContext(), newSoftmaxAxisInd), origOp.getPadSizeAttr(), origOp.getDstElemTypeAttr(),
-            origOp.getMaskAwareAttr());
+    auto newSoftmaxOp =
+            IE::SoftMaxOp::create(rewriter, takeOpLoc(origOp, "as_softmax"), transposeOp.getInput().getType(),
+                                  transposeOp.getInput(), getIntAttr(getContext(), newSoftmaxAxisInd),
+                                  origOp.getPadSizeAttr(), origOp.getDstElemTypeAttr(), origOp.getMaskAwareAttr());
     auto newTransposeOp =
-            rewriter.create<IE::TransposeOp>(takeOpLoc(origOp, "transpose_softmax_out"), newSoftmaxOp.getOutput(),
-                                             transposeOp.getOrder(), transposeOp.getOrderValueAttr());
+            IE::TransposeOp::create(rewriter, takeOpLoc(origOp, "transpose_softmax_out"), newSoftmaxOp.getOutput(),
+                                    transposeOp.getOrder(), transposeOp.getOrderValueAttr());
     origOp.replaceAllUsesWith(newTransposeOp.getOutput());
 
     return mlir::success();
@@ -193,8 +193,8 @@ mlir::LogicalResult MoveThroughSlice::matchAndRewrite(IE::SliceOp origOp, mlir::
 
             updateSliceAttributes(staticSizes, staticOffsets, orderAttr.getValue(), origPermuteInputOrder);
 
-            auto newSliceOp = rewriter.create<IE::SliceOp>(takeOpLoc(slice, "as_slice"), origTransposeOp.getInput(),
-                                                           staticOffsets, staticSizes);
+            auto newSliceOp = IE::SliceOp::create(rewriter, takeOpLoc(slice, "as_slice"), origTransposeOp.getInput(),
+                                                  staticOffsets, staticSizes);
 
             auto newTranspose = rewriter.replaceOpWithNewOp<IE::TransposeOp>(slice, newSliceOp.getResult(), nullptr,
                                                                              origTransposeOp.getOrderValueAttr());
@@ -259,8 +259,8 @@ mlir::LogicalResult MoveThroughEltwiseGeneric<ConcreteOp>::matchAndRewrite(Concr
     vpux::inferReturnTypes(newOp, vpux::InferShapedTypeMode::SHAPE);
 
     auto newTransposeOp =
-            rewriter.create<IE::TransposeOp>(takeOpLoc(origOp, "transpose_eltwise_out"), newOp->getResult(0),
-                                             transposeOp.getOrder(), transposeOp.getOrderValueAttr());
+            IE::TransposeOp::create(rewriter, takeOpLoc(origOp, "transpose_eltwise_out"), newOp->getResult(0),
+                                    transposeOp.getOrder(), transposeOp.getOrderValueAttr());
     rewriter.replaceOp(origOp, newTransposeOp.getOutput());
 
     return mlir::success();
@@ -348,9 +348,10 @@ mlir::LogicalResult MoveTransposeThroughMultiply::processMultiplyOpWithBroadCast
                                                               nullptr, mlir::AffineMapAttr::get(inversePermutation));
     }
 
-    auto newMultiply = rewriter.create<IE::MultiplyOp>(
-            takeOpLoc(origOp, "as_multiply"), transposeOp.getInput(), anotherInput, origOp.getAutoBroadcastAttr(),
-            origOp.getPostOpAttr(), origOp.getClampAttr(), origOp.getOutputPaddingAttr(), origOp.getInputPaddingAttr());
+    auto newMultiply =
+            IE::MultiplyOp::create(rewriter, takeOpLoc(origOp, "as_multiply"), transposeOp.getInput(), anotherInput,
+                                   origOp.getAutoBroadcastAttr(), origOp.getPostOpAttr(), origOp.getClampAttr(),
+                                   origOp.getOutputPaddingAttr(), origOp.getInputPaddingAttr());
     auto newTranspose = rewriter.replaceOpWithNewOp<IE::TransposeOp>(origOp, newMultiply.getOutput(), nullptr,
                                                                      transposeOp.getOrderValueAttr());
     extendOpLoc(newTranspose, "transpose_mul1_out");
@@ -396,8 +397,8 @@ mlir::LogicalResult MoveTransposeThroughMultiply::matchAndRewrite(IE::MultiplyOp
     auto input1 = transpose1Op.getInput();
     auto input2 = transpose2Op.getInput();
     auto newOutputType = origOutputType.changeShape(getShape(input1));
-    auto newMultiplyOp = rewriter.create<IE::MultiplyOp>(
-            takeOpLoc(origOp, "as_multiply"), newOutputType, input1, input2, origOp.getAutoBroadcastAttr(),
+    auto newMultiplyOp = IE::MultiplyOp::create(
+            rewriter, takeOpLoc(origOp, "as_multiply"), newOutputType, input1, input2, origOp.getAutoBroadcastAttr(),
             origOp.getPostOpAttr(), origOp.getClampAttr(), origOp.getOutputPaddingAttr(), origOp.getInputPaddingAttr());
 
     auto newTranspose = rewriter.replaceOpWithNewOp<IE::TransposeOp>(
@@ -639,14 +640,15 @@ mlir::LogicalResult MoveConcatThroughTranspose::matchAndRewrite(IE::ConcatOp ori
             newInputs.push_back(transposeOp.getInput());
         } else {
             auto newTranspose =
-                    rewriter.create<IE::TransposeOp>(takeOpLoc(origConcatOp, "inv_transpose_in{0}", inputsIdx), input,
-                                                     nullptr, mlir::AffineMapAttr::get(inversePermutation));
+                    IE::TransposeOp::create(rewriter, takeOpLoc(origConcatOp, "inv_transpose_in{0}", inputsIdx), input,
+                                            nullptr, mlir::AffineMapAttr::get(inversePermutation));
             newInputs.push_back(newTranspose.getOutput());
         }
     }
 
     // Create new Concat and forward Transpose
-    auto newConcat = rewriter.create<IE::ConcatOp>(takeOpLoc(origConcatOp, "as_concat"), newInputs, Dim(newConcatAxis));
+    auto newConcat =
+            IE::ConcatOp::create(rewriter, takeOpLoc(origConcatOp, "as_concat"), newInputs, Dim(newConcatAxis));
     auto newTranspose = rewriter.replaceOpWithNewOp<IE::TransposeOp>(origConcatOp, newConcat.getOutput(), nullptr,
                                                                      singleTransposeOp.getOrderValueAttr());
     extendOpLoc(newTranspose, "transpose_out");
@@ -696,8 +698,8 @@ mlir::LogicalResult MoveTransposeThroughRMS::matchAndRewrite(IE::RMSOp origOp, m
         return matchFailed(_log, rewriter, origOp, "Transpose changes the last dimension");
     }
 
-    auto newRmsOp = rewriter.create<IE::RMSOp>(takeOpLoc(origOp, "as_rms"), transposeOp.getInput(), origOp.getGamma(),
-                                               origOp.getEpsAttr(), origOp.getConditionalEpsAttr());
+    auto newRmsOp = IE::RMSOp::create(rewriter, takeOpLoc(origOp, "as_rms"), transposeOp.getInput(), origOp.getGamma(),
+                                      origOp.getEpsAttr(), origOp.getEpsModeAttr());
 
     auto newTranspose = rewriter.replaceOpWithNewOp<IE::TransposeOp>(origOp, newRmsOp.getOutput(),
                                                                      transposeOp.getOrder(), orderAttr);
@@ -842,13 +844,13 @@ private:
         }
 
         const auto updatesPermAttr = computeUpdatesPermutation(origOp, axisValue, newAxisValue, invPreOrder);
-        auto newUpdates = rewriter.create<IE::TransposeOp>(takeOpLoc(origOp, "updates_transpose"), origOp.getUpdates(),
-                                                           nullptr, updatesPermAttr);
+        auto newUpdates = IE::TransposeOp::create(rewriter, takeOpLoc(origOp, "updates_transpose"), origOp.getUpdates(),
+                                                  nullptr, updatesPermAttr);
 
         const auto newAxisAttr = getIntAttr(rewriter.getContext(), newAxisValue);
         auto newScatterOp =
-                rewriter.create<IE::ScatterUpdateOp>(origOp->getLoc(), preTransposeOp.getInput(), origOp.getIndices(),
-                                                     newUpdates.getOutput(), nullptr, newAxisAttr);
+                IE::ScatterUpdateOp::create(rewriter, origOp->getLoc(), preTransposeOp.getInput(), origOp.getIndices(),
+                                            newUpdates.getOutput(), nullptr, newAxisAttr);
 
         rewriter.replaceOp(postTransposeOp, newScatterOp.getOutput());
         rewriter.eraseOp(origOp);

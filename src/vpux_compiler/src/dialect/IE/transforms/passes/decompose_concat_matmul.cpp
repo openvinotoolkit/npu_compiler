@@ -143,8 +143,8 @@ void DecomposeConcatMatMulPass::decomposeConcatMatMul(IE::MatMulOp matmulOp) con
         sliceSizes[Dim(input2Shape.size() - 1)] = 1;  // Take 1 slice along K dimension
         auto sizesAttr = getIntArrayAttr(rewriter.getContext(), sliceSizes);
 
-        auto sliceOp = rewriter.create<IE::SliceOp>(appendLoc(matmulOp.getLoc(), "weight_slice_{0}", i),
-                                                    matmulOp.getInput2(), offsetsAttr, sizesAttr);
+        auto sliceOp = IE::SliceOp::create(rewriter, appendLoc(matmulOp.getLoc(), "weight_slice_{0}", i),
+                                           matmulOp.getInput2(), offsetsAttr, sizesAttr);
         weightSlices.push_back(sliceOp.getOutput());
     }
 
@@ -178,20 +178,19 @@ void DecomposeConcatMatMulPass::decomposeConcatMatMul(IE::MatMulOp matmulOp) con
         SmallVector<mlir::Value> products;
 
         for (size_t inputIdx = 0; inputIdx < numInputs; ++inputIdx) {
-            auto multiplyOp = rewriter.create<IE::MultiplyOp>(
-                    appendLoc(matmulOp.getLoc(), "multiply_{0}_{1}", inputIdx, outputIdx), concatInputs[inputIdx],
-                    weightSubSlices[inputIdx][outputIdx], IE::AutoBroadcastType::NUMPY, nullptr, nullptr, nullptr,
-                    nullptr);
+            auto multiplyOp = IE::MultiplyOp::create(
+                    rewriter, appendLoc(matmulOp.getLoc(), "multiply_{0}_{1}", inputIdx, outputIdx),
+                    concatInputs[inputIdx], weightSubSlices[inputIdx][outputIdx], IE::AutoBroadcastType::NUMPY, nullptr,
+                    nullptr, nullptr, nullptr);
             products.push_back(multiplyOp.getOutput());
         }
 
         // Add all products together
-        VPUX_THROW_UNLESS(!products.empty(), "Products vector should not be empty");
+        VPUX_THROW_WHEN(products.empty(), "Products vector should not be empty");
         mlir::Value result = products[0];
         for (size_t i = 1; i < products.size(); ++i) {
-            result = rewriter.create<IE::AddOp>(appendLoc(matmulOp.getLoc(), "add_{0}_{1}", outputIdx, i), result,
-                                                products[i], IE::AutoBroadcastType::NUMPY, nullptr, nullptr, nullptr,
-                                                nullptr)
+            result = IE::AddOp::create(rewriter, appendLoc(matmulOp.getLoc(), "add_{0}_{1}", outputIdx, i), result,
+                                       products[i], IE::AutoBroadcastType::NUMPY, nullptr, nullptr, nullptr, nullptr)
                              .getOutput();
         }
 
@@ -204,9 +203,8 @@ void DecomposeConcatMatMulPass::decomposeConcatMatMul(IE::MatMulOp matmulOp) con
         finalResult = outputChannels[0];
     } else {
         // Concatenate along the last dimension
-        auto concatOutputOp =
-                rewriter.create<IE::ConcatOp>(appendLoc(matmulOp.getLoc(), "final_concat"), outputChannels,
-                                              static_cast<int64_t>(input2Shape.size() - 1));
+        auto concatOutputOp = IE::ConcatOp::create(rewriter, appendLoc(matmulOp.getLoc(), "final_concat"),
+                                                   outputChannels, static_cast<int64_t>(input2Shape.size() - 1));
         finalResult = concatOutputOp.getOutput();
     }
 

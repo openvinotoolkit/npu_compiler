@@ -159,8 +159,8 @@ void replaceReturnOpWithOpRanges(mlir::func::FuncOp funcOp) {
     assert(returnOp);
 
     mlir::OpBuilder builder(returnOp);
-    builder.create<VPUMI40XX::OpRanges>(returnOp->getLoc(), mlir::ArrayRef(rangesBegins), mlir::ArrayRef(rangesEnds),
-                                        mlir::ArrayAttr::get(context, rangesTaskTypesAttrs));
+    VPUMI40XX::OpRanges::create(builder, returnOp->getLoc(), mlir::ArrayRef(rangesBegins), mlir::ArrayRef(rangesEnds),
+                                mlir::ArrayAttr::get(context, rangesTaskTypesAttrs));
 
     returnOp->erase();
 }
@@ -184,7 +184,7 @@ void createProfilingMetadataOp(mlir::func::FuncOp funcOp, Logger log) {
     auto vectorType = mlir::VectorType::get({bufferSize}, getUInt8Type(ctx));
     const auto elemAttr = mlir::DenseElementsAttr::getFromRawBuffer(vectorType, rawMetadata);
     auto trivialIndexType = VPURegMapped::IndexType::get(ctx, 0);
-    builderFunc.create<VPUMI40XX::ProfilingMetadataOp>(mlir::UnknownLoc::get(ctx), trivialIndexType, elemAttr);
+    VPUMI40XX::ProfilingMetadataOp::create(builderFunc, mlir::UnknownLoc::get(ctx), trivialIndexType, elemAttr);
 }
 
 struct MappedInferenceTaskInfo {
@@ -286,7 +286,7 @@ std::pair<mlir::Value, SmallVector<mlir::Value>> setupActKernelRt(
     // check for actShaveRt info
     mlir::Value actShvRt;
     auto vpuSwModuleOp = moduleOp.lookupSymbol<mlir::ModuleOp>("VPU.SW");
-    VPUX_THROW_UNLESS(vpuSwModuleOp != nullptr, "setupActKernelConfig: @VPU.SW module missing.");
+    VPUX_THROW_WHEN(vpuSwModuleOp == nullptr, "setupActKernelConfig: @VPU.SW module missing.");
     auto runtimeKernelFunction = vpuSwModuleOp.lookupSymbol<mlir::func::FuncOp>("runtime");
 
     // check for actShave stacks info
@@ -298,7 +298,7 @@ std::pair<mlir::Value, SmallVector<mlir::Value>> setupActKernelRt(
         auto swRtOp = *(swRtOpRange.begin());
 
         auto stackSizes = mlir::extractFromIntegerArrayAttr<int64_t>(swRtOp.getStacks());
-        VPUX_THROW_UNLESS(!stackSizes.empty(), "VPURT.SW.Runtime op should have non-empty 'stacks' attribute");
+        VPUX_THROW_WHEN(stackSizes.empty(), "VPURT.SW.Runtime op should have non-empty 'stacks' attribute");
         VPUX_THROW_UNLESS(std::equal(stackSizes.begin() + 1, stackSizes.end(), stackSizes.begin()),
                           "Expected all stacks to be equal!");
 
@@ -310,8 +310,8 @@ std::pair<mlir::Value, SmallVector<mlir::Value>> setupActKernelRt(
             // and to be able to correctly test E2E functionality.
             static constexpr size_t countSize = 16;
             static constexpr size_t overrideDefaultStackSize = countSize * Byte(1_KB).count();
-            auto stack = builderFunc.create<VPUMI40XX::ShaveStackFrameBuffOp>(builderFunc.getUnknownLoc(), indexType,
-                                                                              overrideDefaultStackSize);
+            auto stack = VPUMI40XX::ShaveStackFrameBuffOp::create(builderFunc, builderFunc.getUnknownLoc(), indexType,
+                                                                  overrideDefaultStackSize);
 
             shaveStacks.push_back(stack.getResult());
         }
@@ -324,17 +324,17 @@ std::pair<mlir::Value, SmallVector<mlir::Value>> setupActKernelRt(
         auto trivialIndexType = VPURegMapped::IndexType::get(ctx, 0);
 
         auto actShvRtOp =
-                builderFunc.create<VPUMI40XX::ActShaveRtOp>(builderFunc.getUnknownLoc(), trivialIndexType, kernelElf);
+                VPUMI40XX::ActShaveRtOp::create(builderFunc, builderFunc.getUnknownLoc(), trivialIndexType, kernelElf);
 
         actShvRt = actShvRtOp.getResult();
     } else {
         auto actRtCodeBufferMemrefType = vpux::ELF::getLinearMemrefType(ctx, ACT_RT_CODE_BUFFER_SIZE,
                                                                         vpux::getInt8Type(ctx), VPU::MemoryKind::DDR);
 
-        auto declareBufferOp = builderFunc.create<VPURT::DeclareBufferOp>(builderFunc.getUnknownLoc(),
-                                                                          actRtCodeBufferMemrefType,  // Type
-                                                                          VPURT::BufferSection::DDR,  // Buffer Type
-                                                                          0                           // byteOffset
+        auto declareBufferOp = VPURT::DeclareBufferOp::create(builderFunc, builderFunc.getUnknownLoc(),
+                                                              actRtCodeBufferMemrefType,  // Type
+                                                              VPURT::BufferSection::DDR,  // Buffer Type
+                                                              0                           // byteOffset
         );
 
         actShvRt = declareBufferOp.getResult();
@@ -424,8 +424,8 @@ void createMappedInferenceOp(mlir::func::FuncOp funcOp, AllocateDDRStackFrames a
     }
 
     auto trivialIndexType = VPURegMapped::IndexType::get(ctx, 0);
-    builderFunc.create<VPUMI40XX::MappedInferenceOp>(
-            mlir::UnknownLoc::get(ctx), trivialIndexType,
+    VPUMI40XX::MappedInferenceOp::create(
+            builderFunc, mlir::UnknownLoc::get(ctx), trivialIndexType,
             ArrayRef(dmaTasksArg.data(), dmaTasksArgLength),  // llvm::ArrayRef<::mlir::ValueRange> dmaTasks
             invariantTasks,                                   // mlir::ValueRange invariantTasks
             variantTasks,                                     // mlir::ValueRange variantTasks

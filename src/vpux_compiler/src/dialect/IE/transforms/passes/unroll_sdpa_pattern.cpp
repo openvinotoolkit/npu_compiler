@@ -3,25 +3,21 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-#include "vpux/compiler/dialect/IE/IR/dialect.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/activation.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/data_type.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/eltwise.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/shape_manipulation.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
 #include "vpux/compiler/dialect/IE/utils/check_shrink_matmul_groups.hpp"
+#include "vpux/compiler/dialect/IE/utils/dynamic_dequantize_utils.hpp"
 #include "vpux/compiler/dialect/IE/utils/matmul.hpp"
 #include "vpux/compiler/dialect/IE/utils/quantization.hpp"
 #include "vpux/compiler/dialect/IE/utils/reshape_utils.hpp"
-#include "vpux/compiler/dialect/IE/utils/slice_utils.hpp"
 #include "vpux/compiler/dialect/VPU/IR/attributes.hpp"
 #include "vpux/compiler/dialect/config/IR/resources.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
 #include "vpux/compiler/dialect/const/utils/utils.hpp"
-#include "vpux/compiler/utils/analysis.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
-#include "vpux/compiler/utils/error.hpp"
-#include "vpux/compiler/utils/locations.hpp"
 #include "vpux/compiler/utils/permute_utils.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 #include "vpux/compiler/utils/walk_utils.hpp"
@@ -98,6 +94,22 @@ bool UnrollSDPAPattern::isSupportedOpOnQKVPath(mlir::Operation* op) const {
 
     if (auto fq = mlir::dyn_cast_if_present<IE::FakeQuantizeOp>(op)) {
         return IE::isPerTensorFQ({fq});
+    }
+
+    if (auto dynDeq = mlir::dyn_cast_if_present<IE::DynamicDequantizeOp>(op)) {
+        // Rebuilding the path re-creates scale/zp as constants (see cloneDynDeq), so a
+        // DynamicDequantize with non-constant parameters cannot be unrolled.
+        if (!vpux::Const::isConstValue(dynDeq.getScale()) ||
+            (dynDeq.getZp() != nullptr && !vpux::Const::isConstValue(dynDeq.getZp()))) {
+            return false;
+        }
+        // cloneDynDeq can only slice a parameter along a single non-one dimension.
+        const auto isPerTensor = [](mlir::Value param) {
+            return llvm::none_of(getShape(param), [](auto dim) {
+                return dim > 1;
+            });
+        };
+        return isPerTensor(dynDeq.getScale()) && (dynDeq.getZp() == nullptr || isPerTensor(dynDeq.getZp()));
     }
 
     return false;
@@ -331,8 +343,8 @@ bool UnrollSDPAPattern::isUnrollingBeneficial(SDPAPattern& pattern) const {
     auto matMulOp = pattern.matMulOp;
     const auto seqLen = getShape(matMulOp.getInput1())[Dims4D::Act::H];
     auto alignedChannelOpInterface = mlir::dyn_cast<IE::AlignedChannelsOpInterface>(matMulOp.getOperation());
-    VPUX_THROW_UNLESS(alignedChannelOpInterface != nullptr,
-                      "MatMulOp {0} does not implement AlignedChannelsOpInterface", matMulOp);
+    VPUX_THROW_WHEN(alignedChannelOpInterface == nullptr, "MatMulOp {0} does not implement AlignedChannelsOpInterface",
+                    matMulOp);
     auto inputChannelAlignment = alignedChannelOpInterface.getInputChannelAlignment();
     if (seqLen % inputChannelAlignment != 0) {
         // The DMA arising from expanding channels might affect scheduling. Although ExpandAttention exists to handle
@@ -517,9 +529,9 @@ static SmallVector<mlir::Value> splitTensor(mlir::Value input, int64_t batch, Di
 
         Shape sliceSizes = inputShape;
         sliceSizes[channelDim] = 1;
-        auto sliceOp = rewriter.create<IE::SliceOp>(appendLoc(origLoc, "{0}_slice_{1}", prefix, i), input,
-                                                    getIntArrayAttr(rewriter.getContext(), sliceOffsets),
-                                                    getIntArrayAttr(rewriter.getContext(), sliceSizes));
+        auto sliceOp = IE::SliceOp::create(rewriter, appendLoc(origLoc, "{0}_slice_{1}", prefix, i), input,
+                                           getIntArrayAttr(rewriter.getContext(), sliceOffsets),
+                                           getIntArrayAttr(rewriter.getContext(), sliceSizes));
         results.push_back(sliceOp.getOutput());
     }
 
@@ -531,14 +543,15 @@ static SmallVector<mlir::Value> rebuildOpsOnQKVPath(mlir::PatternRewriter& rewri
                                                     int64_t batchSize, const std::string& prefix) {
     const auto ctx = rewriter.getContext();
 
-    auto cloneFQ = [&](IE::FakeQuantizeOp fqOp, mlir::Value input, int64_t offset, int64_t size) -> mlir::Value {
+    auto cloneDynDeq = [&](IE::DynamicDequantizeOp dynDeqOp, mlir::Value input, int64_t offset,
+                           int64_t size) -> mlir::Value {
         auto createConstParams = [&](mlir::Value parameter, mlir::Location loc) -> mlir::Value {
             auto constOp = parameter.getDefiningOp<Const::DeclareOp>();
-            VPUX_THROW_UNLESS(constOp != nullptr, "Expected parameter to be a constant");
+            VPUX_THROW_WHEN(constOp == nullptr, "Expected parameter to be a constant");
             if (getShape(parameter).totalSize() == 1) {
                 const Shape targetShape({1});
                 const auto newContentAttr = constOp.transformContentAttr().reshape(targetShape).get();
-                return rewriter.create<Const::DeclareOp>(loc, newContentAttr.getType(), std::move(newContentAttr))
+                return Const::DeclareOp::create(rewriter, loc, newContentAttr.getType(), std::move(newContentAttr))
                         .getOutput();
             }
 
@@ -553,26 +566,26 @@ static SmallVector<mlir::Value> rebuildOpsOnQKVPath(mlir::PatternRewriter& rewri
             sliceSize[sliceDim.ind()] = size;
             const auto newContentAttr =
                     constOp.transformContentAttr().subview(ShapeRef(sliceOffset), ShapeRef(sliceSize)).get();
-            return rewriter.create<Const::DeclareOp>(loc, newContentAttr.getType(), std::move(newContentAttr))
+            return Const::DeclareOp::create(rewriter, loc, newContentAttr.getType(), std::move(newContentAttr))
                     .getOutput();
         };
 
-        auto inputLow = createConstParams(fqOp.getInputLow(), appendLoc(fqOp.getLoc(), "input_low"));
-        auto inputHigh = createConstParams(fqOp.getInputHigh(), appendLoc(fqOp.getLoc(), "input_high"));
-        auto outputLow = createConstParams(fqOp.getOutputLow(), appendLoc(fqOp.getLoc(), "output_low"));
-        auto outputHigh = createConstParams(fqOp.getOutputHigh(), appendLoc(fqOp.getLoc(), "output_high"));
+        auto scale = createConstParams(dynDeqOp.getScale(), appendLoc(dynDeqOp.getLoc(), "scale"));
+        auto zp = dynDeqOp.getZp() != nullptr ? createConstParams(dynDeqOp.getZp(), appendLoc(dynDeqOp.getLoc(), "zp"))
+                                              : nullptr;
 
-        return rewriter
-                .create<IE::FakeQuantizeOp>(appendLoc(fqOp.getLoc(), "_{}", offset), input, inputLow, inputHigh,
-                                            outputLow, outputHigh, fqOp.getLevelsAttr(), fqOp.getLowFpTypeAttr(),
-                                            fqOp.getAutoBroadcastAttr())
-                .getOutput();
+        auto newDynDeqOp = IE::DynamicDequantizeOp::create(rewriter, appendLoc(dynDeqOp.getLoc(), "_{}", offset), input,
+                                                           scale, zp, dynDeqOp.getDstElemType());
+        if (dynDeqOp->hasAttr(IE::WEIGHTS_IMPORT_DYN_DEQUANT_ATTR)) {
+            newDynDeqOp->setAttr(IE::WEIGHTS_IMPORT_DYN_DEQUANT_ATTR, mlir::UnitAttr::get(rewriter.getContext()));
+        }
+        return newDynDeqOp.getOutput();
     };
 
     SmallVector<mlir::Value> rebuiltValues;
-    VPUX_THROW_UNLESS(!opsOnPath.empty(), "Ops on Q/K/V path is empty, cannot rebuild");
+    VPUX_THROW_WHEN(opsOnPath.empty(), "Ops on Q/K/V path is empty, cannot rebuild");
     auto fcOp = mlir::dyn_cast<IE::FullyConnectedOp>(opsOnPath.back().first);
-    VPUX_THROW_UNLESS(fcOp != nullptr, "Last op on Q/K/V path must be a FullyConnectedOp");
+    VPUX_THROW_WHEN(fcOp == nullptr, "Last op on Q/K/V path must be a FullyConnectedOp");
 
     auto input = fcOp.getWeights();
     auto unrolledDim = opsOnPath.back().second;
@@ -593,11 +606,11 @@ static SmallVector<mlir::Value> rebuildOpsOnQKVPath(mlir::PatternRewriter& rewri
         sliceSizesVec[unrolledDim.ind()] = unrolledDimSize / batchSize;
 
         mlir::Value slicedWeights;
-        if (auto fq = mlir::dyn_cast_if_present<IE::FakeQuantizeOp>(input.getDefiningOp())) {
+        if (auto dynDeq = mlir::dyn_cast_if_present<IE::DynamicDequantizeOp>(input.getDefiningOp())) {
             slicedWeights = rewriter.createOrFold<IE::SliceOp>(appendLoc(input.getLoc(), "{0}_{1}", prefix, index),
-                                                               fq.getInput(), getIntArrayAttr(ctx, sliceOffsetsVec),
+                                                               dynDeq.getInput(), getIntArrayAttr(ctx, sliceOffsetsVec),
                                                                getIntArrayAttr(ctx, sliceSizesVec));
-            slicedWeights = cloneFQ(fq, slicedWeights, index, unrolledDimSize / batchSize);
+            slicedWeights = cloneDynDeq(dynDeq, slicedWeights, index, unrolledDimSize / batchSize);
         } else {
             slicedWeights = rewriter.createOrFold<IE::SliceOp>(appendLoc(input.getLoc(), "{0}_{1}", prefix, index),
                                                                input, getIntArrayAttr(ctx, sliceOffsetsVec),
@@ -605,18 +618,17 @@ static SmallVector<mlir::Value> rebuildOpsOnQKVPath(mlir::PatternRewriter& rewri
         }
 
         mlir::Value outputVal =
-                rewriter.create<IE::FullyConnectedOp>(appendLoc(fcOp.getLoc(), "{0}_{1}", prefix, index),
-                                                      fcOp.getInput(), slicedWeights, fcOp.getBias())
+                IE::FullyConnectedOp::create(rewriter, appendLoc(fcOp.getLoc(), "{0}_{1}", prefix, index),
+                                             fcOp.getInput(), slicedWeights, fcOp.getBias())
                         .getOutput();
 
         for (auto opsOnPathIt = opsOnPath.rbegin() + 1; opsOnPathIt != opsOnPath.rend(); ++opsOnPathIt) {
             const auto [op, dim] = *opsOnPathIt;
             if (auto transposeOp = mlir::dyn_cast<IE::TransposeOp>(op)) {
-                outputVal =
-                        rewriter.create<IE::TransposeOp>(appendLoc(transposeOp.getLoc(), "{0}_{1}", prefix, index),
-                                                         outputVal, /*order*/ nullptr, transposeOp.getOrderValueAttr())
-                                .getOutput();
-            } else if (mlir::isa_and_present<IE::FakeQuantizeOp>(op)) {
+                outputVal = IE::TransposeOp::create(rewriter, appendLoc(transposeOp.getLoc(), "{0}_{1}", prefix, index),
+                                                    outputVal, /*order*/ nullptr, transposeOp.getOrderValueAttr())
+                                    .getOutput();
+            } else if (mlir::isa_and_present<IE::FakeQuantizeOp, IE::DynamicDequantizeOp>(op)) {
                 mlir::IRMapping mapper;
                 auto operands = llvm::to_vector(op->getOperands());
                 operands[0] = outputVal;
@@ -631,9 +643,9 @@ static SmallVector<mlir::Value> rebuildOpsOnQKVPath(mlir::PatternRewriter& rewri
                 VPUX_THROW_UNLESS(newOutShape.has_value(), "Failed to compute output shape for AffineReshapeOp");
                 auto newOutShapeAttr = getIntArrayAttr(rewriter.getContext(), newOutShape.value());
                 outputVal =
-                        rewriter.create<IE::AffineReshapeOp>(
-                                        appendLoc(affineReshapeOp.getLoc(), "{0}_affine_reshape_{1}", prefix, index),
-                                        outputVal, affineReshapeOp.getDimMapping(), newOutShapeAttr)
+                        IE::AffineReshapeOp::create(
+                                rewriter, appendLoc(affineReshapeOp.getLoc(), "{0}_affine_reshape_{1}", prefix, index),
+                                outputVal, affineReshapeOp.getDimMapping(), newOutShapeAttr)
                                 .getOutput();
             } else if (mlir::isa_and_present<IE::AddOp, IE::MultiplyOp>(op)) {
                 mlir::IRMapping mapper;
@@ -764,8 +776,8 @@ mlir::LogicalResult UnrollSDPAPattern::unrollAndRearrangePattern(SDPAPattern& pa
         // Add_split operation
         mlir::Value softmaxInput = matMul1->getResult(0);
         if (addOp != nullptr) {
-            auto addNewOp = rewriter.create<IE::AddOp>(
-                    appendLoc(addOp->getLoc(), "_add_" + std::to_string(i)), matMul1->getResult(0), maskValue,
+            auto addNewOp = IE::AddOp::create(
+                    rewriter, appendLoc(addOp->getLoc(), "_add_" + std::to_string(i)), matMul1->getResult(0), maskValue,
                     /*auto_broadcast=*/
                     IE::AutoBroadcastTypeAttr::get(rewriter.getContext(), IE::AutoBroadcastType::NUMPY), nullptr,
                     nullptr, nullptr, nullptr);
@@ -783,17 +795,17 @@ mlir::LogicalResult UnrollSDPAPattern::unrollAndRearrangePattern(SDPAPattern& pa
             concatInputsOrdered[addInputIndex] = softmaxInput;
             concatInputsOrdered[1 - addInputIndex] = concatAdditionalParts[i];
 
-            auto concatNewOp = rewriter.create<IE::ConcatOp>(
-                    appendLoc(concatOp->getLoc(), "_concat_" + std::to_string(i)),
+            auto concatNewOp = IE::ConcatOp::create(
+                    rewriter, appendLoc(concatOp->getLoc(), "_concat_" + std::to_string(i)),
                     mlir::ValueRange(concatInputsOrdered), concatOp.getPerAxisAttr(), concatOp.getStaticOffsetsAttr());
             softmaxInput = concatNewOp.getOutput();
         }
 
         // Softmax_split operation
         auto softmaxNewOp =
-                rewriter.create<IE::SoftMaxOp>(appendLoc(softmaxOp->getLoc(), "_softmax_" + std::to_string(i)),
-                                               softmaxInput, softmaxOp.getAxisIndAttr(), softmaxOp.getPadSizeAttr(),
-                                               softmaxOp.getDstElemTypeAttr(), softmaxOp.getMaskAwareAttr());
+                IE::SoftMaxOp::create(rewriter, appendLoc(softmaxOp->getLoc(), "_softmax_" + std::to_string(i)),
+                                      softmaxInput, softmaxOp.getAxisIndAttr(), softmaxOp.getPadSizeAttr(),
+                                      softmaxOp.getDstElemTypeAttr(), softmaxOp.getMaskAwareAttr());
 
         mlir::Value matMulVInput = softmaxNewOp.getOutput();
 
@@ -810,10 +822,10 @@ mlir::LogicalResult UnrollSDPAPattern::unrollAndRearrangePattern(SDPAPattern& pa
             newOffsets[channelDim.ind()] = 0;
             newSizes[channelDim.ind()] = 1;
 
-            auto sliceNewOp = rewriter.create<IE::SliceOp>(appendLoc(sliceOp->getLoc(), "_slice_" + std::to_string(i)),
-                                                           softmaxNewOp.getOutput(),
-                                                           getIntArrayAttr(rewriter.getContext(), newOffsets),
-                                                           getIntArrayAttr(rewriter.getContext(), newSizes));
+            auto sliceNewOp =
+                    IE::SliceOp::create(rewriter, appendLoc(sliceOp->getLoc(), "_slice_" + std::to_string(i)),
+                                        softmaxNewOp.getOutput(), getIntArrayAttr(rewriter.getContext(), newOffsets),
+                                        getIntArrayAttr(rewriter.getContext(), newSizes));
             matMulVInput = sliceNewOp.getResult();
         }
 
@@ -827,8 +839,8 @@ mlir::LogicalResult UnrollSDPAPattern::unrollAndRearrangePattern(SDPAPattern& pa
 
     // Step 4: Concat final results if needed and replace the original matMulV
     mlir::Value finalValue = finalResults.size() != 1
-                                     ? rewriter.create<IE::ConcatOp>(takeOpLoc(pattern.matMulV, "slice_gather"),
-                                                                     finalResults, channelDim.ind())
+                                     ? IE::ConcatOp::create(rewriter, takeOpLoc(pattern.matMulV, "slice_gather"),
+                                                            finalResults, channelDim.ind())
                                                .getOutput()
                                      : finalResults.front();
 

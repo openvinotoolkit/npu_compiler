@@ -89,43 +89,6 @@ func.func @MoveShapeCastBeforeTilingCopyOverlapped(%arg0: !InputDistributed) -> 
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
 !InputDistributed = !VPUIP.DistributedBuffer<
-    1x3x128x128xf16, #NHWC, @CMX_NN, {
-    mode = "OVERLAPPED",
-    num_tiles = [1, 1, 2, 1],
-    num_clusters = 2 : i64,
-    uniform_distributed_segments,
-    compute_shapes = [[1, 3, 64, 128], [1, 3, 64, 128]],
-    compute_offsets = [[0, 0, 0, 0], [0, 0, 64, 0]],
-    memory_shapes = [[1, 3, 64, 128], [1, 3, 64, 128]],
-    memory_offsets = [[0, 0, 0, 0], [0, 0, 64, 0]]
-}>
-
-// CHECK-LABEL: @NotMoveShapeCastBeforeTilingCopyOverlapped
-// CHECK-SAME:  [[INPUT:%.+]]: !VPUIP.DistributedBuffer<1x3x128x128xf16, #NHWC, @CMX_NN, {mode = "OVERLAPPED"
-func.func @NotMoveShapeCastBeforeTilingCopyOverlapped(%arg0: !InputDistributed) -> memref<1x48x32x32xf16, {order = #NHWC}, @DDR> {
-    %alloc = memref.alloc() : memref<1x3x128x128xf16, {order = #NHWC}, @DDR>
-    %0 = VPUIP.Copy
-        inputs(%arg0 : !InputDistributed)
-        outputs(%alloc : memref<1x3x128x128xf16, {order = #NHWC}, @DDR>) ->  memref<1x3x128x128xf16, {order = #NHWC}, @DDR>
-    %1 = VPUIP.ShapeCast {shape = [1, 48, 32, 32]} inputs(%0 : memref<1x3x128x128xf16, {order = #NHWC}, @DDR>) -> memref<1x48x32x32xf16, {order = #NHWC}, @DDR>
-
-    return %1 : memref<1x48x32x32xf16, {order = #NHWC}, @DDR>
-
-    //CHECK:               [[OUTBUFF:%.+]] = memref.alloc() : memref<1x3x128x128xf16, {order = #NHWC}, @DDR>
-    // CHECK:              [[COPY:%.+]] = VPUIP.Copy
-    // CHECK-SAME:           inputs([[INPUT]]
-    // CHECK-SAME:           outputs([[OUTBUFF]] : memref<1x3x128x128xf16, {order = #NHWC}, @DDR>) -> memref<1x3x128x128xf16, {order = #NHWC}, @DDR>
-    //CHECK:               [[SHAPECAST:%.+]] = VPUIP.ShapeCast {shape = [1, 48, 32, 32]}
-    //CHECK-SAME:              inputs([[COPY]] : memref<1x3x128x128xf16, {order = #NHWC}, @DDR>)
-    //CHECK-SAME:              -> memref<1x48x32x32xf16, {order = #NHWC}, @DDR>
-    //CHECK:               return [[SHAPECAST]] : memref<1x48x32x32xf16, {order = #NHWC}, @DDR>
-}
-
-// -----
-
-#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
-
-!InputDistributed = !VPUIP.DistributedBuffer<
     1x256x128x8xf16, #NHWC, @CMX_NN, {
     mode = "OVERLAPPED",
     num_tiles = [1, 1, 2, 1],
@@ -465,6 +428,43 @@ func.func @NoChangeWithEffectiveStridesGenericReshape(
 
 // -----
 
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+
+// CHECK-LABEL: @MoveGenericReshapeBeforeRemovableDDRStagingCopy
+// CHECK-SAME: [[INPUT:%[^:]+]]: memref<1x3328x8x8xf16, {order = #NHWC, strides = [1048576, 1, 131072, 16384]}, @DDR>
+func.func @MoveGenericReshapeBeforeRemovableDDRStagingCopy(
+    %arg0: memref<1x3328x8x8xf16, {order = #NHWC, strides = [1048576, 1, 131072, 16384]}, @DDR>)
+        -> memref<1x3328x1x64xf16, {order = #NHWC}, @CMX_NN> {
+    %ddrAlloc = memref.alloc() : memref<1x3328x8x8xf16, {order = #NHWC}, @DDR>
+    %ddrCopy = VPUIP.Copy
+        inputs(%arg0 : memref<1x3328x8x8xf16, {order = #NHWC, strides = [1048576, 1, 131072, 16384]}, @DDR>)
+        outputs(%ddrAlloc : memref<1x3328x8x8xf16, {order = #NHWC}, @DDR>)
+        -> memref<1x3328x8x8xf16, {order = #NHWC}, @DDR>
+    %reshape = VPUIP.GenericReshape
+        inputs(%ddrCopy : memref<1x3328x8x8xf16, {order = #NHWC}, @DDR>)
+        -> memref<1x3328x1x64xf16, {order = #NHWC}, @DDR>
+    %cmxAlloc = memref.alloc() : memref<1x3328x1x64xf16, {order = #NHWC}, @CMX_NN>
+    %cmxCopy = VPUIP.Copy
+        inputs(%reshape : memref<1x3328x1x64xf16, {order = #NHWC}, @DDR>)
+        outputs(%cmxAlloc : memref<1x3328x1x64xf16, {order = #NHWC}, @CMX_NN>)
+        -> memref<1x3328x1x64xf16, {order = #NHWC}, @CMX_NN>
+    return %cmxCopy : memref<1x3328x1x64xf16, {order = #NHWC}, @CMX_NN>
+
+    // CHECK: [[RESHAPE:%.+]] = VPUIP.GenericReshape inputs([[INPUT]] : memref<1x3328x8x8xf16, {order = #NHWC, strides = [1048576, 1, 131072, 16384]}, @DDR>)
+    // CHECK-SAME: -> memref<1x3328x1x64xf16, {order = #NHWC, strides = [1048576, 1, 1048576, 16384]}, @DDR>
+    // CHECK: [[DDR_ALLOC:%.+]] = memref.alloc() : memref<1x3328x1x64xf16, {order = #NHWC}, @DDR>
+    // CHECK: [[DDR_COPY:%.+]] = VPUIP.Copy
+    // CHECK-SAME: inputs([[RESHAPE]]
+    // CHECK-SAME: outputs([[DDR_ALLOC]]
+    // CHECK: [[CMX_ALLOC:%.+]] = memref.alloc() : memref<1x3328x1x64xf16, {order = #NHWC}, @CMX_NN>
+    // CHECK: [[CMX_COPY:%.+]] = VPUIP.Copy
+    // CHECK-SAME: inputs([[DDR_COPY]]
+    // CHECK-SAME: outputs([[CMX_ALLOC]]
+    // CHECK: return [[CMX_COPY]]
+}
+
+// -----
+
 #CHW = affine_map<(d0, d1, d2) -> (d0, d1, d2)>
 #map = affine_map<(d0, d1, d2) -> (d0, d2, d1)>
 
@@ -516,15 +516,15 @@ func.func @ChangeWithNotEffectiveStridesQuantizeCast(
 #CHW = affine_map<(d0, d1, d2) -> (d0, d1, d2)>
 !qElemType = !quant.uniform<u8:f16, 1.000000e+00>
 
-// CHECK-LABEL: @NoChangeWithEffectiveStridesQuantizeCast
-func.func @NoChangeWithEffectiveStridesQuantizeCast(
+// CHECK-LABEL: @ChangeWithEffectiveStridesQuantizeCast
+func.func @ChangeWithEffectiveStridesQuantizeCast(
     %arg0: memref<1x16x4xui8, {order = #CHW, strides = [256, 8, 1]}, @DDR>) -> memref<1x16x4x!qElemType, @DDR> {
     %0 = memref.alloc() : memref<1x16x4xui8, @DDR>
     %1 = VPUIP.Copy inputs(%arg0 : memref<1x16x4xui8, {order = #CHW, strides = [256, 8, 1]}, @DDR>) outputs(%0 : memref<1x16x4xui8, @DDR>) -> memref<1x16x4xui8, @DDR>
     %2 = VPUIP.QuantizeCast inputs(%1 : memref<1x16x4xui8, @DDR>) -> memref<1x16x4x!qElemType, @DDR>
     return %2 : memref<1x16x4x!qElemType, @DDR>
-    // CHECK:   VPUIP.Copy
     // CHECK:   VPUIP.QuantizeCast
+    // CHECK:   VPUIP.Copy
 }
 
 // -----
@@ -678,4 +678,27 @@ func.func @NoMoveGenericReshapeOverlappedAxisTradeStridedConcatDestination(
     //CHECK:               [[COPY0:%.+]] = VPUIP.Copy inputs([[GENERICRESHAPE]]
     //CHECK:               [[CONCAT:%.+]] = VPUIP.ConcatView
     //CHECK:               return [[CONCAT]] : memref<1x32x8x8xf16, {order = #NHWC}, @DDR>
+}
+
+// -----
+
+#CHW = affine_map<(d0, d1, d2) -> (d0, d1, d2)>
+!qElemType = !quant.uniform<u8:f16, 1.000000e+00>
+
+// CHECK-LABEL: @NoChangeWithEffectiveStridesQuantizeCastMultipleUsers
+func.func @NoChangeWithEffectiveStridesQuantizeCastMultipleUsers(
+    %arg0: memref<1x16x4xui8, {order = #CHW, strides = [256, 8, 1]}, @DDR>)
+        -> (memref<1x16x4x!qElemType, @DDR>, memref<1x1x64x!qElemType, @DDR>) {
+    %0 = memref.alloc() : memref<1x16x4xui8, @DDR>
+    %1 = VPUIP.Copy inputs(%arg0 : memref<1x16x4xui8, {order = #CHW, strides = [256, 8, 1]}, @DDR>) outputs(%0 : memref<1x16x4xui8, @DDR>) -> memref<1x16x4xui8, @DDR>
+    %2 = VPUIP.QuantizeCast inputs(%1 : memref<1x16x4xui8, @DDR>) -> memref<1x16x4x!qElemType, @DDR>
+    %3 = memref.alloc() : memref<1x16x4x!qElemType, @DDR>
+    %4 = VPUIP.Copy inputs(%2 : memref<1x16x4x!qElemType, @DDR>) outputs(%3 : memref<1x16x4x!qElemType, @DDR>) -> memref<1x16x4x!qElemType, @DDR>
+    %5 = VPUIP.ShapeCast {shape = [1, 1, 64]} inputs(%2 : memref<1x16x4x!qElemType, @DDR>) -> memref<1x1x64x!qElemType, @DDR>
+    return %4, %5 : memref<1x16x4x!qElemType, @DDR>, memref<1x1x64x!qElemType, @DDR>
+
+    // CHECK:   VPUIP.Copy
+    // CHECK:   VPUIP.QuantizeCast
+    // CHECK:   VPUIP.Copy
+    // CHECK:   VPUIP.ShapeCast
 }

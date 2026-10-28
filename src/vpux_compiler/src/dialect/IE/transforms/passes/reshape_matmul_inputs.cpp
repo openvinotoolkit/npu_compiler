@@ -123,8 +123,8 @@ void TransposeInputs(IE::MatMulOp matmulOp) {
 
         if (transposedOrderAttr(inputRank) != nullptr) {
             auto orderAttr = transposedOrderAttr(inputRank);
-            auto transpose = builder.create<IE::TransposeOp>(appendLoc(matmulOp->getLoc(), locSuffix), input, nullptr,
-                                                             orderAttr);
+            auto transpose = IE::TransposeOp::create(builder, appendLoc(matmulOp->getLoc(), locSuffix), input, nullptr,
+                                                     orderAttr);
             return transpose.getOutput();
         }
 
@@ -207,7 +207,7 @@ void CollapseBatch(IE::MatMulOp origOp) {
     auto reshapeRhs = builder.createOrFold<IE::ReshapeOp>(appendLoc(rhs.getLoc(), "reshape_rhs"), rhs,
                                                           /*shape_value=*/getIntArrayAttr(ctx, newRhsShape));
     auto fullyConnected =
-            builder.create<IE::FullyConnectedOp>(origOp.getLoc(), reshapeLhs, reshapeRhs, /*bias=*/nullptr);
+            IE::FullyConnectedOp::create(builder, origOp.getLoc(), reshapeLhs, reshapeRhs, /*bias=*/nullptr);
     auto reshapeOut =
             builder.createOrFold<IE::ReshapeOp>(appendLoc(out.getLoc(), "reshape_out"), fullyConnected.getOutput(),
                                                 /*shape_value=*/getIntArrayAttr(ctx, outShape));
@@ -341,8 +341,8 @@ void To4D(IE::MatMulOp origOp) {
 
 void SoftMaxTo4D(IE::SoftMaxOp origOp) {
     // To maintain SDP(MatMul-SoftMax-MatMul) fusion, we need to reshape SoftMax to 4D aligned with reshaped MatMul.
-    auto skipFakeQuantizeIfPresent = [](mlir::Operation* op) -> mlir::Operation* {
-        if (!mlir::isa_and_nonnull<IE::FakeQuantizeOp>(op)) {
+    auto skipDequantOpIfPresent = [](mlir::Operation* op) -> mlir::Operation* {
+        if (!mlir::isa_and_nonnull<IE::FakeQuantizeOp, IE::DynamicDequantizeOp>(op)) {
             return op;
         }
         if (!op->hasOneUse()) {
@@ -351,7 +351,7 @@ void SoftMaxTo4D(IE::SoftMaxOp origOp) {
         return op->getOperand(0).getDefiningOp();
     };
     auto inputReshapeOp =
-            mlir::dyn_cast_or_null<IE::ReshapeOp>(skipFakeQuantizeIfPresent(origOp->getOperand(0).getDefiningOp()));
+            mlir::dyn_cast_or_null<IE::ReshapeOp>(skipDequantOpIfPresent(origOp->getOperand(0).getDefiningOp()));
     if (inputReshapeOp == nullptr) {
         return;
     }
@@ -394,9 +394,9 @@ void SoftMaxTo4D(IE::SoftMaxOp origOp) {
     mlir::OpBuilder builder(origOp);
     auto reshapeInput = builder.createOrFold<IE::ReshapeOp>(appendLoc(input.getLoc(), "reshape_in"), input,
                                                             /*shape_value=*/getIntArrayAttr(ctx, newInShape));
-    auto newSoftMax = builder.create<IE::SoftMaxOp>(origOp->getLoc(), reshapeInput, getIntAttr(ctx, axisValue),
-                                                    origOp.getPadSizeAttr(), origOp.getDstElemTypeAttr(),
-                                                    origOp.getMaskAwareAttr());
+    auto newSoftMax =
+            IE::SoftMaxOp::create(builder, origOp->getLoc(), reshapeInput, getIntAttr(ctx, axisValue),
+                                  origOp.getPadSizeAttr(), origOp.getDstElemTypeAttr(), origOp.getMaskAwareAttr());
     auto reshapeOut =
             builder.createOrFold<IE::ReshapeOp>(appendLoc(out.getLoc(), "reshape_out"), newSoftMax.getOutput(),
                                                 /*shape_value=*/getIntArrayAttr(ctx, outShape));

@@ -5,6 +5,7 @@
 
 #include "vpux/compiler/core/barrier_info.hpp"
 #include "vpux/compiler/core/execution_group_analysis.hpp"
+#include "vpux/compiler/dialect/VPUIP/utils/sw_utils.hpp"
 #include "vpux/compiler/dialect/VPUIP/utils/utils.hpp"
 #include "vpux/compiler/dialect/VPURT/utils/barrier_legalization_utils.hpp"
 #include "vpux/compiler/dialect/config/IR/resources.hpp"
@@ -429,7 +430,7 @@ size_t vpux::BarrierInfo::getNumOfSlotsUsed(VPURT::TaskOp op) {
             return 1;
         }
         auto nceOp = mlir::dyn_cast<VPUIP::NCEClusterTaskOp>(op.getInnerTaskOp());
-        VPUX_THROW_UNLESS(nceOp != nullptr, "Could not cast to NCE task");
+        VPUX_THROW_WHEN(nceOp == nullptr, "Could not cast to NCE task");
         return nceOp.getNumVariants();
     }
 
@@ -1043,12 +1044,12 @@ void vpux::BarrierInfo::splitControlGraphToBlocks(const SmallVector<size_t>& syn
         //      |<-----syncWaitBar
         //  syncTask
         //      |----->syncUpdBar
-        auto waitBar = builder.create<VPURT::DeclareVirtualBarrierOp>(syncTaskOp->getLoc());
+        auto waitBar = VPURT::DeclareVirtualBarrierOp::create(builder, syncTaskOp->getLoc());
         auto waitBarInd = addNewBarrier(waitBar);
         addConsumer(waitBarInd, syncTaskInd);
 
         builder.setInsertionPoint(syncTaskOp);
-        auto updateBar = builder.create<VPURT::DeclareVirtualBarrierOp>(syncTaskOp->getLoc());
+        auto updateBar = VPURT::DeclareVirtualBarrierOp::create(builder, syncTaskOp->getLoc());
         auto updateBarInd = addNewBarrier(updateBar);
 
         addProducer(updateBarInd, syncTaskInd);
@@ -1272,7 +1273,7 @@ void vpux::BarrierInfo::splitControlGraphToBlocks(const SmallVector<size_t>& syn
                 //
                 auto taskOp = getTaskOpAtIndex(*barProdBlockTasksPair.second.begin());
                 mlir::OpBuilder builder(taskOp);
-                auto newBar = builder.create<VPURT::DeclareVirtualBarrierOp>(taskOp->getLoc());
+                auto newBar = VPURT::DeclareVirtualBarrierOp::create(builder, taskOp->getLoc());
                 auto newBarInd = addNewBarrier(newBar);
 
                 _log.nest(2).trace("Add producers and consumers for new bar {0} for tasks from block {1}", newBarInd,
@@ -1967,7 +1968,7 @@ void vpux::BarrierInfo::splitBarrierProducers(VPURT::DeclareVirtualBarrierOp bar
     // create barriers based on batches
     for (const auto& producerBatch : producerBatches) {
         builder.setInsertionPoint(barrierOp);
-        auto newBarrier = builder.create<VPURT::DeclareVirtualBarrierOp>(barrierOp->getLoc());
+        auto newBarrier = VPURT::DeclareVirtualBarrierOp::create(builder, barrierOp->getLoc());
         _log.trace("Created new barrier '{0}'", newBarrier);
         addNewBarrier(newBarrier);
 
@@ -2016,7 +2017,7 @@ void vpux::BarrierInfo::splitBarrierConsumers(VPURT::DeclareVirtualBarrierOp bar
     // create barriers based on batches
     for (const auto& consumerBatch : consumerBatches) {
         builder.setInsertionPoint(barrierOp);
-        auto newBarrier = builder.create<VPURT::DeclareVirtualBarrierOp>(barrierOp->getLoc());
+        auto newBarrier = VPURT::DeclareVirtualBarrierOp::create(builder, barrierOp->getLoc());
         _log.trace("Created new barrier '{0}'", newBarrier);
         addNewBarrier(newBarrier);
 
@@ -2528,7 +2529,7 @@ void vpux::BarrierInfo::linkTasksToBarriers(const BarrierInfo::TaskSet& tasksToA
             for (const auto& batch : batches) {
                 if (!prevBatch.empty()) {
                     builder.setInsertionPoint(insertionPoint);
-                    const auto newBarrier = builder.create<VPURT::DeclareVirtualBarrierOp>(insertionPoint->getLoc());
+                    const auto newBarrier = VPURT::DeclareVirtualBarrierOp::create(builder, insertionPoint->getLoc());
                     addNewBarrier(newBarrier);
                     const auto newBarrierIdn = getIndex(newBarrier);
                     newBarrierBatch.insert(newBarrierIdn);
@@ -2733,7 +2734,7 @@ void vpux::BarrierInfo::initializeTaskQueueTypeMap(const mlir::DenseSet<vpux::co
 
         case config::ExecutorKind::SHAVE_ACT: {
             auto tileOp = config::getTileExecutor(module);
-            VPUX_THROW_UNLESS(tileOp != nullptr, "Expected tileOp executor in order to query {0} executor.", execKind);
+            VPUX_THROW_WHEN(tileOp == nullptr, "Expected tileOp executor in order to query {0} executor.", execKind);
 
             auto numClusters = tileOp.getCount();
             auto numExecutorsPerTile = [&] {
@@ -2829,6 +2830,69 @@ void vpux::BarrierInfo::buildWlmTasksDependenciesFromEnqueueDma() {
     }
 }
 
+void vpux::BarrierInfo::buildWlmTasksDependenciesFromShvWithDma() {
+    if (_func == nullptr) {
+        return;
+    }
+
+    auto module = _func->getParentOfType<mlir::ModuleOp>();
+
+    if (!config::isShvToDmaImplicitDep(config::getArch(module))) {
+        return;
+    }
+
+    // Gather information about SHV tasks which submit DMAs and corresponding
+    // SkipDMA tasks using logical task index attribute
+    llvm::DenseMap<int64_t, llvm::DenseMap<VPURT::TaskQueueType, size_t>> latestSkipDmaTaskPerQueueByLogicalIdx;
+    llvm::DenseMap<int64_t, SmallVector<size_t>> shvKernelsByLogicalIdx;
+    for (auto taskOp : _allTaskOps) {
+        auto innerOp = taskOp.getInnerTaskOp();
+        if (auto skipDmaOp = mlir::dyn_cast_or_null<VPUIP::SkipDMAOp>(innerOp)) {
+            const auto logicalIdxAttr =
+                    skipDmaOp->getAttrOfType<mlir::IntegerAttr>(VPUIP::LOGICAL_TASK_INDEX_ATTR_NAME);
+            if (logicalIdxAttr != nullptr) {
+                latestSkipDmaTaskPerQueueByLogicalIdx[logicalIdxAttr.getValue().getSExtValue()]
+                                                     [getTaskQueueType(getIndex(taskOp))] = getIndex(taskOp);
+            }
+        } else if (auto swKernelOp = mlir::dyn_cast_or_null<VPUIP::SwKernelOp>(innerOp)) {
+            if (!VPUIP::isIoDmaSwKernel(swKernelOp)) {
+                continue;
+            }
+            const auto logicalIdxAttr =
+                    swKernelOp->getAttrOfType<mlir::IntegerAttr>(VPUIP::LOGICAL_TASK_INDEX_ATTR_NAME);
+            if (logicalIdxAttr != nullptr) {
+                shvKernelsByLogicalIdx[logicalIdxAttr.getValue().getSExtValue()].push_back(getIndex(taskOp));
+            }
+        }
+    }
+
+    // Dependency is from SHV task to next DMA on given FIFO after SkipDMA
+    // Itentify those next DMAs
+    llvm::DenseMap<int64_t, llvm::DenseSet<size_t>> nextDmaTasksByLogicalIdx;
+    for (const auto& [logicalIdx, latestSkipDmaTaskIndPerQueue] : latestSkipDmaTaskPerQueueByLogicalIdx) {
+        for (const auto& [queueType, skipDmaTaskInd] : latestSkipDmaTaskIndPerQueue) {
+            const auto nextDmaTaskInd = getNextTaskOnQueue(skipDmaTaskInd, queueType);
+            if (nextDmaTaskInd.has_value()) {
+                nextDmaTasksByLogicalIdx[logicalIdx].insert(nextDmaTaskInd.value());
+            }
+        }
+    }
+
+    // Update dependency knowledge with edges from SHV tasks to next DMAs after SkipDMAs
+    // for given logical task index
+    for (const auto& [logicalIdx, shvTaskInds] : shvKernelsByLogicalIdx) {
+        const auto nextDmaIt = nextDmaTasksByLogicalIdx.find(logicalIdx);
+        if (nextDmaIt == nextDmaTasksByLogicalIdx.end()) {
+            continue;
+        }
+        for (const auto& nextDmaTaskInd : nextDmaIt->second) {
+            for (const auto& shvTaskInd : shvTaskInds) {
+                _wlmTaskDependencies.emplace_back(shvTaskInd, nextDmaTaskInd);
+            }
+        }
+    }
+}
+
 unsigned vpux::BarrierInfo::createBarrierDependenciesImpliedByWlm(size_t blockStartInd, size_t blockEndInd) {
     unsigned newDepsCount = 0;
 
@@ -2836,9 +2900,14 @@ unsigned vpux::BarrierInfo::createBarrierDependenciesImpliedByWlm(size_t blockSt
         return newDepsCount;
     }
 
-    for (const auto& [producerTaskInd, consumerTaskInd] : _wlmTaskDependencies) {
-        if (!inRange(blockStartInd, blockEndInd, producerTaskInd) ||
-            !inRange(blockStartInd, blockEndInd, consumerTaskInd)) {
+    const auto blockBegin = std::lower_bound(_wlmTaskDependencies.begin(), _wlmTaskDependencies.end(),
+                                             std::make_pair(blockStartInd, size_t{0}));
+    const auto blockEnd = std::upper_bound(_wlmTaskDependencies.begin(), _wlmTaskDependencies.end(),
+                                           std::make_pair(blockEndInd, std::numeric_limits<size_t>::max()));
+
+    for (auto it = blockBegin; it != blockEnd; ++it) {
+        const auto [producerTaskInd, consumerTaskInd] = *it;
+        if (!inRange(blockStartInd, blockEndInd, consumerTaskInd)) {
             continue;
         }
 
@@ -2871,15 +2940,16 @@ void vpux::BarrierInfo::buildTaskQueueTypeMap() {
 
 void vpux::BarrierInfo::buildWlmTasksDependencies(bool considerEnqueueDmaDependency) {
     VPUX_THROW_UNLESS(_wlmTaskDependencies.empty(),
-                      "buildWlmTasksDependencies() called with {0} FWLM dependencies already present",
+                      "buildWlmTasksDependencies() called with {0} WLM dependencies already present",
                       _wlmTaskDependencies.size());
 
     if (considerEnqueueDmaDependency) {
         buildWlmTasksDependenciesFromEnqueueDma();
     }
 
-    // TODO:
-    // (E-222134 -Extend WLM DPU enqueue delay checks for more complex scenarios with DMA from SHV)
+    buildWlmTasksDependenciesFromShvWithDma();
+
+    llvm::sort(_wlmTaskDependencies);
 }
 
 //
@@ -3573,6 +3643,9 @@ void vpux::BarrierInfoTest::setWlmTaskDependencies(const SmallVector<std::pair<s
                           consumerTaskInd, getNumOfTasks());
         _wlmTaskDependencies.emplace_back(producerTaskInd, consumerTaskInd);
     }
+    // Match the production invariant (see buildWlmTasksDependencies): edges must be sorted by producer index for
+    // createBarrierDependenciesImpliedByWlm() to binary-search a block's subset.
+    llvm::sort(_wlmTaskDependencies);
 }
 
 void vpux::BarrierInfoTest::setMaxVariantCountPerBarrier(size_t variantCount) {

@@ -4,7 +4,10 @@
 //
 
 #include "vpux/compiler/dialect/IE/IR/ops/data_type.hpp"
+#include "vpux/compiler/utils/attributes.hpp"
 #include "vpux/compiler/utils/error.hpp"
+
+#include <set>
 
 using namespace vpux;
 
@@ -41,6 +44,34 @@ bool hasSameShape(mlir::Value lhs, mlir::Value rhs) {
            mlir::cast<mlir::ShapedType>(rhs.getType()).getShape();
 }
 
+SmallVector<int64_t> inferScaleShapeFromAxes(mlir::ArrayRef<int64_t> inputShape, mlir::ArrayRef<int64_t> axes) {
+    auto scaleShape = to_small_vector(inputShape);
+    const auto rank = checked_cast<int64_t>(scaleShape.size());
+    for (const auto axisVal : axes) {
+        const auto normalizedAxis = axisVal < 0 ? axisVal + rank : axisVal;
+        scaleShape[checked_cast<size_t>(normalizedAxis)] = 1;
+    }
+    return scaleShape;
+}
+
+mlir::LogicalResult verifyAxes(mlir::Operation* op, mlir::ArrayRef<int64_t> inputShape, mlir::ArrayRef<int64_t> axes) {
+    const auto rank = checked_cast<int64_t>(inputShape.size());
+    std::set<int64_t> normalizedAxes;
+
+    for (const auto axisVal : axes) {
+        if (axisVal < -rank || axisVal >= rank) {
+            return errorAt(op, "Axis value {0} is out of range for rank {1} tensor.", axisVal, rank);
+        }
+
+        const auto normalizedAxis = axisVal < 0 ? axisVal + rank : axisVal;
+        if (!normalizedAxes.insert(normalizedAxis).second) {
+            return errorAt(op, "Axis value {0} is duplicated in axes_value.", axisVal);
+        }
+    }
+
+    return mlir::success();
+}
+
 }  // namespace
 
 mlir::LogicalResult vpux::IE::DynamicQuantizeOp::inferReturnTypeComponents(
@@ -58,6 +89,11 @@ mlir::LogicalResult vpux::IE::DynamicQuantizeOp::inferReturnTypeComponents(
     if (quantize.getMin() != nullptr && quantize.getMax() != nullptr) {
         const auto minType = mlir::cast<mlir::ShapedType>(quantize.getMin().getType());
         scaleOrZpShape = to_small_vector(minType.getShape());
+    } else if (quantize.getAxesValue().has_value()) {
+        const auto inputType = mlir::cast<mlir::ShapedType>(quantize.getInput().getType());
+        const auto inputShape = to_small_vector(inputType.getShape());
+        const auto axes = parseIntArrayAttr<int64_t>(quantize.getAxesValueAttr());
+        scaleOrZpShape = inferScaleShapeFromAxes(inputShape, axes);
     }
 
     const auto inType = mlir::cast<mlir::ShapedType>(quantize.getInput().getType());
@@ -71,6 +107,29 @@ mlir::LogicalResult vpux::IE::DynamicQuantizeOp::inferReturnTypeComponents(
 
 mlir::LogicalResult vpux::IE::DynamicQuantizeOp::verify() {
     const auto inputShape = to_small_vector(mlir::cast<mlir::ShapedType>(getInput().getType()).getShape());
+    const bool hasMin = getMin() != nullptr;
+    const bool hasMax = getMax() != nullptr;
+
+    if (hasMin != hasMax) {
+        return errorAt(*this, "Min and max tensors must either both be present or both be absent.");
+    }
+
+    if (getAxesValue().has_value()) {
+        const auto axes = parseIntArrayAttr<int64_t>(getAxesValueAttr());
+        if (mlir::failed(verifyAxes(*this, inputShape, axes))) {
+            return mlir::failure();
+        }
+
+        if (!hasMin) {
+            const auto expectedScaleShape = inferScaleShapeFromAxes(inputShape, axes);
+            const auto scaleShape = mlir::cast<mlir::ShapedType>(getScale().getType()).getShape();
+            const auto zeroPointShape = mlir::cast<mlir::ShapedType>(getZeroPoint().getType()).getShape();
+            if (scaleShape != llvm::ArrayRef<int64_t>(expectedScaleShape) ||
+                zeroPointShape != llvm::ArrayRef<int64_t>(expectedScaleShape)) {
+                return errorAt(*this, "Scale and zero-point shapes must match the axes_value-derived reduction shape.");
+            }
+        }
+    }
 
     if (mlir::failed(verifyBroadcastCompatible(*this, inputShape, getMin(), "Min"))) {
         return mlir::failure();

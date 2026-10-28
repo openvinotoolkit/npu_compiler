@@ -102,8 +102,8 @@ void AdjustSpillSizePass::updateSpillRead(VPUIP::NNDMAOp dmaOp) {
     _log.trace("Spill Read op identified - '{0}'", dmaOp->getLoc());
 
     auto spillId = dmaOp.getSpillId().value();
-    VPUX_THROW_UNLESS(_spillIdAndTypeMap.find(spillId) != _spillIdAndTypeMap.end(),
-                      "No matching spill write was located before");
+    VPUX_THROW_WHEN(_spillIdAndTypeMap.find(spillId) == _spillIdAndTypeMap.end(),
+                    "No matching spill write was located before");
 
     auto newSpillTypeMemref = _spillIdAndTypeMap[spillId];
 

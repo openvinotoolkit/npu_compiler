@@ -71,9 +71,9 @@ std::tuple<mlir::Value, Shape, Shape> getInputConcatAndPadding(mlir::PatternRewr
         newPadEnd[Dims4D::PadsEnd::Right] = KX / 2;
     }
 
-    inputConcat =
-            rewriter.create<IE::ConcatOp>(takeOpLoc(origOp, "input_concat0"), mlir::ValueRange(concats), Dims4D::Act::W)
-                    ->getResult(0);
+    inputConcat = IE::ConcatOp::create(rewriter, takeOpLoc(origOp, "input_concat0"), mlir::ValueRange(concats),
+                                       Dims4D::Act::W)
+                          ->getResult(0);
 
     concats.clear();
 
@@ -87,9 +87,9 @@ std::tuple<mlir::Value, Shape, Shape> getInputConcatAndPadding(mlir::PatternRewr
         newPadEnd[Dims4D::PadsEnd::Bottom] = KY / 2;
     }
 
-    inputConcat =
-            rewriter.create<IE::ConcatOp>(takeOpLoc(origOp, "input_concat1"), mlir::ValueRange(concats), Dims4D::Act::H)
-                    ->getResult(0);
+    inputConcat = IE::ConcatOp::create(rewriter, takeOpLoc(origOp, "input_concat1"), mlir::ValueRange(concats),
+                                       Dims4D::Act::H)
+                          ->getResult(0);
 
     return std::make_tuple(inputConcat, newPadStart, newPadEnd);
 }

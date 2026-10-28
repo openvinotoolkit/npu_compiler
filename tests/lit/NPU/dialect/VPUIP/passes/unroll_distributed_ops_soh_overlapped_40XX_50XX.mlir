@@ -133,7 +133,7 @@ func.func @UnrollNceSoHOutputOverlapped(%input: !Input_DDR, %output: !Output_DDR
 
     // Cluster tiling
     VPURT.Task waits(%bar0: !VPURT.Barrier) updates(%bar1: !VPURT.Barrier) {
-        %1:2 = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 1, 0, 0, 0, 0>} <{
+        %1:2 = VPUIP.NCEClusterTask <{resultSegmentSizes = array<i32: 1, 1, 0, 0, 0, 0>,
                     kernel_padding = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
                     kernel_size = [3, 3],
                     kernel_strides = [1, 1],
@@ -512,7 +512,7 @@ func.func @OmitHaloRegionsForEqualMemView(%arg0: memref<1x3x224x224xf16, @DDR>,
         updates(%WAIT_QUANTIZE : !VPURT.Barrier)
         attributes {isTrailingSWLayer = false} {
 
-        %31 = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 4294967300 : i64, resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
+        %31 = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 4294967300 : i64} <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>,
             is_permute_quantize,
             is_superdense,
             task_type = #VPUIP.nce_task_type<ELTWISE>
@@ -734,8 +734,7 @@ func.func @UnrollNceOutputOverlappedHaloOverNonadjacentCluster() -> memref<1x784
   %CONV_OUTPUT = VPURT.DeclareBuffer <CMX_NN> <576> -> !OutputDistributed
   %OUTPUT = VPURT.DeclareBuffer <DDR> <0> -> memref<1x784x32x6xf16, {order = #NWCH}, @DDR>
   VPURT.Task updates(%BAR0 : !VPURT.Barrier) {
-    %1 = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 4751 : i64, resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>}
-     <{is_permute_quantize, task_type = #VPUIP.nce_task_type<ELTWISE>}>
+    %1 = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 4751 : i64} <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>, is_permute_quantize, task_type = #VPUIP.nce_task_type<ELTWISE>}>
       input(%CONV_INPUT : !InputDistributed)
       weights(%CONV_INPUT : !InputDistributed)
       parent_input(%CONV_INPUT : !InputDistributed)

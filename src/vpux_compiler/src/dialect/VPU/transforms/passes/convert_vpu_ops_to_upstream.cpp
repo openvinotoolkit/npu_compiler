@@ -44,8 +44,8 @@ mlir::LogicalResult SliceOpConversion::matchAndRewrite(vpux::VPU::SliceOp op, Op
     if (mlir::failed(reifyResultShapes(rewriter, op, reifiedShapes))) {
         return mlir::failure();
     }
-    auto newSlice = rewriter.create<mlir::tensor::ExtractSliceOp>(op.getLoc(), adaptor.getInput(), sliceOffsets,
-                                                                  reifiedShapes[0], defaultStrides);
+    auto newSlice = mlir::tensor::ExtractSliceOp::create(rewriter, op.getLoc(), adaptor.getInput(), sliceOffsets,
+                                                         reifiedShapes[0], defaultStrides);
     newSlice.getResult().setType(mlir::cast<mlir::RankedTensorType>(op.getOutput().getType()));
     rewriter.replaceOp(op, newSlice.getResult());
 

@@ -75,7 +75,8 @@ struct CommandListIndexState {
         auto& entryBlock = funcOp.getBody().front();
         builder.setInsertionPointToStart(&entryBlock);
         this->enablePipelinedCmdListRecording = enablePipelinedCmdListRecording;
-        stepSizeInByte = builder.create<mlir::LLVM::ConstantOp>(builder.getUnknownLoc(), builder.getIntegerType(64), 8);
+        stepSizeInByte =
+                mlir::LLVM::ConstantOp::create(builder, builder.getUnknownLoc(), builder.getIntegerType(64), 8);
     }
 
     // Update pointers of commandlist**
@@ -94,13 +95,13 @@ struct CommandListIndexState {
 
         if (resetIndex++ > 0) {
             // Increase commandlist pointer by 8 (size of pointer type)
-            mlir::LLVM::AddOp addOp = builder.create<mlir::LLVM::AddOp>(loc, i64Type, lastResult, stepSizeInByte);
+            mlir::LLVM::AddOp addOp = mlir::LLVM::AddOp::create(builder, loc, i64Type, lastResult, stepSizeInByte);
             lastResult = addOp.getResult();
-            lastResultPtr = builder.create<mlir::LLVM::IntToPtrOp>(loc, voidPtrType, lastResult);
+            lastResultPtr = mlir::LLVM::IntToPtrOp::create(builder, loc, voidPtrType, lastResult);
         } else {
             // For the first commandlist pointer, no need of increasing commandlist pointer
-            lastResult = builder.create<mlir::LLVM::PtrToIntOp>(loc, i64Type, cmdList);
-            lastResultPtr = builder.create<mlir::LLVM::IntToPtrOp>(loc, voidPtrType, lastResult);
+            lastResult = mlir::LLVM::PtrToIntOp::create(builder, loc, i64Type, cmdList);
+            lastResultPtr = mlir::LLVM::IntToPtrOp::create(builder, loc, voidPtrType, lastResult);
         }
     }
 
@@ -117,7 +118,7 @@ struct CommandListIndexState {
     // Returns commandListIndex
     mlir::Value getCommandListIndex(mlir::OpBuilder& builder) {
         int64_t index = ((resetIndex > 1) && enablePipelinedCmdListRecording) ? resetIndex - 1 : 0;
-        return builder.create<mlir::LLVM::ConstantOp>(builder.getUnknownLoc(), builder.getIntegerType(64), index);
+        return mlir::LLVM::ConstantOp::create(builder, builder.getUnknownLoc(), builder.getIntegerType(64), index);
     }
 
     // Update inference execution sync params (e.g., event or fence) for the last commandlist submission
@@ -155,47 +156,47 @@ public:
 
     // Extract components from MemRef value
     static mlir::Value extractBasePtr(mlir::OpBuilder& builder, mlir::Location loc, mlir::Value memrefValue) {
-        return builder.create<mlir::LLVM::ExtractValueOp>(loc, memrefValue, BASE_PTR_INDEX);
+        return mlir::LLVM::ExtractValueOp::create(builder, loc, memrefValue, BASE_PTR_INDEX);
     }
 
     static mlir::Value extractAlignedPtr(mlir::OpBuilder& builder, mlir::Location loc, mlir::Value memrefValue) {
-        return builder.create<mlir::LLVM::ExtractValueOp>(loc, memrefValue, ALIGNED_PTR_INDEX);
+        return mlir::LLVM::ExtractValueOp::create(builder, loc, memrefValue, ALIGNED_PTR_INDEX);
     }
 
     static mlir::Value extractOffset(mlir::OpBuilder& builder, mlir::Location loc, mlir::Value memrefValue) {
-        return builder.create<mlir::LLVM::ExtractValueOp>(loc, memrefValue, OFFSET_INDEX);
+        return mlir::LLVM::ExtractValueOp::create(builder, loc, memrefValue, OFFSET_INDEX);
     }
 
     static mlir::Value extractSizes(mlir::OpBuilder& builder, mlir::Location loc, mlir::Value memrefValue) {
-        return builder.create<mlir::LLVM::ExtractValueOp>(loc, memrefValue, SIZES_INDEX);
+        return mlir::LLVM::ExtractValueOp::create(builder, loc, memrefValue, SIZES_INDEX);
     }
 
     static mlir::Value extractStrides(mlir::OpBuilder& builder, mlir::Location loc, mlir::Value memrefValue) {
-        return builder.create<mlir::LLVM::ExtractValueOp>(loc, memrefValue, STRIDES_INDEX);
+        return mlir::LLVM::ExtractValueOp::create(builder, loc, memrefValue, STRIDES_INDEX);
     }
 
     static mlir::Value getSizeForDim(mlir::OpBuilder& builder, mlir::Location loc, mlir::Value sizesArray,
                                      uint32_t dimIndex) {
         auto i32Type = builder.getIntegerType(32);
-        auto constDimIndex = builder.create<mlir::LLVM::ConstantOp>(loc, i32Type, dimIndex);
+        auto constDimIndex = mlir::LLVM::ConstantOp::create(builder, loc, i32Type, dimIndex);
 
         auto ptrType = mlir::LLVM::LLVMPointerType::get(builder.getContext());
-        auto gepOp = builder.create<mlir::LLVM::GEPOp>(loc, ptrType, builder.getI64Type(), sizesArray,
-                                                       mlir::ValueRange{constDimIndex});
+        auto gepOp = mlir::LLVM::GEPOp::create(builder, loc, ptrType, builder.getI64Type(), sizesArray,
+                                               mlir::ValueRange{constDimIndex});
 
-        return builder.create<mlir::LLVM::LoadOp>(loc, builder.getI64Type(), gepOp);
+        return mlir::LLVM::LoadOp::create(builder, loc, builder.getI64Type(), gepOp);
     }
 
     static mlir::Value getStrideForDim(mlir::OpBuilder& builder, mlir::Location loc, mlir::Value stridesArray,
                                        uint32_t dimIndex) {
         auto i32Type = builder.getIntegerType(32);
-        auto constDimIndex = builder.create<mlir::LLVM::ConstantOp>(loc, i32Type, dimIndex);
+        auto constDimIndex = mlir::LLVM::ConstantOp::create(builder, loc, i32Type, dimIndex);
 
         auto ptrType = mlir::LLVM::LLVMPointerType::get(builder.getContext());
-        auto gepOp = builder.create<mlir::LLVM::GEPOp>(loc, ptrType, builder.getI64Type(), stridesArray,
-                                                       mlir::ValueRange{constDimIndex});
+        auto gepOp = mlir::LLVM::GEPOp::create(builder, loc, ptrType, builder.getI64Type(), stridesArray,
+                                               mlir::ValueRange{constDimIndex});
 
-        return builder.create<mlir::LLVM::LoadOp>(loc, builder.getI64Type(), gepOp);
+        return mlir::LLVM::LoadOp::create(builder, loc, builder.getI64Type(), gepOp);
     }
 
     static uint32_t getRank(mlir::Value memrefValue) {
@@ -246,11 +247,11 @@ mlir::Value accumulateOffsets(mlir::OpBuilder& builder, mlir::Location loc, mlir
             // Accumulate byteShift (offset in bytes)
             auto byteShift = viewOp.getByteShift();
             if (byteShift) {
-                auto shiftValue = builder.create<mlir::arith::IndexCastOp>(loc, i64Type, byteShift);
+                auto shiftValue = mlir::arith::IndexCastOp::create(builder, loc, i64Type, byteShift);
                 // Convert byte offset to element offset if needed
-                auto elemByteSize = builder.create<mlir::LLVM::ConstantOp>(loc, i64Type, elemBytes);
-                auto divOp = builder.create<mlir::LLVM::SDivOp>(loc, i64Type, shiftValue, elemByteSize);
-                totalOffset = builder.create<mlir::LLVM::AddOp>(loc, i64Type, totalOffset, divOp);
+                auto elemByteSize = mlir::LLVM::ConstantOp::create(builder, loc, i64Type, elemBytes);
+                auto divOp = mlir::LLVM::SDivOp::create(builder, loc, i64Type, shiftValue, elemByteSize);
+                totalOffset = mlir::LLVM::AddOp::create(builder, loc, i64Type, totalOffset, divOp);
             }
             current = viewOp.getSource();
         } else if (auto castOp = current.getDefiningOp<mlir::memref::ReinterpretCastOp>()) {
@@ -298,14 +299,14 @@ inline mlir::Value getBufferStartAddress(mlir::OpBuilder& builder, mlir::Locatio
 
     mlir::Type i64Type = builder.getI64Type();
     auto srcPtrExtractOp =
-            builder.create<mlir::LLVM::ExtractValueOp>(loc, sourceDesc, MemRefDescriptorUtil::ALIGNED_PTR_INDEX);
+            mlir::LLVM::ExtractValueOp::create(builder, loc, sourceDesc, MemRefDescriptorUtil::ALIGNED_PTR_INDEX);
     auto srcOffsetExtractOp =
-            builder.create<mlir::LLVM::ExtractValueOp>(loc, sourceDesc, MemRefDescriptorUtil::OFFSET_INDEX);
+            mlir::LLVM::ExtractValueOp::create(builder, loc, sourceDesc, MemRefDescriptorUtil::OFFSET_INDEX);
 
-    auto srcPtrToIntOp = builder.create<mlir::LLVM::PtrToIntOp>(loc, i64Type, srcPtrExtractOp);
-    auto elementByteSize = builder.create<mlir::LLVM::ConstantOp>(builder.getUnknownLoc(), i64Type, bytes);
-    auto byteOffsetMulOp = builder.create<mlir::LLVM::MulOp>(loc, i64Type, elementByteSize, srcOffsetExtractOp);
-    auto srcAddOp = builder.create<mlir::LLVM::AddOp>(loc, i64Type, srcPtrToIntOp, byteOffsetMulOp);
+    auto srcPtrToIntOp = mlir::LLVM::PtrToIntOp::create(builder, loc, i64Type, srcPtrExtractOp);
+    auto elementByteSize = mlir::LLVM::ConstantOp::create(builder, builder.getUnknownLoc(), i64Type, bytes);
+    auto byteOffsetMulOp = mlir::LLVM::MulOp::create(builder, loc, i64Type, elementByteSize, srcOffsetExtractOp);
+    auto srcAddOp = mlir::LLVM::AddOp::create(builder, loc, i64Type, srcPtrToIntOp, byteOffsetMulOp);
 
     return srcAddOp;
 }
@@ -331,16 +332,16 @@ public:
 
         auto voidPtrType = mlir::LLVM::LLVMPointerType::get(builder.getContext());
         auto tensorDescType = getTensorDescStructType(moduleOp.getContext());
-        auto constMaxNumInputs = builder.create<mlir::LLVM::ConstantOp>(builder.getUnknownLoc(),
-                                                                        builder.getIntegerType(32), maxNumInputs);
-        auto constMaxNumOutputs = builder.create<mlir::LLVM::ConstantOp>(builder.getUnknownLoc(),
-                                                                         builder.getIntegerType(32), maxNumOutputs);
+        auto constMaxNumInputs = mlir::LLVM::ConstantOp::create(builder, builder.getUnknownLoc(),
+                                                                builder.getIntegerType(32), maxNumInputs);
+        auto constMaxNumOutputs = mlir::LLVM::ConstantOp::create(builder, builder.getUnknownLoc(),
+                                                                 builder.getIntegerType(32), maxNumOutputs);
 
         // Allocate buffers for input/output pointers
-        inputDescs = builder.create<mlir::LLVM::AllocaOp>(builder.getUnknownLoc(), voidPtrType, tensorDescType,
-                                                          constMaxNumInputs);
-        outputDescs = builder.create<mlir::LLVM::AllocaOp>(builder.getUnknownLoc(), voidPtrType, tensorDescType,
-                                                           constMaxNumOutputs);
+        inputDescs = mlir::LLVM::AllocaOp::create(builder, builder.getUnknownLoc(), voidPtrType, tensorDescType,
+                                                  constMaxNumInputs);
+        outputDescs = mlir::LLVM::AllocaOp::create(builder, builder.getUnknownLoc(), voidPtrType, tensorDescType,
+                                                   constMaxNumOutputs);
     }
 
     // Process buffers and extract their data, size, and stride information
@@ -489,46 +490,46 @@ private:
         auto arrayType = mlir::LLVM::LLVMArrayType::get(i64Type, rank);
 
         auto createGetOp = [&](MemRefDescMemberIndex memrefIndex) {
-            return builder.create<mlir::LLVM::GEPOp>(
-                    loc, voidPtrTy, tensorStructType, bufferDescArray,
+            return mlir::LLVM::GEPOp::create(
+                    builder, loc, voidPtrTy, tensorStructType, bufferDescArray,
                     ArrayRef<mlir::LLVM::GEPArg>{static_cast<int32_t>(index), static_cast<int32_t>(memrefIndex)});
         };
 
         // Get buffer address and store it in the array
         auto basePtrExtractOp = MemRefDescriptorUtil::extractBasePtr(builder, loc, llvmValue);
         auto bufferBaseGepPtr = createGetOp(MemRefDescMemberIndex::DATA);
-        builder.create<mlir::LLVM::StoreOp>(loc, basePtrExtractOp, bufferBaseGepPtr);
+        mlir::LLVM::StoreOp::create(builder, loc, basePtrExtractOp, bufferBaseGepPtr);
 
         auto offsetGepPtr = createGetOp(MemRefDescMemberIndex::OFFSET);
         auto accumulatedOffset = accumulateOffsets(builder, loc, llvmValue);
-        builder.create<mlir::LLVM::StoreOp>(loc, accumulatedOffset, offsetGepPtr);
+        mlir::LLVM::StoreOp::create(builder, loc, accumulatedOffset, offsetGepPtr);
 
         auto elementByteSizeGepPtr = createGetOp(MemRefDescMemberIndex::ELEMENT_BYTE_SIZE);
         int64_t bytes = getElementByteSize(llvmValue);
-        auto elementByteSize = builder.create<mlir::LLVM::ConstantOp>(builder.getUnknownLoc(), i64Type, bytes);
-        builder.create<mlir::LLVM::StoreOp>(loc, elementByteSize, elementByteSizeGepPtr);
+        auto elementByteSize = mlir::LLVM::ConstantOp::create(builder, builder.getUnknownLoc(), i64Type, bytes);
+        mlir::LLVM::StoreOp::create(builder, loc, elementByteSize, elementByteSizeGepPtr);
 
         auto dimCountGepPtr = createGetOp(MemRefDescMemberIndex::DIM_COUNT);
-        auto dimCount = builder.create<mlir::LLVM::ConstantOp>(loc, i64Type, rank);
-        builder.create<mlir::LLVM::StoreOp>(loc, dimCount, dimCountGepPtr);
+        auto dimCount = mlir::LLVM::ConstantOp::create(builder, loc, i64Type, rank);
+        mlir::LLVM::StoreOp::create(builder, loc, dimCount, dimCountGepPtr);
 
         auto networkArgumentIndexGepPtr = createGetOp(MemRefDescMemberIndex::NETWORK_ARG_INDEX);
         // This will need to be updated to support UpdateMutableCommandList
         llvm::SmallPtrSet<mlir::Value, 8> visited;
         auto idx = getDerivedFuncArgIndex(buffer, funcOpEntryBlock, visited);
-        auto networkArgumentIndex = builder.create<mlir::LLVM::ConstantOp>(loc, i64Type, idx);
-        builder.create<mlir::LLVM::StoreOp>(loc, networkArgumentIndex, networkArgumentIndexGepPtr);
+        auto networkArgumentIndex = mlir::LLVM::ConstantOp::create(builder, loc, i64Type, idx);
+        mlir::LLVM::StoreOp::create(builder, loc, networkArgumentIndex, networkArgumentIndexGepPtr);
 
         // Extract and store sizes information
         auto sizesGepPtr = createGetOp(MemRefDescMemberIndex::SIZES);
         auto sizesExtracted = MemRefDescriptorUtil::extractSizes(builder, loc, llvmValue);
-        auto sizes = builder.create<mlir::LLVM::StoreOp>(loc, sizesExtracted, sizesGepPtr);
+        auto sizes = mlir::LLVM::StoreOp::create(builder, loc, sizesExtracted, sizesGepPtr);
         sizes->setAttr("elem_type", mlir::TypeAttr::get(arrayType));
 
         // Pointer to temporary buffer for strides
         auto stridesGepPtr = createGetOp(MemRefDescMemberIndex::STRIDES);
         auto stridesExtracted = MemRefDescriptorUtil::extractStrides(builder, loc, llvmValue);
-        auto strides = builder.create<mlir::LLVM::StoreOp>(loc, stridesExtracted, stridesGepPtr);
+        auto strides = mlir::LLVM::StoreOp::create(builder, loc, stridesExtracted, stridesGepPtr);
         strides->setAttr("elem_type", mlir::TypeAttr::get(arrayType));
 
         return true;
@@ -541,7 +542,7 @@ void updateFuncTerminator(mlir::func::FuncOp funcOp) {
         if (auto returnOp = llvm::dyn_cast<mlir::func::ReturnOp>(block.getTerminator())) {
             // Replace the return operation with a new one that has no arguments
             mlir::OpBuilder builder(returnOp);
-            builder.create<mlir::func::ReturnOp>(returnOp.getLoc());
+            mlir::func::ReturnOp::create(builder, returnOp.getLoc());
             returnOp.erase();
         }
     }
@@ -630,7 +631,7 @@ void createSubmitCommandList(mlir::OpBuilder& builder, mlir::ModuleOp moduleOp, 
 
     // Create the LLVM::mlir.constant operation representing nullptr
     auto elementPtrType = mlir::LLVM::LLVMPointerType::get(builder.getContext());
-    mlir::Value nullPtr = builder.create<mlir::LLVM::ZeroOp>(builder.getUnknownLoc(), elementPtrType);
+    mlir::Value nullPtr = mlir::LLVM::ZeroOp::create(builder, builder.getUnknownLoc(), elementPtrType);
 
     // Host side synchronization will be required for the last command list.
     // The last two arguments will be updated in increaseCommandListIndex later if required.
@@ -1016,7 +1017,7 @@ mlir::LogicalResult AsyncOpRewriter<mlir::async::ExecuteOp>::matchAndRewrite(mli
 
             llvm::StringRef rawBytes = object.getObject().getValue();
             size_t dataSize = rawBytes.size();
-            auto kernelSize = rewriter.create<mlir::LLVM::ConstantOp>(loc, rewriter.getIntegerType(64), dataSize);
+            auto kernelSize = mlir::LLVM::ConstantOp::create(rewriter, loc, rewriter.getIntegerType(64), dataSize);
 
             auto resultCount = callOp.getNumResults();
             auto inputCount = callOp.getNumOperands() - resultCount;
@@ -1045,12 +1046,12 @@ mlir::LogicalResult AsyncOpRewriter<mlir::async::ExecuteOp>::matchAndRewrite(mli
                                  callOp.getArgOperands().end());
 
             auto numInputs =
-                    rewriter.create<mlir::LLVM::ConstantOp>(loc, rewriter.getIntegerType(32), kernelInputs.size());
+                    mlir::LLVM::ConstantOp::create(rewriter, loc, rewriter.getIntegerType(32), kernelInputs.size());
             auto numOutputs =
-                    rewriter.create<mlir::LLVM::ConstantOp>(loc, rewriter.getIntegerType(32), kernelOutputs.size());
+                    mlir::LLVM::ConstantOp::create(rewriter, loc, rewriter.getIntegerType(32), kernelOutputs.size());
 
             auto voidPointerType = mlir::LLVM::LLVMPointerType::get(&(_typeConverter.getContext()));
-            auto stackSaveOp = rewriter.create<mlir::LLVM::StackSaveOp>(loc, voidPointerType);
+            auto stackSaveOp = mlir::LLVM::StackSaveOp::create(rewriter, loc, voidPointerType);
 
             // Process tensors using ModelIOManager
             if (!modelIOManager.processTensors(rewriter, loc, kernelInputs, kernelOutputs, _typeConverter, funcOp)) {
@@ -1068,7 +1069,7 @@ mlir::LogicalResult AsyncOpRewriter<mlir::async::ExecuteOp>::matchAndRewrite(mli
                     returnType);
 
             // Restore stack used for descriptors
-            rewriter.create<mlir::LLVM::StackRestoreOp>(loc, stackSaveOp);
+            mlir::LLVM::StackRestoreOp::create(rewriter, loc, stackSaveOp);
         }
     }
 
@@ -1130,7 +1131,7 @@ SmallVector<mlir::func::FuncOp> addFuncParamsForUmdForCallers(mlir::func::FuncOp
             auto builder = mlir::OpBuilder(callOp);
             SmallVector<mlir::Value> newCallArgs(callOp.getOperands());
             newCallArgs.append(umdFuncArgs);
-            builder.create<mlir::func::CallOp>(appendLoc(callOp.getLoc(), "_extend_umd_args"), callee, newCallArgs);
+            mlir::func::CallOp::create(builder, appendLoc(callOp.getLoc(), "_extend_umd_args"), callee, newCallArgs);
         }
 
         for (auto callOp : callOps) {

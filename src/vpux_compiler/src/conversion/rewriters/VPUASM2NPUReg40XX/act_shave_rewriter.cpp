@@ -18,7 +18,7 @@ mlir::LogicalResult ActShaveRtRewriter::matchAndRewrite(VPUASM::ActShaveRtOp ori
                                                         mlir::PatternRewriter& rewriter) const {
     _log.trace("[{0}] Got '{1}' at '{2}'", getDebugName(), origOp->getName(), origOp->getLoc());
 
-    rewriter.create<NPUReg40XX::ActShaveRtOp>(origOp->getLoc(), origOp.getSymNameAttr(), origOp.getKernelPathAttr());
+    NPUReg40XX::ActShaveRtOp::create(rewriter, origOp->getLoc(), origOp.getSymNameAttr(), origOp.getKernelPathAttr());
     rewriter.eraseOp(origOp);
     return mlir::success();
 }

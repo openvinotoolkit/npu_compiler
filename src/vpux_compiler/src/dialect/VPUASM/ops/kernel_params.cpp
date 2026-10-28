@@ -189,7 +189,7 @@ std::vector<ELF::RelocationInfo> vpux::VPUASM::KernelParamsOp::getRelocationInfo
                           getSymName(), releaseDesc.size(), VPUASM::maxNumReleaseDesc);
 
         // If present, must be non-empty
-        VPUX_THROW_UNLESS(!releaseDesc.empty(), "KernelParamsOp '{0}' has empty release descriptor list", getSymName());
+        VPUX_THROW_WHEN(releaseDesc.empty(), "KernelParamsOp '{0}' has empty release descriptor list", getSymName());
         const auto& params = getProperties().kernel_params;
 
         for (auto releaseDescIt : releaseDesc | indexed) {

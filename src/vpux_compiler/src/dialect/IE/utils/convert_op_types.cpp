@@ -46,7 +46,7 @@ mlir::LogicalResult ConvertOpTypes::matchAndRewrite(mlir::Operation* origOp, vpu
     _log.trace("Process Operation '{0}'", origOp->getLoc());
 
     const auto* converter = getTypeConverter();
-    VPUX_THROW_UNLESS(converter != nullptr, "TypeConverter was not set");
+    VPUX_THROW_WHEN(converter == nullptr, "TypeConverter was not set");
 
     const auto origOperands = origOp->getOperands();
     VPUX_THROW_UNLESS(origOperands.size() == operands.size(), "Wrong operands size : {0}", operands.size());
@@ -93,7 +93,7 @@ public:
     mlir::LogicalResult matchAndRewrite(mlir::func::FuncOp funcOp, OpAdaptor,
                                         mlir::ConversionPatternRewriter& rewriter) const final {
         const auto* converter = getTypeConverter();
-        VPUX_THROW_UNLESS(converter != nullptr, "TypeConverter was not set");
+        VPUX_THROW_WHEN(converter == nullptr, "TypeConverter was not set");
 
         const auto funcType = funcOp.getFunctionType();
 
@@ -106,8 +106,8 @@ public:
                 continue;
             }
             const auto converted = converter->convertType(funcInputType.value());
-            VPUX_THROW_UNLESS(converted != nullptr, "Failed to convert argument {0} type {1}", inputIdx,
-                              funcInputType.value());
+            VPUX_THROW_WHEN(converted == nullptr, "Failed to convert argument {0} type {1}", inputIdx,
+                            funcInputType.value());
             sigConversion.addInputs(inputIdx, converted);
         }
 

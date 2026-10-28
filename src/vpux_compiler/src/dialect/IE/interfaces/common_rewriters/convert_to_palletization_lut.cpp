@@ -4,7 +4,7 @@
 //
 
 #include "vpux/compiler/dialect/IE/interfaces/common_rewriters/convert_to_palletization_lut.hpp"
-#include "vpux/compiler/core/types/quantile_float/types.hpp"
+#include "vpux/compiler/core/types/quantile_types/types.hpp"
 #include "vpux/compiler/utils/quantization.hpp"
 
 using namespace vpux;
@@ -30,7 +30,7 @@ bool vpux::IE::isLegalTensorElemForPalletization(mlir::Type elementType, const b
     if (mlir::isa<mlir::quant::UniformQuantizedType, mlir::quant::UniformQuantizedPerAxisType>(elementType)) {
         const auto quantized = mlir::cast<mlir::quant::QuantizedType>(elementType);
         // Types with QuantileType storage are already palletized — no conversion needed.
-        if (mlir::isa<vpux::type::QuantileType>(quantized.getStorageType())) {
+        if (mlir::isa<mlir::quant::QuantileType>(quantized.getStorageType())) {
             return true;
         }
         return isQuantizedTypeLegal(quantized);

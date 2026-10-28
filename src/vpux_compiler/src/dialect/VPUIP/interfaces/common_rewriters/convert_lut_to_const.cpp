@@ -25,7 +25,7 @@ mlir::LogicalResult VPUIP::LUTConverterBase::matchAndRewrite(VPUIP::NCEClusterTa
     }();
 
     const auto copyDst = createCopyDestination(nceClusterTask, LUTConst, rewriter);
-    const auto lutNceInput = rewriter.create<VPUIP::CopyOp>(nceClusterTask->getLoc(), LUTConst, copyDst).getOutput();
+    const auto lutNceInput = VPUIP::CopyOp::create(rewriter, nceClusterTask->getLoc(), LUTConst, copyDst).getOutput();
 
     replaceWithConstInput(nceClusterTask, lutNceInput, rewriter);
 
@@ -45,8 +45,8 @@ mlir::Value VPUIP::LUTConverterBase::createCopyDestination(VPUIP::NCEClusterTask
 
                 auto alignment = vpux::getIntAttr(nceClusterTask.getContext(), VPU::SPRLUT_ALIGNMENT_REQUIREMENT);
 
-                auto allocDistributed = rewriter.create<VPURT::AllocDistributed>(
-                        nceClusterTask.getLoc(), distributedBufferType, alignment, nullptr);
+                auto allocDistributed = VPURT::AllocDistributed::create(rewriter, nceClusterTask.getLoc(),
+                                                                        distributedBufferType, alignment, nullptr);
                 return allocDistributed->getResult(0);
             })
             .Case<mlir::MemRefType>([&](auto) {
@@ -59,7 +59,7 @@ mlir::Value VPUIP::LUTConverterBase::createCopyDestination(VPUIP::NCEClusterTask
                 const auto cmxMemType = vpux::getMemRefType(
                         ShapeRef(constOutType.getShape()), constOutType.getElementType(),
                         mlir::cast<vpux::NDTypeInterface>(constOutType).getDimsOrder(), memSpaceCMX);
-                const auto allocOp = rewriter.create<mlir::memref::AllocOp>(nceClusterTask.getLoc(), cmxMemType);
+                const auto allocOp = mlir::memref::AllocOp::create(rewriter, nceClusterTask.getLoc(), cmxMemType);
                 return allocOp->getResult(0);
             })
             .Default([&](mlir::Type inputType) {

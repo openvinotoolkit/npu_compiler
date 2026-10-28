@@ -25,38 +25,26 @@ using namespace vpux;
 
 namespace {
 
-template <typename Allocator>
 class VCLBlobAllocator : public BlobAllocator {
 public:
-    explicit VCLBlobAllocator(Allocator* allocator): allocator_(allocator) {
-        static_assert(std::is_same_v<Allocator, const vcl_allocator_t> || std::is_same_v<Allocator, vcl_allocator2_t>,
-                      "VCLBlobAllocator only supports vcl_allocator_t and vcl_allocator2_t");
+    explicit VCLBlobAllocator(vcl_allocator2_t* allocator): allocator_(allocator) {
     }
 
     uint8_t* allocate(Byte size) override {
-        if constexpr (std::is_same_v<Allocator, const vcl_allocator_t>) {
-            return allocator_->allocate(static_cast<uint64_t>(size.count()));
-        } else {
-            return allocator_->allocate(allocator_, static_cast<uint64_t>(size.count()));
-        }
+        return allocator_->allocate(allocator_, static_cast<uint64_t>(size.count()));
     }
 
     void deallocate(uint8_t* ptr) override {
-        if constexpr (std::is_same_v<Allocator, const vcl_allocator_t>) {
-            allocator_->deallocate(ptr);
-        } else {
-            allocator_->deallocate(allocator_, ptr);
-        }
+        allocator_->deallocate(allocator_, ptr);
     }
 
 private:
-    Allocator* allocator_;
+    vcl_allocator2_t* allocator_;
 };
 
-// outside of the extern "C" block to allow C++ templates
-template <typename Allocator>
-vcl_result_t allocatedExecutableCreate(vcl_compiler_handle_t compiler, vcl_executable_desc_t desc, Allocator* allocator,
-                                       uint8_t** blob, uint64_t* size, vcl_executable_handle_t* executable = nullptr) {
+vcl_result_t allocatedExecutableCreate(vcl_compiler_handle_t compiler, vcl_executable_desc_t desc,
+                                       vcl_allocator2_t* allocator, uint8_t** blob, uint64_t* size,
+                                       vcl_executable_handle_t* executable = nullptr) {
     if (executable != nullptr) {
         *executable = nullptr;
     }
@@ -365,11 +353,6 @@ DLLEXPORT vcl_result_t vclAllocatedExecutableCreate4(vcl_compiler_handle_t compi
 
 DLLEXPORT vcl_result_t vclAllocatedExecutableCreate2(vcl_compiler_handle_t compiler, vcl_executable_desc_t desc,
                                                      vcl_allocator2_t* allocator, uint8_t** blob, uint64_t* size) {
-    return allocatedExecutableCreate(compiler, desc, allocator, blob, size);
-}
-
-DLLEXPORT vcl_result_t vclAllocatedExecutableCreate(vcl_compiler_handle_t compiler, vcl_executable_desc_t desc,
-                                                    vcl_allocator_t const* allocator, uint8_t** blob, uint64_t* size) {
     return allocatedExecutableCreate(compiler, desc, allocator, blob, size);
 }
 

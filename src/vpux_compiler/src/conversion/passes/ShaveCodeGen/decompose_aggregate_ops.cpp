@@ -32,97 +32,107 @@ static mlir::Operation* decomposeSoftmax(mlir::linalg::SoftmaxOp op) {
     auto elTy = ty.getElementType();
     auto input = op.getOperand(0);
     auto output = op.getOutput();
-    auto axis = op.getDimension();
+    auto axis = checked_cast<int64_t>(op.getDimension());
     auto rank = ty.getRank();
 
-    // Pre-compute iterator types and affine maps
-    SmallVector<mlir::utils::IteratorType> reductionIterators(rank, mlir::utils::IteratorType::parallel);
+    // Pre-compute iterator types and affine maps.
+    //
+    // The reductions keep the rank of the original operation and the reduced dimension becomes a unit
+    // dimension in the result. We add an extra parallel iterator to the iteration
+    // space and use it to index into the output reduced dimension. This keeps all output maps
+    // as projected permutations, allowing the op to be tiled.
+    const auto unitDim = rank;
+    SmallVector<mlir::utils::IteratorType> reductionIterators(rank + 1, mlir::utils::IteratorType::parallel);
     reductionIterators[axis] = mlir::utils::IteratorType::reduction;
-    SmallVector<mlir::AffineExpr> reductionAffineExprs;
+    SmallVector<mlir::AffineExpr> reductionInExprs;
+    SmallVector<mlir::AffineExpr> reductionOutExprs;
     for (int64_t i = 0; i < rank; i++) {
-        if (i != checked_cast<int64_t>(axis)) {
-            reductionAffineExprs.push_back(mlir::getAffineDimExpr(i, ctx));
-        }
+        reductionInExprs.push_back(mlir::getAffineDimExpr(i, ctx));
+        reductionOutExprs.push_back(mlir::getAffineDimExpr(i == axis ? unitDim : i, ctx));
     }
-    auto reductionMap = mlir::AffineMap::get(rank, 0, reductionAffineExprs, ctx);
+    auto reductionInMap = mlir::AffineMap::get(rank + 1, 0, reductionInExprs, ctx);
+    auto reductionOutMap = mlir::AffineMap::get(rank + 1, 0, reductionOutExprs, ctx);
 
     SmallVector<mlir::utils::IteratorType> parallelIterators(rank, mlir::utils::IteratorType::parallel);
     auto parallelMap = mlir::AffineMap::getMultiDimIdentityMap(rank, ctx);
-    SmallVector<mlir::AffineMap> reductionMaps{parallelMap, reductionMap};
-    SmallVector<mlir::AffineMap> broadcastMaps{parallelMap, reductionMap, parallelMap};
+    SmallVector<mlir::AffineExpr> broadcastExprs(parallelMap.getResults().begin(), parallelMap.getResults().end());
+    broadcastExprs[axis] = mlir::getAffineConstantExpr(0, ctx);
+    auto broadcastMap = mlir::AffineMap::get(rank, 0, broadcastExprs, ctx);
+
+    SmallVector<mlir::AffineMap> reductionMaps{reductionInMap, reductionOutMap};
+    SmallVector<mlir::AffineMap> broadcastMaps{parallelMap, broadcastMap, parallelMap};
     SmallVector<mlir::OpFoldResult> dims = mlir::tensor::getMixedSizes(builder, loc, input);
-    dims.erase(dims.begin() + axis);
+    dims[axis] = builder.getIndexAttr(1);
 
     // REDUCE MAX
     auto maxFillVal = mlir::arith::getIdentityValue(mlir::arith::AtomicRMWKind::maximumf, elTy, builder, loc,
                                                     /*useOnlyFiniteValue=*/true);
-    auto maxEmpt = builder.create<mlir::tensor::EmptyOp>(loc, dims, elTy);
-    auto maxInit =
-            builder.create<mlir::linalg::FillOp>(loc, mlir::ValueRange{maxFillVal}, mlir::ValueRange(maxEmpt)).result();
-    auto max = builder.create<mlir::linalg::GenericOp>(
-                              loc, maxEmpt.getType(), input, maxInit, reductionMaps, reductionIterators,
-                              [&](mlir::OpBuilder& b, mlir::Location loc, mlir::ValueRange args) {
-                                  auto result =
-                                          b.create<mlir::arith::MaximumFOp>(
-                                                   loc, args[0], args[1],
-                                                   mlir::arith::FastMathFlags::nnan | mlir::arith::FastMathFlags::nsz)
-                                                  .getResult();
-                                  b.create<mlir::linalg::YieldOp>(loc, result);
-                              })
+    auto maxEmpt = mlir::tensor::EmptyOp::create(builder, loc, dims, elTy);
+    auto maxInit = mlir::linalg::FillOp::create(builder, loc, mlir::ValueRange{maxFillVal}, mlir::ValueRange(maxEmpt))
+                           .result();
+    auto max = mlir::linalg::GenericOp::create(
+                       builder, loc, maxEmpt.getType(), input, maxInit, reductionMaps, reductionIterators,
+                       [&](mlir::OpBuilder& b, mlir::Location loc, mlir::ValueRange args) {
+                           auto result = mlir::arith::MaximumFOp::create(
+                                                 b, loc, args[0], args[1],
+                                                 mlir::arith::FastMathFlags::nnan | mlir::arith::FastMathFlags::nsz)
+                                                 .getResult();
+                           mlir::linalg::YieldOp::create(b, loc, result);
+                       })
                        ->getResult(0);
 
     // SUB+EXP
-    auto subExp = builder.create<mlir::linalg::GenericOp>(
-                                 loc, output.getType(), mlir::ValueRange{input, max}, output, broadcastMaps,
-                                 parallelIterators,
-                                 [&](mlir::OpBuilder& b, mlir::Location loc, mlir::ValueRange args) {
-                                     auto result = b.create<mlir::arith::SubFOp>(loc, args[0], args[1]).getResult();
-                                     result = b.create<mlir::math::ExpOp>(loc, result, mlir::arith::FastMathFlags::afn)
-                                                      .getResult();
-                                     b.create<mlir::linalg::YieldOp>(loc, result);
-                                 })
-                          ->getResult(0);
+    auto subExp =
+            mlir::linalg::GenericOp::create(
+                    builder, loc, output.getType(), mlir::ValueRange{input, max}, output, broadcastMaps,
+                    parallelIterators,
+                    [&](mlir::OpBuilder& b, mlir::Location loc, mlir::ValueRange args) {
+                        auto result = mlir::arith::SubFOp::create(b, loc, args[0], args[1]).getResult();
+                        result = mlir::math::ExpOp::create(b, loc, result, mlir::arith::FastMathFlags::afn).getResult();
+                        mlir::linalg::YieldOp::create(b, loc, result);
+                    })
+                    ->getResult(0);
 
     // REDUCE ADD
     mlir::Type accumElTy = elTy;
     auto addEmpt = maxEmpt;
     if (elTy.getIntOrFloatBitWidth() < 32) {
         accumElTy = mlir::Float32Type::get(ctx);
-        addEmpt = builder.create<mlir::tensor::EmptyOp>(loc, dims, accumElTy);
+        addEmpt = mlir::tensor::EmptyOp::create(builder, loc, dims, accumElTy);
     }
     auto zero = mlir::arith::getIdentityValue(mlir::arith::AtomicRMWKind::addf, accumElTy, builder, loc,
                                               /*useOnlyFiniteValue=*/true);
     auto reduceAddInit =
-            builder.create<mlir::linalg::FillOp>(loc, mlir::ValueRange{zero}, mlir::ValueRange{addEmpt}).result();
-    auto reduceAdd = builder.create<mlir::linalg::GenericOp>(
-                                    loc, addEmpt.getType(), mlir::ValueRange{subExp}, reduceAddInit, reductionMaps,
-                                    reductionIterators,
-                                    [&](mlir::OpBuilder& b, mlir::Location loc, mlir::ValueRange args) {
-                                        mlir::Value result = args[0];
-                                        if (accumElTy != elTy) {
-                                            result = b.create<mlir::arith::ExtFOp>(loc, accumElTy, args[0]).getResult();
-                                        }
-                                        result = b.create<mlir::arith::AddFOp>(loc, args[1], result,
-                                                                               mlir::arith::FastMathFlags::reassoc)
-                                                         .getResult();
-                                        b.create<mlir::linalg::YieldOp>(loc, result);
-                                    })
+            mlir::linalg::FillOp::create(builder, loc, mlir::ValueRange{zero}, mlir::ValueRange{addEmpt}).result();
+    auto reduceAdd = mlir::linalg::GenericOp::create(
+                             builder, loc, addEmpt.getType(), mlir::ValueRange{subExp}, reduceAddInit, reductionMaps,
+                             reductionIterators,
+                             [&](mlir::OpBuilder& b, mlir::Location loc, mlir::ValueRange args) {
+                                 mlir::Value result = args[0];
+                                 if (accumElTy != elTy) {
+                                     result = mlir::arith::ExtFOp::create(b, loc, accumElTy, args[0]).getResult();
+                                 }
+                                 result = mlir::arith::AddFOp::create(b, loc, args[1], result,
+                                                                      mlir::arith::FastMathFlags::reassoc)
+                                                  .getResult();
+                                 mlir::linalg::YieldOp::create(b, loc, result);
+                             })
                              ->getResult(0);
 
     // DIV
-    return builder.create<mlir::linalg::GenericOp>(
-            loc, output.getType(), mlir::ValueRange{subExp, reduceAdd}, output, broadcastMaps, parallelIterators,
-            [&](mlir::OpBuilder& b, mlir::Location loc, mlir::ValueRange args) {
+    return mlir::linalg::GenericOp::create(
+            builder, loc, output.getType(), mlir::ValueRange{subExp, reduceAdd}, output, broadcastMaps,
+            parallelIterators, [&](mlir::OpBuilder& b, mlir::Location loc, mlir::ValueRange args) {
                 mlir::Value result = args[0];
                 if (accumElTy != elTy) {
-                    result = b.create<mlir::arith::ExtFOp>(loc, accumElTy, result).getResult();
+                    result = mlir::arith::ExtFOp::create(b, loc, accumElTy, result).getResult();
                 }
-                result = b.create<mlir::arith::DivFOp>(loc, result, args[1], mlir::arith::FastMathFlags::arcp)
+                result = mlir::arith::DivFOp::create(b, loc, result, args[1], mlir::arith::FastMathFlags::arcp)
                                  .getResult();
                 if (accumElTy != elTy) {
-                    result = b.create<mlir::arith::TruncFOp>(loc, elTy, result).getResult();
+                    result = mlir::arith::TruncFOp::create(b, loc, elTy, result).getResult();
                 }
-                b.create<mlir::linalg::YieldOp>(loc, result);
+                mlir::linalg::YieldOp::create(b, loc, result);
             });
 }
 
@@ -133,7 +143,7 @@ public:
     }
 
 private:
-    void safeRunOnModule() final;
+    void safeRunOnFunc() final;
 };
 
 class SoftmaxDecompose : public mlir::OpRewritePattern<mlir::linalg::SoftmaxOp> {
@@ -146,7 +156,7 @@ public:
     }
 };
 
-void DecomposeAggregateOpsPass::safeRunOnModule() {
+void DecomposeAggregateOpsPass::safeRunOnFunc() {
     auto& ctx = getContext();
 
     mlir::ConversionTarget target(ctx);
@@ -154,13 +164,15 @@ void DecomposeAggregateOpsPass::safeRunOnModule() {
 
     mlir::RewritePatternSet patterns(&ctx);
     patterns.add<SoftmaxDecompose>(&ctx);
+    const mlir::FrozenRewritePatternSet frozenPatterns(std::move(patterns));
 
-    mlir::ModuleOp moduleOp = getOperation();
-    auto swModule = VPUIP::getVPUSWModule(moduleOp, _log);
-
-    if (mlir::failed(mlir::applyPartialConversion(swModule, target, std::move(patterns)))) {
-        signalPassFailure();
-    }
+    getOperation()->walk<mlir::WalkOrder::PreOrder>([&](IE::CodeGenCapsuleOp capsuleOp) {
+        if (mlir::failed(mlir::applyPartialConversion(capsuleOp, target, frozenPatterns))) {
+            signalPassFailure();
+        }
+        // Avoid walking the capsule contents.
+        return mlir::WalkResult::skip();
+    });
 }
 
 }  // namespace

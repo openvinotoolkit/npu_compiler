@@ -51,7 +51,6 @@ mlir::LogicalResult DepthToSpaceRewriter::matchAndRewrite(VPU::DepthToSpaceOp d2
     }
 
     const auto blkSize = d2sOp.getBlockSize();
-
     if (blkSize != 2 && blkSize != 4) {
         nestedLogger.trace("DepthToSpaceOp has unsupported block size {0}", blkSize);
         return mlir::failure();
@@ -60,11 +59,7 @@ mlir::LogicalResult DepthToSpaceRewriter::matchAndRewrite(VPU::DepthToSpaceOp d2
     const auto inputType = mlir::cast<vpux::NDTypeInterface>(d2sOp.getInput().getType());
     const auto outputType = mlir::cast<vpux::NDTypeInterface>(d2sOp.getOutput().getType());
 
-    // NCEMaxPool does not support plain integer element types (signed or unsigned).
-    const auto inElemType = inputType.getElementType();
-    if (inElemType.isSignedInteger() || inElemType.isUnsignedInteger()) {
-        nestedLogger.trace("DepthToSpaceOp has unsupported input element type {0} for NCEMaxPool conversion",
-                           inElemType);
+    if (inputType.getShape()[Dims4D::Act::C] > VPU::NCEInvariant::VPU_DIMENSION_LIMIT) {
         return mlir::failure();
     }
 
@@ -72,6 +67,14 @@ mlir::LogicalResult DepthToSpaceRewriter::matchAndRewrite(VPU::DepthToSpaceOp d2
         nestedLogger.trace(
                 "DepthToSpaceOp has unsupported input and output layouts {0} and {1} for NCEMaxPool conversion",
                 inputType.getDimsOrder(), outputType.getDimsOrder());
+        return mlir::failure();
+    }
+
+    // NCEMaxPool does not support plain integer element types (signed or unsigned).
+    const auto inElemType = inputType.getElementType();
+    if (inElemType.isSignedInteger() || inElemType.isUnsignedInteger()) {
+        nestedLogger.trace("DepthToSpaceOp has unsupported input element type {0} for NCEMaxPool conversion",
+                           inElemType);
         return mlir::failure();
     }
 
@@ -90,8 +93,8 @@ mlir::LogicalResult DepthToSpaceRewriter::matchAndRewrite(VPU::DepthToSpaceOp d2
     const auto kernelSizeAttr = vpux::getIntArrayAttr(ctx, SmallVector<int64_t>{1, 1});
     const auto stridesAttr = vpux::getIntArrayAttr(ctx, SmallVector<int64_t>{1, 1});
 
-    auto nceOp = rewriter.create<VPU::NCEMaxPoolOp>(
-            d2sOp->getLoc(), d2sOp.getOutput().getType(),
+    auto nceOp = VPU::NCEMaxPoolOp::create(
+            rewriter, d2sOp->getLoc(), d2sOp.getOutput().getType(),
             /*reduce_xy_max=*/mlir::Type{}, /*reduce_xy_min=*/mlir::Type{}, /*reduce_tensor_min_max=*/mlir::Type{},
             d2sOp.getInput(), /*weightsTable=*/nullptr, /*weight_table_scale=*/nullptr,
             /*weight_table_bias=*/nullptr, kernelSizeAttr, stridesAttr, padAttr, ppeAttr,

@@ -70,7 +70,7 @@ mlir::LogicalResult IESoftMaxToLinalg::matchAndRewrite(IE::SoftMaxOp op, OpAdapt
             sizes[i] = rewriter.getIndexAttr(shape[i]);
         }
 
-        input = rewriter.create<mlir::tensor::ExtractSliceOp>(loc, input, offsets, sizes, strides);
+        input = mlir::tensor::ExtractSliceOp::create(rewriter, loc, input, offsets, sizes, strides);
 
         // Create the padded output tensor (initialized with zeros) and an
         // extract_slice to act as the unpadded output.
@@ -89,11 +89,11 @@ mlir::LogicalResult IESoftMaxToLinalg::matchAndRewrite(IE::SoftMaxOp op, OpAdapt
     if (out == nullptr) {
         // No output tensor for the softmax op has yet been created, so either we're not using padding or we need
         // to emit a transpose op. In either case we need create the output tensor as a tensor.empty.
-        out = rewriter.create<mlir::tensor::EmptyOp>(loc, mlir::cast<mlir::ShapedType>(input.getType()).getShape(),
-                                                     elTy);
+        out = mlir::tensor::EmptyOp::create(rewriter, loc, mlir::cast<mlir::ShapedType>(input.getType()).getShape(),
+                                            elTy);
     }
 
-    auto linalgOp = rewriter.create<mlir::linalg::SoftmaxOp>(loc, mlir::TypeRange{input.getType()}, input, out, axis);
+    auto linalgOp = mlir::linalg::SoftmaxOp::create(rewriter, loc, mlir::TypeRange{input.getType()}, input, out, axis);
 
     mlir::Value result = linalgOp->getResult(0);
 
@@ -104,19 +104,19 @@ mlir::LogicalResult IESoftMaxToLinalg::matchAndRewrite(IE::SoftMaxOp op, OpAdapt
             // when no padding is applied).
             if (hasOutputTypeCast) {
                 // Keep a dedicated cast destination tensor at the output element type.
-                sliceOut = rewriter.create<mlir::tensor::EmptyOp>(
-                        loc, mlir::cast<mlir::ShapedType>(resultType).getShape(), outElTy);
-                transposeOut = rewriter.create<mlir::tensor::EmptyOp>(
-                        loc, mlir::cast<mlir::ShapedType>(resultType).getShape(), elTy);
+                sliceOut = mlir::tensor::EmptyOp::create(rewriter, loc,
+                                                         mlir::cast<mlir::ShapedType>(resultType).getShape(), outElTy);
+                transposeOut = mlir::tensor::EmptyOp::create(rewriter, loc,
+                                                             mlir::cast<mlir::ShapedType>(resultType).getShape(), elTy);
             } else {
-                sliceOut = rewriter.create<mlir::tensor::EmptyOp>(
-                        loc, mlir::cast<mlir::ShapedType>(resultType).getShape(), elTy);
+                sliceOut = mlir::tensor::EmptyOp::create(rewriter, loc,
+                                                         mlir::cast<mlir::ShapedType>(resultType).getShape(), elTy);
                 transposeOut = sliceOut;
             }
         } else if (hasOutputTypeCast) {
             // Keep transpose output at the softmax element type and cast after transpose.
-            transposeOut = rewriter.create<mlir::tensor::EmptyOp>(
-                    loc, mlir::cast<mlir::ShapedType>(sliceOut.getType()).getShape(), elTy);
+            transposeOut = mlir::tensor::EmptyOp::create(
+                    rewriter, loc, mlir::cast<mlir::ShapedType>(sliceOut.getType()).getShape(), elTy);
         } else {
             transposeOut = sliceOut;
         }
@@ -127,7 +127,7 @@ mlir::LogicalResult IESoftMaxToLinalg::matchAndRewrite(IE::SoftMaxOp op, OpAdapt
         for (int i = 0; i < rank; ++i) {
             perm[i] = mlir::cast<mlir::AffineDimExpr>(transposePerm.getResult(i)).getPosition();
         }
-        result = rewriter.create<mlir::linalg::TransposeOp>(loc, result, transposeOut, perm)->getResult(0);
+        result = mlir::linalg::TransposeOp::create(rewriter, loc, result, transposeOut, perm)->getResult(0);
     }
 
     if (hasOutputTypeCast) {
@@ -139,33 +139,33 @@ mlir::LogicalResult IESoftMaxToLinalg::matchAndRewrite(IE::SoftMaxOp op, OpAdapt
 
         mlir::Value castOut = sliceOut;
         if (castOut == nullptr) {
-            castOut = rewriter.create<mlir::tensor::EmptyOp>(
-                    loc, mlir::cast<mlir::ShapedType>(result.getType()).getShape(), outElTy);
+            castOut = mlir::tensor::EmptyOp::create(rewriter, loc,
+                                                    mlir::cast<mlir::ShapedType>(result.getType()).getShape(), outElTy);
         }
 
         auto map = mlir::AffineMap::getMultiDimIdentityMap(rank, rewriter.getContext());
         SmallVector<mlir::utils::IteratorType> iterators(rank, mlir::utils::IteratorType::parallel);
 
-        result = rewriter.create<mlir::linalg::GenericOp>(
-                                 loc, mlir::TypeRange{castOut.getType()}, mlir::ValueRange{result},
-                                 mlir::ValueRange{castOut}, SmallVector<mlir::AffineMap>{map, map}, iterators,
-                                 [&](mlir::OpBuilder& b, mlir::Location nestedLoc, mlir::ValueRange args) {
-                                     mlir::Value casted = nullptr;
-                                     if (srcFloatTy.getWidth() < dstFloatTy.getWidth()) {
-                                         auto ext = b.create<mlir::arith::ExtFOp>(
-                                                 nestedLoc, outElTy, args[0],
-                                                 mlir::arith::FastMathFlagsAttr::get(
-                                                         b.getContext(), mlir::arith::FastMathFlags::contract));
-                                         casted = ext;
-                                     } else {
-                                         auto trunc = b.create<mlir::arith::TruncFOp>(
-                                                 nestedLoc, outElTy, args[0], mlir::arith::RoundingModeAttr{},
-                                                 mlir::arith::FastMathFlagsAttr::get(
-                                                         b.getContext(), mlir::arith::FastMathFlags::contract));
-                                         casted = trunc;
-                                     }
-                                     b.create<mlir::linalg::YieldOp>(nestedLoc, casted);
-                                 })
+        result = mlir::linalg::GenericOp::create(
+                         rewriter, loc, mlir::TypeRange{castOut.getType()}, mlir::ValueRange{result},
+                         mlir::ValueRange{castOut}, SmallVector<mlir::AffineMap>{map, map}, iterators,
+                         [&](mlir::OpBuilder& b, mlir::Location nestedLoc, mlir::ValueRange args) {
+                             mlir::Value casted = nullptr;
+                             if (srcFloatTy.getWidth() < dstFloatTy.getWidth()) {
+                                 auto ext = mlir::arith::ExtFOp::create(
+                                         b, nestedLoc, outElTy, args[0],
+                                         mlir::arith::FastMathFlagsAttr::get(b.getContext(),
+                                                                             mlir::arith::FastMathFlags::contract));
+                                 casted = ext;
+                             } else {
+                                 auto trunc = mlir::arith::TruncFOp::create(
+                                         b, nestedLoc, outElTy, args[0], mlir::arith::RoundingModeAttr{},
+                                         mlir::arith::FastMathFlagsAttr::get(b.getContext(),
+                                                                             mlir::arith::FastMathFlags::contract));
+                                 casted = trunc;
+                             }
+                             mlir::linalg::YieldOp::create(b, nestedLoc, casted);
+                         })
                          ->getResult(0);
     }
 
@@ -174,7 +174,7 @@ mlir::LogicalResult IESoftMaxToLinalg::matchAndRewrite(IE::SoftMaxOp op, OpAdapt
         SmallVector<mlir::OpFoldResult> zeros(rank, rewriter.getIndexAttr(0));
         SmallVector<mlir::OpFoldResult> ones(rank, rewriter.getIndexAttr(1));
         SmallVector<mlir::OpFoldResult> sizes = mlir::tensor::getMixedSizes(rewriter, loc, result);
-        result = rewriter.create<mlir::tensor::InsertSliceOp>(loc, result, padded, zeros, sizes, ones)->getResult(0);
+        result = mlir::tensor::InsertSliceOp::create(rewriter, loc, result, padded, zeros, sizes, ones)->getResult(0);
     }
 
     rewriter.replaceOp(op, result);

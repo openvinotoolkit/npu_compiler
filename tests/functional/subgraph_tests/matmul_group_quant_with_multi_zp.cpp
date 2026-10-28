@@ -7,6 +7,7 @@
 #include "openvino/opsets/opset1.hpp"
 #include "vpu_ov2_layer_test.hpp"
 
+#include <tuple>
 #include <vector>
 
 namespace {
@@ -19,8 +20,9 @@ struct GroupQuantShapes {
     const bool _transposeB = false;
     const bool _isScaleDynamic = false;
     const bool _isGroupOutermost = false;
+    const bool _isZpDynamic = false;
 };
-using GroupQuantParams = std::tuple<ov::element::Type, GroupQuantShapes>;
+using GroupQuantParams = std::tuple<ov::element::Type, ov::element::Type, GroupQuantShapes>;
 }  // namespace
 
 namespace ov::test::subgraph {
@@ -38,7 +40,7 @@ public:
             const auto& funcInput = funcInputs[i];
             const auto elemType = funcInput.get_element_type();
             ov::Tensor tensor;
-            if (elemType == ov::element::f32) {
+            if (elemType == ov::element::f32 || elemType == ov::element::f16) {
                 tensor = ov::test::utils::create_and_fill_tensor_real_distribution(elemType, inputShapes[i], -1.0f,
                                                                                    1.0f, /*seed=*/7235346);
             } else if (elemType == ov::element::u4 || elemType == ov::element::u2) {
@@ -64,7 +66,7 @@ public:
     }
 
     void SetUp() override {
-        const auto& [weightsType, shapes] = GetParam();
+        const auto& [weightsType, scaleType, shapes] = GetParam();
 
         if (shapes._isScaleDynamic) {
             configuration["NPU_COMPILER_DYNAMIC_QUANTIZATION"] = "YES";
@@ -72,30 +74,24 @@ public:
 
         const ov::test::InputShape lhsInputShape = {shapes._lhsShape, {shapes._lhsShape}};
         const ov::test::InputShape wInputShape = {shapes._weightShape, {shapes._weightShape}};
+        std::vector<ov::test::InputShape> initInputShapes{lhsInputShape, wInputShape};
         if (shapes._isScaleDynamic) {
-            const ov::test::InputShape scaleInputShape = {shapes._scaleShape, {shapes._scaleShape}};
-            init_input_shapes({lhsInputShape, wInputShape, scaleInputShape});
-        } else {
-            init_input_shapes({lhsInputShape, wInputShape});
+            initInputShapes.push_back({shapes._scaleShape, {shapes._scaleShape}});
         }
+        if (shapes._isZpDynamic) {
+            initInputShapes.push_back({shapes._zpShape, {shapes._zpShape}});
+        }
+        init_input_shapes(initInputShapes);
 
         const auto input = std::make_shared<ov::opset1::Parameter>(ov::element::f32, shapes._lhsShape);
         const auto weights = std::make_shared<ov::opset1::Parameter>(weightsType, shapes._weightShape);
         const auto weightsF32 = std::make_shared<ov::opset1::Convert>(weights->output(0), ov::element::f32);
 
-        const uint32_t maxZpVal = (weightsType == ov::element::u2) ? 3u : 15u;
-        const auto zpTensor = ov::test::utils::create_and_fill_tensor(weightsType, shapes._zpShape,
-                                                                      ov::test::utils::InputGenerateData(0, maxZpVal));
-        const auto zpConst = std::make_shared<ov::opset1::Constant>(weightsType, shapes._zpShape, zpTensor.data());
-        const auto zpF32 = std::make_shared<ov::opset1::Convert>(zpConst->output(0), ov::element::f32);
-
-        const auto sub = std::make_shared<ov::opset1::Subtract>(weightsF32->output(0), zpF32->output(0));
-
-        ov::Output<ov::Node> scaleOutput;
         ov::ParameterVector funcParams{input, weights};
 
+        ov::Output<ov::Node> scaleOutput;
         if (shapes._isScaleDynamic) {
-            const auto scaleParam = std::make_shared<ov::opset1::Parameter>(ov::element::f32, shapes._scaleShape);
+            const auto scaleParam = std::make_shared<ov::opset1::Parameter>(scaleType, shapes._scaleShape);
             funcParams.push_back(scaleParam);
 
             if (shapes._scaleShape.size() == 2) {
@@ -107,6 +103,9 @@ public:
             } else {
                 scaleOutput = scaleParam->output(0);
             }
+            if (scaleType == ov::element::f16) {
+                scaleOutput = std::make_shared<ov::opset1::Convert>(scaleOutput, ov::element::f32)->output(0);
+            }
         } else {
             const auto scaleTensor = ov::test::utils::create_and_fill_tensor_real_distribution(
                     ov::element::f32, shapes._scaleShape, -0.1f, 0.1f, /*seed=*/1);
@@ -115,6 +114,20 @@ public:
                             ->output(0);
         }
 
+        ov::Output<ov::Node> zpF32Output;
+        if (shapes._isZpDynamic) {
+            const auto zpParam = std::make_shared<ov::opset1::Parameter>(weightsType, shapes._zpShape);
+            funcParams.push_back(zpParam);
+            zpF32Output = std::make_shared<ov::opset1::Convert>(zpParam->output(0), ov::element::f32)->output(0);
+        } else {
+            const uint32_t maxZpVal = (weightsType == ov::element::u2) ? 3u : 15u;
+            const auto zpTensor = ov::test::utils::create_and_fill_tensor(
+                    weightsType, shapes._zpShape, ov::test::utils::InputGenerateData(0, maxZpVal));
+            const auto zpConst = std::make_shared<ov::opset1::Constant>(weightsType, shapes._zpShape, zpTensor.data());
+            zpF32Output = std::make_shared<ov::opset1::Convert>(zpConst->output(0), ov::element::f32)->output(0);
+        }
+
+        const auto sub = std::make_shared<ov::opset1::Subtract>(weightsF32->output(0), zpF32Output);
         const auto mul = std::make_shared<ov::opset1::Multiply>(sub->output(0), scaleOutput);
 
         ov::Output<ov::Node> weightNode = mul->output(0);
@@ -142,8 +155,9 @@ public:
         std::ostringstream result;
         result << "TestKind" << ov::test::utils::testKind(__FILE__) << sep;
         result << "TestIdx=" << obj.index << sep;
-        const auto& [weightsType, shapes] = obj.param;
+        const auto& [weightsType, scaleType, shapes] = obj.param;
         result << "WeightsType=" << weightsType << sep;
+        result << "ScaleType=" << scaleType << sep;
         result << "InShape=" << shapes._lhsShape << sep;
         result << "WeightShape=" << shapes._weightShape << sep;
         result << "ScaleShape=" << shapes._scaleShape << sep;
@@ -154,6 +168,9 @@ public:
         }
         if (shapes._isGroupOutermost) {
             result << sep << "WithTranspose";
+        }
+        if (shapes._isZpDynamic) {
+            result << sep << "DynZp";
         }
         return result.str();
     }
@@ -194,22 +211,22 @@ const std::vector<GroupQuantShapes> testShapesStaticScaleDecode = {
                    /*_transposeB=*/true}};
 
 INSTANTIATE_TEST_SUITE_P(GroupQuantStaticScaleWithMultiZp_Prefill_U4, GroupQuantWithMultiZpTestCommon,
-                         ::testing::Combine(::testing::Values(ov::element::u4),
+                         ::testing::Combine(::testing::Values(ov::element::u4), ::testing::Values(ov::element::f32),
                                             ::testing::ValuesIn(testShapesStaticScalePrefill)),
                          GroupQuantWithMultiZpTestCommon::getTestCaseName);
 
 INSTANTIATE_TEST_SUITE_P(GroupQuantStaticScaleWithMultiZp_Prefill_U2, GroupQuantWithMultiZpTestCommon,
-                         ::testing::Combine(::testing::Values(ov::element::u2),
+                         ::testing::Combine(::testing::Values(ov::element::u2), ::testing::Values(ov::element::f32),
                                             ::testing::ValuesIn(testShapesStaticScalePrefill)),
                          GroupQuantWithMultiZpTestCommon::getTestCaseName);
 
 INSTANTIATE_TEST_SUITE_P(GroupQuantStaticScaleWithMultiZp_Decode_U4, GroupQuantWithMultiZpTestCommon,
-                         ::testing::Combine(::testing::Values(ov::element::u4),
+                         ::testing::Combine(::testing::Values(ov::element::u4), ::testing::Values(ov::element::f32),
                                             ::testing::ValuesIn(testShapesStaticScaleDecode)),
                          GroupQuantWithMultiZpTestCommon::getTestCaseName);
 
 INSTANTIATE_TEST_SUITE_P(GroupQuantStaticScaleWithMultiZp_Decode_U2, GroupQuantWithMultiZpTestCommon,
-                         ::testing::Combine(::testing::Values(ov::element::u2),
+                         ::testing::Combine(::testing::Values(ov::element::u2), ::testing::Values(ov::element::f32),
                                             ::testing::ValuesIn(testShapesStaticScaleDecode)),
                          GroupQuantWithMultiZpTestCommon::getTestCaseName);
 
@@ -236,13 +253,49 @@ const std::vector<GroupQuantShapes> testShapesDynamicScalePrefill = {{/*_lhsShap
                                                                       /*_isGroupOutermost=*/true}};
 
 INSTANTIATE_TEST_SUITE_P(GroupQuantDynamicScaleWithMultiZp_Decode_U2, GroupQuantWithMultiZpTestCommon,
-                         ::testing::Combine(::testing::Values(ov::element::u2),
+                         ::testing::Combine(::testing::Values(ov::element::u2), ::testing::Values(ov::element::f32),
                                             ::testing::ValuesIn(testShapesDynamicScaleDecode)),
                          GroupQuantWithMultiZpTestCommon::getTestCaseName);
 
 INSTANTIATE_TEST_SUITE_P(GroupQuantDynamicScaleWithMultiZp_Prefill_U2, GroupQuantWithMultiZpTestCommon,
-                         ::testing::Combine(::testing::Values(ov::element::u2),
+                         ::testing::Combine(::testing::Values(ov::element::u2), ::testing::Values(ov::element::f32),
                                             ::testing::ValuesIn(testShapesDynamicScalePrefill)),
+                         GroupQuantWithMultiZpTestCommon::getTestCaseName);
+
+// --------------------------------------------------------------------------
+// Dynamic scale + dynamic ZP tests
+// --------------------------------------------------------------------------
+
+const std::vector<GroupQuantShapes> testShapesDynScaleAndZpDecode = {{/*_lhsShape=*/{1, 1, 1024},
+                                                                      /*_weightShape=*/{16, 64, 64},
+                                                                      /*_scaleShape=*/{16, 64},
+                                                                      /*_zpShape=*/{16, 64, 1},
+                                                                      /*_rhsShape=*/{64, 1024},
+                                                                      /*_transposeB=*/true,
+                                                                      /*_isScaleDynamic=*/true,
+                                                                      /*_isGroupOutermost=*/true,
+                                                                      /*_isZpDynamic=*/true}};
+
+const std::vector<GroupQuantShapes> testShapesDynScaleAndZpPrefill = {{/*_lhsShape=*/{1, 16, 1024},
+                                                                       /*_weightShape=*/{16, 64, 64},
+                                                                       /*_scaleShape=*/{16, 64},
+                                                                       /*_zpShape=*/{16, 64, 1},
+                                                                       /*_rhsShape=*/{64, 1024},
+                                                                       /*_transposeB=*/true,
+                                                                       /*_isScaleDynamic=*/true,
+                                                                       /*_isGroupOutermost=*/true,
+                                                                       /*_isZpDynamic=*/true}};
+
+INSTANTIATE_TEST_SUITE_P(GroupQuantDynScaleAndZp_Decode_U2, GroupQuantWithMultiZpTestCommon,
+                         ::testing::Combine(::testing::Values(ov::element::u2),
+                                            ::testing::Values(ov::element::f16, ov::element::f32),
+                                            ::testing::ValuesIn(testShapesDynScaleAndZpDecode)),
+                         GroupQuantWithMultiZpTestCommon::getTestCaseName);
+
+INSTANTIATE_TEST_SUITE_P(GroupQuantDynScaleAndZp_Prefill_U2, GroupQuantWithMultiZpTestCommon,
+                         ::testing::Combine(::testing::Values(ov::element::u2),
+                                            ::testing::Values(ov::element::f16, ov::element::f32),
+                                            ::testing::ValuesIn(testShapesDynScaleAndZpPrefill)),
                          GroupQuantWithMultiZpTestCommon::getTestCaseName);
 
 }  // namespace ov::test::subgraph

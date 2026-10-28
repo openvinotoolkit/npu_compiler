@@ -4,7 +4,7 @@
 //
 
 #include "vpux/compiler/dialect/const/utils/affine_reshape.hpp"
-#include "vpux/compiler/core/types/quantile_float/types.hpp"
+#include "vpux/compiler/core/types/quantile_types/types.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/shape_manipulation.hpp"
 #include "vpux/compiler/dialect/VPU/utils/distributed_tensor_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/explicit_distribution_utils.hpp"
@@ -59,7 +59,7 @@ mlir::FailureOr<mlir::Type> inferElemType(VPU::AffineReshapeOpAdaptor affineResh
 
     if (const auto perAxisUniformQType =
                 mlir::dyn_cast_or_null<mlir::quant::UniformQuantizedPerAxisType>(inputElemType)) {
-        if (auto quantileStorage = mlir::dyn_cast<vpux::type::QuantileType>(perAxisUniformQType.getStorageType())) {
+        if (auto quantileStorage = mlir::dyn_cast<mlir::quant::QuantileType>(perAxisUniformQType.getStorageType())) {
             return mlir::quant::UniformQuantizedPerAxisType::get(
                     perAxisUniformQType.getFlags(), quantileStorage, perAxisUniformQType.getExpressedType(),
                     perAxisUniformQType.getScales(), perAxisUniformQType.getZeroPoints(),
@@ -72,6 +72,13 @@ mlir::FailureOr<mlir::Type> inferElemType(VPU::AffineReshapeOpAdaptor affineResh
             perAxisQType.getScales(), perAxisQType.getZeroPoints(), static_cast<int32_t>(outQAxis),
             perAxisQType.getStorageTypeMin(), perAxisQType.getStorageTypeMax());
 }
+
+// Maps an input distribution onto the reshaped output shape through dim_mapping.
+// Defined further below, next to the dim-mapping helpers it relies on.
+mlir::FailureOr<VPU::DistributionInfo> inferReshapedDistribution(ShapeRef inputShape, ShapeRef outputShape,
+                                                                 mlir::ArrayAttr dimMapping,
+                                                                 vpux::NDTypeInterface inType,
+                                                                 const VPU::DistributionInfo& distribution);
 
 }  // namespace
 
@@ -111,20 +118,30 @@ mlir::LogicalResult vpux::VPU::AffineReshapeOp::inferReturnTypes(
             return type.changeTypeComponents(components);
         }
 
-        auto origDistribution = distributedType.getDistribution();
-        auto distribWithExplicitAttr = VPU::getNonOverlappedDistributedAttr(
-                outShape, origDistribution.getMode(), origDistribution.getNumTiles(), origDistribution.getNumClusters(),
-                origDistribution.getAlignment(), origDistribution.getUniformDistributedSegments(), ctx);
+        const auto origDistribution = VPU::DistributionInfo::getClassFromAttr(distributedType.getDistribution());
+        const auto newDistribution = inferReshapedDistribution(type.getShape(), outShape, affineReshape.getDimMapping(),
+                                                               type, origDistribution);
+        if (mlir::failed(newDistribution)) {
+            return nullptr;
+        }
 
-        return distributedType.changeTypeComponentsForExplicitDistribution(components, distribWithExplicitAttr);
+        return distributedType.changeTypeComponentsForExplicitDistribution(
+                components, VPU::DistributionInfo::getAttrFromClass(ctx, newDistribution.value()));
     };
 
     NDTypeInterface outType;
     if (auto sparseInputType = mlir::dyn_cast<vpux::VPU::SparseTensorType>(ndInType)) {
         const NDTypeInterface dataType = sparseInputType.getData();
-        outType = VPU::SparseTensorType::get(getOutputType(dataType, typeComponents));
+        const auto outputDataType = getOutputType(dataType, typeComponents);
+        if (outputDataType == nullptr) {
+            return mlir::failure();
+        }
+        outType = VPU::SparseTensorType::get(outputDataType);
     } else {
         outType = getOutputType(ndInType, typeComponents);
+        if (outType == nullptr) {
+            return mlir::failure();
+        }
     }
     inferredReturnTypes.push_back(outType);
 
@@ -272,11 +289,15 @@ struct AffineReshapeDimMappingInfo {
     SmallVector<SmallVector<int64_t>> dimMapping;
     SmallVector<SmallVector<int64_t>> reverseMap;
 
-    explicit AffineReshapeDimMappingInfo(VPU::AffineReshapeOp op)
-            : inputShape(getShape(op.getInput())),
-              outputShape(getShape(op.getOutput())),
-              dimMapping(parseIntArrayOfArrayAttr<int64_t>(op.getDimMapping())),
+    AffineReshapeDimMappingInfo(ShapeRef inShape, ShapeRef outShape, mlir::ArrayAttr dimMappingAttr)
+            : inputShape(inShape),
+              outputShape(outShape),
+              dimMapping(parseIntArrayOfArrayAttr<int64_t>(dimMappingAttr)),
               reverseMap(buildReverseDimMapping(dimMapping, checked_cast<int64_t>(outputShape.size()))) {
+    }
+
+    explicit AffineReshapeDimMappingInfo(VPU::AffineReshapeOp op)
+            : AffineReshapeDimMappingInfo(getShape(op.getInput()), getShape(op.getOutput()), op.getDimMappingAttr()) {
     }
 };
 
@@ -351,64 +372,103 @@ SmallVector<int64_t> forwardInferPerClusterVec(const SmallVector<int64_t>& inVec
     return outVec;
 }
 
-}  // anonymous namespace
+SmallVector<Dim> inferTilingDimImpl(const AffineReshapeDimMappingInfo& info, Dim inputDim) {
+    const auto inDimIdx = checked_cast<size_t>(inputDim.ind());
+    SmallVector<Dim> outDims;
+    // dimMapping[inputDim] gives the output dims this input dim maps to.
+    // Filter to only those that are supported for tiling.
+    for (auto outIdx : info.dimMapping[inDimIdx]) {
+        if (isDimMappingSupported(info, outIdx)) {
+            outDims.push_back(Dim(outIdx));
+        }
+    }
+    return outDims;
+}
 
-//
-// DistributedCastOpInterface
-//
-
-mlir::FailureOr<std::pair<mlir::Type, VPU::DistributionInfo>>
-vpux::VPU::AffineReshapeOp::inferCastedTypeAndDistribution(vpux::NDTypeInterface inType,
-                                                           VPU::DistributionInfo& distribution) {
-    if (inType == nullptr || mlir::isa<VPU::DistributedTensorType>(inType) ||
-        distribution.getDistributionMode() == DistributionMode::NONE) {
+mlir::FailureOr<SmallVector<int64_t>> inferTilingStrategyImpl(const AffineReshapeDimMappingInfo& info,
+                                                              ArrayRef<int64_t> inputTilingStrategy) {
+    if (inputTilingStrategy.size() != info.inputShape.size()) {
         return mlir::failure();
     }
 
-    const auto mode = distribution.getDistributionMode();
+    SmallVector<int64_t> outputTilingStrategy(info.outputShape.size(), 1);
 
-    // Only support pure DUPLICATED, SEGMENTED, or OVERLAPPED.
-    // on earlier archs (e.g. NPU40XX) keep the legacy DUPLICATED-only path.
-    const auto arch = config::getArch(this->getOperation());
-    if (mode == VPU::DistributionMode::SEGMENTED || mode == VPU::DistributionMode::OVERLAPPED) {
-        if (arch <= config::ArchKind::NPU40XX) {
+    for (auto inDim : irange(inputTilingStrategy.size())) {
+        if (inputTilingStrategy[inDim] <= 1) {
+            continue;
+        }
+
+        // Size-1 dimensions cannot be tiled regardless of alignment value.
+        // Skip to avoid spurious failures in merge pattern validation.
+        if (info.inputShape[Dim(inDim)] == 1) {
+            continue;
+        }
+
+        auto outDims = inferTilingDimImpl(info, Dim(checked_cast<int64_t>(inDim)));
+        if (outDims.empty()) {
             return mlir::failure();
         }
-    } else if (mode != VPU::DistributionMode::DUPLICATED) {
+
+        // For merge patterns, only the target input dim (first non-unit) is tileable.
+        // Other merged input dims cannot be independently tiled through AffineReshape.
+        for (const auto& outDim : outDims) {
+            const auto outDimIdx = checked_cast<int64_t>(outDim.ind());
+            if (isMergeDim(info.dimMapping, info.reverseMap, info.outputShape, outDimIdx)) {
+                const auto targetDimIdx = getMergeTilingDimIdx(info.inputShape, info.reverseMap, outDimIdx);
+                if (checked_cast<int64_t>(inDim) != targetDimIdx) {
+                    return mlir::failure();
+                }
+            }
+        }
+
+        // Prefer non-unit dims for strategy propagation when multiple output dims are mapped
+        // from the same input dim (e.g. split-inner with outer=1 patterns).
+        SmallVector<Dim> preferredOutDims;
+        for (const auto& outDim : outDims) {
+            if (info.outputShape[outDim] != 1) {
+                preferredOutDims.push_back(outDim);
+            }
+        }
+
+        auto& targetOutDims = preferredOutDims.empty() ? outDims : preferredOutDims;
+        for (const auto& outDim : targetOutDims) {
+            outputTilingStrategy[outDim.ind()] = inputTilingStrategy[inDim];
+        }
+    }
+
+    return outputTilingStrategy;
+}
+
+mlir::FailureOr<VPU::DistributionInfo> inferReshapedDistribution(ShapeRef inputShape, ShapeRef outputShape,
+                                                                 mlir::ArrayAttr dimMapping,
+                                                                 vpux::NDTypeInterface inType,
+                                                                 const VPU::DistributionInfo& distribution) {
+    const auto mode = distribution.getDistributionMode();
+
+    // Only pure DUPLICATED, SEGMENTED and OVERLAPPED can be mapped through the reshape.
+    if (mode != VPU::DistributionMode::DUPLICATED && mode != VPU::DistributionMode::SEGMENTED &&
+        mode != VPU::DistributionMode::OVERLAPPED) {
         return mlir::failure();
     }
 
-    const auto dstType = mlir::cast<vpux::NDTypeInterface>(getOutput().getType());
-    const auto outShape = dstType.getShape();
-    const auto dstElemType = dstType.getElementType();
+    const AffineReshapeDimMappingInfo info(inputShape, outputShape, dimMapping);
 
     // DUPLICATED: all clusters hold the full tensor, just reshape the shape
     if (mode == VPU::DistributionMode::DUPLICATED) {
         if (!VPU::isDistributionWithExplicitShapesAndOffsets(distribution)) {
-            const auto typeComponents = TypeComponents()
-                                                .setShape(outShape)
-                                                .setDimsOrder(dstType.getDimsOrder())
-                                                .setElementType(dstElemType);
-            return std::make_pair(mlir::cast<mlir::Type>(inType.changeTypeComponents(typeComponents)), distribution);
+            return distribution;
         }
 
         const auto inAlignment = distribution.getAlignment();
         SmallVector<int64_t> outAlignment;
         if (!inAlignment.empty()) {
-            auto maybeOutAlignment = inferTilingStrategy(inAlignment);
-            if (mlir::failed(maybeOutAlignment)) {
-                outAlignment.assign(outShape.size(), 1);
-            } else {
-                outAlignment = std::move(maybeOutAlignment.value());
-            }
+            auto maybeOutAlignment = inferTilingStrategyImpl(info, inAlignment);
+            outAlignment = mlir::succeeded(maybeOutAlignment) ? std::move(maybeOutAlignment.value())
+                                                              : SmallVector<int64_t>(outputShape.size(), 1);
         }
-        auto distribWithExplicitAttr = VPU::getNonOverlappedDistributedNative(
-                outShape, mode, distribution.getNumTiles(), distribution.getNumClusters(), outAlignment,
-                distribution.hasUniformDistributedSegments());
-        const auto typeComponents =
-                TypeComponents().setShape(outShape).setDimsOrder(dstType.getDimsOrder()).setElementType(dstElemType);
-        return std::make_pair(mlir::cast<mlir::Type>(inType.changeTypeComponents(typeComponents)),
-                              distribWithExplicitAttr);
+        return VPU::getNonOverlappedDistributedNative(outputShape, mode, distribution.getNumTiles(),
+                                                      distribution.getNumClusters(), outAlignment,
+                                                      distribution.hasUniformDistributedSegments());
     }
 
     // SEGMENTED / OVERLAPPED: infer output distribution by mapping tiling dim through AffineReshape
@@ -418,11 +478,10 @@ vpux::VPU::AffineReshapeOp::inferCastedTypeAndDistribution(vpux::NDTypeInterface
     }
 
     const auto inputTilingAxis = VPU::getDistributedTilingAxis(numTiles);
-    if (inputTilingAxis >= static_cast<int64_t>(inType.getShape().size())) {
+    if (inputTilingAxis >= checked_cast<int64_t>(info.dimMapping.size()) ||
+        inputTilingAxis >= checked_cast<int64_t>(inType.getShape().size())) {
         return mlir::failure();
     }
-
-    const AffineReshapeDimMappingInfo info(*this);
 
     // Find the output dim that the input tiling axis maps to
     const auto& mappedOutputDims = info.dimMapping[inputTilingAxis];
@@ -445,7 +504,7 @@ vpux::VPU::AffineReshapeOp::inferCastedTypeAndDistribution(vpux::NDTypeInterface
     // OVERLAPPED mode: reject tiling on the C axis (verifier constraint).
     // The C index differs by rank: Dims4D C=1, DimsGroups5D C=2.
     if (mode == VPU::DistributionMode::OVERLAPPED) {
-        const auto outRank = static_cast<int64_t>(outShape.size());
+        const auto outRank = checked_cast<int64_t>(outputShape.size());
         const bool isCAxis = (outRank == 4 && outTilingDim == Dims4D::Act::C.ind()) ||
                              (outRank == 5 && outTilingDim == DimsGroups5D::Act::C.ind());
         if (isCAxis) {
@@ -453,42 +512,44 @@ vpux::VPU::AffineReshapeOp::inferCastedTypeAndDistribution(vpux::NDTypeInterface
         }
     }
 
+    SmallVector<int64_t> outNumTiles(outputShape.size(), 1);
+    outNumTiles[outTilingDim] = numTiles[inputTilingAxis];
+
+    const auto inAlignment = distribution.getAlignment();
+    SmallVector<int64_t> outAlignment;
+    if (!inAlignment.empty()) {
+        auto maybeOutAlignment = inferTilingStrategyImpl(info, inAlignment);
+        outAlignment = mlir::succeeded(maybeOutAlignment) ? std::move(maybeOutAlignment.value())
+                                                          : SmallVector<int64_t>(outputShape.size(), 1);
+    }
+
     if (!VPU::isDistributionWithExplicitShapesAndOffsets(distribution)) {
         if (!VPU::isSegmentedLikeDistributionMode(inType, distribution)) {
             return mlir::failure();
         }
-        SmallVector<int64_t> outNumTiles(outShape.size(), 1);
-        outNumTiles[outTilingDim] = numTiles[inputTilingAxis];
-        const auto inAlignment = distribution.getAlignment();
-        SmallVector<int64_t> outAlignment;
-        if (!inAlignment.empty()) {
-            auto maybeOutAlignment = inferTilingStrategy(inAlignment);
-            outAlignment = mlir::succeeded(maybeOutAlignment) ? std::move(maybeOutAlignment.value())
-                                                              : SmallVector<int64_t>(outShape.size(), 1);
-        }
 
         // Pre-check: verify the output shape can be segmented with the given parameters.
         // getNonOverlappedDistributedNative will throw if getPerClusterMemoryShapes returns
-        // nullopt (e.g. when outShape[outTilingDim] is too small for numClusters), so we
+        // nullopt (e.g. when outputShape[outTilingDim] is too small for numClusters), so we
         // validate first and return failure gracefully.
         auto tempDistribution =
                 VPU::DistributionInfo(mode, outNumTiles, {}, {}, {}, distribution.getNumClusters(), outAlignment,
                                       distribution.hasUniformDistributedSegments(), {}, {}, {}, {}, {}, std::nullopt);
 
-        auto perClusterShapes = VPU::getPerClusterMemoryShapes(outShape, tempDistribution);
+        auto perClusterShapes = VPU::getPerClusterMemoryShapes(outputShape, tempDistribution);
         if (!perClusterShapes.has_value()) {
             return mlir::failure();
         }
 
         const auto subbyteAlignment = VPU::getSubbyteAwareSegmentedDistributionAlignment(
-                outShape, perClusterShapes.value(), outTilingDim, outAlignment, inType);
+                outputShape, perClusterShapes.value(), outTilingDim, outAlignment, inType);
         // if subbyte data type forces another alignment, recompute per cluster shapes
         if (subbyteAlignment != outAlignment) {
             tempDistribution = VPU::DistributionInfo(mode, outNumTiles, {}, {}, {}, distribution.getNumClusters(),
                                                      subbyteAlignment, distribution.hasUniformDistributedSegments(), {},
                                                      {}, {}, {}, {}, std::nullopt);
 
-            perClusterShapes = VPU::getPerClusterMemoryShapes(outShape, tempDistribution);
+            perClusterShapes = VPU::getPerClusterMemoryShapes(outputShape, tempDistribution);
             if (!perClusterShapes.has_value()) {
                 return mlir::failure();
             }
@@ -496,12 +557,8 @@ vpux::VPU::AffineReshapeOp::inferCastedTypeAndDistribution(vpux::NDTypeInterface
             outAlignment = subbyteAlignment;
         }
 
-        auto distribWithExplicit =
-                VPU::getNonOverlappedDistributedNative(outShape, mode, outNumTiles, distribution.getNumClusters(),
-                                                       outAlignment, distribution.hasUniformDistributedSegments());
-        const auto typeComponents =
-                TypeComponents().setShape(outShape).setDimsOrder(dstType.getDimsOrder()).setElementType(dstElemType);
-        return std::make_pair(mlir::cast<mlir::Type>(inType.changeTypeComponents(typeComponents)), distribWithExplicit);
+        return VPU::getNonOverlappedDistributedNative(outputShape, mode, outNumTiles, distribution.getNumClusters(),
+                                                      outAlignment, distribution.hasUniformDistributedSegments());
     }
 
     // Transform per-cluster shapes and offsets through the dim mapping
@@ -536,25 +593,57 @@ vpux::VPU::AffineReshapeOp::inferCastedTypeAndDistribution(vpux::NDTypeInterface
         return mlir::failure();
     }
 
-    SmallVector<int64_t> outNumTiles(outShape.size(), 1);
-    outNumTiles[outTilingDim] = numTiles[inputTilingAxis];
-
     auto outDistribution = distribution;
     outDistribution.setNumTiles(std::move(outNumTiles));
-    const auto inAlignment = distribution.getAlignment();
     if (!inAlignment.empty()) {
-        auto maybeOutAlignment = inferTilingStrategy(inAlignment);
-        outDistribution.setAlignment(mlir::succeeded(maybeOutAlignment) ? std::move(maybeOutAlignment.value())
-                                                                        : SmallVector<int64_t>(outShape.size(), 1));
+        outDistribution.setAlignment(std::move(outAlignment));
     }
     outDistribution.setMemoryShapes(std::move(outMemShapes.value()));
     outDistribution.setMemoryOffsets(std::move(outMemOffsets.value()));
     outDistribution.setComputeShapes(std::move(outComputeShapes.value()));
     outDistribution.setComputeOffsets(std::move(outComputeOffsets.value()));
 
-    const auto typeComponents =
-            TypeComponents().setShape(outShape).setDimsOrder(dstType.getDimsOrder()).setElementType(dstElemType);
-    return std::make_pair(mlir::cast<mlir::Type>(inType.changeTypeComponents(typeComponents)), outDistribution);
+    return outDistribution;
+}
+
+}  // anonymous namespace
+
+//
+// DistributedCastOpInterface
+//
+
+mlir::FailureOr<std::pair<mlir::Type, VPU::DistributionInfo>>
+vpux::VPU::AffineReshapeOp::inferCastedTypeAndDistribution(vpux::NDTypeInterface inType,
+                                                           VPU::DistributionInfo& distribution) {
+    if (inType == nullptr || mlir::isa<VPU::DistributedTensorType>(inType) ||
+        distribution.getDistributionMode() == DistributionMode::NONE) {
+        return mlir::failure();
+    }
+
+    const auto mode = distribution.getDistributionMode();
+
+    // Segmented-like casting through a reshape is enabled starting with NPU50XX;
+    // earlier archs (e.g. NPU40XX) keep the legacy DUPLICATED-only path.
+    if (mode == VPU::DistributionMode::SEGMENTED || mode == VPU::DistributionMode::OVERLAPPED) {
+        if (config::getArch(this->getOperation()) <= config::ArchKind::NPU40XX) {
+            return mlir::failure();
+        }
+    }
+
+    const auto dstType = mlir::cast<vpux::NDTypeInterface>(getOutput().getType());
+    const auto outShape = dstType.getShape();
+
+    const auto outDistribution =
+            inferReshapedDistribution(getShape(getInput()), outShape, getDimMappingAttr(), inType, distribution);
+    if (mlir::failed(outDistribution)) {
+        return mlir::failure();
+    }
+
+    const auto typeComponents = TypeComponents()
+                                        .setShape(outShape)
+                                        .setDimsOrder(dstType.getDimsOrder())
+                                        .setElementType(dstType.getElementType());
+    return std::make_pair(mlir::cast<mlir::Type>(inType.changeTypeComponents(typeComponents)), outDistribution.value());
 }
 
 vpux::InputTiling vpux::VPU::AffineReshapeOp::backInferTileInfo(const vpux::TileInfo& outputTile, vpux::Logger) {
@@ -642,73 +731,13 @@ vpux::Dim vpux::VPU::AffineReshapeOp::backInferTilingDim(vpux::Dim outputDim) {
 
 mlir::SmallVector<vpux::Dim> vpux::VPU::AffineReshapeOp::inferTilingDim(vpux::Dim inputDim) {
     const AffineReshapeDimMappingInfo info(*this);
-
-    const auto inDimIdx = checked_cast<size_t>(inputDim.ind());
-    SmallVector<Dim> outDims;
-    // dimMapping[inputDim] gives the output dims this input dim maps to.
-    // Filter to only those that are supported for tiling.
-    for (auto outIdx : info.dimMapping[inDimIdx]) {
-        if (isDimMappingSupported(info, outIdx)) {
-            outDims.push_back(Dim(outIdx));
-        }
-    }
-    return outDims;
+    return inferTilingDimImpl(info, inputDim);
 }
 
 mlir::FailureOr<mlir::SmallVector<int64_t>> vpux::VPU::AffineReshapeOp::inferTilingStrategy(
         mlir::ArrayRef<int64_t> inputTilingStrategy) {
     const AffineReshapeDimMappingInfo info(*this);
-
-    if (inputTilingStrategy.size() != info.inputShape.size()) {
-        return mlir::failure();
-    }
-
-    SmallVector<int64_t> outputTilingStrategy(info.outputShape.size(), 1);
-
-    for (auto inDim : irange(inputTilingStrategy.size())) {
-        if (inputTilingStrategy[inDim] <= 1) {
-            continue;
-        }
-
-        // Size-1 dimensions cannot be tiled regardless of alignment value.
-        // Skip to avoid spurious failures in merge pattern validation.
-        if (info.inputShape[Dim(inDim)] == 1) {
-            continue;
-        }
-
-        auto outDims = inferTilingDim(Dim(checked_cast<int64_t>(inDim)));
-        if (outDims.empty()) {
-            return mlir::failure();
-        }
-
-        // For merge patterns, only the target input dim (first non-unit) is tileable.
-        // Other merged input dims cannot be independently tiled through AffineReshape.
-        for (const auto& outDim : outDims) {
-            const auto outDimIdx = checked_cast<int64_t>(outDim.ind());
-            if (isMergeDim(info.dimMapping, info.reverseMap, info.outputShape, outDimIdx)) {
-                const auto targetDimIdx = getMergeTilingDimIdx(info.inputShape, info.reverseMap, outDimIdx);
-                if (checked_cast<int64_t>(inDim) != targetDimIdx) {
-                    return mlir::failure();
-                }
-            }
-        }
-
-        // Prefer non-unit dims for strategy propagation when multiple output dims are mapped
-        // from the same input dim (e.g. split-inner with outer=1 patterns).
-        SmallVector<Dim> preferredOutDims;
-        for (const auto& outDim : outDims) {
-            if (info.outputShape[outDim] != 1) {
-                preferredOutDims.push_back(outDim);
-            }
-        }
-
-        auto& targetOutDims = preferredOutDims.empty() ? outDims : preferredOutDims;
-        for (const auto& outDim : targetOutDims) {
-            outputTilingStrategy[outDim.ind()] = inputTilingStrategy[inDim];
-        }
-    }
-
-    return outputTilingStrategy;
+    return inferTilingStrategyImpl(info, inputTilingStrategy);
 }
 
 void vpux::VPU::AffineReshapeOp::adjustAttrs(const TilingInfo&, const TileInfo& outputTile, ShapeRef) {

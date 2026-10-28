@@ -61,7 +61,7 @@ void vpux::VPU::inferReduceLayoutInfo(mlir::Operation* op, IE::LayerLayoutInfo& 
 
 mlir::LogicalResult vpux::VPU::verifyReduceLayoutInfo(mlir::Operation* op) {
     auto layer = mlir::dyn_cast<VPU::LayerOpInterface>(op);
-    VPUX_THROW_UNLESS(layer != nullptr, "Operation {0} does not implement VPU::LayerOpInterface", op->getName());
+    VPUX_THROW_WHEN(layer == nullptr, "Operation {0} does not implement VPU::LayerOpInterface", op->getName());
 
     const auto input = layer.getInputs()[0];
     const auto output = layer.getOutputs()[0];
@@ -102,7 +102,7 @@ mlir::LogicalResult vpux::VPU::verifyReduceLayoutInfo(mlir::Operation* op) {
 
 mlir::LogicalResult vpux::VPU::verifySameInOutDimsOrder(mlir::Operation* op) {
     auto layer = mlir::dyn_cast<VPU::LayerOpInterface>(op);
-    VPUX_THROW_UNLESS(layer != nullptr, "Operation {0} does not implement VPU::LayerOpInterface", op->getName());
+    VPUX_THROW_WHEN(layer == nullptr, "Operation {0} does not implement VPU::LayerOpInterface", op->getName());
 
     const auto input = layer.getInputs()[0];
     const auto output = layer.getOutputs()[0];
@@ -124,7 +124,7 @@ mlir::LogicalResult vpux::VPU::verifySameInOutDimsOrder(mlir::Operation* op) {
 
 mlir::LogicalResult vpux::VPU::verifyDefaultDimsOrder(mlir::Operation* op) {
     auto layer = mlir::dyn_cast<VPU::LayerOpInterface>(op);
-    VPUX_THROW_UNLESS(layer != nullptr, "Operation {0} does not implement VPU::LayerOpInterface", op->getName());
+    VPUX_THROW_WHEN(layer == nullptr, "Operation {0} does not implement VPU::LayerOpInterface", op->getName());
 
     for (const auto& val : layer->getOpOperands()) {
         const auto inOrder = DimsOrder::fromValue(val.get());
@@ -226,7 +226,7 @@ mlir::LogicalResult vpux::VPU::verifySameInOutSpecificDimsOrder(mlir::Operation*
     }
 
     auto layerOp = mlir::dyn_cast<VPU::LayerOpInterface>(op);
-    VPUX_THROW_UNLESS(layerOp != nullptr, "Operation {0} does not implement VPU::LayerOpInterface", op->getName());
+    VPUX_THROW_WHEN(layerOp == nullptr, "Operation {0} does not implement VPU::LayerOpInterface", op->getName());
 
     const auto input = layerOp.getInputs()[0];
     const auto inOrder = DimsOrder::fromValue(input);
@@ -257,9 +257,9 @@ void vpux::VPU::inferLayoutInfoSameInOutSpecificDimsOrder(IE::LayerLayoutInfo& i
         return order.numDims() == mainOrder.numDims();
     });
 
-    VPUX_THROW_UNLESS(supportedOrderIt != supportedLayouts.end(),
-                      "Layouts supported by the operation '{0}' do not match the rank '{1}' of the input shape",
-                      supportedLayouts, mainOrder.numDims());
+    VPUX_THROW_WHEN(supportedOrderIt == supportedLayouts.end(),
+                    "Layouts supported by the operation '{0}' do not match the rank '{1}' of the input shape",
+                    supportedLayouts, mainOrder.numDims());
 
     const auto supportedOrder = *supportedOrderIt;
     info.setInput(0, supportedOrder);
@@ -299,9 +299,9 @@ void vpux::VPU::inferSameMultipleInOutSpecificDimsOrder(IE::LayerLayoutInfo& inf
         return order.numDims() == mainOrder.numDims();
     });
 
-    VPUX_THROW_UNLESS(supportedOrderIt != supportedLayouts.end(),
-                      "Layouts supported by the operation '{0}' do not match the rank '{1}' of the input shape",
-                      supportedLayouts, mainOrder.numDims());
+    VPUX_THROW_WHEN(supportedOrderIt == supportedLayouts.end(),
+                    "Layouts supported by the operation '{0}' do not match the rank '{1}' of the input shape",
+                    supportedLayouts, mainOrder.numDims());
 
     const auto supportedOrder = *supportedOrderIt;
     setLayouts(supportedOrder);
@@ -314,7 +314,7 @@ mlir::LogicalResult vpux::VPU::verifySameMultipleInOutSpecificDimsOrder(mlir::Op
     }
 
     auto layerOp = mlir::dyn_cast<VPU::LayerOpInterface>(op);
-    VPUX_THROW_UNLESS(layerOp != nullptr, "Operation {0} does not implement VPU::LayerOpInterface", op->getName());
+    VPUX_THROW_WHEN(layerOp == nullptr, "Operation {0} does not implement VPU::LayerOpInterface", op->getName());
 
     const auto mainInput = layerOp.getInputs()[0];
     const auto mainOrderNumDims = DimsOrder::fromValue(mainInput).numDims();
@@ -374,7 +374,7 @@ void vpux::VPU::inferAffineReshapeLayoutInfo(mlir::Operation* op, IE::LayerLayou
 
 mlir::LogicalResult vpux::VPU::verifyAffineReshapeLayoutInfo(mlir::Operation* op) {
     auto layer = mlir::dyn_cast<VPU::LayerOpInterface>(op);
-    VPUX_THROW_UNLESS(layer != nullptr, "Operation {0} does not implement VPU::LayerOpInterface", op->getName());
+    VPUX_THROW_WHEN(layer == nullptr, "Operation {0} does not implement VPU::LayerOpInterface", op->getName());
 
     const auto input = layer.getInputs()[0];
     const auto output = layer.getOutputs()[0];
@@ -444,7 +444,7 @@ mlir::LogicalResult vpux::VPU::verifyInterpolateLayoutInfo(mlir::Operation* op) 
 
 void vpux::VPU::inferRegionYoloLayoutInfo(mlir::Operation* op, IE::LayerLayoutInfo& info) {
     auto regionYoloOp = mlir::dyn_cast<IE::RegionYoloOp>(op);
-    VPUX_THROW_UNLESS(regionYoloOp != nullptr, "Operation '{0}' is not a RegionYolo", op->getName());
+    VPUX_THROW_WHEN(regionYoloOp == nullptr, "Operation '{0}' is not a RegionYolo", op->getName());
 
     if (regionYoloOp.getDoSoftmax()) {
         IE::fillDefaultLayoutInfo(info);
@@ -455,7 +455,7 @@ void vpux::VPU::inferRegionYoloLayoutInfo(mlir::Operation* op, IE::LayerLayoutIn
 
 mlir::LogicalResult vpux::VPU::verifyRegionYoloLayoutInfo(mlir::Operation* op) {
     auto regionYoloOp = mlir::dyn_cast<VPU::RegionYoloOp>(op);
-    VPUX_THROW_UNLESS(regionYoloOp != nullptr, "Operation '{0}' is not a RegionYolo", op->getName());
+    VPUX_THROW_WHEN(regionYoloOp == nullptr, "Operation '{0}' is not a RegionYolo", op->getName());
 
     if (regionYoloOp.getDoSoftmax()) {
         return verifyDefaultDimsOrder(op);

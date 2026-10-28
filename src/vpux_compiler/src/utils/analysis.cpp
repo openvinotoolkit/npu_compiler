@@ -19,7 +19,7 @@ using namespace vpux;
 //
 
 mlir::Operation* vpux::getFirstUser(mlir::Value output) {
-    VPUX_THROW_UNLESS(output != nullptr, "Got NULL pointer in getFirstUser");
+    VPUX_THROW_WHEN(output == nullptr, "Got NULL pointer in getFirstUser");
 
     const auto users = output.getUsers();
     const auto firstUser = std::min_element(users.begin(), users.end(), [](mlir::Operation* lhs, mlir::Operation* rhs) {
@@ -79,8 +79,8 @@ mlir::ModuleOp vpux::getModuleOp(mlir::Operation* op) {
     }
 
     auto module = op->getParentOfType<mlir::ModuleOp>();
-    VPUX_THROW_UNLESS(module != nullptr, "Can't get parent Module from Operation '{0}' at '{1}'", op->getName(),
-                      op->getLoc());
+    VPUX_THROW_WHEN(module == nullptr, "Can't get parent Module from Operation '{0}' at '{1}'", op->getName(),
+                    op->getLoc());
     return module;
 }
 

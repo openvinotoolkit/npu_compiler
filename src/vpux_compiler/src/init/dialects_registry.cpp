@@ -8,8 +8,7 @@
 #include "vpux/compiler/NPU40XX/dialect/NPUReg40XX/dialect.hpp"
 #include "vpux/compiler/NPU50XX/dialect/NPUReg50XX/dialect.hpp"
 #include "vpux/compiler/conversion/passes/VPU2VPUIP/bufferizable_ops_interface.hpp"
-#include "vpux/compiler/core/types/quantile_float/dialect.hpp"
-#include "vpux/compiler/core/types/quantile_float/types.hpp"
+#include "vpux/compiler/core/types/quantile_types/types.hpp"
 #include "vpux/compiler/dialect/ELF/IR/dialect.hpp"
 #include "vpux/compiler/dialect/ELFNPU37XX/dialect.hpp"
 #include "vpux/compiler/dialect/HostExec/IR/dialect.hpp"
@@ -47,8 +46,12 @@
 #include <mlir/Dialect/MemRef/IR/MemRef.h>
 #include <mlir/Dialect/Quant/IR/Quant.h>
 
+#include <mlir/Dialect/Affine/IR/ValueBoundsOpInterfaceImpl.h>
+#include <mlir/Dialect/Arith/IR/ValueBoundsOpInterfaceImpl.h>
 #include <mlir/Dialect/SCF/IR/SCF.h>
+#include <mlir/Dialect/SCF/IR/ValueBoundsOpInterfaceImpl.h>
 #include <mlir/Dialect/Tensor/IR/Tensor.h>
+#include <mlir/Dialect/Tensor/IR/ValueBoundsOpInterfaceImpl.h>
 #include <mlir/IR/BuiltinDialect.h>
 #include <mlir/IR/BuiltinTypes.h>
 
@@ -94,7 +97,6 @@ void registerDialects(mlir::DialectRegistry& registry) {
                     vpux::NPUReg40XX::NPUReg40XXDialect,      //
                     vpux::NPUReg50XX::NPUReg50XXDialect,      //
                     vpux::ELFNPU37XX::ELFNPU37XXDialect,      //
-                    vpux::type::QuantileDialect,              //
                     vpux::Shave::ShaveDialect>();
 
     registry.insert<mlir::func::FuncDialect,       //
@@ -124,16 +126,20 @@ mlir::DialectRegistry vpux::createDialectRegistry(DummyOpMode dummyOpMode) {
         mlir::quant::UniformQuantizedType::attachInterface<MemRefElementTypeModel>(*ctx);
         mlir::quant::UniformQuantizedPerAxisType::attachInterface<MemRefElementTypeModel>(*ctx);
         mlir::quant::CalibratedQuantizedType::attachInterface<MemRefElementTypeModel>(*ctx);
-    });
-
-    registry.addExtension(+[](mlir::MLIRContext* ctx, vpux::type::QuantileDialect*) {
-        vpux::type::NF4Type::attachInterface<MemRefElementTypeModel>(*ctx);
-        vpux::type::QuantileType::attachInterface<MemRefElementTypeModel>(*ctx);
+        mlir::quant::QuantileType::attachInterface<MemRefElementTypeModel>(*ctx);
     });
 
     Const::ConstDialect::setupExtraInterfaces(registry);
     Core::CoreDialect::setupExtraInterfaces(registry);
     VPUIP::VPUIPDialect::setupExtraInterfaces(registry);
+
+    // ValueBoundsOpInterface external models — required for
+    // mlir::ValueBoundsConstraintSet::computeConstantBound() to fold affine.min /
+    // affine.apply / arith / scf Induction Variable / tensor.dim chains.
+    mlir::affine::registerValueBoundsOpInterfaceExternalModels(registry);
+    mlir::arith::registerValueBoundsOpInterfaceExternalModels(registry);
+    mlir::scf::registerValueBoundsOpInterfaceExternalModels(registry);
+    mlir::tensor::registerValueBoundsOpInterfaceExternalModels(registry);
 
     // Register the translation to LLVM IR with MLIR
     mlir::registerBuiltinDialectTranslation(registry);

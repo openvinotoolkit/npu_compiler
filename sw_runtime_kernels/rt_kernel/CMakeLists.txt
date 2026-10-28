@@ -174,7 +174,11 @@ foreach(platform IN LISTS _rt_platforms)
         # 5000+ slimfw family: share common build settings and source structure.
         set(kernel_entry "nn_shave_entry")
         set(optimization_opts "-O2" "-fforce-enable-int128" "-fno-jump-tables")
-        set(kernel_src_dir "${_slimfw_ar}/src/common")
+        if(platform STREQUAL "5000")
+          set(kernel_src_dir "${_slimfw_ar}/src/5000")
+        else()
+          set(kernel_src_dir "${_slimfw_ar}/src/common")
+        endif()
         set(asm_include_list "-Xassembler" "-i" "-Xassembler" "${_slimfw_ar}/src/common")
 
         if(platform STREQUAL "5000")
@@ -188,11 +192,12 @@ foreach(platform IN LISTS _rt_platforms)
             "${FIRMWARE_VPU_DIR}/slimfw/include"
             "${FIRMWARE_VPU_DIR}/slimfw/include/shave"
             "${FIRMWARE_VPU_DIR}/slimfw/include/vpu_c_header"
-            "${_slimfw_ar}/inc/common"
             "${_slimfw_ar}/inc/${platform_subdir}"
+            "${_slimfw_ar}/inc/common"
             "${FIRMWARE_VPU_DIR}/slimfw/include/nn"
             "${FIRMWARE_VPU_DIR}/slimfw/drivers/barriers"
             "${FIRMWARE_VPU_DIR}/slimfw/system/nn/common/inc"
+            "${FIRMWARE_VPU_DIR}/slimfw/system/nn/platform/inc"
             "${FIRMWARE_VPU_DIR}/slimfw/system/nn/include"
             "${FIRMWARE_VPU_DIR}/slimfw/drivers/nn/inc"
         )

@@ -14,7 +14,7 @@ using namespace vpux;
 
 mlir::Value VPU::createEmptyAuxiliaryBuffer(mlir::OpBuilder& builder, mlir::Location opLoc, mlir::Type type) {
     const auto loc = appendLoc(opLoc, "aux");
-    return builder.create<VPU::EmptyOp>(loc, type);
+    return VPU::EmptyOp::create(builder, loc, type);
 }
 
 mlir::Value VPU::createConstantAuxiliaryBuffer(mlir::OpBuilder& builder, mlir::Location opLoc, mlir::Type type) {

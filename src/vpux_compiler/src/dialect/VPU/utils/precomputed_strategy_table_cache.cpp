@@ -5,7 +5,7 @@
 
 #include "vpux/compiler/dialect/VPU/utils/precomputed_strategy_table_cache.hpp"
 
-#include "vpux/compiler/core/types/quantile_float/types.hpp"
+#include "vpux/compiler/core/types/quantile_types/types.hpp"
 #include "vpux/compiler/dialect/VPU/IR/attributes.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/internal.hpp"
 #include "vpux/compiler/dialect/VPU/IR/type_interfaces.hpp"
@@ -91,7 +91,7 @@ uint64_t hashTensorDescriptor(mlir::Value val, uint64_t h) {
     mlir::Type elemType = nd.getElementType();
     if (auto qType = mlir::dyn_cast<mlir::quant::QuantizedType>(elemType)) {
         elemType = qType.getStorageType();
-        if (auto qfType = mlir::dyn_cast<vpux::type::QuantileType>(elemType)) {
+        if (auto qfType = mlir::dyn_cast<mlir::quant::QuantileType>(elemType)) {
             elemType = qfType.getStorageType();
         }
     }
@@ -142,7 +142,7 @@ int64_t getNumDpuTiles(mlir::Operation* op) {
 }  // namespace
 
 uint64_t computeOpStrategyHash(mlir::Operation* op, StringRef device, int64_t numTiles) {
-    VPUX_THROW_UNLESS(op != nullptr, "Cannot compute strategy hash for null operation");
+    VPUX_THROW_WHEN(op == nullptr, "Cannot compute strategy hash for null operation");
 
     uint64_t h = FNV_OFFSET;
 
@@ -423,7 +423,7 @@ std::string elemTypeToStr(mlir::Value val) {
     mlir::Type elemType = nd.getElementType();
     if (auto qType = mlir::dyn_cast<mlir::quant::QuantizedType>(elemType)) {
         elemType = qType.getStorageType();
-        if (auto qfType = mlir::dyn_cast<vpux::type::QuantileType>(elemType)) {
+        if (auto qfType = mlir::dyn_cast<mlir::quant::QuantileType>(elemType)) {
             elemType = qfType.getStorageType();
         }
     }

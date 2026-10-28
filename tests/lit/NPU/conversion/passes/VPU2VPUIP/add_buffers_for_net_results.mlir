@@ -336,7 +336,7 @@ module @TwoFunctionsDistributedType {
         %1 = VPUIP.Copy inputs(%arg0 : memref<1x3x384x336xf16>) outputs(%0 : !DistributedBufferInput) -> !DistributedBufferInput
         %2 = VPUIP.ViewOp %1 : !DistributedBufferInput to !DistributedBufferNCEInput
         %3 = VPURT.AllocDistributed -> !DistributedBufferFoo1Result
-        %4 = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 9753 : i64, resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{is_permute_quantize, mpe_engine = #VPU.MPEEngine37XX<mode = <SCL>>, task_type = #VPUIP.nce_task_type<ELTWISE>}>
+        %4 = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 9753 : i64} <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>, is_permute_quantize, mpe_engine = #VPU.MPEEngine37XX<mode = <SCL>>, task_type = #VPUIP.nce_task_type<ELTWISE>}>
                 input(%2 : !DistributedBufferNCEInput)
                 weights(%2 : !DistributedBufferNCEInput)
                 parent_input(%2 : !DistributedBufferNCEInput)

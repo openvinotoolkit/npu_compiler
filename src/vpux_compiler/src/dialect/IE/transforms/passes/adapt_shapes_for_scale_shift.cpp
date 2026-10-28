@@ -71,15 +71,15 @@ mlir::LogicalResult BroadcastEltwiseRewriter<EltwiseOp>::matchAndTranspose(Eltwi
     const std::array<int64_t, 4> lhs4D = {1, newChannelSize, lhsShape[Dim(broadcastAxis)], 1};
     const auto reshapedLhsType = lhsType.changeShape(ShapeRef(lhs4D));
     const auto reshapedLhsLoc = appendLoc(origOpLoc, "reshape_lhs");
-    auto reshapedLhs = rewriter.create<IE::ReshapeOp>(reshapedLhsLoc, reshapedLhsType, origOp.getInput1(),
-                                                      getIntArrayAttr(ctx, ShapeRef(lhs4D)));
+    auto reshapedLhs = IE::ReshapeOp::create(rewriter, reshapedLhsLoc, reshapedLhsType, origOp.getInput1(),
+                                             getIntArrayAttr(ctx, ShapeRef(lhs4D)));
     _log.trace("[{0}]: reshaped LHS: {1}", this->getDebugName(), reshapedLhsLoc);
 
     // Transpose 1xNxMx1 input 1xMxNx1
     const auto transposeLhsOrder =
             mlir::AffineMapAttr::get(mlir::AffineMap::getPermutationMap(SmallVector<uint32_t>{0, 2, 1, 3}, ctx));
     const auto transposeLhsLoc = appendLoc(origOpLoc, "transpose_lhs");
-    auto transposedLhs = rewriter.create<IE::TransposeOp>(transposeLhsLoc, reshapedLhs, nullptr, transposeLhsOrder);
+    auto transposedLhs = IE::TransposeOp::create(rewriter, transposeLhsLoc, reshapedLhs, nullptr, transposeLhsOrder);
     _log.trace("[{0}]: transposed LHS: {1}", this->getDebugName(), transposeLhsLoc);
 
     // Reshape 1xM input to 1xMx1x1
@@ -88,29 +88,29 @@ mlir::LogicalResult BroadcastEltwiseRewriter<EltwiseOp>::matchAndTranspose(Eltwi
     const std::array<int64_t, 4> rhs4D = {1, rhsShape[Dim(broadcastAxis)], 1, 1};
     const auto reshapedRhsType = rhsType.changeShape(ShapeRef(rhs4D));
     const auto reshapedRhsLoc = appendLoc(origOpLoc, "reshape_rhs");
-    auto reshapedRhs = rewriter.create<IE::ReshapeOp>(reshapedRhsLoc, reshapedRhsType, origOp.getInput2(),
-                                                      getIntArrayAttr(ctx, ShapeRef(rhs4D)));
+    auto reshapedRhs = IE::ReshapeOp::create(rewriter, reshapedRhsLoc, reshapedRhsType, origOp.getInput2(),
+                                             getIntArrayAttr(ctx, ShapeRef(rhs4D)));
     _log.trace("[{0}]: reshaped RHS: {1}", this->getDebugName(), reshapedRhs);
 
     // Create new IE.Add operation
-    auto newOp = rewriter.create<EltwiseOp>(origOp->getLoc(), transposedLhs, reshapedRhs, origOp.getAutoBroadcast(),
-                                            origOp.getPostOpAttr(), origOp.getClampAttr(),
-                                            origOp.getOutputPaddingAttr(), origOp.getInputPaddingAttr());
+    auto newOp = EltwiseOp::create(rewriter, origOp->getLoc(), transposedLhs, reshapedRhs, origOp.getAutoBroadcast(),
+                                   origOp.getPostOpAttr(), origOp.getClampAttr(), origOp.getOutputPaddingAttr(),
+                                   origOp.getInputPaddingAttr());
     _log.trace("[{0}]: new element-wise: {1}", this->getDebugName(), newOp);
 
     // Transpose the 1xMxNx1 output to 1xNxMx1
     const auto transposeOutOrder =
             mlir::AffineMapAttr::get(mlir::AffineMap::getPermutationMap(SmallVector<uint32_t>{0, 2, 1, 3}, ctx));
     const auto transposeOutLoc = appendLoc(origOpLoc, "transpose_out");
-    auto transposedOut = rewriter.create<IE::TransposeOp>(transposeOutLoc, newOp, nullptr, transposeOutOrder);
+    auto transposedOut = IE::TransposeOp::create(rewriter, transposeOutLoc, newOp, nullptr, transposeOutOrder);
     _log.trace("[{0}]: transposed output: {1}", this->getDebugName(), transposedOut);
 
     // Reshape 1xNxMx1 output to NxM
     const auto reshapedOutType = mlir::cast<vpux::NDTypeInterface>(origOp.getOutput().getType());
     const auto outputShape = reshapedOutType.getShape();
     const auto reshapedOutLoc = appendLoc(origOpLoc, "reshape_out");
-    auto reshapedOut = rewriter.create<IE::ReshapeOp>(reshapedOutLoc, reshapedOutType, transposedOut.getOutput(),
-                                                      getIntArrayAttr(ctx, outputShape));
+    auto reshapedOut = IE::ReshapeOp::create(rewriter, reshapedOutLoc, reshapedOutType, transposedOut.getOutput(),
+                                             getIntArrayAttr(ctx, outputShape));
 
     _log.trace("[{0}]: reshaped output: {1}", this->getDebugName(), reshapedOut);
 
@@ -358,37 +358,37 @@ mlir::LogicalResult MultiNonTrivialDimEltwiseRewriter<EltwiseOp>::matchAndRewrit
     const std::array<int64_t, 4> lhs4D = {1, lhsShape[Dim(0)], lhsShape[Dim(1)], lhsShape[Dim(2)] * lhsShape[Dim(3)]};
     const auto reshapedLhsType = lhsType.changeShape(ShapeRef(lhs4D));
     const auto reshapedLhsLoc = appendLoc(origOpLoc, "reshape_lhs");
-    auto reshapedLhs = rewriter.create<IE::ReshapeOp>(reshapedLhsLoc, reshapedLhsType, origOp.getInput1(),
-                                                      getIntArrayAttr(ctx, ShapeRef(lhs4D)));
+    auto reshapedLhs = IE::ReshapeOp::create(rewriter, reshapedLhsLoc, reshapedLhsType, origOp.getInput1(),
+                                             getIntArrayAttr(ctx, ShapeRef(lhs4D)));
     // Transpose 1xNxCx(HxW) -> 1x(HxW)xNxC
     const auto transposeLhsOrder =
             mlir::AffineMapAttr::get(mlir::AffineMap::getPermutationMap(SmallVector<uint32_t>{0, 3, 1, 2}, ctx));
     const auto transposeLhsLoc = appendLoc(origOpLoc, "transpose_lhs");
-    auto transposedLhs = rewriter.create<IE::TransposeOp>(transposeLhsLoc, reshapedLhs, nullptr, transposeLhsOrder);
+    auto transposedLhs = IE::TransposeOp::create(rewriter, transposeLhsLoc, reshapedLhs, nullptr, transposeLhsOrder);
 
     // RHS: 1x1xHxW -> 1x(HxW)x1x1
     const std::array<int64_t, 4> rhs4D = {1, rhsShape[Dim(2)] * rhsShape[Dim(3)], 1, 1};
     const auto reshapedRhsType = rhsType.changeShape(ShapeRef(rhs4D));
     const auto reshapedRhsLoc = appendLoc(origOpLoc, "reshape_rhs");
-    auto reshapedRhs = rewriter.create<IE::ReshapeOp>(reshapedRhsLoc, reshapedRhsType, origOp.getInput2(),
-                                                      getIntArrayAttr(ctx, ShapeRef(rhs4D)));
+    auto reshapedRhs = IE::ReshapeOp::create(rewriter, reshapedRhsLoc, reshapedRhsType, origOp.getInput2(),
+                                             getIntArrayAttr(ctx, ShapeRef(rhs4D)));
 
     // Create new EltwiseOp operation
-    auto newOp = rewriter.create<EltwiseOp>(origOp->getLoc(), transposedLhs, reshapedRhs, origOp.getAutoBroadcast(),
-                                            origOp.getPostOpAttr(), origOp.getClampAttr(),
-                                            origOp.getOutputPaddingAttr(), origOp.getInputPaddingAttr());
+    auto newOp = EltwiseOp::create(rewriter, origOp->getLoc(), transposedLhs, reshapedRhs, origOp.getAutoBroadcast(),
+                                   origOp.getPostOpAttr(), origOp.getClampAttr(), origOp.getOutputPaddingAttr(),
+                                   origOp.getInputPaddingAttr());
 
     // output: 1x(HxW)xNxC -> 1xNxCx(HxW) -> NxCxHxW
     const auto transposeOutOrder =
             mlir::AffineMapAttr::get(mlir::AffineMap::getPermutationMap(SmallVector<uint32_t>{0, 2, 3, 1}, ctx));
     const auto transposeOutLoc = appendLoc(origOpLoc, "transpose_out");
-    auto transposedOut = rewriter.create<IE::TransposeOp>(transposeOutLoc, newOp, nullptr, transposeOutOrder);
+    auto transposedOut = IE::TransposeOp::create(rewriter, transposeOutLoc, newOp, nullptr, transposeOutOrder);
 
     const auto reshapedOutType = mlir::cast<vpux::NDTypeInterface>(origOp.getOutput().getType());
     const auto outputShape = reshapedOutType.getShape();
     const auto reshapedOutLoc = appendLoc(origOpLoc, "reshape_out");
-    auto reshapedOut = rewriter.create<IE::ReshapeOp>(reshapedOutLoc, reshapedOutType, transposedOut.getOutput(),
-                                                      getIntArrayAttr(ctx, outputShape));
+    auto reshapedOut = IE::ReshapeOp::create(rewriter, reshapedOutLoc, reshapedOutType, transposedOut.getOutput(),
+                                             getIntArrayAttr(ctx, outputShape));
 
     _log.trace("[{0}] Reshape and tranpose '{1}' at '{2}'", this->getDebugName(), origOp->getName(), origOp->getLoc());
     rewriter.replaceOp(origOp, reshapedOut.getOutput());
@@ -430,15 +430,15 @@ mlir::LogicalResult TransposeEltwiseRewriter<EltwiseOp>::matchAndRewrite(Eltwise
 
     const auto transposedOrder = mlir::AffineMapAttr::get(mlir::AffineMap::getPermutationMap(newInputOrder, ctx));
 
-    auto actInputTranspose = rewriter.create<IE::TransposeOp>(takeOpLoc(origOp, "transpose_lhs"),
-                                                              actInputType.changeShape(newActInputShape), actInput,
-                                                              nullptr, transposedOrder);
+    auto actInputTranspose =
+            IE::TransposeOp::create(rewriter, takeOpLoc(origOp, "transpose_lhs"),
+                                    actInputType.changeShape(newActInputShape), actInput, nullptr, transposedOrder);
     actInput.replaceUsesWithIf(actInputTranspose, [&](mlir::OpOperand& opOperand) {
         return opOperand.getOwner() == origOp;
     });
-    auto constInputTranspose = rewriter.create<IE::TransposeOp>(takeOpLoc(origOp, "transpose_rhs"),
-                                                                constInputType.changeShape(newConstInputShape),
-                                                                constInput, nullptr, transposedOrder);
+    auto constInputTranspose = IE::TransposeOp::create(rewriter, takeOpLoc(origOp, "transpose_rhs"),
+                                                       constInputType.changeShape(newConstInputShape), constInput,
+                                                       nullptr, transposedOrder);
     constInput.replaceUsesWithIf(constInputTranspose, [&](mlir::OpOperand& opOperand) {
         return opOperand.getOwner() == origOp;
     });
@@ -450,8 +450,8 @@ mlir::LogicalResult TransposeEltwiseRewriter<EltwiseOp>::matchAndRewrite(Eltwise
     auto newOutputOrder =
             dimToMove == Dims4D::Act::W ? SmallVector<uint32_t>{0, 2, 3, 1} : SmallVector<uint32_t>{0, 2, 1, 3};
     const auto outputTransposeOrder = mlir::AffineMapAttr::get(mlir::AffineMap::getPermutationMap(newOutputOrder, ctx));
-    auto outputTranspose = rewriter.create<IE::TransposeOp>(takeOpLoc(origOp, "transpose_out"), outputType,
-                                                            origOp->getResult(0), nullptr, outputTransposeOrder);
+    auto outputTranspose = IE::TransposeOp::create(rewriter, takeOpLoc(origOp, "transpose_out"), outputType,
+                                                   origOp->getResult(0), nullptr, outputTransposeOrder);
 
     _log.trace("[{0}] Tranpose '{1}' at '{2}'", this->getDebugName(), origOp->getName(), origOp->getLoc());
     origOp->getResult(0).replaceAllUsesExcept(outputTranspose, outputTranspose);

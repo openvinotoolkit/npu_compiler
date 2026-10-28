@@ -24,7 +24,7 @@ mlir::LogicalResult vpux::VPU::GreaterEqualOp::inferReturnTypes(
     }
 
     return inferEltwiseReturnTypes(inferredReturnTypes, loc, greaterEq.getInput1(), greaterEq.getInput2(),
-                                   greaterEq.getAutoBroadcast());
+                                   greaterEq.getAutoBroadcast(), getBool8Type(ctx));
 }
 
 void vpux::VPU::GreaterEqualOp::build(::mlir::OpBuilder& odsBuilder, ::mlir::OperationState& odsState,

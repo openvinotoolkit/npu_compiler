@@ -65,8 +65,8 @@ mlir::Value createAverageConv(mlir::Value input, ShapeRef kernelShape, mlir::Loc
 
     const DimsOrder weightOrder = DimsOrder::OYXI;
 
-    VPUX_THROW_UNLESS(!mlir::isa<Core::BoundedTensorType>(input.getType()), "{0} doesn't support dynamic shapes",
-                      IE::ConvolutionOp::getOperationName());
+    VPUX_THROW_WHEN(mlir::isa<Core::BoundedTensorType>(input.getType()), "{0} doesn't support dynamic shapes",
+                    IE::ConvolutionOp::getOperationName());
     const auto weightType = mlir::RankedTensorType::get(weightShape.raw(),
                                                         mlir::cast<NDTypeInterface>(input.getType()).getElementType(),
                                                         getTensorAttr(rewriter.getContext(), weightOrder, nullptr));
@@ -77,8 +77,8 @@ mlir::Value createAverageConv(mlir::Value input, ShapeRef kernelShape, mlir::Loc
     const auto convInType = mlir::cast<vpux::NDTypeInterface>(input.getType());
     const auto convOutType = convInType.changeShape(outputShape);
 
-    auto averageConv = rewriter.create<IE::ConvolutionOp>(newLoc, convOutType, input, weight, stridesAttr, padBeginAttr,
-                                                          padEndAttr, dilationsAttr);
+    auto averageConv = IE::ConvolutionOp::create(rewriter, newLoc, convOutType, input, weight, stridesAttr,
+                                                 padBeginAttr, padEndAttr, dilationsAttr);
     return averageConv.getOutput();
 }
 
@@ -108,9 +108,10 @@ auto createAverageDWConv(mlir::Value input, ShapeRef kernelShape, mlir::Location
     }
 
     auto newLoc = appendLoc(loc, "interpolate_GroupConv_{0}_{1}", kernelShape[Dim(0)], kernelShape[Dim(1)]);
-    auto averageDWConv = rewriter.create<IE::GroupConvolutionOp>(
-            newLoc, input, weights, /*bias=*/nullptr, stridesAttr, padBeginAttr, padEndAttr, dilationsAttr, groupAttr,
-            /*post_opAttr=*/nullptr, /*clampAttr=*/nullptr, /*outputPadding=*/nullptr, /*inputPadding=*/nullptr);
+    auto averageDWConv = IE::GroupConvolutionOp::create(rewriter, newLoc, input, weights, /*bias=*/nullptr, stridesAttr,
+                                                        padBeginAttr, padEndAttr, dilationsAttr, groupAttr,
+                                                        /*post_opAttr=*/nullptr, /*clampAttr=*/nullptr,
+                                                        /*outputPadding=*/nullptr, /*inputPadding=*/nullptr);
 
     return averageDWConv.getOutput();
 }
@@ -122,11 +123,10 @@ mlir::Value createMaxPool(mlir::Value input, mlir::Location loc, mlir::PatternRe
     const auto padsAttr = getIntArrayAttr(rewriter, pads);
     auto ctx = rewriter.getContext();
 
-    return rewriter
-            .create<IE::MaxPoolOp>(loc, input, /*scale=*/nullptr, getIntArrayAttr(rewriter, maxPoolKernels),
-                                   getIntArrayAttr(rewriter, maxPoolStrides), padsAttr, padsAttr,
-                                   vpux::IE::RoundingTypeAttr::get(ctx, vpux::IE::RoundingType::FLOOR), nullptr,
-                                   nullptr, nullptr, nullptr, nullptr)
+    return IE::MaxPoolOp::create(rewriter, loc, input, /*scale=*/nullptr, getIntArrayAttr(rewriter, maxPoolKernels),
+                                 getIntArrayAttr(rewriter, maxPoolStrides), padsAttr, padsAttr,
+                                 vpux::IE::RoundingTypeAttr::get(ctx, vpux::IE::RoundingType::FLOOR), nullptr, nullptr,
+                                 nullptr, nullptr, nullptr)
             .getOutput();
 }
 
@@ -500,15 +500,15 @@ mlir::LogicalResult ConvertBilinearToStridedConcatAndConvPass::BilinearInterpola
     const auto inputFQ = origOp.getInput().getDefiningOp<IE::FakeQuantizeOp>();
 
     SmallVector<mlir::Value> widthSlices(upSampleW, origOp.getInput());
-    auto newOp = widthSlices.size() != 1 ? rewriter.create<IE::ConcatOp>(takeOpLoc(origOp, "wslices_concat"),
-                                                                         widthSlices, Dims4D::Act::W, 1, upSampleW)
+    auto newOp = widthSlices.size() != 1 ? IE::ConcatOp::create(rewriter, takeOpLoc(origOp, "wslices_concat"),
+                                                                widthSlices, Dims4D::Act::W, 1, upSampleW)
                                                    .getOutput()
                                          : widthSlices.front();
 
     SmallVector<mlir::Value> heightSlices(upSampleH, newOp);
     auto nearestInterpolateOut = heightSlices.size() != 1
-                                         ? rewriter.create<IE::ConcatOp>(takeOpLoc(origOp, "hslices_concat"),
-                                                                         heightSlices, Dims4D::Act::H, 1, upSampleH)
+                                         ? IE::ConcatOp::create(rewriter, takeOpLoc(origOp, "hslices_concat"),
+                                                                heightSlices, Dims4D::Act::H, 1, upSampleH)
                                                    .getOutput()
                                          : heightSlices.front();
 
@@ -589,9 +589,9 @@ mlir::LogicalResult ConvertBilinearToStridedConcatAndConvPass::BilinearInterpola
         return mlir::failure();
     }
     sizes[Dims4D::Act::W.ind()] -= 1;
-    mlir::Value leftSlice = rewriter.create<IE::SliceOp>(appendLoc(location, "left_slice"), concatWH,
-                                                         getIntArrayAttr(origOp.getContext(), offsets),
-                                                         getIntArrayAttr(origOp.getContext(), sizes));
+    mlir::Value leftSlice = IE::SliceOp::create(rewriter, appendLoc(location, "left_slice"), concatWH,
+                                                getIntArrayAttr(origOp.getContext(), offsets),
+                                                getIntArrayAttr(origOp.getContext(), sizes));
     int32_t convStrideH = 1, convStrideW = 1;
     auto getAverageDWConv = [&](auto input, ShapeRef kernelShape, StringRef locSuffix) {
         auto DWConv = createAverageDWConv(input, kernelShape, appendLoc(location, locSuffix), inputFQ, convStrideH,
@@ -649,13 +649,15 @@ mlir::LogicalResult ConvertBilinearToStridedConcatAndConvPass::BilinearInterpola
 
     // Join over W
     SmallVector<mlir::Value> widthSlices{originCopy, averagePoolOverW};
-    auto joinOverW0 = rewriter.create<IE::ConcatOp>(appendLoc(location, "concat_w0"), widthSlices, Dims4D::Act::W, 1, 2)
-                              .getOutput();
+    auto joinOverW0 =
+            IE::ConcatOp::create(rewriter, appendLoc(location, "concat_w0"), widthSlices, Dims4D::Act::W, 1, 2)
+                    .getOutput();
 
     widthSlices.clear();
     widthSlices = {averagePoolOverH, averagePoolOverWH};
-    auto joinOverW1 = rewriter.create<IE::ConcatOp>(appendLoc(location, "concat_w1"), widthSlices, Dims4D::Act::W, 1, 2)
-                              .getOutput();
+    auto joinOverW1 =
+            IE::ConcatOp::create(rewriter, appendLoc(location, "concat_w1"), widthSlices, Dims4D::Act::W, 1, 2)
+                    .getOutput();
 
     if (canUseCmxConcat()) {
         joinOverW0 = getAverageDWConv(joinOverW0, {1, 1}, "over_w0");
@@ -668,7 +670,7 @@ mlir::LogicalResult ConvertBilinearToStridedConcatAndConvPass::BilinearInterpola
 
     // Join over H
     SmallVector<mlir::Value> heightSlices{joinOverW0, joinOverW1};
-    auto joinOverH = rewriter.create<IE::ConcatOp>(appendLoc(location, "concat_h"), heightSlices, Dims4D::Act::H, 1, 2)
+    auto joinOverH = IE::ConcatOp::create(rewriter, appendLoc(location, "concat_h"), heightSlices, Dims4D::Act::H, 1, 2)
                              .getOutput();
 
     rewriter.replaceOp(origOp, joinOverH);
@@ -799,8 +801,8 @@ ConvertBilinearToStridedConcatAndConvPass::SmallChannelPytorchHalfPixelBilinearI
 
         auto nearestInterpolateOut =
                 heightSlices.size() != 1
-                        ? rewriter.create<IE::ConcatOp>(takeOpLoc(origOp, "{0}_slices_concat", locSuffix), heightSlices,
-                                                        Dims4D::Act::H, 1, upSampleH)
+                        ? IE::ConcatOp::create(rewriter, takeOpLoc(origOp, "{0}_slices_concat", locSuffix),
+                                               heightSlices, Dims4D::Act::H, 1, upSampleH)
                                   .getOutput()
                         : heightSlices.front();
 
@@ -819,18 +821,17 @@ ConvertBilinearToStridedConcatAndConvPass::SmallChannelPytorchHalfPixelBilinearI
     auto memPermAttr = getPermutationFromOrders(DimsOrder::NHWC, DimsOrder::NWHC, origOp->getContext());
 
     auto inputReorder =
-            rewriter.create<IE::ReorderOp>(takeOpLoc(origOp, "reorder_in_to_NWHC"), origOp.getInput(), dstOrder);
+            IE::ReorderOp::create(rewriter, takeOpLoc(origOp, "reorder_in_to_NWHC"), origOp.getInput(), dstOrder);
 
     auto interpolateH1 = createSliceConcatConv(inputReorder.getOutput(), "H1");
     auto memPermute1 =
-            rewriter.create<IE::MemPermuteOp>(takeOpLoc(origOp, "mem_perm_H1"), interpolateH1, dstOrder, memPermAttr);
+            IE::MemPermuteOp::create(rewriter, takeOpLoc(origOp, "mem_perm_H1"), interpolateH1, dstOrder, memPermAttr);
     auto interpolateH2 = createSliceConcatConv(memPermute1.getOutput(), "H2");
     auto memPermute2 =
-            rewriter.create<IE::MemPermuteOp>(takeOpLoc(origOp, "mem_perm_H2"), interpolateH2, dstOrder, memPermAttr);
+            IE::MemPermuteOp::create(rewriter, takeOpLoc(origOp, "mem_perm_H2"), interpolateH2, dstOrder, memPermAttr);
 
-    auto outputReorder =
-            rewriter.create<IE::ReorderOp>(takeOpLoc(origOp, "reorder_out_to_NCHW"), memPermute2.getOutput(),
-                                           DimsOrder::NCHW.toAffineMap(getContext()));
+    auto outputReorder = IE::ReorderOp::create(rewriter, takeOpLoc(origOp, "reorder_out_to_NCHW"),
+                                               memPermute2.getOutput(), DimsOrder::NCHW.toAffineMap(getContext()));
 
     const auto origOpName = origOp->getName().getStringRef().str();
     rewriter.replaceOp(origOp, outputReorder.getOutput());

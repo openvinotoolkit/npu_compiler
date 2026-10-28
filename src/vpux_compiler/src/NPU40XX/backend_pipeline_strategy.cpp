@@ -29,15 +29,15 @@ void BackendPipelineStrategy40XX::buildELFPipeline(mlir::OpPassManager& pm, cons
     auto backendCompilationOptions =
             BackendCompilationOptions40XX::createFromString(config.get<vpux::OV::BACKEND_COMPILATION_PARAMS>());
 
-    VPUX_THROW_UNLESS(backendCompilationOptions != nullptr,
-                      "build ELF pipeline failed to parse BACKEND_COMPILATION_PARAMS: {0}",
-                      config.get<vpux::OV::BACKEND_COMPILATION_PARAMS>());
+    VPUX_THROW_WHEN(backendCompilationOptions == nullptr,
+                    "build ELF pipeline failed to parse BACKEND_COMPILATION_PARAMS: {0}",
+                    config.get<vpux::OV::BACKEND_COMPILATION_PARAMS>());
 
     if (compilationMode == config::CompilationMode::DefaultHW || config::isHostCompileMode(compilationMode)) {
         auto options = parseCompilationModeParams<DefaultHWOptions40XX>(config.get<vpux::OV::COMPILATION_MODE_PARAMS>(),
                                                                         getArchKind(config));
-        VPUX_THROW_UNLESS(options != nullptr, "build ELF pipeline failed to parse COMPILATION_MODE_PARAMS: {0}",
-                          config.get<vpux::OV::COMPILATION_MODE_PARAMS>());
+        VPUX_THROW_WHEN(options == nullptr, "build ELF pipeline failed to parse COMPILATION_MODE_PARAMS: {0}",
+                        config.get<vpux::OV::COMPILATION_MODE_PARAMS>());
         options->enableProfiling = config.get<vpux::OV::PERF_COUNT>();
         if (config.get<vpux::OV::TURBO>()) {
             overwriteIfUnset(options->optimizationLevel, 3);

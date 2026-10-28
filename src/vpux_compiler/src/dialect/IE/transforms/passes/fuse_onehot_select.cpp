@@ -274,19 +274,19 @@ mlir::LogicalResult FuseGroupedMatMulSelect::matchAndRewrite(IE::ReduceSumOp red
                                                                  ArrayRef(stackedData));
 
     // Gather the selected weight: [N, M, K] -> [1, M, K] -> [M, K].
-    auto gatherOp = rewriter.create<IE::GatherOp>(appendLoc(loc, "gather_w"), stackedWeight, groupId,
-                                                  /*axis_value=*/0, /*batch_dims=*/0,
-                                                  /*indices_rank=*/nullptr);
-    auto selectedWeight = rewriter.create<IE::ReshapeOp>(appendLoc(loc, "reshape_w"), gatherOp.getOutput(),
-                                                         getIntArrayAttr(ctx, SmallVector<int64_t>{M, K}));
+    auto gatherOp = IE::GatherOp::create(rewriter, appendLoc(loc, "gather_w"), stackedWeight, groupId,
+                                         /*axis_value=*/0, /*batch_dims=*/0,
+                                         /*indices_rank=*/nullptr);
+    auto selectedWeight = IE::ReshapeOp::create(rewriter, appendLoc(loc, "reshape_w"), gatherOp.getOutput(),
+                                                getIntArrayAttr(ctx, SmallVector<int64_t>{M, K}));
 
-    auto newMatMul = rewriter.create<IE::MatMulOp>(appendLoc(loc, "select_matmul"), sharedAct,
-                                                   selectedWeight.getOutput(), /*transpose_a=*/false,
-                                                   /*transpose_b=*/true);
+    auto newMatMul = IE::MatMulOp::create(rewriter, appendLoc(loc, "select_matmul"), sharedAct,
+                                          selectedWeight.getOutput(), /*transpose_a=*/false,
+                                          /*transpose_b=*/true);
     const auto outElemType = mlir::cast<vpux::NDTypeInterface>(reduceOp.getOutput().getType()).getElementType();
     mlir::Value result = newMatMul.getOutput();
     if (mlir::cast<vpux::NDTypeInterface>(result.getType()).getElementType() != outElemType) {
-        result = rewriter.create<IE::ConvertOp>(appendLoc(loc, "out_cvt"), result, mlir::TypeAttr::get(outElemType))
+        result = IE::ConvertOp::create(rewriter, appendLoc(loc, "out_cvt"), result, mlir::TypeAttr::get(outElemType))
                          .getOutput();
     }
 
@@ -415,7 +415,7 @@ mlir::LogicalResult FuseGroupedGatherSelect::matchAndRewrite(IE::ReduceSumOp red
     const auto idxElemType = tokenType.getElementType();
     if (groupIdType.getElementType() != idxElemType) {
         groupIdIdx =
-                rewriter.create<IE::ConvertOp>(appendLoc(loc, "gid_cvt"), groupId, mlir::TypeAttr::get(idxElemType))
+                IE::ConvertOp::create(rewriter, appendLoc(loc, "gid_cvt"), groupId, mlir::TypeAttr::get(idxElemType))
                         .getOutput();
     }
     const auto makeIdxConst = [&](int64_t value) -> mlir::Value {
@@ -426,27 +426,27 @@ mlir::LogicalResult FuseGroupedGatherSelect::matchAndRewrite(IE::ReduceSumOp red
         return Const::createConst(rewriter, loc, constType, ArrayRef<int32_t>({checked_cast<int32_t>(value)}));
     };
     auto vConst = makeIdxConst(V);
-    auto scaled = rewriter.create<IE::MultiplyOp>(appendLoc(loc, "idx_scale"), groupIdIdx, vConst,
-                                                  IE::AutoBroadcastType::NUMPY, /*post_op=*/nullptr, /*clamp=*/nullptr,
-                                                  /*output_padding=*/nullptr, /*input_padding=*/nullptr);
-    auto flatIdx = rewriter.create<IE::AddOp>(appendLoc(loc, "idx_offset"), scaled.getOutput(), sharedIdx,
-                                              IE::AutoBroadcastType::NUMPY, /*post_op=*/nullptr, /*clamp=*/nullptr,
-                                              /*output_padding=*/nullptr, /*input_padding=*/nullptr);
+    auto scaled = IE::MultiplyOp::create(rewriter, appendLoc(loc, "idx_scale"), groupIdIdx, vConst,
+                                         IE::AutoBroadcastType::NUMPY, /*post_op=*/nullptr, /*clamp=*/nullptr,
+                                         /*output_padding=*/nullptr, /*input_padding=*/nullptr);
+    auto flatIdx = IE::AddOp::create(rewriter, appendLoc(loc, "idx_offset"), scaled.getOutput(), sharedIdx,
+                                     IE::AutoBroadcastType::NUMPY, /*post_op=*/nullptr, /*clamp=*/nullptr,
+                                     /*output_padding=*/nullptr, /*input_padding=*/nullptr);
 
     // Gather the selected row: [N*V, D] -> [*idx, D].
-    auto gatherOp = rewriter.create<IE::GatherOp>(appendLoc(loc, "gather_e"), stackedTable, flatIdx.getOutput(),
-                                                  /*axis_value=*/0, /*batch_dims=*/0,
-                                                  /*indices_rank=*/nullptr);
+    auto gatherOp = IE::GatherOp::create(rewriter, appendLoc(loc, "gather_e"), stackedTable, flatIdx.getOutput(),
+                                         /*axis_value=*/0, /*batch_dims=*/0,
+                                         /*indices_rank=*/nullptr);
 
     mlir::Value result = gatherOp.getOutput();
     if (getShape(result) != reduceOutShape) {
-        result = rewriter.create<IE::ReshapeOp>(appendLoc(loc, "reshape_out"), result,
-                                                getIntArrayAttr(ctx, to_small_vector(reduceOutShape)))
+        result = IE::ReshapeOp::create(rewriter, appendLoc(loc, "reshape_out"), result,
+                                       getIntArrayAttr(ctx, to_small_vector(reduceOutShape)))
                          .getOutput();
     }
     const auto outElemType = mlir::cast<vpux::NDTypeInterface>(reduceOp.getOutput().getType()).getElementType();
     if (mlir::cast<vpux::NDTypeInterface>(result.getType()).getElementType() != outElemType) {
-        result = rewriter.create<IE::ConvertOp>(appendLoc(loc, "out_cvt"), result, mlir::TypeAttr::get(outElemType))
+        result = IE::ConvertOp::create(rewriter, appendLoc(loc, "out_cvt"), result, mlir::TypeAttr::get(outElemType))
                          .getOutput();
     }
 

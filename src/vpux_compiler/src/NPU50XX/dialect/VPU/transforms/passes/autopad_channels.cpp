@@ -342,8 +342,8 @@ private:
             SmallVector<int64_t> offsets(weightsType.getRank(), 0);
             SmallVector<int64_t> shape(origWeightsShape.raw());
             shape[Dims4D::Filter::IC.ind()] = unpaddedInputChannels;
-            auto sliceOp = builder.create<VPU::SliceOp>(takeOpLoc(nceOp, "weights_slice"), nceOp.getWeightsOperand(),
-                                                        offsets, shape);
+            auto sliceOp = VPU::SliceOp::create(builder, takeOpLoc(nceOp, "weights_slice"), nceOp.getWeightsOperand(),
+                                                offsets, shape);
 
             const auto weightSetSize =
                     shape[Dims4D::Filter::IC.ind()] * shape[Dims4D::Filter::KY.ind()] * shape[Dims4D::Filter::KX.ind()];
@@ -352,12 +352,12 @@ private:
             newShape[Dims4D::Filter::IC.ind()] = 1;
             newShape[Dims4D::Filter::KY.ind()] = 1;
             newShape[Dims4D::Filter::KX.ind()] = weightSetSize;
-            auto reshapeOp = builder.create<VPU::ReshapeOp>(takeOpLoc(nceOp, "weights_flatten"), sliceOp.getResult(),
-                                                            getIntArrayAttr(&getContext(), newShape));
+            auto reshapeOp = VPU::ReshapeOp::create(builder, takeOpLoc(nceOp, "weights_flatten"), sliceOp.getResult(),
+                                                    getIntArrayAttr(&getContext(), newShape));
 
             auto layoutCastOp =
-                    builder.create<VPU::LayoutCastOp>(takeOpLoc(nceOp, "weights_layout_cast"), reshapeOp.getOutput(),
-                                                      DimsOrder::OYXI.toAffineMap(&getContext()));
+                    VPU::LayoutCastOp::create(builder, takeOpLoc(nceOp, "weights_layout_cast"), reshapeOp.getOutput(),
+                                              DimsOrder::OYXI.toAffineMap(&getContext()));
 
             // When the weight pointers are computed by the DPU during the inference, the weight sets offsets are
             // computed based on the `weight_size` register. This value of this register must have the input channels
@@ -378,9 +378,9 @@ private:
                 const auto padsBegin = std::move(offsets);
                 auto padsEnd = padsBegin;
                 padsEnd[Dims4D::Filter::KX.ind()] += alignment - remainder;
-                auto expandOp = builder.create<VPU::ExpandOp>(takeOpLoc(nceOp, "weights_align"), alignedWeights,
-                                                              getIntArrayAttr(&getContext(), padsBegin),
-                                                              getIntArrayAttr(&getContext(), padsEnd));
+                auto expandOp = VPU::ExpandOp::create(builder, takeOpLoc(nceOp, "weights_align"), alignedWeights,
+                                                      getIntArrayAttr(&getContext(), padsBegin),
+                                                      getIntArrayAttr(&getContext(), padsEnd));
                 alignedWeights = expandOp->getResult(0);
             }
 
@@ -483,8 +483,8 @@ private:
             SmallVector<int64_t> offsets(weightsType.getRank(), 0);
             SmallVector<int64_t> shape(weightsType.getShape().raw());
             shape[Dims4D::Filter::OC.ind()] = unpaddedOutputChannels;
-            auto sliceOp = builder.create<VPU::SliceOp>(takeOpLoc(nceOp, "weights_slice"), nceOp.getWeightsOperand(),
-                                                        offsets, shape);
+            auto sliceOp = VPU::SliceOp::create(builder, takeOpLoc(nceOp, "weights_slice"), nceOp.getWeightsOperand(),
+                                                offsets, shape);
             nceOp.getWeightsOperand().replaceUsesWithIf(sliceOp->getResult(0), [&](mlir::OpOperand& operand) -> bool {
                 return operand.getOwner() == nceOp.getOperation();
             });
@@ -573,7 +573,7 @@ private:
                        "Expected last transformation to be Sparsify");
                 auto newContentAttr =
                         Const::ContentAttr::get(contentAttr.getBaseContent(), transformations.drop_back());
-                newOp = builder.create<Const::DeclareOp>(cstOp.getLoc(), cstOp.getType(), newContentAttr);
+                newOp = Const::DeclareOp::create(builder, cstOp.getLoc(), cstOp.getType(), newContentAttr);
                 continue;
             } else if (mlir::isa<VPU::GroupSparseTensorOp>(op)) {
                 // Skip the sparsity grouping operation, as the new types are no longer sparse

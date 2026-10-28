@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-#include "vpux/compiler/core/types/quantile_float/types.hpp"
+#include "vpux/compiler/core/types/quantile_types/types.hpp"
 #include "vpux/compiler/dialect/VPU/utils/sprlut_utils.hpp"
 #include "vpux/compiler/dialect/VPUIP/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPUIP/IR/types.hpp"
@@ -91,7 +91,8 @@ mlir::Value PalletLUTConverter::createLookupTableConst(VPUIP::NCEClusterTaskOp n
         if (mlir::isa_and_present<mlir::quant::UniformQuantizedType, mlir::quant::UniformQuantizedPerAxisType>(
                     weightsType)) {
             const auto quantized = mlir::cast<mlir::quant::QuantizedType>(weightsType);
-            if (const auto quantileStorageType = mlir::dyn_cast<vpux::type::QuantileType>(quantized.getStorageType())) {
+            if (const auto quantileStorageType =
+                        mlir::dyn_cast<mlir::quant::QuantileType>(quantized.getStorageType())) {
                 return std::tuple<mlir::Type, ArrayRef<double>>(quantileStorageType.getQuantileType(),
                                                                 quantileStorageType.getQuantiles());
             }
@@ -108,7 +109,7 @@ mlir::Value PalletLUTConverter::createLookupTableConst(VPUIP::NCEClusterTaskOp n
     const auto bufferType = vpux::getBufferType(palletLUTType);
     Const::ContentSetup setup(palletLUTAttr, mlir::cast<mlir::Type>(bufferType));
     const auto contentAttr = Const::ContentAttr::get(palletLUTAttr, setup);
-    return rewriter.create<Const::DeclareOp>(nceClusterTask->getLoc(), bufferType, contentAttr).getOutput();
+    return Const::DeclareOp::create(rewriter, nceClusterTask->getLoc(), bufferType, contentAttr).getOutput();
 }
 
 void PalletLUTConverter::replaceWithConstInput(VPUIP::NCEClusterTaskOp nceClusterTask, mlir::Value lutNceInput,
@@ -157,7 +158,7 @@ void ConvertPalletLUTToConstPass::safeRunOnFunc() {
             if (mlir::isa_and_present<mlir::quant::UniformQuantizedType, mlir::quant::UniformQuantizedPerAxisType>(
                         weightsType)) {
                 const auto quantized = mlir::cast<mlir::quant::QuantizedType>(weightsType);
-                if (mlir::isa<vpux::type::QuantileType>(quantized.getStorageType())) {
+                if (mlir::isa<mlir::quant::QuantileType>(quantized.getStorageType())) {
                     return false;
                 }
             }

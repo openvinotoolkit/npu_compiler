@@ -483,7 +483,7 @@ TEST_P(ReifyDimTests, ReifyDimTest) {
     auto inType = mlir::RankedTensorType::get(params.shape, builder.getF16Type(), desc);
 
     auto funcType = builder.getFunctionType({inType}, {});
-    mlir::OwningOpRef<mlir::func::FuncOp> func = builder.create<mlir::func::FuncOp>(loc, "TestFunc", funcType);
+    mlir::OwningOpRef<mlir::func::FuncOp> func = mlir::func::FuncOp::create(builder, loc, "TestFunc", funcType);
     auto& entryBlock = *func->addEntryBlock();
 
     builder.setInsertionPointToStart(&entryBlock);
@@ -504,7 +504,7 @@ TEST_P(ReifyDimTests, ReifyDimTest) {
             EXPECT_EQ(mlir::cast<mlir::IntegerAttr>(mlir::cast<mlir::Attribute>(result)).getInt(), params.shape[i]);
         }
     }
-    builder.create<mlir::func::ReturnOp>(loc);
+    mlir::func::ReturnOp::create(builder, loc);
 }
 
 std::vector<ReifyDimTestData> reifyDimData = {

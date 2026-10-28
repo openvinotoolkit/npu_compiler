@@ -84,10 +84,11 @@ ELF::DmaSymbolOp AddRelocationsForDynamicStridesDmas::createDynamicStridesDmaSym
 
     auto dmaSymbolSectionBuilder = mlir::OpBuilder::atBlockEnd(targetSection.getBlock());
     auto ctx = declareOp->getContext();
-    return dmaSymbolSectionBuilder.create<ELF::DmaSymbolOp>(
-            relocatableOp->getLoc(), symbolName, ioIndex, getIntArrayAttr(ctx, canonicalTensorShapes),
-            getIntArrayAttr(ctx, canonicalTensorStrides), getIntArrayAttr(ctx, canonicalOffsets),
-            getIntArrayAttr(ctx, canonicalDmaShapes), getIntArrayAttr(ctx, canonicalDmaStrides), dmaSize);
+    return ELF::DmaSymbolOp::create(dmaSymbolSectionBuilder, relocatableOp->getLoc(), symbolName, ioIndex,
+                                    getIntArrayAttr(ctx, canonicalTensorShapes),
+                                    getIntArrayAttr(ctx, canonicalTensorStrides),
+                                    getIntArrayAttr(ctx, canonicalOffsets), getIntArrayAttr(ctx, canonicalDmaShapes),
+                                    getIntArrayAttr(ctx, canonicalDmaStrides), dmaSize);
 }
 
 void AddRelocationsForDynamicStridesDmas::safeRunOnFunc() {
@@ -106,11 +107,11 @@ void AddRelocationsForDynamicStridesDmas::safeRunOnFunc() {
     auto elfMain = mainOps[0];
 
     auto elfBuilder = mlir::OpBuilder::atBlockBegin(elfMain.getBody());
-    auto dmaInputSymbolSection = elfBuilder.create<ELF::DmaSymbolSectionOp>(
-            elfBuilder.getUnknownLoc(), "dmaInputSymbolsSection",
+    auto dmaInputSymbolSection = ELF::DmaSymbolSectionOp::create(
+            elfBuilder, elfBuilder.getUnknownLoc(), "dmaInputSymbolsSection",
             ELF::SectionFlagsAttr::VPU_SHF_JIT | ELF::SectionFlagsAttr::VPU_SHF_USERINPUT);
-    auto dmaOutputSymbolSection = elfBuilder.create<ELF::DmaSymbolSectionOp>(
-            elfBuilder.getUnknownLoc(), "dmaOutputSymbolsSection",
+    auto dmaOutputSymbolSection = ELF::DmaSymbolSectionOp::create(
+            elfBuilder, elfBuilder.getUnknownLoc(), "dmaOutputSymbolsSection",
             ELF::SectionFlagsAttr::VPU_SHF_JIT | ELF::SectionFlagsAttr::VPU_SHF_USEROUTPUT);
 
     auto getDeclareOpForIo = [&](VPUASM::DeclareBufferOp declareOp) -> VPUASM::DeclareBufferOp {

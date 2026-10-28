@@ -142,12 +142,12 @@ private:
 };
 
 mlir::LogicalResult UngroupCopyOp::matchAndRewrite(VPUIP::CopyOp origOp, mlir::PatternRewriter& rewriter) const {
-    auto ungroupInput = rewriter.create<VPUIP::UngroupBoundedBufferOp>(origOp->getLoc(), origOp.getInput());
-    auto ungroupOutput = rewriter.create<VPUIP::UngroupBoundedBufferOp>(origOp->getLoc(), origOp.getOutputBuff());
+    auto ungroupInput = VPUIP::UngroupBoundedBufferOp::create(rewriter, origOp->getLoc(), origOp.getInput());
+    auto ungroupOutput = VPUIP::UngroupBoundedBufferOp::create(rewriter, origOp->getLoc(), origOp.getOutputBuff());
 
-    auto copyData = rewriter.create<VPUIP::CopyOp>(origOp->getLoc(), ungroupInput.getData(), ungroupOutput.getData());
-    auto copyShape = rewriter.create<VPUIP::CopyOp>(origOp->getLoc(), ungroupInput.getDynamicShape(),
-                                                    ungroupOutput.getDynamicShape());
+    auto copyData = VPUIP::CopyOp::create(rewriter, origOp->getLoc(), ungroupInput.getData(), ungroupOutput.getData());
+    auto copyShape = VPUIP::CopyOp::create(rewriter, origOp->getLoc(), ungroupInput.getDynamicShape(),
+                                           ungroupOutput.getDynamicShape());
     rewriter.replaceOpWithNewOp<VPUIP::GroupBoundedBufferOp>(origOp, copyData.getOutput(), copyShape.getOutput());
 
     return mlir::success();
@@ -173,17 +173,17 @@ mlir::LogicalResult UngroupConcatViewOp::matchAndRewrite(VPUIP::ConcatViewOp ori
 
     // Iterate over all inputs and create UngroupBoundedBufferOp for each.
     for (auto input : origOp.getInputs()) {
-        auto ungroupInput = rewriter.create<VPUIP::UngroupBoundedBufferOp>(origOp->getLoc(), input);
+        auto ungroupInput = VPUIP::UngroupBoundedBufferOp::create(rewriter, origOp->getLoc(), input);
         dataResults.push_back(ungroupInput.getData());
         shapeResults.push_back(ungroupInput.getDynamicShape());
     }
-    auto ungroupOutput = rewriter.create<VPUIP::UngroupBoundedBufferOp>(origOp->getLoc(), origOp.getOutputBuff());
+    auto ungroupOutput = VPUIP::UngroupBoundedBufferOp::create(rewriter, origOp->getLoc(), origOp.getOutputBuff());
 
     // Iterate over the ungrouped inputs and create individual ConcatViewOps for data and shapes.
-    auto dataConcatOp = rewriter.create<VPUIP::ConcatViewOp>(appendLoc(origOp->getLoc(), "data"), dataResults,
-                                                             ungroupOutput.getData());
-    auto shapeConcatOp = rewriter.create<VPUIP::ConcatViewOp>(appendLoc(origOp->getLoc(), "shape"), shapeResults,
-                                                              ungroupOutput.getDynamicShape());
+    auto dataConcatOp = VPUIP::ConcatViewOp::create(rewriter, appendLoc(origOp->getLoc(), "data"), dataResults,
+                                                    ungroupOutput.getData());
+    auto shapeConcatOp = VPUIP::ConcatViewOp::create(rewriter, appendLoc(origOp->getLoc(), "shape"), shapeResults,
+                                                     ungroupOutput.getDynamicShape());
 
     // Group the individual results back into a single BoundedBuffer.
     rewriter.replaceOpWithNewOp<VPUIP::GroupBoundedBufferOp>(origOp, dataConcatOp.getOutput(),
@@ -207,13 +207,13 @@ private:
 
 mlir::LogicalResult UngroupConvertDMAOp::matchAndRewrite(VPUIP::ConvertDMAOp origOp,
                                                          mlir::PatternRewriter& rewriter) const {
-    auto ungroupInput = rewriter.create<VPUIP::UngroupBoundedBufferOp>(origOp->getLoc(), origOp.getInput());
-    auto ungroupOutput = rewriter.create<VPUIP::UngroupBoundedBufferOp>(origOp->getLoc(), origOp.getOutputBuff());
+    auto ungroupInput = VPUIP::UngroupBoundedBufferOp::create(rewriter, origOp->getLoc(), origOp.getInput());
+    auto ungroupOutput = VPUIP::UngroupBoundedBufferOp::create(rewriter, origOp->getLoc(), origOp.getOutputBuff());
 
     auto copyData =
-            rewriter.create<VPUIP::ConvertDMAOp>(origOp->getLoc(), ungroupInput.getData(), ungroupOutput.getData());
-    auto copyShape = rewriter.create<VPUIP::CopyOp>(origOp->getLoc(), ungroupInput.getDynamicShape(),
-                                                    ungroupOutput.getDynamicShape());
+            VPUIP::ConvertDMAOp::create(rewriter, origOp->getLoc(), ungroupInput.getData(), ungroupOutput.getData());
+    auto copyShape = VPUIP::CopyOp::create(rewriter, origOp->getLoc(), ungroupInput.getDynamicShape(),
+                                           ungroupOutput.getDynamicShape());
     rewriter.replaceOpWithNewOp<VPUIP::GroupBoundedBufferOp>(origOp, copyData.getOutput(), copyShape.getOutput());
 
     return mlir::success();
@@ -245,7 +245,7 @@ mlir::LogicalResult UngroupSwKernelOp::matchAndRewrite(VPUIP::SwKernelOp origOp,
             auto buffer = buffers[i];
             auto boundedBuffer = mlir::dyn_cast<VPUIP::BoundedBufferType>(buffer.getType());
             if (boundedBuffer != nullptr) {
-                auto ungroupBuffer = rewriter.create<VPUIP::UngroupBoundedBufferOp>(origOp->getLoc(), buffer);
+                auto ungroupBuffer = VPUIP::UngroupBoundedBufferOp::create(rewriter, origOp->getLoc(), buffer);
                 swKernelBuffers.push_back(ungroupBuffer.getData());
 
                 // Avoid duplicating data. This information remains unchanged.
@@ -276,10 +276,10 @@ mlir::LogicalResult UngroupSwKernelOp::matchAndRewrite(VPUIP::SwKernelOp origOp,
                    swKernelDynamicOutputShapesMap);
 
     auto tileIndex = origOp.getTileIndexAttr();
-    auto swKernelOp = rewriter.create<VPUIP::SwKernelOp>(origOp->getLoc(), swKernelOperands, swKernelOutputBuffs,
-                                                         swKernelDynamicInputShapes, swKernelDynamicInputShapesMap,
-                                                         swKernelDynamicOutputShapes, swKernelDynamicOutputShapesMap,
-                                                         origOp.getKernelFunction(), tileIndex);
+    auto swKernelOp = VPUIP::SwKernelOp::create(rewriter, origOp->getLoc(), swKernelOperands, swKernelOutputBuffs,
+                                                swKernelDynamicInputShapes, swKernelDynamicInputShapesMap,
+                                                swKernelDynamicOutputShapes, swKernelDynamicOutputShapesMap,
+                                                origOp.getKernelFunction(), tileIndex);
     auto args = kernelArgsRange(origOp);
     auto swKernelRun = *swKernelRuns.begin();
 
@@ -293,10 +293,16 @@ mlir::LogicalResult UngroupSwKernelOp::matchAndRewrite(VPUIP::SwKernelOp origOp,
     SmallVector<mlir::Value> newResults;
     const auto kernelName = getSwKernelEntryName(origOp);
     if (kernelName == "dynamic_reshape" && (parseIntAttr<int64_t>(args[0]) != 0)) {
-        // dynamic_reshape will only propagate shape
+        // dynamic_reshape with onlySetShape=1 propagates the shape without moving data; reinterpret the
+        // input buffer to the output type so its declared shape matches what callers expect.
         auto dataOperand = swKernelOperands[0];
+        const auto outputDataType = swKernelOutputBuffs[0].getType();
+        if (dataOperand.getType() != outputDataType) {
+            dataOperand = VPUIP::GenericReshapeOp::create(rewriter, swKernelOp.getLoc(), outputDataType, dataOperand)
+                                  .getOutput();
+        }
         auto shapeResult = swKernelOp.getResult(1);
-        auto groupOp = rewriter.create<VPUIP::GroupBoundedBufferOp>(swKernelOp.getLoc(), dataOperand, shapeResult);
+        auto groupOp = VPUIP::GroupBoundedBufferOp::create(rewriter, swKernelOp.getLoc(), dataOperand, shapeResult);
         newResults.push_back(groupOp.getOutput());
     } else {
         size_t dynamicShapeIndex = 0;
@@ -309,13 +315,13 @@ mlir::LogicalResult UngroupSwKernelOp::matchAndRewrite(VPUIP::SwKernelOp origOp,
                 // Since we do not modify getDynamicOutputShapes, it will only contain the original values without
                 // duplication. Therefore, we need to reuse the values.
                 if (dynamicShapeIndex >= outDynShapesNum && swKernelRunNum > 1) {
-                    auto groupOp = rewriter.create<VPUIP::GroupBoundedBufferOp>(
-                            swKernelOp.getLoc(), swKernelOp.getResult(resultIndex),
+                    auto groupOp = VPUIP::GroupBoundedBufferOp::create(
+                            rewriter, swKernelOp.getLoc(), swKernelOp.getResult(resultIndex),
                             swKernelOp.getDynamicOutputShapes()[dynamicShapeIndex % outDynShapesNum]);
                     newResults.push_back(groupOp.getOutput());
                 } else {
-                    auto groupOp = rewriter.create<VPUIP::GroupBoundedBufferOp>(
-                            swKernelOp.getLoc(), swKernelOp.getResult(resultIndex),
+                    auto groupOp = VPUIP::GroupBoundedBufferOp::create(
+                            rewriter, swKernelOp.getLoc(), swKernelOp.getResult(resultIndex),
                             swKernelOp.getDynamicOutputShapes()[dynamicShapeIndex]);
                     newResults.push_back(groupOp.getOutput());
                 }
@@ -372,6 +378,7 @@ void UngroupBoundedBuffers::safeRunOnFunc() {
     target.addDynamicallyLegalOp<VPUIP::ConcatViewOp>(isLegalConcatViewOp);
     target.addDynamicallyLegalOp<VPUIP::ConvertDMAOp>(isLegalConvertDMAOp);
     target.addDynamicallyLegalOp<VPUIP::SwKernelOp>(isLegalSwKernelOp);
+    target.addLegalOp<VPUIP::GenericReshapeOp>();
     target.addLegalOp<VPUIP::GroupBoundedBufferOp>();
     target.addLegalOp<VPUIP::UngroupBoundedBufferOp>();
 

@@ -136,7 +136,7 @@ bool WlmSplitGraphToPagesPass::scheduleLegalizeForShvWithDpu(BarrierInfo& barrie
         auto latestWaitBarOp = barrierInfo.getBarrierOpAtIndex(latestWaitBar);
 
         builder.setInsertionPointAfter(latestWaitBarOp);
-        auto newBar = builder.create<VPURT::DeclareVirtualBarrierOp>(syncTaskOp.getLoc());
+        auto newBar = VPURT::DeclareVirtualBarrierOp::create(builder, syncTaskOp.getLoc());
         auto newBarInd = barrierInfo.addNewBarrier(newBar);
 
         barrierInfo.addProducer(newBarInd, dummyDmaOpTaskInd);

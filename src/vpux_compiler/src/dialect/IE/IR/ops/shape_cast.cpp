@@ -29,8 +29,8 @@ mlir::LogicalResult vpux::IE::ShapeCastOp::inferReturnTypeComponents(
     const auto outShape = parseIntArrayAttr<int64_t>(shapeCast.getShape());
     const auto inType = mlir::cast<vpux::NDTypeInterface>(shapeCast.getInput().getType());
 
-    VPUX_THROW_UNLESS(!mlir::isa<Core::BoundedTensorType>(inType), "{0} doesn't support dynamic shapes",
-                      IE::ShapeCastOp::getOperationName());
+    VPUX_THROW_WHEN(mlir::isa<Core::BoundedTensorType>(inType), "{0} doesn't support dynamic shapes",
+                    IE::ShapeCastOp::getOperationName());
 
     auto outputElementType = inType.getElementType();
 
@@ -52,7 +52,7 @@ mlir::OpFoldResult vpux::IE::ShapeCastOp::fold(FoldAdaptor adaptor) {
         return getInput();
     }
 
-    VPUX_THROW_UNLESS(!operands.empty(), "Wrong number of operands : {0}", operands.size());
+    VPUX_THROW_WHEN(operands.empty(), "Wrong number of operands : {0}", operands.size());
     if (mlir::isa<mlir::quant::UniformQuantizedPerAxisType>(inputType.getElementType()) &&
         inputType.getDimsOrder() != DimsOrder::NHWC) {
         return nullptr;

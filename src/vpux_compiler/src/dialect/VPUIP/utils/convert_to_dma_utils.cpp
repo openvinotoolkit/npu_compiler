@@ -368,6 +368,36 @@ std::optional<Shape> vpux::VPUIP::getPermuteDMAOutputShape(NDTypeInterface inTyp
     return mergedOutputShape;
 }
 
+bool vpux::VPUIP::doesPermuteHaveSubByteStride(NDTypeInterface inType, NDTypeInterface outType, mlir::AffineMap perm,
+                                               Logger log) {
+    const auto elemBitWidth = inType.getElemTypeSize().count();
+    if (elemBitWidth >= CHAR_BIT) {
+        return false;
+    }
+
+    auto newInputShape = getPermuteDMAInputShape(inType, outType, perm, log);
+    if (!newInputShape.has_value()) {
+        return false;
+    }
+
+    const auto& mergedShape = newInputShape.value();
+    auto mergedPerm = getPermuteDMAMergedMemPerm(inType, perm);
+    const auto rank = static_cast<int64_t>(mergedShape.size());
+
+    // Count consecutive innermost dims that stay in place after the permutation.
+    // Their product * elemBitWidth is the contiguous transfer unit for DMA.
+    int64_t contiguousBits = elemBitWidth;
+    for (int64_t i = rank - 1; i >= 0; --i) {
+        auto dimExpr = mlir::dyn_cast<mlir::AffineDimExpr>(mergedPerm.getResult(static_cast<unsigned>(i)));
+        if (!dimExpr || static_cast<int64_t>(dimExpr.getPosition()) != i) {
+            break;
+        }
+        contiguousBits *= mergedShape[Dim(i)];
+    }
+
+    return contiguousBits % CHAR_BIT != 0;
+}
+
 std::optional<SmallVector<Shape>> vpux::VPUIP::getPermuteDMASubInputShapes(config::ArchKind arch,
                                                                            NDTypeInterface inType,
                                                                            NDTypeInterface outType,
@@ -380,6 +410,11 @@ std::optional<SmallVector<Shape>> vpux::VPUIP::getPermuteDMASubInputShapes(confi
 
     auto newInputShape = getPermuteDMAInputShape(inType, outType, perm, log);
     if (!newInputShape.has_value()) {
+        return std::nullopt;
+    }
+
+    // DMA doesn't support sub-byte stride
+    if (doesPermuteHaveSubByteStride(inType, outType, perm, log)) {
         return std::nullopt;
     }
 
@@ -1161,8 +1196,8 @@ std::optional<std::pair<IE::SpaceToDepthModeAttr, mlir::IntegerAttr>> vpux::VPUI
 
     auto blockSizeAttr = mlir::dyn_cast<mlir::IntegerAttr>(arrayAttrs.getValue()[0]);
     auto modeIntAttr = mlir::dyn_cast<mlir::IntegerAttr>(arrayAttrs.getValue()[1]);
-    VPUX_THROW_UNLESS(blockSizeAttr != nullptr && modeIntAttr != nullptr,
-                      "Failed to extract block size and mode at '{0}'", kernelRun->getLoc());
+    VPUX_THROW_WHEN(blockSizeAttr == nullptr || modeIntAttr == nullptr,
+                    "Failed to extract block size and mode at '{0}'", kernelRun->getLoc());
 
     auto modeAttr =
             IE::SpaceToDepthModeAttr::get(swKernelTask.getContext(), IE::SpaceToDepthMode(modeIntAttr.getInt()));
@@ -1189,7 +1224,7 @@ std::optional<VPUIP::PerAxisTileAttr> vpux::VPUIP::getPerAxisTileSwKernelAttr(VP
                       kernelRun->getLoc(), arrayAttrs.size());
 
     auto repeatsAttr = mlir::dyn_cast<mlir::ArrayAttr>(arrayAttrs.getValue()[1]);
-    VPUX_THROW_UNLESS(repeatsAttr != nullptr, "Failed to extract repeatsAttr at '{0}'", kernelRun->getLoc());
+    VPUX_THROW_WHEN(repeatsAttr == nullptr, "Failed to extract repeatsAttr at '{0}'", kernelRun->getLoc());
 
     const auto greaterThanOne = [](auto dim) {
         return dim > 1;
@@ -1200,7 +1235,7 @@ std::optional<VPUIP::PerAxisTileAttr> vpux::VPUIP::getPerAxisTileSwKernelAttr(VP
     VPUX_THROW_UNLESS(axisCount == 1, "PerAxisTile Op should with one Axis expansion, but got '{0}'", axisCount);
 
     auto axisIter = std::find_if(repeats.begin(), repeats.end(), greaterThanOne);
-    VPUX_THROW_UNLESS(axisIter != repeats.end(), "Cannot find axis to expansion");
+    VPUX_THROW_WHEN(axisIter == repeats.end(), "Cannot find axis to expansion");
     auto axis = std::distance(repeats.begin(), axisIter);
 
     const auto ctx = swKernelTask->getContext();

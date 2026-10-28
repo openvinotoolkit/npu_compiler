@@ -82,7 +82,7 @@ func.func @ExceedingVariantCount(%arg0: memref<1x16x32x32xf16, {order = #NHWC}>,
     // DPU task
 
     VPURT.Task waits(%bar0, %bar1: !VPURT.Barrier, !VPURT.Barrier) updates(%bar2: !VPURT.Barrier) {
-        VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
+        VPUIP.NCEClusterTask <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>,
                 kernel_padding = #VPU.Padding<left = 0 , right = 0, top = 0, bottom = 0>,
                 kernel_size = [1, 1],
                 kernel_strides = [1, 1],
@@ -161,7 +161,7 @@ func.func @ExceedingVariantCount(%arg0: memref<1x16x32x32xf16, {order = #NHWC}>,
     // DPU task
 
     VPURT.Task waits(%bar2: !VPURT.Barrier) updates(%bar3: !VPURT.Barrier) {
-        VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
+        VPUIP.NCEClusterTask <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>,
                 kernel_padding = #VPU.Padding<left = 0 , right = 0, top = 0, bottom = 0>,
                 kernel_size = [1, 1],
                 kernel_strides = [1, 1],

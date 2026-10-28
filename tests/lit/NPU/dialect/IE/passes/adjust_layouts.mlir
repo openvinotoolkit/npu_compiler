@@ -452,12 +452,12 @@ func.func @AdjustForPReluNWCH(%arg0: tensor<1x64x1x41xf16, {order = #NWCH}>,
 func.func @AdjustForExternalKernel(%arg0: tensor<1x64x1x41xf16>,
                                    %arg1: tensor<1x64x1x1xf16>)
                               -> tensor<1x64x1x41xf16> {
-    %0 = Shave.ExternalKernel "dummy_kernel" at_path("dummy_path") inputs(%arg0, %arg1 : tensor<1x64x1x41xf16>, tensor<1x64x1x1xf16>) attrs({}) -> tensor<1x64x1x41xf16>
+    %0 = Shave.ExternalKernel "dummy_kernel" inputs(%arg0, %arg1 : tensor<1x64x1x41xf16>, tensor<1x64x1x1xf16>) attrs({}) -> tensor<1x64x1x41xf16>
     return %0 : tensor<1x64x1x41xf16>
 
     // CHECK:      [[REORDER_IN0:%.+]] = IE.Reorder([[INPUT0]]) {dstOrder = #NHWC} : tensor<1x64x1x41xf16> -> tensor<1x64x1x41xf16, {order = #NHWC}>
     // CHECK:      [[REORDER_IN1:%.+]] = IE.Reorder([[INPUT1]]) {dstOrder = #NHWC} : tensor<1x64x1x1xf16> -> tensor<1x64x1x1xf16, {order = #NHWC}>
-    // CHECK:      [[EXT_KERNEL:%.+]] = Shave.ExternalKernel "dummy_kernel" at_path("dummy_path")
+    // CHECK:      [[EXT_KERNEL:%.+]] = Shave.ExternalKernel "dummy_kernel"
     // CHECK-SAME: inputs([[REORDER_IN0]], [[REORDER_IN1]] : tensor<1x64x1x41xf16, {order = #NHWC}>, tensor<1x64x1x1xf16, {order = #NHWC}>)
     // CHECK-SAME: -> tensor<1x64x1x41xf16, {order = #NHWC}>
     // CHECK:      [[REORDER_OUT:%.+]] = IE.Reorder([[EXT_KERNEL]]) {dstOrder = #NCHW} : tensor<1x64x1x41xf16, {order = #NHWC}> -> tensor<1x64x1x41xf16>
@@ -474,11 +474,11 @@ func.func @AdjustForExternalKernel(%arg0: tensor<1x64x1x41xf16>,
 func.func @NoAdjustForExternalKernel(%arg0: tensor<1x64x1x41xf16, {order = #NHWC}>,
                                    %arg1: tensor<1x64x1x1xf16, {order = #NHWC}>)
                               -> tensor<1x64x1x41xf16, {order = #NHWC}> {
-    %0 = Shave.ExternalKernel "dummy_kernel" at_path("dummy_path") inputs(%arg0, %arg1 : tensor<1x64x1x41xf16, {order = #NHWC}>, tensor<1x64x1x1xf16, {order = #NHWC}>) attrs({}) -> tensor<1x64x1x41xf16, {order = #NHWC}>
+    %0 = Shave.ExternalKernel "dummy_kernel" inputs(%arg0, %arg1 : tensor<1x64x1x41xf16, {order = #NHWC}>, tensor<1x64x1x1xf16, {order = #NHWC}>) attrs({}) -> tensor<1x64x1x41xf16, {order = #NHWC}>
     return %0 : tensor<1x64x1x41xf16, {order = #NHWC}>
 
     // CHECK-NOT:  IE.Reorder
-    // CHECK:      [[EXT_KERNEL:%.+]] = Shave.ExternalKernel "dummy_kernel" at_path("dummy_path")
+    // CHECK:      [[EXT_KERNEL:%.+]] = Shave.ExternalKernel "dummy_kernel"
     // CHECK-SAME: inputs([[INPUT0]], [[INPUT1]] : tensor<1x64x1x41xf16, {order = #NHWC}>, tensor<1x64x1x1xf16, {order = #NHWC}>)
     // CHECK-SAME: -> tensor<1x64x1x41xf16, {order = #NHWC}>
     // CHECK-NOT:  IE.Reorder

@@ -12,6 +12,7 @@
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
 #include "vpux/compiler/dialect/IE/utils/broadcast_utils.hpp"
 #include "vpux/compiler/dialect/IE/utils/convolution_utils.hpp"
+#include "vpux/compiler/dialect/IE/utils/dynamic_shape_utils.hpp"
 #include "vpux/compiler/dialect/IE/utils/pooling_utils.hpp"
 #include "vpux/compiler/dialect/IE/utils/quantization.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
@@ -92,7 +93,7 @@ IE::TransposeOp createTransposeForLayerInput(mlir::PatternRewriter& rewriter, ml
             mlir::AffineMapAttr::get(mlir::AffineMap::getPermutationMap(transPerm, rewriter.getContext()));
     auto newLoc = index.has_value() ? appendLoc(loc, "ConvertBatchedLayer_inTranspose{0}", *index)
                                     : appendLoc(loc, "ConvertBatchedLayer_inTranspose");
-    return rewriter.create<IE::TransposeOp>(newLoc, input, nullptr, orderAttr);
+    return IE::TransposeOp::create(rewriter, newLoc, input, nullptr, orderAttr);
 }
 
 //
@@ -233,10 +234,10 @@ void EltwiseLayerConverter<ConcreteOp>::reshapeForEltwiseOp(ConcreteOp eltwiseOp
     const auto resultType =
             mlir::RankedTensorType::get(newOutputShape.raw(), eltwiseOp.getOutput().getType().getElementType());
 
-    auto inShapeCast1 = rewriter.create<IE::ShapeCastOp>(takeOpLoc(eltwiseOp, "shapecast_in1"), eltwiseOp.getInput1(),
-                                                         getIntArrayAttr(ctx, newInShape1));
-    auto inShapeCast2 = rewriter.create<IE::ShapeCastOp>(takeOpLoc(eltwiseOp, "shapecast_in2"), eltwiseOp.getInput2(),
-                                                         getIntArrayAttr(ctx, newInShape2));
+    auto inShapeCast1 = IE::ShapeCastOp::create(rewriter, takeOpLoc(eltwiseOp, "shapecast_in1"), eltwiseOp.getInput1(),
+                                                getIntArrayAttr(ctx, newInShape1));
+    auto inShapeCast2 = IE::ShapeCastOp::create(rewriter, takeOpLoc(eltwiseOp, "shapecast_in2"), eltwiseOp.getInput2(),
+                                                getIntArrayAttr(ctx, newInShape2));
 
     createNewEltwiseOp(eltwiseOp, rewriter, resultType, inShapeCast1.getResult(), inShapeCast2.getResult(),
                        Shape(outputShape));
@@ -249,10 +250,10 @@ void EltwiseLayerConverter<ConcreteOp>::createNewEltwiseOp(ConcreteOp eltwiseOp,
                                                            mlir::Value input2, const Shape& outputShape) const {
     const auto ctx = eltwiseOp->getContext();
 
-    auto newEltwiseOp = rewriter.create<ConcreteOp>(takeOpLoc(eltwiseOp, "op_reshaped"), resultType, input1, input2,
-                                                    eltwiseOp.getAutoBroadcastAttr(), eltwiseOp.getPostOpAttr(),
-                                                    eltwiseOp.getClampAttr(), eltwiseOp.getOutputPaddingAttr(),
-                                                    eltwiseOp.getInputPaddingAttr());
+    auto newEltwiseOp =
+            ConcreteOp::create(rewriter, takeOpLoc(eltwiseOp, "op_reshaped"), resultType, input1, input2,
+                               eltwiseOp.getAutoBroadcastAttr(), eltwiseOp.getPostOpAttr(), eltwiseOp.getClampAttr(),
+                               eltwiseOp.getOutputPaddingAttr(), eltwiseOp.getInputPaddingAttr());
 
     rewriter.replaceOpWithNewOp<IE::ShapeCastOp>(eltwiseOp, newEltwiseOp.getOutput(),
                                                  getIntArrayAttr(ctx, outputShape));
@@ -265,8 +266,8 @@ void EltwiseLayerConverter<IE::PowerOp>::createNewEltwiseOp(IE::PowerOp eltwiseO
                                                             mlir::Value input2, const Shape& outputShape) const {
     const auto ctx = eltwiseOp->getContext();
 
-    auto newPowerOp = rewriter.create<IE::PowerOp>(takeOpLoc(eltwiseOp, "power_reshaped"), resultType, input1, input2,
-                                                   eltwiseOp.getAutoBroadcastAttr());
+    auto newPowerOp = IE::PowerOp::create(rewriter, takeOpLoc(eltwiseOp, "power_reshaped"), resultType, input1, input2,
+                                          eltwiseOp.getAutoBroadcastAttr());
 
     rewriter.replaceOpWithNewOp<IE::ShapeCastOp>(eltwiseOp, newPowerOp.getOutput(), getIntArrayAttr(ctx, outputShape));
 }
@@ -306,8 +307,8 @@ mlir::LogicalResult PoolLayerConverter<ConcreteOp>::layerSpecificRewriter(Concre
                                                    {Dims4D::Act::H.ind()},
                                                    {Dims4D::Act::W.ind()},
                                                    {Dims4D::Act::W.ind()}};
-    auto inAffineReshape = rewriter.create<IE::AffineReshapeOp>(takeOpLoc(poolOp, "reshape_in"), poolOp.getInput(),
-                                                                getIntArrayOfArray(ctx, inDimMapping), inputShapeAttr);
+    auto inAffineReshape = IE::AffineReshapeOp::create(rewriter, takeOpLoc(poolOp, "reshape_in"), poolOp.getInput(),
+                                                       getIntArrayOfArray(ctx, inDimMapping), inputShapeAttr);
 
     mlir::IRMapping mapper;
     mapper.map(poolOp.getOperand(0), inAffineReshape.getOutput());
@@ -385,8 +386,8 @@ mlir::LogicalResult ConvLayerConverter::layerSpecificRewriter(IE::ConvolutionOp 
     Shape newInputShape = Shape(inputShape);
     newInputShape[Dims4D::Act::N] = 1;
     newInputShape[Dims4D::Act::C] = N;
-    auto inputReshape = rewriter.create<IE::ShapeCastOp>(takeOpLoc(convOp, "shapecast_in"), convOp.getInput(),
-                                                         getIntArrayAttr(ctx, newInputShape));
+    auto inputReshape = IE::ShapeCastOp::create(rewriter, takeOpLoc(convOp, "shapecast_in"), convOp.getInput(),
+                                                getIntArrayAttr(ctx, newInputShape));
 
     // 3. Create GroupConvolution with groups = N
     Shape newOutputShape = Shape(outputShape);
@@ -395,11 +396,11 @@ mlir::LogicalResult ConvLayerConverter::layerSpecificRewriter(IE::ConvolutionOp 
     const auto resultType =
             mlir::RankedTensorType::get(newOutputShape.raw(), convOp.getOutput().getType().getElementType());
 
-    auto groupConvOp = rewriter.create<IE::GroupConvolutionOp>(
-            takeOpLoc(convOp, "as_groupconv"), resultType, inputReshape.getResult(), filterBroadcast, convOp.getBias(),
-            convOp.getStridesAttr(), convOp.getPadsBeginAttr(), convOp.getPadsEndAttr(), convOp.getDilationsAttr(),
-            getIntAttr(ctx, N), convOp.getPostOpAttr(), convOp.getClampAttr(), convOp.getOutputPaddingAttr(),
-            convOp.getInputPaddingAttr());
+    auto groupConvOp = IE::GroupConvolutionOp::create(
+            rewriter, takeOpLoc(convOp, "as_groupconv"), resultType, inputReshape.getResult(), filterBroadcast,
+            convOp.getBias(), convOp.getStridesAttr(), convOp.getPadsBeginAttr(), convOp.getPadsEndAttr(),
+            convOp.getDilationsAttr(), getIntAttr(ctx, N), convOp.getPostOpAttr(), convOp.getClampAttr(),
+            convOp.getOutputPaddingAttr(), convOp.getInputPaddingAttr());
 
     // 4. Reshape output back: [1, N, H', W'] -> [N, 1, H', W']
     rewriter.replaceOpWithNewOp<IE::ShapeCastOp>(convOp, groupConvOp.getOutput(), getIntArrayAttr(ctx, outputShape));
@@ -440,14 +441,13 @@ mlir::LogicalResult GroupConvLayerConverter::layerSpecificRewriter(IE::GroupConv
     auto inTranspose = createTransposeForLayerInput(rewriter, groupConvOp.getInput(), dim, groupConvOp->getLoc());
     auto transPermAttr = inTranspose.getOrderValueAttr();
     VPUX_THROW_WHEN(transPermAttr == nullptr, "Can not get order value from input tranpose");
-    auto output =
-            rewriter.create<IE::GroupConvolutionOp>(
-                            takeOpLoc(groupConvOp, "groupconv_in"), inTranspose.getOutput(), groupConvOp.getFilter(),
-                            groupConvOp.getBias(), groupConvOp.getStridesAttr(), groupConvOp.getPadsBeginAttr(),
-                            groupConvOp.getPadsEndAttr(), groupConvOp.getDilationsAttr(), groupConvOp.getGroupsAttr(),
-                            groupConvOp.getPostOpAttr(), groupConvOp.getClampAttr(), groupConvOp.getOutputPaddingAttr(),
-                            groupConvOp.getInputPaddingAttr())
-                    .getOutput();
+    auto output = IE::GroupConvolutionOp::create(
+                          rewriter, takeOpLoc(groupConvOp, "groupconv_in"), inTranspose.getOutput(),
+                          groupConvOp.getFilter(), groupConvOp.getBias(), groupConvOp.getStridesAttr(),
+                          groupConvOp.getPadsBeginAttr(), groupConvOp.getPadsEndAttr(), groupConvOp.getDilationsAttr(),
+                          groupConvOp.getGroupsAttr(), groupConvOp.getPostOpAttr(), groupConvOp.getClampAttr(),
+                          groupConvOp.getOutputPaddingAttr(), groupConvOp.getInputPaddingAttr())
+                          .getOutput();
 
     _log.trace("Insert new layer without batch: {0}", output);
     auto outTranspose = rewriter.replaceOpWithNewOp<IE::TransposeOp>(groupConvOp, output, nullptr, transPermAttr);
@@ -469,16 +469,16 @@ void GroupConvLayerConverter::reshapeForGroupConv(IE::GroupConvolutionOp groupCo
     newOutputShape[Dims4D::Act::N] = 1;
     auto group = newInputShape[Dims4D::Act::C];
 
-    auto inShapeCast = rewriter.create<IE::ShapeCastOp>(groupConvOp->getLoc(), groupConvOp.getInput(),
-                                                        getIntArrayAttr(ctx, newInputShape));
+    auto inShapeCast = IE::ShapeCastOp::create(rewriter, groupConvOp->getLoc(), groupConvOp.getInput(),
+                                               getIntArrayAttr(ctx, newInputShape));
 
     const auto filter = groupConvOp.getFilter();
     auto targetConstShape = Shape(getShape(filter));
     targetConstShape[Dims4D::Filter::OC] = group;
     auto newFilter = IE::createBroadcast(rewriter, takeOpLoc(groupConvOp, "filter"), filter, targetConstShape);
 
-    auto newGroupConvOp = rewriter.create<IE::GroupConvolutionOp>(
-            groupConvOp->getLoc(), inShapeCast.getResult(), newFilter, groupConvOp.getBias(),
+    auto newGroupConvOp = IE::GroupConvolutionOp::create(
+            rewriter, groupConvOp->getLoc(), inShapeCast.getResult(), newFilter, groupConvOp.getBias(),
             groupConvOp.getStridesAttr(), groupConvOp.getPadsBeginAttr(), groupConvOp.getPadsEndAttr(),
             groupConvOp.getDilationsAttr(), getIntAttr(ctx, group), groupConvOp.getPostOpAttr(),
             groupConvOp.getClampAttr(), groupConvOp.getOutputPaddingAttr(), groupConvOp.getInputPaddingAttr());
@@ -493,6 +493,10 @@ void GroupConvLayerConverter::reshapeForGroupConv(IE::GroupConvolutionOp groupCo
 
 template <class ConcreteOp>
 bool isLegalGeneric(ConcreteOp op) {
+    if (IE::hasDynamicTensors(op)) {
+        return true;
+    }
+
     auto hasPerAxisQuantization = isPerAxisQuant(op.getInput()) || isPerAxisQuant(op.getOutput());
     if (!isShapeRankEq4(op.getInput()) || isEqualToOne(op.getInput(), Dims4D::Act::N) || hasPerAxisQuantization) {
         return true;
@@ -623,9 +627,9 @@ IE::AffineReshapeOp buildAffineReshape(mlir::Location loc, mlir::Value input, Ar
                                                     {Dims4D::Act::W.ind()}};
     auto dimMapping = replacedOp == nullptr ? inDimMapping : outDimMapping;
 
-    auto reshapeOp = replacedOp == nullptr ? rewriter.create<IE::AffineReshapeOp>(loc, dstType, input,
-                                                                                  getIntArrayOfArray(ctx, dimMapping),
-                                                                                  getIntArrayAttr(ctx, targetShape))
+    auto reshapeOp = replacedOp == nullptr ? IE::AffineReshapeOp::create(rewriter, loc, dstType, input,
+                                                                         getIntArrayOfArray(ctx, dimMapping),
+                                                                         getIntArrayAttr(ctx, targetShape))
                                            : rewriter.replaceOpWithNewOp<IE::AffineReshapeOp>(
                                                      replacedOp, dstType, input, getIntArrayOfArray(ctx, dimMapping),
                                                      getIntArrayAttr(ctx, targetShape));

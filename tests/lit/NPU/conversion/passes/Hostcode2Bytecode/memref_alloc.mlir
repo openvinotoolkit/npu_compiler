@@ -16,7 +16,7 @@ func.func @alloc_static_float() -> () attributes {config.pureHostCompileFunc} {
 // CHECK:  bytecode.func_section @func_section {
 // CHECK:    bytecode.ext.func @alloc_static_float () -> () {
 // CHECK-NOT:   memref.alloc
-// CHECK:       [[BUF:%.+]] = bytecode.virtual_general_register
+// CHECK:       [[BUF:%.+]] = bytecode.virtual_value_register
 // CHECK:       bytecode.ext.buffer.create [[BUF]], memref<2x3xf32>
 // CHECK:       bytecode.ret
 // CHECK:    }
@@ -38,7 +38,7 @@ func.func @alloc_dynamic(%n: index) -> () attributes {config.pureHostCompileFunc
 // CHECK:    bytecode.ext.func @alloc_dynamic (index) -> () {
 // CHECK-NOT:   memref.alloc
 // CHECK:       [[N:%.+]] = bytecode.virtual_parameter_register 0
-// CHECK:       [[BUF:%.+]] = bytecode.virtual_general_register
+// CHECK:       [[BUF:%.+]] = bytecode.virtual_value_register
 // CHECK:       bytecode.ext.buffer.create [[BUF]], memref<?xi8> sizes([[N]])
 // CHECK:       bytecode.ret
 // CHECK:    }

@@ -29,8 +29,8 @@ void insertReorderForInput(mlir::Operation* op, mlir::OpOperand& input, const Di
     mlir::OpBuilder::InsertionGuard guard(rewriter);
     rewriter.setInsertionPoint(op);
 
-    auto reorderOp = rewriter.create<IE::ReorderOp>(takeOpLoc(op, "reorder_in_{0}", input.getOperandNumber()),
-                                                    input.get(), dstOrder.toAffineMap(rewriter.getContext()));
+    auto reorderOp = IE::ReorderOp::create(rewriter, takeOpLoc(op, "reorder_in_{0}", input.getOperandNumber()),
+                                           input.get(), dstOrder.toAffineMap(rewriter.getContext()));
 
     log.trace("Redirect input to the new Value");
     input.set(reorderOp.getOutput());
@@ -44,8 +44,8 @@ IE::ReorderOp insertReorderForOutput(mlir::Operation* op, mlir::Value output, co
     mlir::OpBuilder::InsertionGuard guard(rewriter);
     rewriter.setInsertionPointAfter(op);
 
-    auto reorderOp = rewriter.create<IE::ReorderOp>(takeOpLoc(op, "reorder_out"), output,
-                                                    dstOrder.toAffineMap(rewriter.getContext()));
+    auto reorderOp = IE::ReorderOp::create(rewriter, takeOpLoc(op, "reorder_out"), output,
+                                           dstOrder.toAffineMap(rewriter.getContext()));
 
     log.trace("Redirect output users to the new Value");
     output.replaceAllUsesExcept(reorderOp.getOutput(), llvm::SmallPtrSet<mlir::Operation*, 1>{reorderOp});

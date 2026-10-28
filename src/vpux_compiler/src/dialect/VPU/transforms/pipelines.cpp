@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
+#include "vpux/compiler/dialect/Shave/transforms/passes.hpp"
 #include "vpux/compiler/dialect/VPU/IR/attributes.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
 #include "vpux/compiler/dialect/core/transforms/passes.hpp"
@@ -87,6 +88,9 @@ void vpux::VPU::buildInitCompilerPipeline(mlir::OpPassManager& pm, const VPU::In
 #endif  // VPUX_DEVELOPER_BUILD
     pm.addPass(VPU::createSetupNpuConstraintPass(options, log));
     pm.addPass(VPU::createSetupTilingConstraintPass(options, log));
+
+    // Load external kernel resources for custom kernels
+    pm.addPass(Shave::createLoadExternalKernelResourcesPass(options.customKernelConfigPath.getValue(), log));
 }
 
 //
@@ -191,7 +195,7 @@ void vpux::VPU::buildTilingPipeline(mlir::OpPassManager& pm, const VPU::TilingOp
             VPU::buildVFPipeline(pm, options, log);
         } else {
             pm.addPass(VPU::createSCFVerticalFusionPass(options.vfMergeConfiguration, options.enableDynamicDimAlignment,
-                                                        log));
+                                                        options.vfMergeCostMode, log));
             // cleaning up after SCFVerticalFusionPass
             pm.addPass(mlir::memref::createResolveShapedTypeResultDimsPass());
             pm.addPass(mlir::createCSEPass());
@@ -279,10 +283,10 @@ void vpux::VPU::buildVFPipeline(mlir::OpPassManager& pm, const VPU::TilingOption
 
     pm.addPass(VPU::createMoveViewOpsToVerticalFusionPass(options.workloadManagementMode, log));
     if (options.workloadManagementMode > WorkloadManagementMode::PWLM_V0_1_PAGES) {
-        pm.addPass(VPU::createPatternBasedVFPass(options.workloadManagementMode, log));
+        pm.addPass(VPU::createPatternBasedVFPass(options.workloadManagementMode, options.vfMergeCostMode, log));
     }
     pm.addPass(VPU::createMergeVfSubgraphsPass(options.enableVerticalFusionPipelining, options.enablePrefetchTiling,
-                                               options.workloadManagementMode, log));
+                                               options.workloadManagementMode, options.vfMergeCostMode, log));
     if (options.enablePrintStatistics) {
         pm.addPass(VPU::createPrintNNCacheStatisticsPass(log, "merge-vertical-fusion-subgraphs"));
     }
@@ -291,14 +295,13 @@ void vpux::VPU::buildVFPipeline(mlir::OpPassManager& pm, const VPU::TilingOption
     pm.addPass(VPU::createManualStrategyUtilsPass(options.writeStrategyToJson, writeStrategyDefaultFileLocation,
                                                   options.readStrategyFromJson, readStrategyDefaultFileLocation,
                                                   options.dumpStrategyToLog, false, log));
-    // TODO: E#140041 enable profiling with function outlining
     const auto grc = getDefaultGreedyRewriteConfig();
-    if (options.enableVerticalFusionOutlining && canOutlineFromProfilingPerspective(options)) {
+    if (options.enableVerticalFusionOutlining) {
         pm.addPass(VPU::createVerticalFusionOutliningPass(options, log));
         pm.addPass(mlir::createCanonicalizerPass(grc));
     }
     pm.addPass(VPU::createVfTilingPass(options.enableVerticalFusionPipelining, options.enableVFScheduleTrace,
-                                       options.workloadManagementMode, log));
+                                       options.workloadManagementMode, options.vfMergeCostMode, log));
     pm.addPass(mlir::createCanonicalizerPass(grc));
 }
 

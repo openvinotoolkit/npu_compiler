@@ -53,7 +53,7 @@ int64_t vpux::details::calcTotalShapeSize(ArrayRef<int64_t> shape) {
 
 ShapeRef vpux::getShape(mlir::Value val) {
     auto type = mlir::dyn_cast<vpux::NDTypeInterface>(val.getType());
-    VPUX_THROW_UNLESS(type != nullptr, "Value '{0}' has non vpux::NDTypeInterface '{1}'", val, val.getType());
+    VPUX_THROW_WHEN(type == nullptr, "Value '{0}' has non vpux::NDTypeInterface '{1}'", val, val.getType());
     return type.getShape();
 }
 
@@ -97,7 +97,7 @@ ShapeRef vpux::getBoundedShape(mlir::Type type) {
 
 MemShape vpux::getMemShape(mlir::Value val) {
     auto type = mlir::dyn_cast<vpux::NDTypeInterface>(val.getType());
-    VPUX_THROW_UNLESS(type != nullptr, "Value '{0}' has non vpux::NDTypeInterface '{1}'", val, val.getType());
+    VPUX_THROW_WHEN(type == nullptr, "Value '{0}' has non vpux::NDTypeInterface '{1}'", val, val.getType());
     return type.getMemShape();
 }
 

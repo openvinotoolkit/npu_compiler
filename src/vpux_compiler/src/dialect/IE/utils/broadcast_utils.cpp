@@ -85,7 +85,7 @@ mlir::Value createDynamicBroadcast(mlir::OpBuilder& rewriter, mlir::Location loc
 
     const auto shapeDstElemType = getSInt32Type(ctx);
     const auto targetShape =
-            rewriter.create<IE::ShapeOfOp>(appendLoc(loc, "shape_of"), other, shapeDstElemType).getOutput();
+            IE::ShapeOfOp::create(rewriter, appendLoc(loc, "shape_of"), other, shapeDstElemType).getOutput();
 
     return rewriter.createOrFold<IE::DynamicBroadcastOp>(loc, input, targetShape, axisMapping, broadcastTypeAttr,
                                                          shapeAttr, boundsAttr);

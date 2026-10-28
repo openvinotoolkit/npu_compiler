@@ -6,6 +6,7 @@
 #pragma once
 
 #include "vpux/compiler/dialect/VPU/IR/native_attributes/distribution_info.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/data_movement.hpp"
 #include "vpux/compiler/dialect/VPU/IR/types.hpp"
 #include "vpux/compiler/dialect/VPUIP/IR/types.hpp"
 
@@ -47,5 +48,25 @@ mlir::FailureOr<VPU::DistributionInfoAttr> applyPermutationOnDistributionInfoAtt
 
     return VPU::DistributionInfo::getAttrFromClass(inDistributedType.getContext(), distributionInfoOrFailure.value());
 }
+
+// Pre-computed plane sizes for sub-byte MemPermute alignment analysis.
+struct MemPermuteAlignmentInfo {
+    int64_t elemBitWidth;
+    int64_t rank;
+    DimsOrder outOrder;
+    SmallVector<int64_t> permInv;
+    SmallVector<int64_t> outInnerProducts;
+    SmallVector<int64_t> inInnerProducts;
+
+    // Tile alignment factor for a given memory-order position.
+    // Returns 1 when both input and output planes are byte-aligned.
+    int64_t getAlignmentForMemPos(int64_t memPos) const;
+};
+
+std::optional<MemPermuteAlignmentInfo> getMemPermuteAlignmentInfo(VPU::MemPermuteOp memPermuteOp);
+std::optional<MemPermuteAlignmentInfo> getMemPermuteAlignmentInfo(NDTypeInterface inType, NDTypeInterface outType,
+                                                                  mlir::AffineMap memPerm);
+bool doesMemPermuteNeedAlignment(VPU::MemPermuteOp memPermuteOp);
+std::optional<SmallVector<int64_t>> getSubbyteAlignmentForMemPermute(VPU::MemPermuteOp memPermuteOp, ShapeRef divisors);
 
 }  // namespace vpux::VPU

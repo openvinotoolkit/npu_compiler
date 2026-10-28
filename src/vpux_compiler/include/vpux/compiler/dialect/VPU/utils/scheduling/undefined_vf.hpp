@@ -17,7 +17,7 @@ namespace vpux::VPU {
 struct VfStrategyRecipe {
     VPU::VFScenario id;
     VfSchedStrategyDescriptor::FetchScope fetchScp;
-    VfSchedStrategyDescriptor::OutputResidency outputRes;
+    VfSchedStrategyDescriptor::LastComputeOverlapWithNextIterInputs lastCompOverlapNextIterIn;
 };
 
 // Outcome of runStrategySearch — carries the

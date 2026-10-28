@@ -245,12 +245,12 @@ mlir::FailureOr<SymbolizationResult> NNDMARewriter::symbolize(VPUMI40XX::NNDMAOp
         VPUX_THROW_WHEN(!descriptor, "Failed to lower DMA descriptor parameters");
     }
 
-    auto newOp = rewriter.create<VPUASM::NNDMAOp>(
-            op.getLoc(), symName, taskIdx, taskLocation, nextLink, input, outputs, waitAttr, updateAttr, startAfter,
-            cleanAfter, accelerationMode, op.getDmaEncodingAlgoAttr(), op.getIsOutOfOrder(), op.getIsCritical(),
-            op.getEnableMsc(), actCompressionSizeEntryAttr, sparsityMapAttr, transaction, descriptor, dmaHwpIdAttr,
-            cmxTiles, indicesAttr, addressingModeAttr, skipDmaAttr, fetchDmaAttr, taskDynIdAttr,
-            dynamicSequenceLenBuffAttr);
+    auto newOp = VPUASM::NNDMAOp::create(rewriter, op.getLoc(), symName, taskIdx, taskLocation, nextLink, input,
+                                         outputs, waitAttr, updateAttr, startAfter, cleanAfter, accelerationMode,
+                                         op.getDmaEncodingAlgoAttr(), op.getIsOutOfOrder(), op.getIsCritical(),
+                                         op.getEnableMsc(), actCompressionSizeEntryAttr, sparsityMapAttr, transaction,
+                                         descriptor, dmaHwpIdAttr, cmxTiles, indicesAttr, addressingModeAttr,
+                                         skipDmaAttr, fetchDmaAttr, taskDynIdAttr, dynamicSequenceLenBuffAttr);
 
     if (auto strided = op->getAttr(vpux::stridedInputAttrName)) {
         newOp->setAttr(vpux::stridedInputAttrName, strided);

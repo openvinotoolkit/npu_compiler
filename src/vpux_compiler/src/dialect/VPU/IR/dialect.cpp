@@ -75,7 +75,7 @@ mlir::Operation* vpux::VPU::VPUDialect::materializeConstant(mlir::OpBuilder& bui
         return nullptr;
     }
 
-    return builder.create<Const::DeclareOp>(loc, type, mlir::cast<Const::ContentAttr>(value));
+    return Const::DeclareOp::create(builder, loc, type, mlir::cast<Const::ContentAttr>(value));
 }
 
 //

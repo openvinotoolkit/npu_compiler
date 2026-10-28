@@ -859,7 +859,7 @@ func.func @ConcatSWLayer(%arg0: tensor<1x2x3x?xf16, {bounds = #const.OpaqueI64El
 // -----
 
 // CHECK:  module @VPU.SW {
-// CHECK-NEXT:    func.func nested @builtin_RMS(memref<*xf32>, memref<*xf16>, memref<*xf32>, f64, i1) attributes {VPU.kernel_code = "rms_norm.cpp", VPU.kernel_entry = "rms_norm", VPU.kernel_name = "rms_norm", VPU.task_type = @COMPUTE}
+// CHECK-NEXT:    func.func nested @builtin_RMS(memref<*xf32>, memref<*xf16>, memref<*xf32>, f64, i64) attributes {VPU.kernel_code = "rms_norm.cpp", VPU.kernel_entry = "rms_norm", VPU.kernel_name = "rms_norm", VPU.task_type = @COMPUTE}
 // CHECK:    func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"}
 // CHECK-NEXT:  }
 
@@ -873,7 +873,7 @@ func.func @RMSNorm(%input: tensor<1x2x6xf32>) -> tensor<1x2x6xf32> {
 // CHECK:    [[CST:%.+]] = const.Declare memref<6xf16> = dense<[2.900000e-02, 1.400000e-02, 3.000000e-03, 1.300000e-02, 1.500000e-02, 0.00899999961]> : tensor<6xf32>, [#const.CastElemType<f16>]
 // CHECK:    [[ALLOC:%.+]] = memref.alloc() : memref<1x2x6xf32>
 // CHECK:    [[RES:%.+]] = VPUIP.SW.Kernel {resultSegmentSizes = array<i32: 1, 0, 0>} @VPU.SW::@builtin_RMS inputs([[INPUT]] as {{[^:]+}}: memref<1x2x6xf32>, [[CST]] as {{[^:]+}}: memref<6xf16>) outputs([[ALLOC]] as {{[^:]+}}: memref<1x2x6xf32>) on tile 0 -> memref<1x2x6xf32>{
-// CHECK:      VPUIP.SW.Kernel.run {attrs = [9.9999997473787516E-6, false]}({{[^:]+}}, {{[^:]+}}, {{[^:]+}}) : memref<1x2x6xf32>, memref<6xf16>, memref<1x2x6xf32>
+// CHECK:      VPUIP.SW.Kernel.run {attrs = [9.9999997473787516E-6, 0]}({{[^:]+}}, {{[^:]+}}, {{[^:]+}}) : memref<1x2x6xf32>, memref<6xf16>, memref<1x2x6xf32>
 // CHECK:    }
 // CHECK:    return [[RES]] : memref<1x2x6xf32>
 }
@@ -1393,7 +1393,7 @@ func.func @DynamicDataMask(%arg0: tensor<4xsi32>) -> tensor<1x3x32x32xf16> {
 // CHECK-LABEL:   func.func @ExternalKernelOneInputOneOutputCMX(
 // CHECK-SAME:      [[INPUT:%.+]]: memref<1x512x512x1xf16, {order = #[[$NHWC]]}, [@CMX_NN, 0]>) -> memref<1x512x512x1xf16, {order = #[[$NHWC]]}, [@CMX_NN, 0]>
 func.func @ExternalKernelOneInputOneOutputCMX(%arg0: tensor<1x512x512x1xf16, {mem_space = [@CMX_NN, 0], order = #NHWC}>) -> tensor<1x512x512x1xf16, {mem_space = [@CMX_NN, 0], order = #NHWC}> {
-    %0 = Shave.ExternalKernel "dummy_kernel" at_path("dummy_path") inputs(%arg0 : tensor<1x512x512x1xf16, {mem_space = [@CMX_NN, 0], order = #NHWC}>) attrs({}) -> tensor<1x512x512x1xf16, {mem_space = [@CMX_NN, 0], order = #NHWC}>
+    %0 = Shave.ExternalKernel "dummy_kernel" inputs(%arg0 : tensor<1x512x512x1xf16, {mem_space = [@CMX_NN, 0], order = #NHWC}>) attrs({}) -> tensor<1x512x512x1xf16, {mem_space = [@CMX_NN, 0], order = #NHWC}>
     return %0 : tensor<1x512x512x1xf16, {mem_space = [@CMX_NN, 0], order = #NHWC}>
 
 // CHECK:         [[ALLOC:%.+]] = memref.alloc() : memref<1x512x512x1xf16, {order = #[[$NHWC]]}, [@CMX_NN, 0]>
@@ -1416,7 +1416,7 @@ func.func @ExternalKernelOneInputOneOutputCMX(%arg0: tensor<1x512x512x1xf16, {me
 // CHECK-LABEL:   func.func @ExternalKernelOneInputCMXOneOutputDDR(
 // CHECK-SAME:      [[INPUT:%.+]]: memref<1x512x512x1xf16, {order = #[[$NHWC]]}, [@CMX_NN, 0]>) -> memref<1x512x512x10xf16, {order = #[[$NHWC]]}>
 func.func @ExternalKernelOneInputCMXOneOutputDDR(%arg0: tensor<1x512x512x1xf16, {mem_space = [@CMX_NN, 0], order = #NHWC}>) -> tensor<1x512x512x10xf16, {order = #NHWC}> {
-    %0 = Shave.ExternalKernel "dummy_kernel" at_path("dummy_path") inputs(%arg0 : tensor<1x512x512x1xf16, {mem_space = [@CMX_NN, 0], order = #NHWC}>) attrs({}) -> tensor<1x512x512x10xf16, {order = #NHWC}>
+    %0 = Shave.ExternalKernel "dummy_kernel" inputs(%arg0 : tensor<1x512x512x1xf16, {mem_space = [@CMX_NN, 0], order = #NHWC}>) attrs({}) -> tensor<1x512x512x10xf16, {order = #NHWC}>
     return %0 : tensor<1x512x512x10xf16, {order = #NHWC}>
 
 // CHECK:         [[ALLOC:%.+]] = memref.alloc() : memref<1x512x512x10xf16, {order = #[[$NHWC]]}>
@@ -1442,7 +1442,7 @@ func.func @ExternalKernelOneInputCMXOneOutputDDR(%arg0: tensor<1x512x512x1xf16, 
 // CHECK-LABEL:   func.func @ExternalKernelOneInputDDROneOutputCMX(
 // CHECK-SAME:      [[INPUT:%.+]]: memref<1x512x512x10xf16, {order = #[[$NHWC]]}>) -> memref<1x512x512x1xf16, {order = #[[$NHWC]]}, [@CMX_NN, 0]>
 func.func @ExternalKernelOneInputDDROneOutputCMX(%arg0: tensor<1x512x512x10xf16, {order = #NHWC}>) -> tensor<1x512x512x1xf16, {mem_space = [@CMX_NN, 0],order = #NHWC}> {
-    %0 = Shave.ExternalKernel "dummy_kernel" at_path("dummy_path") inputs(%arg0 : tensor<1x512x512x10xf16, {order = #NHWC}>) attrs({}) -> tensor<1x512x512x1xf16, {mem_space = [@CMX_NN, 0], order = #NHWC}>
+    %0 = Shave.ExternalKernel "dummy_kernel" inputs(%arg0 : tensor<1x512x512x10xf16, {order = #NHWC}>) attrs({}) -> tensor<1x512x512x1xf16, {mem_space = [@CMX_NN, 0], order = #NHWC}>
     return %0 : tensor<1x512x512x1xf16, {mem_space = [@CMX_NN, 0], order = #NHWC}>
 
 // CHECK:         [[ALLOC:%.+]] = memref.alloc() : memref<1x512x512x1xf16, {order = #[[$NHWC]]}, [@CMX_NN, 0]>
@@ -1471,7 +1471,7 @@ func.func @ExternalKernelMultipleIOCMX(%arg0: tensor<1x64x64x3xf16, {mem_space =
                                        %arg1: tensor<1x64x64x3xf16, {mem_space = [@CMX_NN, 0], order = #NHWC}>,
                                        %arg2: tensor<1x64x64x3xf16, {mem_space = [@CMX_NN, 0], order = #NHWC}>)
                                        -> (tensor<1x64x64x3xf16, {mem_space = [@CMX_NN, 0], order = #NHWC}>, tensor<1x64x64x3xf16, {mem_space = [@CMX_NN, 0], order = #NHWC}>) {
-    %0, %1 = Shave.ExternalKernel "dummy_kernel" at_path("dummy_path") inputs(%arg0, %arg1, %arg2 : tensor<1x64x64x3xf16, {mem_space = [@CMX_NN, 0], order = #NHWC}>, tensor<1x64x64x3xf16, {mem_space = [@CMX_NN, 0], order = #NHWC}>, tensor<1x64x64x3xf16, {mem_space = [@CMX_NN, 0], order = #NHWC}>) attrs({}) -> tensor<1x64x64x3xf16, {mem_space = [@CMX_NN, 0], order = #NHWC}>, tensor<1x64x64x3xf16, {mem_space = [@CMX_NN, 0], order = #NHWC}>
+    %0, %1 = Shave.ExternalKernel "dummy_kernel" inputs(%arg0, %arg1, %arg2 : tensor<1x64x64x3xf16, {mem_space = [@CMX_NN, 0], order = #NHWC}>, tensor<1x64x64x3xf16, {mem_space = [@CMX_NN, 0], order = #NHWC}>, tensor<1x64x64x3xf16, {mem_space = [@CMX_NN, 0], order = #NHWC}>) attrs({}) -> tensor<1x64x64x3xf16, {mem_space = [@CMX_NN, 0], order = #NHWC}>, tensor<1x64x64x3xf16, {mem_space = [@CMX_NN, 0], order = #NHWC}>
     return %0, %1 : tensor<1x64x64x3xf16, {mem_space = [@CMX_NN, 0], order = #NHWC}>, tensor<1x64x64x3xf16, {mem_space = [@CMX_NN, 0], order = #NHWC}>
 
 // CHECK:         [[ALLOC0:%.+]] = memref.alloc() : memref<1x64x64x3xf16, {order = #[[$NHWC]]}, [@CMX_NN, 0]>
@@ -1496,7 +1496,7 @@ func.func @ExternalKernelMultipleIOHybrid(%arg0: tensor<1x64x64x3xf16, {mem_spac
                                           %arg1: tensor<1x64x64x3xf16, {mem_space = [@CMX_NN, 0], order = #NHWC}>,
                                           %arg2: tensor<1x512x512x10xf16, {order = #NHWC}>)
                                        -> (tensor<1x64x64x3xf16, {mem_space = [@CMX_NN, 0], order = #NHWC}>, tensor<1x512x512x10xf16, {order = #NHWC}>) {
-    %0, %1 = Shave.ExternalKernel "dummy_kernel" at_path("dummy_path") inputs(%arg0, %arg1, %arg2 : tensor<1x64x64x3xf16, {mem_space = [@CMX_NN, 0], order = #NHWC}>, tensor<1x64x64x3xf16, {mem_space = [@CMX_NN, 0], order = #NHWC}>, tensor<1x512x512x10xf16, {order = #NHWC}>) attrs({}) -> tensor<1x64x64x3xf16, {mem_space = [@CMX_NN, 0], order = #NHWC}>, tensor<1x512x512x10xf16, {order = #NHWC}>
+    %0, %1 = Shave.ExternalKernel "dummy_kernel" inputs(%arg0, %arg1, %arg2 : tensor<1x64x64x3xf16, {mem_space = [@CMX_NN, 0], order = #NHWC}>, tensor<1x64x64x3xf16, {mem_space = [@CMX_NN, 0], order = #NHWC}>, tensor<1x512x512x10xf16, {order = #NHWC}>) attrs({}) -> tensor<1x64x64x3xf16, {mem_space = [@CMX_NN, 0], order = #NHWC}>, tensor<1x512x512x10xf16, {order = #NHWC}>
     return %0, %1 : tensor<1x64x64x3xf16, {mem_space = [@CMX_NN, 0], order = #NHWC}>, tensor<1x512x512x10xf16, {order = #NHWC}>
 
 // CHECK:           [[ALLOC0:%.+]] = memref.alloc() : memref<1x64x64x3xf16, {order = #[[$NHWC]]}, [@CMX_NN, 0]>
@@ -1563,4 +1563,24 @@ func.func @SoftMaxWithPrecomputedMax(%input: tensor<1x4x128x256xf16>, %max: tens
     // CHECK-SAME:     outputs([[OUTPUT_BUF]] as {{[^:]+}}: memref<1x4x128x256xf16>) on tile 0
     // CHECK:   VPUIP.SW.Kernel.run {attrs = [2, 0]}({{[^:]+}}, {{[^:]+}}, {{[^:]+}}) : memref<1x4x128x256xf16>, memref<1x1x128x256xf16>, memref<1x4x128x256xf16>
     // CHECK: return [[RESULTS]] : memref<1x4x128x256xf16>
+}
+
+// -----
+
+// CHECK:  module @VPU.SW {
+// CHECK-NEXT:    func.func nested @builtin_NormalizeL2({{.*}}) attributes {VPU.kernel_code = "normalize_l2_innermost.cpp", VPU.kernel_entry = "normalize_l2_innermost", {{.*}}}
+// CHECK:    func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"}
+// CHECK-NEXT:  }
+
+// CHECK-LABEL:  func.func @NormalizeL2InnermostAxis
+// CHECK-SAME:      ([[ARG:%.+]]: memref<1x1x1x1024xf16>)
+func.func @NormalizeL2InnermostAxis(%input: tensor<1x1x1x1024xf16>) -> tensor<1x1x1x1024xf16> {
+    %output = VPU.NormalizeL2(%input) {axes_value = [3], eps = 1.000000e-05 : f64, eps_mode = #IE.eps_mode<MAX>} : tensor<1x1x1x1024xf16> -> tensor<1x1x1x1024xf16>
+    return %output : tensor<1x1x1x1024xf16>
+
+    // CHECK: [[OUT_BUF:%.+]] = memref.alloc() : memref<1x1x1x1024xf16>
+    // CHECK: [[RESULT:%.+]] = VPUIP.SW.Kernel {resultSegmentSizes = array<i32: 1, 0, 0>} @VPU.SW::@builtin_NormalizeL2
+    // CHECK-SAME:     inputs([[ARG]] as {{[^:]+}}: memref<1x1x1x1024xf16>)
+    // CHECK-SAME:     outputs([[OUT_BUF]] as {{[^:]+}}: memref<1x1x1x1024xf16>) on tile 0
+    // CHECK: return [[RESULT]] : memref<1x1x1x1024xf16>
 }

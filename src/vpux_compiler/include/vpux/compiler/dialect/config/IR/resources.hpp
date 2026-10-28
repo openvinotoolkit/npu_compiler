@@ -53,9 +53,7 @@ size_t getReservedMemoryOffset(mlir::ModuleOp mainModule, mlir::SymbolRefAttr me
 // DMA profiling reserved memory
 //
 static constexpr StringLiteral dmaProfilingResMemModuleName = "DmaProfilingReservedMemory";
-
 static constexpr auto dmaProfilingResMemAlignment = Byte(64);
-
 config::MemoryResourceOp setDmaProfilingReservedMemory(mlir::ModuleOp mainModule, mlir::SymbolRefAttr memSpace,
                                                        int64_t size);
 
@@ -66,6 +64,26 @@ memory_resource_if<Enum> getDmaProfilingReservedMemory(mlir::ModuleOp mainModule
     return getDmaProfilingReservedMemory(mainModule,
                                          mlir::SymbolRefAttr::get(mainModule.getContext(), stringifyEnum(kind)));
 }
+
+//
+// DPU profiling reserved memory
+//
+static constexpr StringLiteral dpuProfilingResMemModuleName = "DpuProfilingReservedMemory";
+static constexpr auto dpuProfilingResMemAlignment = Byte(32);
+config::MemoryResourceOp setDpuProfilingReservedMemory(mlir::ModuleOp mainModule, mlir::SymbolRefAttr memSpace,
+                                                       int64_t size);
+
+config::MemoryResourceOp getDpuProfilingReservedMemory(mlir::ModuleOp mainModule, mlir::SymbolRefAttr memSpace);
+
+//
+// ActShave profiling reserved memory
+//
+static constexpr StringLiteral actShaveProfilingResMemModuleName = "ActShaveProfilingReservedMemory";
+static constexpr auto actShaveProfilingResMemAlignment = Byte(32);
+config::MemoryResourceOp setActShaveProfilingReservedMemory(mlir::ModuleOp mainModule, mlir::SymbolRefAttr memSpace,
+                                                            int64_t size);
+
+config::MemoryResourceOp getActShaveProfilingReservedMemory(mlir::ModuleOp mainModule, mlir::SymbolRefAttr memSpace);
 
 //
 // Compressed DMA reserved memory
@@ -173,6 +191,7 @@ int64_t getNumOfEnginesOnTile(mlir::ModuleOp moduleOp, config::ExecutorKind exec
 int64_t getNumOfEnginesOnTile(mlir::Operation* op, config::ExecutorKind execKind);
 int64_t getTotalNumOfEngines(mlir::ModuleOp moduleOp, config::ExecutorKind execKind);
 int64_t getTotalNumOfEngines(mlir::Operation* op, config::ExecutorKind execKind);
+int64_t getNumOfTiles(mlir::ModuleOp moduleOp);
 int64_t getNumOfTiles(mlir::Operation* op);
 
 config::ResourcesOp addTileExecutor(mlir::ModuleOp mainModule, size_t count);

@@ -99,7 +99,7 @@ TEST_F(MLIR_VPU_ClusteringStrategyNoThrow, SWLayer_ClusteringStrategy) {
     ASSERT_TRUE(func != nullptr);
 
     auto tileOp = config::getTileExecutor(module.get());
-    VPUX_THROW_UNLESS(tileOp != nullptr, "Failed to get NCE_Cluster information");
+    VPUX_THROW_WHEN(tileOp == nullptr, "Failed to get NCE_Cluster information");
     VPUX_THROW_UNLESS(tileOp.getCount() > 1, "Cannot assign multi-cluster strategy to single-cluster module ops");
     bool enablePrefetchTiling = true;
 

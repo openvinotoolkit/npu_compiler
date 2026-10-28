@@ -22,7 +22,6 @@ TaskStatistics::TaskStatistics(const TaskList& tasks) {
     auto dmaStatsTasks = tasks.selectDMAtasks();
     auto dpuStatsTasks = tasks.selectDPUtasks().selectClusterLevelTasks();  // for task statistics use invariants only
     auto swTasks = tasks.selectSWtasks();
-    auto m2iTasks = tasks.selectM2Itasks();
 
     TaskList swStatsTasks;
     if (!swTasks.empty()) {
@@ -30,8 +29,6 @@ TaskStatistics::TaskStatistics(const TaskList& tasks) {
         // and assuming no SW task grouping is performed
         swStatsTasks.append(swTasks);
     }
-    TaskList m2iStatsTasks;
-    m2iStatsTasks.append(m2iTasks);
 
     totalDuration = tasks.getTotalDuration();
 
@@ -49,11 +46,6 @@ TaskStatistics::TaskStatistics(const TaskList& tasks) {
     TaskTrack swTrack;
     swDuration = swTrack.insert(swStatsTasks).coalesce().getSumOfDurations();
     sumOfSwTaskDurations = swStatsTasks.getSumOfDurations();
-
-    // SW (Shave) stats
-    TaskTrack m2iTrack;
-    m2iDuration = m2iTrack.insert(m2iStatsTasks).coalesce().getSumOfDurations();
-    sumOfM2ITaskDurations = m2iStatsTasks.getSumOfDurations();
 
     // DMA vs DPU overlap statistics
     auto overlapIdleDurations = dmaTrack.calculateOverlap(dpuTrack);
@@ -75,7 +67,6 @@ TaskStatistics::TaskStatistics(const TaskList& tasks) {
     statsTasks.insert(dmaStatsTasks);
     statsTasks.insert(dpuStatsTasks);
     statsTasks.insert(swStatsTasks);
-    statsTasks.insert(m2iStatsTasks);
     statsTasks.coalesce();
 
     overlapIdleDurations = statsTasks.calculateOverlap(statsTasks);
@@ -90,7 +81,6 @@ void TaskStatistics::printAsJson(std::ostream& out) {
         << "\"DMA duration\":" << dmaDuration * 1e-3 << ",\n"
         << "\"DPU duration\":" << dpuDuration * 1e-3 << ",\n"
         << "\"SW duration\":" << swDuration * 1e-3 << ",\n"
-        << "\"M2I duration\":" << m2iDuration * 1e-3 << ",\n"
         << "\"DMA-DPU overlap\":" << dmaDpuOverlapDuration * 1e-3 << ",\n"
         << "\"DMA-SW overlap\":" << dmaSwOverlapDuration * 1e-3 << ",\n"
         << "\"SW-DPU overlap\":" << swDpuOverlapDuration * 1e-3 << ",\n"
@@ -100,8 +90,7 @@ void TaskStatistics::printAsJson(std::ostream& out) {
         << "\"DMA duration without overlaps\":" << getDmaDurationWithoutOverlap() * 1e-3 << ",\n"
         << "\"Sum of DMA task durations\":" << sumOfDmaTaskDurations * 1e-3 << ",\n"
         << "\"Sum of DPU task durations\":" << sumOfDpuTaskDurations * 1e-3 << ",\n"
-        << "\"Sum of SW task durations\":" << sumOfSwTaskDurations * 1e-3 << ",\n"
-        << "\"Sum of M2I task durations\":" << sumOfM2ITaskDurations * 1e-3 << "\n"
+        << "\"Sum of SW task durations\":" << sumOfSwTaskDurations * 1e-3 << "\n"
         << "}," << std::endl;
     out.flags(oldFlags);
 }
@@ -114,7 +103,6 @@ void TaskStatistics::log(vpux::Logger& logger) {
     log.info("- DMA duration [ns]: {0} ({1} %)", dmaDuration, double(dmaDuration) / totalDuration * 100);
     log.info("- DPU duration [ns]: {0} ({1} %)", dpuDuration, double(dpuDuration) / totalDuration * 100);
     log.info("- SW duration [ns]: {0} ({1} %)", swDuration, double(swDuration) / totalDuration * 100);
-    log.info("- M2I duration [ns]: {0} ({1} %)", m2iDuration, double(m2iDuration) / totalDuration * 100);
 
     // tasks overlap statistics
     log.info("- DMA-DPU overlap [ns]: {0} ({1} %)", dmaDpuOverlapDuration,
@@ -145,8 +133,6 @@ void TaskStatistics::log(vpux::Logger& logger) {
              double(sumOfDpuTaskDurations) / totalDuration * 100);
     log.info("- Sum of SW task durations [ns]: {0} ({1} %)", sumOfSwTaskDurations,
              double(sumOfSwTaskDurations) / totalDuration * 100);
-    log.info("- Sum of M2I task durations [ns]: {0} ({1} %)", sumOfM2ITaskDurations,
-             double(sumOfM2ITaskDurations) / totalDuration * 100);
 }
 
 namespace details {

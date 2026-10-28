@@ -89,7 +89,7 @@ void ConvertFuncArgsToDeclarationsPass::safeRunOnModule() {
 
     const auto buildNewDecl = [](mlir::OpBuilder& argBuilder, mlir::Value val, VPURT::BufferSection section,
                                  int64_t sectionIndex) {
-        return argBuilder.create<VPURT::DeclareBufferOp>(val.getLoc(), val.getType(), section, sectionIndex, 0)
+        return VPURT::DeclareBufferOp::create(argBuilder, val.getLoc(), val.getType(), section, sectionIndex, 0)
                 .getResult();
     };
 

@@ -329,8 +329,8 @@ def VPU_MVN1NormalizeOp :
     }];
 
     let arguments = (ins
-        AnyTypeOf<[4DTensorOf<[F16, F32]>, VPU_DistributedTensor]>:$input,
-        AnyTypeOf<[4DTensorOf<[F16, F32]>, VPU_DistributedTensor]>:$meanVar,
+        AnyTypeOf<[4DTensorOf<[F16, BF16, F32]>, VPU_DistributedTensor]>:$input,
+        AnyTypeOf<[4DTensorOf<[F16, BF16, F32]>, VPU_DistributedTensor]>:$meanVar,
 
         BoolAttr:$across_channels,
         BoolAttr:$normalize_variance,
@@ -346,7 +346,7 @@ def VPU_MVN1NormalizeOp :
     );
 
     let results = (outs
-        AnyTypeOf<[4DTensorOf<[F16, F32]>, VPU_DistributedTensor]>:$output
+        AnyTypeOf<[4DTensorOf<[F16, BF16, F32]>, VPU_DistributedTensor]>:$output
     );
 
     let extraClassDeclaration = [{
@@ -513,7 +513,7 @@ def VPU_RMSOp :
         AnyTypeOf<[RankedTensorOf<[F16, F32]>, VPU_DistributedTensor]>:$gamma,
 
         F64Attr:$eps,
-        DefaultValuedAttr<BoolAttr, "false">:$conditionalEps,
+        DefaultValuedAttr<IE_EpsModeAttr, "vpux::IE::EpsMode::ADD">:$epsMode,
         OptionalAttr<VPU_MultiClusterStrategyAttr>:$multiClusterStrategy
     );
 
@@ -534,7 +534,7 @@ def VPU_RMSOp :
             "::mlir::Value":$input,
             "::mlir::Value":$gamma,
             "::mlir::FloatAttr":$eps,
-            "::mlir::BoolAttr":$conditionalEps
+            "vpux::IE::EpsModeAttr":$epsMode
         )>
     ];
 

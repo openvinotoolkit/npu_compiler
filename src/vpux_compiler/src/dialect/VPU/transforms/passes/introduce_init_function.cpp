@@ -261,7 +261,7 @@ mlir::Value castToStorageType(mlir::OpBuilder& builder, mlir::Location loc, mlir
     if (!info.valid()) {
         return input;
     }
-    return builder.create<IE::QuantizeCastOp>(appendLoc(loc, "quant_cast"), input, info.storageType);
+    return IE::QuantizeCastOp::create(builder, appendLoc(loc, "quant_cast"), input, info.storageType);
 }
 
 /// Weights-separation specific argument cache.
@@ -336,7 +336,7 @@ void IntroduceInitFunctionPass::setNetworkEntryPointToInit(net::NetworkInfoOp ne
     // are not supported for @init().
     // TODO E#176454: Revert to the previous logic.
     const auto entrySymbol = mlir::FlatSymbolRefAttr::get(&getContext(), initFuncOp.getSymName());
-    auto newNetInfo = builder.create<net::NetworkInfoOp>(netInfo.getLoc(), entrySymbol, /*withProfiling=*/false);
+    auto newNetInfo = net::NetworkInfoOp::create(builder, netInfo.getLoc(), entrySymbol, /*withProfiling=*/false);
     net::setupSections(newNetInfo, false);
     netInfo->erase();
 
@@ -349,7 +349,7 @@ void IntroduceInitFunctionPass::setNetworkEntryPointToInit(net::NetworkInfoOp ne
         const auto& [entry, blockArg] = *it;
         const auto type = blockArg.getType();
         const auto name = getResourceName(entry.content);
-        builder.create<net::DataInfoOp>(appendLoc(newNetInfo.getLoc(), name), name, type);
+        net::DataInfoOp::create(builder, appendLoc(newNetInfo.getLoc(), name), name, type);
     }
 
     // update output types
@@ -359,7 +359,7 @@ void IntroduceInitFunctionPass::setNetworkEntryPointToInit(net::NetworkInfoOp ne
 
     for (const auto& [entry, value] : initResults) {
         const auto outputName = entry.getUniqueName();
-        builder.create<net::DataInfoOp>(appendLoc(newNetInfo.getLoc(), outputName), outputName, value.getType());
+        net::DataInfoOp::create(builder, appendLoc(newNetInfo.getLoc(), outputName), outputName, value.getType());
     }
 
     verifyNetworkInfoWithRespectToNewArguments(newNetInfo);
@@ -406,7 +406,7 @@ IntroduceInitFunctionPass::buildInitFunction(mlir::OpBuilder& moduleBuilder, mli
                                              ArrayRef<VPU::TransformationsSplit> splits, StringRef name) {
     // create empty func @name() : () -> ()
     auto initFuncOp =
-            moduleBuilder.create<mlir::func::FuncOp>(initLoc, name, mlir::FunctionType::get(&getContext(), {}, {}));
+            mlir::func::FuncOp::create(moduleBuilder, initLoc, name, mlir::FunctionType::get(&getContext(), {}, {}));
     auto bodyBlock = initFuncOp.addEntryBlock();
 
     // construct init body
@@ -419,7 +419,7 @@ IntroduceInitFunctionPass::buildInitFunction(mlir::OpBuilder& moduleBuilder, mli
                           }));
     auto initBuilder = mlir::OpBuilder::atBlockEnd(bodyBlock, moduleBuilder.getListener());
     auto returnOp =
-            initBuilder.create<mlir::func::ReturnOp>(appendLoc(initFuncOp.getLoc(), "return"), resultValueRange);
+            mlir::func::ReturnOp::create(initBuilder, appendLoc(initFuncOp.getLoc(), "return"), resultValueRange);
 
     auto initFuncType =
             mlir::FunctionType::get(&getContext(), bodyBlock->getArgumentTypes(), returnOp.getOperands().getTypes());
@@ -546,7 +546,7 @@ void IntroduceInitFunctionPass::setNetworkEntryPointToMain(net::NetworkInfoOp ne
         // can "re-create" the unique name of init's result by taking the
         // respective main input argument.
         const auto inputName = entry.getUniqueName();
-        builder.create<net::DataInfoOp>(appendLoc(netInfo.getLoc(), inputName), inputName, blockArg.getType());
+        net::DataInfoOp::create(builder, appendLoc(netInfo.getLoc(), inputName), inputName, blockArg.getType());
     }
 
     verifyNetworkInfoWithRespectToNewArguments(netInfo);

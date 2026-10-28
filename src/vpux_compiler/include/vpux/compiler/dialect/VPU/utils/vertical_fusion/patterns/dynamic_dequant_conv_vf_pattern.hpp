@@ -15,7 +15,7 @@ class DynamicDequantConvVFPattern final : public VFPattern {
 public:
     mlir::FailureOr<VPU::VerticalFusionOp> tryMerge(VPU::VerticalFusionOp rootOp, mlir::RewriterBase& rewriter,
                                                     const std::unique_ptr<VPU::LayerVPUNNCost>& costFunction,
-                                                    Logger log) const override;
+                                                    VFMergeCostMode costMode, Logger log) const override;
 
     StringRef getPatternName() const override {
         return "DynamicDequantConvVFPattern";
@@ -29,7 +29,7 @@ private:
     bool alignConvStrategyWithDequant(VPU::VerticalFusionOp dequantVF, VPU::VerticalFusionOp convVF, Logger log) const;
     std::optional<VPU::VF::v2::VFCase> buildVFCase(VPU::VerticalFusionOp mergedOp, VPU::VerticalFusionOp convVFOp,
                                                    const std::unique_ptr<VPU::LayerVPUNNCost>& costFunction,
-                                                   Logger log) const;
+                                                   VFMergeCostMode costMode, Logger log) const;
 };
 
 }  // namespace VPU

@@ -253,8 +253,8 @@ vpux::VPURegMapped::RegFieldType vpux::VPURegMapped::RegisterType::getField(cons
     auto fieldIter = std::find_if(fieldsAttrs.begin(), fieldsAttrs.end(), [&](mlir::Attribute fieldAttr) {
         return mlir::cast<vpux::VPURegMapped::RegisterFieldAttr>(fieldAttr).getRegField().getName() == name;
     });
-    VPUX_THROW_UNLESS(fieldIter != fieldsAttrs.end(), "Field with name {0} is not found in register {1}", name,
-                      this->getName());
+    VPUX_THROW_WHEN(fieldIter == fieldsAttrs.end(), "Field with name {0} is not found in register {1}", name,
+                    this->getName());
     return mlir::cast<vpux::VPURegMapped::RegisterFieldAttr>(*fieldIter).getRegField();
 }
 
@@ -479,8 +479,8 @@ vpux::VPURegMapped::RegisterType vpux::VPURegMapped::RegMappedType::getRegister(
     auto regIter = std::find_if(regsAttrs.begin(), regsAttrs.end(), [&](mlir::Attribute regAttr) {
         return mlir::cast<vpux::VPURegMapped::RegisterAttr>(regAttr).getReg().getName() == name;
     });
-    VPUX_THROW_UNLESS(regIter != regsAttrs.end(), "Register with name {0} is not found in Mapped Register {1}", name,
-                      this->getName());
+    VPUX_THROW_WHEN(regIter == regsAttrs.end(), "Register with name {0} is not found in Mapped Register {1}", name,
+                    this->getName());
     return mlir::cast<vpux::VPURegMapped::RegisterAttr>(*regIter).getReg();
 }
 

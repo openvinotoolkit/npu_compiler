@@ -13,6 +13,7 @@
 #include "vpux/compiler/dialect/IE/IR/ops/shape_manipulation.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/specialized.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
+#include "vpux/compiler/dialect/IE/utils/dynamic_dequantize_utils.hpp"
 #include "vpux/compiler/dialect/IE/utils/quantization.hpp"
 #include "vpux/compiler/dialect/IE/utils/reshape_utils.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
@@ -105,11 +106,11 @@ void AdjustQKVTransposeForUnrollSDPA::rebuildSubgraph(mlir::PatternRewriter& rew
     auto cloneFQ = [&](IE::FakeQuantizeOp fqOp, mlir::Value input, int64_t offset, int64_t size) -> mlir::Value {
         auto createConstParams = [&](mlir::Value parameter, mlir::Location loc) -> mlir::Value {
             auto constOp = parameter.getDefiningOp<Const::DeclareOp>();
-            VPUX_THROW_UNLESS(constOp != nullptr, "Expected parameter to be a constant");
+            VPUX_THROW_WHEN(constOp == nullptr, "Expected parameter to be a constant");
             if (getShape(parameter).totalSize() == 1) {
                 const Shape targetShape({1});
                 const auto newContentAttr = constOp.transformContentAttr().reshape(targetShape).get();
-                return rewriter.create<Const::DeclareOp>(loc, newContentAttr.getType(), std::move(newContentAttr))
+                return Const::DeclareOp::create(rewriter, loc, newContentAttr.getType(), std::move(newContentAttr))
                         .getOutput();
             }
 
@@ -124,7 +125,7 @@ void AdjustQKVTransposeForUnrollSDPA::rebuildSubgraph(mlir::PatternRewriter& rew
             sliceSize[sliceDim.ind()] = size;
             const auto newContentAttr =
                     constOp.transformContentAttr().subview(ShapeRef(sliceOffset), ShapeRef(sliceSize)).get();
-            return rewriter.create<Const::DeclareOp>(loc, newContentAttr.getType(), std::move(newContentAttr))
+            return Const::DeclareOp::create(rewriter, loc, newContentAttr.getType(), std::move(newContentAttr))
                     .getOutput();
         };
 
@@ -133,11 +134,49 @@ void AdjustQKVTransposeForUnrollSDPA::rebuildSubgraph(mlir::PatternRewriter& rew
         auto outputLow = createConstParams(fqOp.getOutputLow(), appendLoc(fqOp.getLoc(), "output_low"));
         auto outputHigh = createConstParams(fqOp.getOutputHigh(), appendLoc(fqOp.getLoc(), "output_high"));
 
-        return rewriter
-                .create<IE::FakeQuantizeOp>(appendLoc(fqOp.getLoc(), "_{}", offset), input, inputLow, inputHigh,
-                                            outputLow, outputHigh, fqOp.getLevelsAttr(), fqOp.getLowFpTypeAttr(),
-                                            fqOp.getAutoBroadcastAttr())
+        return IE::FakeQuantizeOp::create(rewriter, appendLoc(fqOp.getLoc(), "_{}", offset), input, inputLow, inputHigh,
+                                          outputLow, outputHigh, fqOp.getLevelsAttr(), fqOp.getLowFpTypeAttr(),
+                                          fqOp.getAutoBroadcastAttr())
                 .getOutput();
+    };
+
+    auto cloneDynDeq = [&](IE::DynamicDequantizeOp dynDeqOp, mlir::Value input, int64_t offset,
+                           int64_t size) -> mlir::Value {
+        auto createConstParams = [&](mlir::Value parameter, mlir::Location loc) -> mlir::Value {
+            auto constOp = parameter.getDefiningOp<Const::DeclareOp>();
+            VPUX_THROW_WHEN(constOp == nullptr, "Expected parameter to be a constant");
+            if (getShape(parameter).totalSize() == 1) {
+                const Shape targetShape({1});
+                const auto newContentAttr = constOp.transformContentAttr().reshape(targetShape).get();
+                return Const::DeclareOp::create(rewriter, loc, newContentAttr.getType(), std::move(newContentAttr))
+                        .getOutput();
+            }
+
+            auto paramShape = getShape(parameter);
+            auto nonOneDims = vpux::getNonOneDim(paramShape);
+            VPUX_THROW_UNLESS(nonOneDims.size() == 1, "Expected parameter to have only one non-one dimension, got {0}",
+                              nonOneDims.size());
+            auto sliceDim = nonOneDims[0];
+            auto sliceOffset = SmallVector<int64_t>(paramShape.size(), 0);
+            sliceOffset[sliceDim.ind()] = offset * size;
+            auto sliceSize = SmallVector<int64_t>(paramShape.begin(), paramShape.end());
+            sliceSize[sliceDim.ind()] = size;
+            const auto newContentAttr =
+                    constOp.transformContentAttr().subview(ShapeRef(sliceOffset), ShapeRef(sliceSize)).get();
+            return Const::DeclareOp::create(rewriter, loc, newContentAttr.getType(), std::move(newContentAttr))
+                    .getOutput();
+        };
+
+        auto scale = createConstParams(dynDeqOp.getScale(), appendLoc(dynDeqOp.getLoc(), "scale"));
+        auto zp = dynDeqOp.getZp() != nullptr ? createConstParams(dynDeqOp.getZp(), appendLoc(dynDeqOp.getLoc(), "zp"))
+                                              : nullptr;
+
+        auto newDynDeqOp = IE::DynamicDequantizeOp::create(rewriter, appendLoc(dynDeqOp.getLoc(), "_{}", offset), input,
+                                                           scale, zp, dynDeqOp.getDstElemType());
+        if (dynDeqOp->hasAttr(IE::WEIGHTS_IMPORT_DYN_DEQUANT_ATTR)) {
+            newDynDeqOp->setAttr(IE::WEIGHTS_IMPORT_DYN_DEQUANT_ATTR, mlir::UnitAttr::get(rewriter.getContext()));
+        }
+        return newDynDeqOp.getOutput();
     };
 
     auto sharedTransposeOp = patternOpsWithRootOp.transposeOp.first;
@@ -163,27 +202,27 @@ void AdjustQKVTransposeForUnrollSDPA::rebuildSubgraph(mlir::PatternRewriter& rew
         fcSliceSize[0] = size;
 
         mlir::Value slicedWeights;
-        if (auto fq = mlir::dyn_cast_if_present<IE::FakeQuantizeOp>(rootFC.getWeights().getDefiningOp())) {
+        if (auto dynDeq = mlir::dyn_cast_if_present<IE::DynamicDequantizeOp>(rootFC.getWeights().getDefiningOp())) {
             slicedWeights = rewriter.createOrFold<IE::SliceOp>(
-                    appendLoc(rootFC.getLoc(), "qkv_slice_weights_{0}", offset), fq.getInput(),
+                    appendLoc(rootFC.getLoc(), "qkv_slice_weights_{0}", offset), dynDeq.getInput(),
                     getIntArrayAttr(ctx, fcSliceOffset), getIntArrayAttr(ctx, fcSliceSize));
-            slicedWeights = cloneFQ(fq, slicedWeights, offset, size);
+            slicedWeights = cloneDynDeq(dynDeq, slicedWeights, offset, size);
         } else {
             slicedWeights = rewriter.createOrFold<IE::SliceOp>(
                     appendLoc(rootFC.getLoc(), "qkv_slice_weights_{0}", offset), rootFC.getWeights(),
                     getIntArrayAttr(ctx, fcSliceOffset), getIntArrayAttr(ctx, fcSliceSize));
         }
-        mlir::Value output = rewriter.create<IE::FullyConnectedOp>(appendLoc(rootFC.getLoc(), "qkv_{0}", offset),
-                                                                   rootFC.getInput(), slicedWeights, rootFC.getBias())
+        mlir::Value output = IE::FullyConnectedOp::create(rewriter, appendLoc(rootFC.getLoc(), "qkv_{0}", offset),
+                                                          rootFC.getInput(), slicedWeights, rootFC.getBias())
                                      .getOutput();
 
         if (patternOpsWithRootOp.affineReshape2.first != nullptr) {
             auto affineReshapeOp = patternOpsWithRootOp.affineReshape2.first;
             auto newShapeValue = IE::computeShapeValueFromAffineReshape(affineReshapeOp, getShape(output));
             VPUX_THROW_UNLESS(newShapeValue.has_value(), "Failed to compute AffineReshape output shape");
-            output = rewriter.create<IE::AffineReshapeOp>(appendLoc(affineReshapeOp.getLoc(), "qkv_{0}", offset),
-                                                          output, affineReshapeOp.getDimMapping(),
-                                                          getIntArrayAttr(rewriter.getContext(), newShapeValue.value()))
+            output = IE::AffineReshapeOp::create(rewriter, appendLoc(affineReshapeOp.getLoc(), "qkv_{0}", offset),
+                                                 output, affineReshapeOp.getDimMapping(),
+                                                 getIntArrayAttr(rewriter.getContext(), newShapeValue.value()))
                              .getOutput();
         }
 
@@ -218,8 +257,8 @@ void AdjustQKVTransposeForUnrollSDPA::rebuildSubgraph(mlir::PatternRewriter& rew
         if (auto affineReshapeOp = patternOpsWithRootOp.affineReshape1.first) {
             auto [newDimMappingAttr, newShapeValueAttr] =
                     eraseDimFromAffineReshape(affineReshapeOp, rootOutputGatherDim);
-            output = rewriter.create<IE::AffineReshapeOp>(appendLoc(affineReshapeOp.getLoc(), "qkv_{0}", offset),
-                                                          output, newDimMappingAttr, newShapeValueAttr)
+            output = IE::AffineReshapeOp::create(rewriter, appendLoc(affineReshapeOp.getLoc(), "qkv_{0}", offset),
+                                                 output, newDimMappingAttr, newShapeValueAttr)
                              .getOutput();
         }
 
@@ -246,16 +285,16 @@ void AdjustQKVTransposeForUnrollSDPA::rebuildSubgraph(mlir::PatternRewriter& rew
         const auto newInputRank = checked_cast<unsigned>(orderValue.value().getNumDims() - 1);
         auto newOrderValue =
                 mlir::AffineMapAttr::get(mlir::AffineMap::get(newInputRank, 0, newResults, rewriter.getContext()));
-        output = rewriter.create<IE::TransposeOp>(
-                                 appendLoc(sharedTransposeOp.getLoc(), "qkv_shared_transpose_{0}", offset), output,
-                                 nullptr, newOrderValue)
+        output = IE::TransposeOp::create(rewriter,
+                                         appendLoc(sharedTransposeOp.getLoc(), "qkv_shared_transpose_{0}", offset),
+                                         output, nullptr, newOrderValue)
                          .getOutput();
 
         if (patternOps.transpose != nullptr) {
             auto branchTransposeOp = patternOps.transpose;
-            output = rewriter.create<IE::TransposeOp>(
-                                     appendLoc(branchTransposeOp->getLoc(), "qkv_batch_transpose_{0}", offset), output,
-                                     nullptr, branchTransposeOp.getOrderValueAttr())
+            output = IE::TransposeOp::create(rewriter,
+                                             appendLoc(branchTransposeOp->getLoc(), "qkv_batch_transpose_{0}", offset),
+                                             output, nullptr, branchTransposeOp.getOrderValueAttr())
                              .getOutput();
             branchTransposeOp.getOutput().replaceAllUsesWith(output);
         } else {
@@ -318,6 +357,19 @@ mlir::LogicalResult AdjustQKVTransposeForUnrollSDPA::matchAndRewrite(IE::Transpo
         auto fcOp = mlir::dyn_cast_if_present<IE::FullyConnectedOp>(currentOp);
         if (fcOp == nullptr || !vpux::Const::isConstValue(fcOp.getWeights()) || fcOp.getBias() != nullptr) {
             return false;
+        }
+
+        // cloneDynDeq slices scale/zp along their single non-one dimension (aligned with the FC weight's
+        // output-channel dim 0), so only a DynamicDequantize with at most one non-one dim in scale/zp can be
+        // rebuilt this way.
+        if (auto dynDeq = mlir::dyn_cast_if_present<IE::DynamicDequantizeOp>(fcOp.getWeights().getDefiningOp())) {
+            const auto hasAtMostOneNonOneDim = [](mlir::Value param) {
+                return getShape(param).totalSize() == 1 || vpux::getNonOneDim(getShape(param)).size() == 1;
+            };
+            if (!hasAtMostOneNonOneDim(dynDeq.getScale()) ||
+                (dynDeq.getZp() != nullptr && !hasAtMostOneNonOneDim(dynDeq.getZp()))) {
+                return false;
+            }
         }
 
         patternOpsWithRootOp.rootFC.first = fcOp;
@@ -388,7 +440,7 @@ mlir::LogicalResult AdjustQKVTransposeForUnrollSDPA::matchAndRewrite(IE::Transpo
             auto attentionInput =
                     patternOps.transpose != nullptr ? patternOps.transpose.getOutput() : patternOps.gather.getOutput();
             auto attentionOp = mlir::dyn_cast_if_present<IE::AttentionOp>(*attentionInput.getUsers().begin());
-            VPUX_THROW_UNLESS(attentionOp != nullptr, "Expected AttentionOp as user of Transpose/Gather output");
+            VPUX_THROW_WHEN(attentionOp == nullptr, "Expected AttentionOp as user of Transpose/Gather output");
             if (attentionOp.getInputQ() == attentionInput) {
                 orderedPatternOpsVec[0] = patternOps;
             } else if (attentionOp.getInputK() == attentionInput) {

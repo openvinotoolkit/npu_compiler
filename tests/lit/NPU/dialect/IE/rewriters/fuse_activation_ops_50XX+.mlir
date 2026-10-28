@@ -520,3 +520,199 @@ func.func @FuseHSwishIntoMaxPool(%input: tensor<1x16x4x4xf32>) -> tensor<1x16x3x
 
     // CHECK-NOT:  IE.HSwish
 }
+
+// -----
+
+// CHECK-LABEL: @FuseTanhIntoClampedConv
+// CHECK-SAME:    ([[INPUT:%.+]]: tensor<1x16x4x4xf16>)
+func.func @FuseTanhIntoClampedConv(%input: tensor<1x16x4x4xf16>) -> tensor<1x16x4x4xf16> {
+    %filters = const.Declare tensor<16x16x1x1xf16> = dense<1.0> : tensor<16x16x1x1xf16>
+    %conv = IE.Convolution(%input, %filters)
+        {
+            clamp = {max = 1.000000e+00 : f64, min = -1.000000e+00 : f64},
+            dilations = [1, 1],
+            pads_begin = [0, 0],
+            pads_end = [0, 0],
+            strides = [1, 1]
+        } :
+        tensor<1x16x4x4xf16>, tensor<16x16x1x1xf16> -> tensor<1x16x4x4xf16>
+
+    %tanh = IE.Tanh(%conv) : tensor<1x16x4x4xf16> -> tensor<1x16x4x4xf16>
+
+    return %tanh : tensor<1x16x4x4xf16>
+
+    // The PPE applies the post-op before the fused clamp,
+    // so the clamp bounds of the producer are mapped through the
+    // activation: tanh(clamp_[-1, 1](x)) == clamp_[tanh(-1), tanh(1)](tanh(x))
+
+    // CHECK:       [[CONV:%.+]] = IE.Convolution([[INPUT]], {{%.+}}) {
+    // CHECK-SAME:      clamp = {max = 0.76159415595576485 : f64, min = -0.76159415595576485 : f64},
+    // CHECK-SAME:      dilations = [1, 1],
+    // CHECK-SAME:      pads_begin = [0, 0],
+    // CHECK-SAME:      pads_end = [0, 0],
+    // CHECK-SAME:      post_op = #IE.Tanh<>,
+    // CHECK-SAME:      strides = [1, 1]
+
+    // CHECK-NOT:  IE.Tanh
+}
+
+// -----
+
+// CHECK-LABEL: @FuseSigmoidIntoClampedMaxPool
+// CHECK-SAME:    ([[INPUT:%.+]]: tensor<1x16x4x4xf16>)
+func.func @FuseSigmoidIntoClampedMaxPool(%input: tensor<1x16x4x4xf16>) -> tensor<1x16x3x3xf16> {
+    %max_pool = IE.MaxPool(%input)
+        {
+            clamp = {max = 0.000000e+00 : f64, min = -2.000000e+00 : f64},
+            kernel_size = [2, 2],
+            pads_begin = [0, 0],
+            pads_end = [0, 0],
+            strides = [1, 1],
+            rounding_type = #IE.rounding_type<FLOOR>
+        } :
+        tensor<1x16x4x4xf16> -> tensor<1x16x3x3xf16>
+
+    %sigmoid = IE.Sigmoid(%max_pool) : tensor<1x16x3x3xf16> -> tensor<1x16x3x3xf16>
+
+    return %sigmoid : tensor<1x16x3x3xf16>
+
+    // sigmoid(clamp_[-2, 0](x)) == clamp_[sigmoid(-2), sigmoid(0)](sigmoid(x))
+
+    // CHECK:       [[MAX_POOL:%.+]] = IE.MaxPool([[INPUT]]) {
+    // CHECK-SAME:      clamp = {max = 5.000000e-01 : f64, min = 0.11920292202211755 : f64},
+    // CHECK-SAME:      kernel_size = [2, 2],
+    // CHECK-SAME:      pads_begin = [0, 0],
+    // CHECK-SAME:      pads_end = [0, 0],
+    // CHECK-SAME:      post_op = #IE.Sigmoid<>,
+    // CHECK-SAME:      rounding_type = #IE.rounding_type<FLOOR>,
+    // CHECK-SAME:      strides = [1, 1]
+
+    // CHECK-NOT:  IE.Sigmoid
+}
+
+// -----
+
+// CHECK-LABEL: @FuseReluIntoClampedMaxPool
+// CHECK-SAME:    ([[INPUT:%.+]]: tensor<1x16x4x4xf16>)
+func.func @FuseReluIntoClampedMaxPool(%input: tensor<1x16x4x4xf16>) -> tensor<1x16x3x3xf16> {
+    %max_pool = IE.MaxPool(%input)
+        {
+            clamp = {max = 4.000000e+00 : f64, min = -2.000000e+00 : f64},
+            kernel_size = [2, 2],
+            pads_begin = [0, 0],
+            pads_end = [0, 0],
+            strides = [1, 1],
+            rounding_type = #IE.rounding_type<FLOOR>
+        } :
+        tensor<1x16x4x4xf16> -> tensor<1x16x3x3xf16>
+
+    %relu = IE.ReLU(%max_pool) : tensor<1x16x3x3xf16> -> tensor<1x16x3x3xf16>
+
+    return %relu : tensor<1x16x3x3xf16>
+
+    // relu(clamp_[-2, 4](x)) == clamp_[0, 4](relu(x))
+
+    // CHECK:       [[MAX_POOL:%.+]] = IE.MaxPool([[INPUT]]) {
+    // CHECK-SAME:      clamp = {max = 4.000000e+00 : f64, min = 0.000000e+00 : f64},
+    // CHECK-SAME:      kernel_size = [2, 2],
+    // CHECK-SAME:      pads_begin = [0, 0],
+    // CHECK-SAME:      pads_end = [0, 0],
+    // CHECK-SAME:      post_op = #IE.Relu<>,
+    // CHECK-SAME:      rounding_type = #IE.rounding_type<FLOOR>,
+    // CHECK-SAME:      strides = [1, 1]
+
+    // CHECK-NOT:  IE.ReLU
+}
+
+// -----
+
+// CHECK-LABEL: @FuseLeakyReluIntoClampedMaxPool
+// CHECK-SAME:    ([[INPUT:%.+]]: tensor<1x16x4x4xf16>)
+func.func @FuseLeakyReluIntoClampedMaxPool(%input: tensor<1x16x4x4xf16>) -> tensor<1x16x3x3xf16> {
+    %max_pool = IE.MaxPool(%input)
+        {
+            clamp = {max = 4.000000e+00 : f64, min = -2.000000e+00 : f64},
+            kernel_size = [2, 2],
+            pads_begin = [0, 0],
+            pads_end = [0, 0],
+            strides = [1, 1],
+            rounding_type = #IE.rounding_type<FLOOR>
+        } :
+        tensor<1x16x4x4xf16> -> tensor<1x16x3x3xf16>
+
+    %leaky_relu = IE.LeakyRelu(%max_pool) {negative_slope = 1.000000e-01 : f64} : tensor<1x16x3x3xf16> -> tensor<1x16x3x3xf16>
+
+    return %leaky_relu : tensor<1x16x3x3xf16>
+
+    // leaky_relu_0.1(clamp_[-2, 4](x)) == clamp_[-0.2, 4](leaky_relu_0.1(x))
+
+    // CHECK:       [[MAX_POOL:%.+]] = IE.MaxPool([[INPUT]]) {
+    // CHECK-SAME:      clamp = {max = 4.000000e+00 : f64, min = -2.000000e-01 : f64},
+    // CHECK-SAME:      kernel_size = [2, 2],
+    // CHECK-SAME:      pads_begin = [0, 0],
+    // CHECK-SAME:      pads_end = [0, 0],
+    // CHECK-SAME:      post_op = #IE.LeakyRelu<negative_slope = 1.000000e-01 : f64>,
+    // CHECK-SAME:      rounding_type = #IE.rounding_type<FLOOR>,
+    // CHECK-SAME:      strides = [1, 1]
+
+    // CHECK-NOT:  IE.LeakyRelu
+}
+
+// -----
+
+// CHECK-LABEL: @DoNotFuseSwishIntoClampedMaxPool
+// CHECK-SAME:    ([[INPUT:%.+]]: tensor<1x16x4x4xf16>)
+func.func @DoNotFuseSwishIntoClampedMaxPool(%input: tensor<1x16x4x4xf16>) -> tensor<1x16x3x3xf16> {
+    %max_pool = IE.MaxPool(%input)
+        {
+            clamp = {max = 4.000000e+00 : f64, min = -2.000000e+00 : f64},
+            kernel_size = [2, 2],
+            pads_begin = [0, 0],
+            pads_end = [0, 0],
+            strides = [1, 1],
+            rounding_type = #IE.rounding_type<FLOOR>
+        } :
+        tensor<1x16x4x4xf16> -> tensor<1x16x3x3xf16>
+
+    %swish = IE.Swish(%max_pool) {beta_value = 1.000000e+00 : f64} : tensor<1x16x3x3xf16> -> tensor<1x16x3x3xf16>
+
+    return %swish : tensor<1x16x3x3xf16>
+
+    // Swish is not monotonically non-decreasing, so it cannot be reordered with the fused clamp
+
+    // CHECK:       [[MAX_POOL:%.+]] = IE.MaxPool([[INPUT]]) {
+    // CHECK-SAME:      clamp = {max = 4.000000e+00 : f64, min = -2.000000e+00 : f64},
+    // CHECK-SAME:      kernel_size = [2, 2],
+    // CHECK-NOT:       post_op
+    // CHECK:       IE.Swish([[MAX_POOL]])
+}
+
+// -----
+
+// CHECK-LABEL: @DoNotFuseGeluIntoClampedMaxPool
+// CHECK-SAME:    ([[INPUT:%.+]]: tensor<1x16x4x4xf16>)
+func.func @DoNotFuseGeluIntoClampedMaxPool(%input: tensor<1x16x4x4xf16>) -> tensor<1x16x3x3xf16> {
+    %max_pool = IE.MaxPool(%input)
+        {
+            clamp = {max = 4.000000e+00 : f64, min = -2.000000e+00 : f64},
+            kernel_size = [2, 2],
+            pads_begin = [0, 0],
+            pads_end = [0, 0],
+            strides = [1, 1],
+            rounding_type = #IE.rounding_type<FLOOR>
+        } :
+        tensor<1x16x4x4xf16> -> tensor<1x16x3x3xf16>
+
+    %gelu  = IE.Gelu(%max_pool) : tensor<1x16x3x3xf16> -> tensor<1x16x3x3xf16>
+
+
+    return %gelu : tensor<1x16x3x3xf16>
+
+    // Gelu is not monotonically non-decreasing, so it cannot be reordered with the fused clamp
+
+    // CHECK:       [[MAX_POOL:%.+]] = IE.MaxPool([[INPUT]]) {
+    // CHECK-SAME:      clamp = {max = 4.000000e+00 : f64, min = -2.000000e+00 : f64},
+    // CHECK-SAME:      kernel_size = [2, 2],
+    // CHECK-NOT:       post_op
+    // CHECK:       IE.Gelu([[MAX_POOL]])
+}

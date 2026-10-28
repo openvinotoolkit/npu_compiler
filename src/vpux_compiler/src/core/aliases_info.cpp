@@ -63,13 +63,13 @@ void logAddAlias(const Logger& log, mlir::Value source, mlir::Value alias) {
 
 const AliasesInfoBase::ValuesVector& AliasesInfoBase::getSources(mlir::Value val) const {
     const auto it = _sources.find(val);
-    VPUX_THROW_UNLESS(it != _sources.end(), "Value '{0}' is not covered by aliases analysis", getValueForLog(val));
+    VPUX_THROW_WHEN(it == _sources.end(), "Value '{0}' is not covered by aliases analysis", getValueForLog(val));
     return it->second;
 }
 
 mlir::Value AliasesInfoBase::getSource(mlir::Value val) const {
     const auto it = _sources.find(val);
-    VPUX_THROW_UNLESS(it != _sources.end(), "Value '{0}' is not covered by aliases analysis", getValueForLog(val));
+    VPUX_THROW_WHEN(it == _sources.end(), "Value '{0}' is not covered by aliases analysis", getValueForLog(val));
     VPUX_THROW_UNLESS(it->second.size() == 1, "Value '{0}' expected to have only one source. Got {1}",
                       getValueForLog(val), it->second.size());
     return *it->second.begin();
@@ -77,13 +77,13 @@ mlir::Value AliasesInfoBase::getSource(mlir::Value val) const {
 
 const AliasesInfoBase::ValuesVector& AliasesInfoBase::getRoots(mlir::Value val) const {
     const auto it = _roots.find(val);
-    VPUX_THROW_UNLESS(it != _roots.end(), "Value '{0}' is not covered by aliases analysis", getValueForLog(val));
+    VPUX_THROW_WHEN(it == _roots.end(), "Value '{0}' is not covered by aliases analysis", getValueForLog(val));
     return it->second;
 }
 
 mlir::Value AliasesInfoBase::getRoot(mlir::Value val) const {
     const auto it = _roots.find(val);
-    VPUX_THROW_UNLESS(it != _roots.end(), "Value '{0}' is not covered by aliases analysis", getValueForLog(val));
+    VPUX_THROW_WHEN(it == _roots.end(), "Value '{0}' is not covered by aliases analysis", getValueForLog(val));
     VPUX_THROW_UNLESS(it->second.size() == 1, "Value '{0}' expected to have only one root. Got {1}",
                       getValueForLog(val), it->second.size());
     return *it->second.begin();
@@ -175,8 +175,8 @@ void AliasesInfoBase::visitOp(mlir::Operation* op, bool ignoreInnerRegions = fal
 
                 for (const auto& entry : entries) {
                     auto* entryRegion = entry.getSuccessor();
-                    VPUX_THROW_UNLESS(entryRegion != nullptr,
-                                      "Entry region without an attached successor region at '{0}'", regionOp->getLoc());
+                    VPUX_THROW_WHEN(entryRegion == nullptr,
+                                    "Entry region without an attached successor region at '{0}'", regionOp->getLoc());
                     auto regionSuccessor = mlir::RegionSuccessor(entryRegion);
 
                     const auto outerArgs = regionOp.getEntrySuccessorOperands(regionSuccessor);
@@ -245,9 +245,9 @@ void AliasesInfoBase::visitOp(mlir::Operation* op, bool ignoreInnerRegions = fal
 
                 if (const auto& result = waitOp.getResult()) {
                     const auto futureType = mlir::dyn_cast<mlir::async::ValueType>(waitOp.getOperand().getType());
-                    VPUX_THROW_UNLESS(futureType != nullptr,
-                                      "AliasesInfo analysis works only with !async.value<MemRef> types, got '{0}'",
-                                      waitOp.getOperand().getType());
+                    VPUX_THROW_WHEN(futureType == nullptr,
+                                    "AliasesInfo analysis works only with !async.value<MemRef> types, got '{0}'",
+                                    waitOp.getOperand().getType());
 
                     VPUX_THROW_UNLESS(isBufferizedType(futureType.getValueType()),
                                       "AliasesInfo analysis works only with buffer types, got '{0}'", futureType);
@@ -463,6 +463,6 @@ void AliasesInfo::remove(mlir::Value val) {
 
 const AliasesInfo::ValuesSet& AliasesInfo::getAllAliases(mlir::Value val) const {
     const auto it = _allAliases.find(val);
-    VPUX_THROW_UNLESS(it != _allAliases.end(), "Value '{0}' is not covered by aliases analysis", getValueForLog(val));
+    VPUX_THROW_WHEN(it == _allAliases.end(), "Value '{0}' is not covered by aliases analysis", getValueForLog(val));
     return it->second;
 }

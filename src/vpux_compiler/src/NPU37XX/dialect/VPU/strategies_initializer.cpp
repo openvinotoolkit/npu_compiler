@@ -12,6 +12,7 @@
 #include "vpux/compiler/NPU37XX/dialect/VPU/impl/workload_size_constraint.hpp"
 #include "vpux/compiler/dialect/VPU/interfaces/strategies.hpp"
 #include "vpux/compiler/dialect/core/interfaces/type_interfaces.hpp"
+#include "vpux/utils/core/error.hpp"
 
 #include <mlir/IR/MLIRContext.h>
 
@@ -75,8 +76,13 @@ class StrategyFactory37XX : public VPU::StrategyFactory {
         return mlir::isa<vpux::VPU::DistributedTensorType>(outputType);
     }
 
-    bool isConvertTileWithEltwiseToNCEPoolSupported() override {
+    bool useNewWeightTableFormat(mlir::Operation* /*op*/, bool /*isCompressConv*/) override {
         return false;
+    }
+
+    std::unique_ptr<IIterativeWalkPassStrategy> getConvertTileWithEltwiseToNCEPoolStrategy(
+            mlir::MLIRContext*) override {
+        VPUX_THROW("ConvertTileWithEltwiseToNCEPool is not supported on NPU37XX");
     }
 
     std::unique_ptr<IConvertIEToVPUNCEStrategy> getConvertIEToVPUNCEStrategy(const Logger& log) override {

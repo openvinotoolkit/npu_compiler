@@ -7,6 +7,12 @@
 // REQUIRES: platform-NPU3720 || platform-NPU4000
 
 // E#129083
+// CHECK: !qElemType = !quant.uniform<u8:f16, 0.078431375324726104:127>
+// CHECK: !qElemType1 = !quant.uniform<i8:f16, 0.078431372549019607:-1>
+// CHECK: !qElemType2 = !quant.uniform<i8:f16, 1.000000e+00>
+// CHECK: !qElemType3 = !quant.uniform<i8:f16, 0.078431375324726104:-1>
+// CHECK: !qElemType4 = !quant.uniform<u8:f16, 0.078431372549019607:128>
+
 // CHECK-LABEL: @NoMultiplyFQFusion
 module @NoMultiplyFQFusion {
     net.NetworkInfo entryPoint : @main
@@ -35,18 +41,16 @@ module @NoMultiplyFQFusion {
 
         return %add2 : tensor<1x64x250x256xf32>
 
-        // CHECK-DAG:   [[BIAS:%.+]] = const.Declare tensor<1x64x250x256x{{[^:]+}}, {order = #NHWC}> = dense<2.000000e+00>
-        // CHECK-DAG:   [[SCALE:%.+]] = const.Declare tensor<64x1x1x1x{{[^:]+}}, {order = #NHWC}> = dense<3.000000e+00>
+        // CHECK-DAG:   [[BIAS_CST:%.+]] = const.Declare tensor<1x64x250x256x!qElemType, {order = #NHWC}> = dense<2.000000e+00> : tensor<1x64x250x256xf32>, [#const.CastElemType<f16>, #const.Quantize<!qElemType1>, #const.CastElemType<si8>, #const.CastElemType<!qElemType2>, #const.CastElemType<!qElemType3>, #const.ConvertElemType<!qElemType>, #const.Reorder<#NHWC>]
+        // CHECK-DAG:   [[SCALE_CST:%.+]] = const.Declare tensor<64x1x1x1x!qElemType, {order = #NHWC}> = dense<3.000000e+00>
         // CHECK:       [[CONVERT1:%.+]] = IE.Convert([[ARG0]])
         // CHECK-NEXT:  [[PERMUTE_QUANT:%.+]] = IE.PermuteQuantize([[CONVERT1]])
-
         // CHECK-NEXT:  [[ADD1:%.+]] = IE.Add([[PERMUTE_QUANT]], [[PERMUTE_QUANT]])
-        // CHECK-NEXT:  [[GROUP_CONV:%.+]] = IE.GroupConvolution([[ADD1]], [[SCALE]])
+        // CHECK-NEXT:  [[GROUP_CONV:%.+]] = IE.GroupConvolution([[ADD1]], [[SCALE_CST]])
         // CHECK-NOT:   IE.AvgPool
         // CHECK-NOT:   IE.QuantizeCast
-        // CHECK-NEXT:  [[ADD2:%.+]] = IE.Add([[GROUP_CONV]], [[BIAS]])
-        // CHECK-NEXT:  [[CONVERT2:%.+]] = IE.Convert([[ADD2]])
-        // CHECK-NEXT:  return [[CONVERT2]]
+        // CHECK-NEXT:  [[ADD2:%.+]] = IE.Add([[GROUP_CONV]], [[BIAS_CST]])
+        // CHECK-NEXT:  [[RESULT:%.+]] = IE.Convert([[ADD2]])
+        // CHECK-NEXT:  return [[RESULT]]
     }
 }
-

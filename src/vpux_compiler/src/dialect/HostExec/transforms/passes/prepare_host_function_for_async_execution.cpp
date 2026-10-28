@@ -33,7 +33,7 @@ namespace {
 
 void wrapIntoAsyncRegion(mlir::Operation* op,
                          std::unordered_map<mlir::Operation*, mlir::async::CreateGroupOp>& forOpToAsyncGroupMap,
-                         std::size_t& standaloneGroupId, const Logger& log) {
+                         std::size_t& groupId, const Logger& log) {
     if (op->getParentOfType<mlir::async::ExecuteOp>() != nullptr) {
         log.trace("[SKIP] The Operation already wrapped into asynchronous region");
         return;
@@ -41,6 +41,20 @@ void wrapIntoAsyncRegion(mlir::Operation* op,
 
     mlir::async::CreateGroupOp group = nullptr;
     mlir::Operation* parentForOp = nullptr;
+
+    // Lambda to create a unique CreateGroupOp with group_id and optional attributes
+    auto createCreateGroupOp = [&](mlir::OpBuilder& builder, mlir::Location loc, mlir::Value groupSize,
+                                   bool noResetCmdlist = false) {
+        auto groupOp = mlir::async::CreateGroupOp::create(builder, loc, groupSize);
+        // Make each standalone group structurally unique so later CSE does not merge
+        // unrelated calls into the same command-list group
+        groupOp->setAttr("group_id", builder.getI64IntegerAttr(groupId++));
+
+        if (noResetCmdlist) {
+            groupOp->setAttr("no_reset_cmdlist", builder.getBoolAttr(true));
+        }
+        return groupOp;
+    };
 
     if (auto forOp = getTopParentOpOfType<mlir::scf::ForOp>(op); forOp != nullptr) {
         parentForOp = forOp.getOperation();
@@ -51,21 +65,16 @@ void wrapIntoAsyncRegion(mlir::Operation* op,
             auto step = forOp.getStep();
             auto lb = forOp.getLowerBound();
             auto ub = forOp.getUpperBound();
-            auto numberOfIterations = builder.create<mlir::arith::SubIOp>(forOp.getLoc(), ub, lb);
+            auto numberOfIterations = mlir::arith::SubIOp::create(builder, forOp.getLoc(), ub, lb);
             auto numberOfIterationsDivStep =
-                    builder.create<mlir::arith::DivSIOp>(forOp.getLoc(), numberOfIterations, step);
-            group = builder.create<mlir::async::CreateGroupOp>(forOp.getLoc(), numberOfIterationsDivStep);
+                    mlir::arith::DivSIOp::create(builder, forOp.getLoc(), numberOfIterations, step);
+            group = createCreateGroupOp(builder, forOp.getLoc(), numberOfIterationsDivStep,
+                                        forOp->hasAttr("no_reset_cmdlist"));
             builder.setInsertionPointAfter(forOp);
 
             if (forOp->hasAttr("no_await_all") == false) {
-                builder.create<mlir::async::AwaitAllOp>(forOp.getLoc(), group);
+                mlir::async::AwaitAllOp::create(builder, forOp.getLoc(), group);
             }
-
-            if (forOp->hasAttr("no_reset_cmdlist")) {
-                // The following attributes will be referred in ConvertToLLVMUMD pass
-                group->setAttr("no_reset_cmdlist", builder.getBoolAttr(true));
-            }
-
             forOpToAsyncGroupMap[parentForOp] = group;
         } else {
             group = forOpToAsyncGroupMap[parentForOp];
@@ -74,11 +83,8 @@ void wrapIntoAsyncRegion(mlir::Operation* op,
         mlir::OpBuilder builder(op);
         // Standalone async ops do not share a surrounding scf.for group, so create a
         // group with a single element to keep the same add-to-group / await-all lowering shape
-        auto groupSize = builder.create<mlir::arith::ConstantIndexOp>(op->getLoc(), 1);
-        group = builder.create<mlir::async::CreateGroupOp>(op->getLoc(), groupSize);
-        // Make each standalone group structurally unique so later CSE does not merge
-        // unrelated standalone calls into the same command-list group
-        group->setAttr("standalone_group_id", builder.getI64IntegerAttr(standaloneGroupId++));
+        auto groupSize = mlir::arith::ConstantIndexOp::create(builder, op->getLoc(), 1);
+        group = createCreateGroupOp(builder, op->getLoc(), groupSize);
     }
 
     log.trace("Create 'async.execute' Operation");
@@ -88,9 +94,9 @@ void wrapIntoAsyncRegion(mlir::Operation* op,
     const auto bodyBuilder = [op, allResultsUnused](mlir::OpBuilder& builder, mlir::Location loc, mlir::ValueRange) {
         auto* newOp = builder.clone(*op);
         if (allResultsUnused) {
-            builder.create<mlir::async::YieldOp>(loc, mlir::ValueRange{});
+            mlir::async::YieldOp::create(builder, loc, mlir::ValueRange{});
         } else {
-            builder.create<mlir::async::YieldOp>(loc, newOp->getResults());
+            mlir::async::YieldOp::create(builder, loc, newOp->getResults());
         }
     };
 
@@ -99,14 +105,14 @@ void wrapIntoAsyncRegion(mlir::Operation* op,
 
     const auto resultTypes =
             allResultsUnused ? SmallVector<mlir::Type>{} : SmallVector<mlir::Type>(op->getResultTypes());
-    auto execOp = builder.create<mlir::async::ExecuteOp>(op->getLoc(), mlir::TypeRange{resultTypes},
-                                                         /* dependencies */ mlir::ValueRange{},
-                                                         /* operands */ mlir::ValueRange{}, bodyBuilder);
+    auto execOp = mlir::async::ExecuteOp::create(builder, op->getLoc(), mlir::TypeRange{resultTypes},
+                                                 /* dependencies */ mlir::ValueRange{},
+                                                 /* operands */ mlir::ValueRange{}, bodyBuilder);
     if (group != nullptr) {
-        builder.create<mlir::async::AddToGroupOp>(op->getLoc(), execOp.getToken(), group);
+        mlir::async::AddToGroupOp::create(builder, op->getLoc(), execOp.getToken(), group);
     }
     if (parentForOp == nullptr) {
-        builder.create<mlir::async::AwaitAllOp>(op->getLoc(), group);
+        mlir::async::AwaitAllOp::create(builder, op->getLoc(), group);
     }
 
     if (allResultsUnused) {
@@ -120,7 +126,7 @@ void wrapIntoAsyncRegion(mlir::Operation* op,
     SmallVector<mlir::Value> newResults;
     newResults.resize(op->getNumResults());
     for (auto i : irange(op->getNumResults())) {
-        auto waitOp = builder.create<mlir::async::AwaitOp>(op->getLoc(), execOp.getBodyResults()[i]);
+        auto waitOp = mlir::async::AwaitOp::create(builder, op->getLoc(), execOp.getBodyResults()[i]);
         newResults[i] = waitOp.getResult();
     }
 
@@ -144,8 +150,8 @@ void makeIndexSwitchReturnVoid(mlir::scf::IndexSwitchOp op) {
     }
 
     mlir::OpBuilder builder(op);
-    auto newOp = builder.create<mlir::scf::IndexSwitchOp>(op.getLoc(), mlir::TypeRange{}, op.getArg(), op.getCases(),
-                                                          op.getNumCases());
+    auto newOp = mlir::scf::IndexSwitchOp::create(builder, op.getLoc(), mlir::TypeRange{}, op.getArg(), op.getCases(),
+                                                  op.getNumCases());
 
     for (auto i : irange(op.getNumRegions())) {
         newOp.getRegion(i).takeBody(op.getRegion(i));
@@ -160,7 +166,7 @@ void makeIndexSwitchReturnVoid(mlir::scf::IndexSwitchOp op) {
         auto yieldOp = mlir::cast<mlir::scf::YieldOp>(block.getTerminator());
 
         mlir::OpBuilder yieldBuilder(yieldOp);
-        yieldBuilder.create<mlir::scf::YieldOp>(yieldOp.getLoc(), mlir::ValueRange{});
+        mlir::scf::YieldOp::create(yieldBuilder, yieldOp.getLoc(), mlir::ValueRange{});
         yieldOp.erase();
     }
 
@@ -196,7 +202,7 @@ void removeAllHostFuncReturnValues(mlir::ModuleOp module, const Logger& log) {
             if (auto returnOp = mlir::dyn_cast<mlir::func::ReturnOp>(block.getTerminator())) {
                 log.trace("Remove return operands from func.return at '{0}'", returnOp.getLoc());
                 mlir::OpBuilder builder(returnOp);
-                builder.create<mlir::func::ReturnOp>(returnOp.getLoc());
+                mlir::func::ReturnOp::create(builder, returnOp.getLoc());
                 returnOp.erase();
             }
         }
@@ -220,8 +226,8 @@ void removeAllHostFuncReturnValues(mlir::ModuleOp module, const Logger& log) {
         }
         log.trace("Drop results from func.call to '{0}' at '{1}'", callOp.getCallee(), callOp.getLoc());
         mlir::OpBuilder builder(callOp);
-        builder.create<mlir::func::CallOp>(callOp.getLoc(), mlir::TypeRange{}, callOp.getCallee(),
-                                           callOp.getArgOperands());
+        mlir::func::CallOp::create(builder, callOp.getLoc(), mlir::TypeRange{}, callOp.getCallee(),
+                                   callOp.getArgOperands());
         callOp.erase();
     });
 

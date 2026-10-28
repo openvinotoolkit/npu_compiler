@@ -82,10 +82,7 @@ SmallVector<mlir::OpFoldResult> vpux::VPU::NCEDepthConvolutionOp::getMixedRawFil
  * Return the constant raw filter shape by extracting the constant values from the mixed raw filter shape.
  */
 SmallVector<int64_t> vpux::VPU::NCEDepthConvolutionOp::getConstRawFilterShape() {
-    auto vals = mlir::getConstantIntValues(getMixedRawFilterShape());
-    VPUX_THROW_WHEN(!vals.has_value(), "Cannot get constant raw filter shape from NCEDepthConvolutionOp '{0}'",
-                    getLoc());
-    return vals.value();
+    return VPU::getConstRawFilterShape(getMixedRawFilterShape(), getLoc());
 }
 
 //
@@ -470,6 +467,11 @@ bool VPU::NCEDepthConvolutionOp::isOperationSplitOverWidthCompatible(ShapeRef ou
 
 bool VPU::NCEDepthConvolutionOp::isOperationSplitOverKernelCompatible(ShapeRef outputShape, ShapeRef offset,
                                                                       ShapeRef axis) {
+    // SplitOverKernel tiles over C. Reduce outputs have C=1, so SOK is incompatible.
+    if (VPU::hasReduceOutputs(getOperation())) {
+        return false;
+    }
+
     return VPU::isOperationSplitOverKernelCompatible(getOperation(), outputShape, offset, axis);
 }
 

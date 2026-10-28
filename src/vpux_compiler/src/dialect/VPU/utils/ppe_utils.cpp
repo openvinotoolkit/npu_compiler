@@ -17,37 +17,36 @@
 using namespace vpux;
 using namespace VPU;
 
+namespace {
+
+// shift register is using 6 bits, so the maximum shift value is 2^6 - 1
+static constexpr int64_t maxRegisterShift = (1 << 6) - 1;
+// the multiply register for each individual IDU unit is unsigned 16 bit;
+// so unlike the common PPE logic that uses signed 16 bit register and a maximum
+// multiply of pow(2, 15) - 1, here we can safely scale up to pow(2, 16) - 1
+static constexpr int64_t maxRegisterMult = (1 << 16) - 1;
+
+bool supportsShiftToMaximum(int64_t input1Mult, int64_t input1Shift, int64_t input2Mult, int64_t input2Shift,
+                            int64_t outputShift) {
+    auto maxShift = std::max(input1Shift, input2Shift);
+    if (maxShift + outputShift > maxRegisterShift) {
+        return false;
+    }
+    if (input1Mult > maxRegisterMult >> (maxShift - input1Shift)) {
+        return false;
+    }
+    if (input2Mult > maxRegisterMult >> (maxShift - input2Shift)) {
+        return false;
+    }
+
+    return true;
+}
+
+}  // namespace
+
 EltwiseQuantizationApproximation::EltwiseQuantizationApproximation(double input1Target, double input2Target,
                                                                    double outputTarget, VPU::EltwiseType eltwiseType)
         : _input1(input1Target), _input2(input2Target), _output(1 / outputTarget) {
-    // We align shifts to the smaller one by dividing input MULT with 2^diff, inputs shift will be set to 0 in
-    // nce_cluster_task.cpp and added to the output shift .
-    //
-    // what we actually do is input1 * MULT1 i32 --> + --> * MULT_OUT >> (SHIFT_OUT + SHIFT_IN) --> u8
-    //                       input2 * MULT2 i32 ----^
-    const auto minShift = std::min(_input1.shift(), _input2.shift());
-    const auto maxShift = std::max(_input1.shift(), _input2.shift());
-    // shift register is using 6 bits, so the maximum shift value is 2^6 - 1
-    const int64_t maxRegisterShift = pow(2, 6) - 1;
-    // the multiply register for each individual IDU unit is unsigned 16 bit;
-    // so unlike the common PPE logic that uses signed 16 bit register and a maximum
-    // multiply of pow(2, 15) - 1, here we can safely scale up to pow(2, 16) - 1
-    const int64_t maxRegisterMult = pow(2, 16) - 1;
-
-    const auto supportsShiftToMaximum = [&]() -> bool {
-        if (maxShift + _output.shift() > maxRegisterShift) {
-            return false;
-        }
-        if (_input1.mult() > maxRegisterMult >> (maxShift - _input1.shift())) {
-            return false;
-        }
-        if (_input2.mult() > maxRegisterMult >> (maxShift - _input2.shift())) {
-            return false;
-        }
-
-        return true;
-    };
-
     // Currently handle just the case when both input scales are negative
     if (_input1.mult() < 0 || _input2.mult() < 0) {
         if (eltwiseType == VPU::EltwiseType::ADD || eltwiseType == VPU::EltwiseType::SUBTRACT) {
@@ -65,7 +64,15 @@ EltwiseQuantizationApproximation::EltwiseQuantizationApproximation(double input1
         _input2.setMult(static_cast<uint16_t>(std::abs(_input2.mult())));
     }
 
-    if (supportsShiftToMaximum()) {
+    // We align shifts to the smaller one by dividing input MULT with 2^diff, inputs shift will be set to 0 in
+    // nce_cluster_task.cpp and added to the output shift .
+    //
+    // what we actually do is input1 * MULT1 i32 --> + --> * MULT_OUT >> (SHIFT_OUT + SHIFT_IN) --> u8
+    //                       input2 * MULT2 i32 ----^
+    const auto minShift = std::min(_input1.shift(), _input2.shift());
+    const auto maxShift = std::max(_input1.shift(), _input2.shift());
+
+    if (supportsShiftToMaximum(_input1.mult(), _input1.shift(), _input2.mult(), _input2.shift(), _output.shift())) {
         _input1.setMult(static_cast<uint16_t>(_input1.mult() << (maxShift - _input1.shift())));
         _input2.setMult(static_cast<uint16_t>(_input2.mult() << (maxShift - _input2.shift())));
         _output.setShift(_output.shift() + maxShift);
@@ -78,6 +85,24 @@ EltwiseQuantizationApproximation::EltwiseQuantizationApproximation(double input1
     }
 }
 
+bool VPU::isEltwiseRequantizationRepresentable(const double input1Scale, const double input2Scale,
+                                               const double outputScale) {
+    if (input1Scale == 0.0 || input2Scale == 0.0 || outputScale == 0.0) {
+        return false;
+    }
+
+    int64_t input1Mult = 0, input1Shift = 0;
+    int64_t input2Mult = 0, input2Shift = 0;
+    int64_t unusedOutputMult = 0, outputShift = 0;
+    if (!computeMultShiftApproximation(input1Scale, input1Mult, input1Shift) ||
+        !computeMultShiftApproximation(input2Scale, input2Mult, input2Shift) ||
+        !computeMultShiftApproximation(1.0 / outputScale, unusedOutputMult, outputShift)) {
+        return false;
+    }
+
+    return supportsShiftToMaximum(input1Mult, input1Shift, input2Mult, input2Shift, outputShift);
+}
+
 const QuantizationApproximation& EltwiseQuantizationApproximation::input1() const {
     return _input1;
 }
@@ -88,6 +113,18 @@ const QuantizationApproximation& EltwiseQuantizationApproximation::input2() cons
 
 const QuantizationApproximation& EltwiseQuantizationApproximation::output() const {
     return _output;
+}
+
+bool VPU::computeMultShiftApproximation(double target, int64_t& mult, int64_t& shift) {
+    const auto [approxMult, approxShift, postShift] = approximate<int16_t>(15, target);
+    if (postShift != 0) {
+        return false;
+    }
+
+    mult = std::abs(static_cast<int64_t>(approxMult));
+    shift = static_cast<int64_t>(approxShift);
+
+    return true;
 }
 
 double VPU::computeQuantScale(mlir::Type inputType, mlir::Type outputType) {

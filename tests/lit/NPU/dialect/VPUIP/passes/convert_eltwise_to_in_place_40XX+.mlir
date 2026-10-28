@@ -38,7 +38,7 @@
 // CHECK:    func @InplaceEltwiseUnequalTensorSize([[ARG_0:%[^:]+]]: memref<1x64x128x128x!qElemType, {order = #NHWC}, @CMX_NN>, [[ARG_1:%[^:]+]]: memref<64x64x3x3x!qElemType1, {order = #NHWC}, @CMX_NN>)
 func.func @InplaceEltwiseUnequalTensorSize(%activation: memref<1x64x128x128x!qElemType, {order = #NHWC}, @CMX_NN>, %weights: memref<64x64x3x3x!qElemType1, {order = #NHWC}, @CMX_NN>) -> !DistributedType2 {
     %conv_cmx_outbuf = VPURT.AllocDistributed -> !DistributedType
-    %0 = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 4294967300 : i64, resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{kernel_padding = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>, kernel_size = [3, 3], kernel_strides = [1, 1], task_type = #VPUIP.nce_task_type<CONV>}>
+    %0 = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 4294967300 : i64} <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>, kernel_padding = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>, kernel_size = [3, 3], kernel_strides = [1, 1], task_type = #VPUIP.nce_task_type<CONV>}>
         input(%activation : memref<1x64x128x128x!qElemType, {order = #NHWC}, @CMX_NN>)
         weights(%weights : memref<64x64x3x3x!qElemType1, {order = #NHWC}, @CMX_NN>)
         parent_input(%activation : memref<1x64x128x128x!qElemType, {order = #NHWC}, @CMX_NN>)
@@ -62,7 +62,7 @@ func.func @InplaceEltwiseUnequalTensorSize(%activation: memref<1x64x128x128x!qEl
         outputs(%eltwise_cmx_inbuf : !DistributedType)  ->  !DistributedType
 
     %eltwise_cmx_outbuf = VPURT.AllocDistributed -> !DistributedType2
-    %eltwise = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 4294967300 : i64, resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{is_inplace = true, task_type = #VPUIP.nce_task_type<ELTWISE>}>
+    %eltwise = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 4294967300 : i64} <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>, is_inplace = true, task_type = #VPUIP.nce_task_type<ELTWISE>}>
         input(%2 : !DistributedType)
         weights(%2 : !DistributedType)
         parent_input(%2 : !DistributedType)

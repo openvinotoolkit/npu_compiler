@@ -93,8 +93,8 @@ mlir::LogicalResult ConvertMemPermuteToMaxPool::matchAndRewrite(IE::MemPermuteOp
 
     const auto nhwcOrderAttr = mlir::AffineMapAttr::get(DimsOrder::NHWC.toAffineMap(ctx));
     auto identityMap = mlir::AffineMap::getMultiDimIdentityMap(checked_cast<uint32_t>(inShape.size()), ctx);
-    auto inPermuteCastOp = rewriter.create<IE::PermuteCastOp>(origOp.getLoc(), origOp.getInput(),
-                                                              DimsOrder::NHWC.toAffineMap(ctx), identityMap);
+    auto inPermuteCastOp = IE::PermuteCastOp::create(rewriter, origOp.getLoc(), origOp.getInput(),
+                                                     DimsOrder::NHWC.toAffineMap(ctx), identityMap);
     inferReturnTypes(inPermuteCastOp, InferShapedTypeMode::ALL);
 
     const auto targetOrder = vpux::getNHWCOutputLayout(DimsOrder::fromAffineMap(memPerm));
@@ -132,14 +132,14 @@ mlir::LogicalResult ConvertMemPermuteToMaxPool::matchAndRewrite(IE::MemPermuteOp
             auto maxPool = IE::createIdentityMaxPool(shapeCastTmp, outType, rewriter);
             latestPooling = maxPool->getResult(0);
             auto inLayoutCast =
-                    rewriter.create<IE::LayoutCastOp>(origOp.getLoc(), maxPool->getResult(0), nhwcOrderAttr);
+                    IE::LayoutCastOp::create(rewriter, origOp.getLoc(), maxPool->getResult(0), nhwcOrderAttr);
             latestInput = inLayoutCast.getOutput();
         }
     }
 
     auto dstOrder = DimsOrder::fromValue(origOp.getOutput());
     auto outPermuteCastOp =
-            rewriter.create<IE::PermuteCastOp>(origOp.getLoc(), latestPooling, dstOrder.toAffineMap(ctx), identityMap);
+            IE::PermuteCastOp::create(rewriter, origOp.getLoc(), latestPooling, dstOrder.toAffineMap(ctx), identityMap);
     inferReturnTypes(outPermuteCastOp, InferShapedTypeMode::ALL);
 
     auto dstShape = getShape(origOp.getOutput());
@@ -224,17 +224,17 @@ mlir::LogicalResult ConvertMemPermuteWithPermuteCast::matchAndRewrite(IE::MemPer
     }
 
     // Create in PermuteCastOp
-    auto inPermuteCast = rewriter.create<IE::PermuteCastOp>(
-            origOp.getLoc(), origOp.getInput(), mlir::AffineMapAttr::get(inputType.getDimsOrder().toAffineMap(ctx)),
-            mlir::AffineMapAttr::get(hasValidInPermutationMap.value()));
+    auto inPermuteCast = IE::PermuteCastOp::create(rewriter, origOp.getLoc(), origOp.getInput(),
+                                                   mlir::AffineMapAttr::get(inputType.getDimsOrder().toAffineMap(ctx)),
+                                                   mlir::AffineMapAttr::get(hasValidInPermutationMap.value()));
     // Create new MemPermuteOp
-    auto newMemPermuteOp = rewriter.create<IE::MemPermuteOp>(origOp.getLoc(), inPermuteCast.getOutput(),
-                                                             origOp.getDstOrder(), newMemPermAttr);
+    auto newMemPermuteOp = IE::MemPermuteOp::create(rewriter, origOp.getLoc(), inPermuteCast.getOutput(),
+                                                    origOp.getDstOrder(), newMemPermAttr);
     // Create out PermuteCastOp
     auto outPermuteCast =
-            rewriter.create<IE::PermuteCastOp>(origOp.getLoc(), newMemPermuteOp.getOutput(),
-                                               mlir::AffineMapAttr::get(outputType.getDimsOrder().toAffineMap(ctx)),
-                                               mlir::AffineMapAttr::get(hasValidOutPermutationMap.value()));
+            IE::PermuteCastOp::create(rewriter, origOp.getLoc(), newMemPermuteOp.getOutput(),
+                                      mlir::AffineMapAttr::get(outputType.getDimsOrder().toAffineMap(ctx)),
+                                      mlir::AffineMapAttr::get(hasValidOutPermutationMap.value()));
     rewriter.replaceOp(origOp, outPermuteCast.getOutput());
 
     return mlir::success();
@@ -314,8 +314,8 @@ mlir::LogicalResult ConvertMemPermuteWithShapeCast::matchAndRewrite(IE::MemPermu
     // Create input ShapeCast
     auto inShapeCast = vpux::IE::buildShapeCast(origOp.getLoc(), origOp.getInput(), mergedLogicShape.raw(), rewriter);
     // Create new MemPermuteOp
-    auto newMemPermuteOp = rewriter.create<IE::MemPermuteOp>(origOp.getLoc(), inShapeCast.getResult(),
-                                                             origOp.getDstOrder(), newMemPermAttr);
+    auto newMemPermuteOp = IE::MemPermuteOp::create(rewriter, origOp.getLoc(), inShapeCast.getResult(),
+                                                    origOp.getDstOrder(), newMemPermAttr);
     // change shape back
     auto outShapeCast = vpux::IE::buildShapeCast(origOp.getLoc(), newMemPermuteOp.getOutput(),
                                                  getShape(origOp.getResult()), rewriter);
@@ -409,12 +409,12 @@ mlir::LogicalResult ConvertMemPermuteWithExpand::matchAndRewrite(IE::MemPermuteO
     auto padsEndVal = SmallVector<int64_t>(shapeRank, 0);
     padsEndVal[inExpandDim.ind()] = inExpandSize;
     auto padsEndAttr = getIntArrayAttr(ctx, padsEndVal);
-    auto inExpandOp = rewriter.create<IE::ExpandOp>(appendLoc(origOp.getLoc(), "expand"), origOp.getInput(),
-                                                    padsBeginAttr, padsEndAttr);
+    auto inExpandOp = IE::ExpandOp::create(rewriter, appendLoc(origOp.getLoc(), "expand"), origOp.getInput(),
+                                           padsBeginAttr, padsEndAttr);
 
     // Create and check new MemPermute
-    auto newMemPermuteOp = rewriter.create<IE::MemPermuteOp>(origOp.getLoc(), inExpandOp.getResult(),
-                                                             origOp.getDstOrderAttr(), origOp.getMemPermAttr());
+    auto newMemPermuteOp = IE::MemPermuteOp::create(rewriter, origOp.getLoc(), inExpandOp.getResult(),
+                                                    origOp.getDstOrderAttr(), origOp.getMemPermAttr());
 
     if (!isLegalConvertToPool(newMemPermuteOp, memPerm, ctx, _numClusters, getDebugName(), _log.nest())) {
         rewriter.eraseOp(newMemPermuteOp);
@@ -425,8 +425,8 @@ mlir::LogicalResult ConvertMemPermuteWithExpand::matchAndRewrite(IE::MemPermuteO
     // Insert Slice to get real data
     auto staticOffsetsAttr = getIntArrayAttr(ctx, SmallVector<int64_t>(shapeRank, 0));
     auto staticSizesAttr = getIntArrayAttr(ctx, to_small_vector(getShape(origOp.getOutput())));
-    auto outSliceOp = rewriter.create<IE::SliceOp>(appendLoc(origOp.getLoc(), "slice"), newMemPermuteOp.getOutput(),
-                                                   staticOffsetsAttr, staticSizesAttr);
+    auto outSliceOp = IE::SliceOp::create(rewriter, appendLoc(origOp.getLoc(), "slice"), newMemPermuteOp.getOutput(),
+                                          staticOffsetsAttr, staticSizesAttr);
 
     _log.nest().trace("Convert MemPermute {1} to MaxPool with Expand", origOp->getLoc());
 
@@ -514,16 +514,16 @@ mlir::LogicalResult ConvertMemPermuteToPermuteQuantize::matchAndRewrite(IE::MemP
     if (inPermuteCastRequired) {
         const auto inMemPerm = vpux::getPermutationFromOrders(inOrder, DimsOrder::NCHW, ctx);
         auto inPermuteCastOp =
-                rewriter.create<IE::PermuteCastOp>(appendLoc(origOp->getLoc(), "PermuteCast"), origOp.getInput(),
-                                                   DimsOrder::NCHW.toAffineMap(origOp->getContext()), inMemPerm);
+                IE::PermuteCastOp::create(rewriter, appendLoc(origOp->getLoc(), "PermuteCast"), origOp.getInput(),
+                                          DimsOrder::NCHW.toAffineMap(origOp->getContext()), inMemPerm);
         curInput = inPermuteCastOp.getResult();
     }
 
     const auto dstElemTypeAttr = mlir::TypeAttr::get(outType.getElementType());
     const auto noPadBeginEnd = SmallVector<int64_t>(outType.getRank(), 0);
 
-    auto permuteQuantizeOp = rewriter.create<IE::PermuteQuantizeOp>(
-            takeOpLoc(origOp, "PermuteQuantize"), outType, curInput,
+    auto permuteQuantizeOp = IE::PermuteQuantizeOp::create(
+            rewriter, takeOpLoc(origOp, "PermuteQuantize"), outType, curInput,
             mlir::AffineMapAttr::get(DimsOrder::NHWC.toAffineMap(ctx)), mlir::AffineMapAttr::get(memPerm),
             dstElemTypeAttr, getIntArrayAttr(ctx, noPadBeginEnd), getIntArrayAttr(ctx, noPadBeginEnd));
 
@@ -533,8 +533,8 @@ mlir::LogicalResult ConvertMemPermuteToPermuteQuantize::matchAndRewrite(IE::MemP
     if (outPermuteCastRequired) {
         auto identityMap =
                 mlir::AffineMap::getMultiDimIdentityMap(checked_cast<uint32_t>(inType.getShape().size()), ctx);
-        auto outPermuteCastOp = rewriter.create<IE::PermuteCastOp>(origOp.getLoc(), permuteQuantizeOp.getOutput(),
-                                                                   origOp.getDstOrder(), identityMap);
+        auto outPermuteCastOp = IE::PermuteCastOp::create(rewriter, origOp.getLoc(), permuteQuantizeOp.getOutput(),
+                                                          origOp.getDstOrder(), identityMap);
         inferReturnTypes(outPermuteCastOp, InferShapedTypeMode::ALL);
 
         rewriter.replaceOp(origOp, outPermuteCastOp);

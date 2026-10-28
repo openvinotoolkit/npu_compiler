@@ -266,9 +266,7 @@ private:
             size_t taskInd, VPURT::TaskQueueType queueType, const VPURT::TaskQueueType& enqueueDmaQueueType,
             std::map<VPURT::TaskQueueType, SmallVector<EnqueueDmaData>>& enqDmaDataVecPerQueue);
 
-    bool updateDpuEnqPositionToAccountForShvDependentSyncDmas(size_t taskInd, VPURT::TaskQueueType queueType,
-                                                              const VPURT::TaskQueueType& enqueueDmaQueueType,
-                                                              EnqueueDmaData& lastEnqDmaData);
+    bool updateEnqPositionToAccountForShvDependencyToDmaFifo(size_t taskInd, EnqueueDmaData& lastEnqDmaData);
 
     SmallVector<size_t> _barrierToPageAssignment;
 
@@ -322,12 +320,14 @@ private:
     // to be taken into account
     mlir::DenseMap<size_t, mlir::DenseSet<size_t>> _shvTasksWithDmaPerTile;
 
-    // Cache SHV submit SyncDMA task index on DMA port0 DDR queue by logical task index.
-    mlir::DenseMap<int64_t, size_t> _shvSubmitSyncDmaP0DdrByLogicalTask;
+    // Cache latest SHV submit SkipDMA task index on DMA port0 DDR queue by logical task index.
+    mlir::DenseMap<int64_t, size_t> _shvSubmitLatestSkipDmaP0DdrByLogicalTask;
 
-    // Direct mapping used by enqueue legalization: SHV task index -> matching submit
-    // SyncDMA task index on DMA port0 DDR queue.
-    mlir::DenseMap<size_t, size_t> _shvSubmitSyncDmaP0DdrByShvTask;
+    // Ordered list of (SHV task index, logical task index) pairs for SHV tasks that have
+    // a matching submit SkipDMA on DMA port0 DDR queue. Sorted by SHV task index for
+    // deterministic iteration by enqueue legalization.
+    SmallVector<std::pair<size_t, int64_t>> _shvWithSkipDmas;
+
     // Store information about task control map that will be initialized through
     // barrierInfo for given control graph split block index
     std::optional<size_t> _blockIdxOfTaskControlMap;

@@ -80,7 +80,7 @@ mlir::LogicalResult GatherElementsFlatConverter::matchAndRewrite(IE::GatherEleme
 
     // Reject dynamic shapes: reshape/slice need static dimension values
     if (!inputType || !indicesType || !inputType.hasStaticShape() || !indicesType.hasStaticShape()) {
-        return matchFailed(rewriter, origOp, "Dynamic shapes are not supported");
+        return matchFailed(_log, rewriter, origOp, "Dynamic shapes are not supported");
     }
 
     const auto dataShape = getShape(origOp.getInput());
@@ -91,7 +91,7 @@ mlir::LogicalResult GatherElementsFlatConverter::matchAndRewrite(IE::GatherEleme
     // requires a different decomposition strategy. The existing GatherElementsOpConverter
     // handles the Tile-based pattern; other cases fall back to SHAVE execution.
     if (dataShape != indicesShape) {
-        return matchFailed(rewriter, origOp, "Data and indices shapes differ");
+        return matchFailed(_log, rewriter, origOp, "Data and indices shapes differ");
     }
 
     const int64_t rank = static_cast<int64_t>(dataShape.size());
@@ -102,13 +102,13 @@ mlir::LogicalResult GatherElementsFlatConverter::matchAndRewrite(IE::GatherEleme
 
     // Validate axis is within valid range after normalization
     if (axis < 0 || axis >= rank) {
-        return matchFailed(rewriter, origOp, "Axis out of range");
+        return matchFailed(_log, rewriter, origOp, "Axis out of range");
     }
 
     // All dimensions after axis must be 1
     for (int64_t d = axis + 1; d < rank; ++d) {
         if (dataShape[Dim(d)] != 1) {
-            return matchFailed(rewriter, origOp, "Non-unit dimension after gather axis");
+            return matchFailed(_log, rewriter, origOp, "Non-unit dimension after gather axis");
         }
     }
 
@@ -122,16 +122,16 @@ mlir::LogicalResult GatherElementsFlatConverter::matchAndRewrite(IE::GatherEleme
 
     const int64_t totalElements = batchSize * gatherSize;
     if (totalElements <= MAX_SAFE_GATHER_DMA_INDICES) {
-        return matchFailed(rewriter, origOp, "Total elements within safe limit, no chunking needed");
+        return matchFailed(_log, rewriter, origOp, "Total elements within safe limit, no chunking needed");
     }
 
     if (gatherSize > MAX_SAFE_GATHER_DMA_INDICES) {
-        return matchFailed(rewriter, origOp, "Gather dimension exceeds safe DMA limit");
+        return matchFailed(_log, rewriter, origOp, "Gather dimension exceeds safe DMA limit");
     }
 
     const int64_t rowsPerChunk = MAX_SAFE_GATHER_DMA_INDICES / gatherSize;
     if (rowsPerChunk == 0) {
-        return matchFailed(rewriter, origOp, "Cannot form valid chunks");
+        return matchFailed(_log, rewriter, origOp, "Cannot form valid chunks");
     }
 
     // Determine indices element type and validate it is a supported integer width
@@ -139,7 +139,7 @@ mlir::LogicalResult GatherElementsFlatConverter::matchAndRewrite(IE::GatherEleme
     const bool isSI32 = indicesElemType == getSInt32Type(ctx);
     const bool isSI64 = indicesElemType == getSInt64Type(ctx);
     if (!isSI32 && !isSI64) {
-        return matchFailed(rewriter, origOp, "Unsupported indices element type (only si32/si64 supported)");
+        return matchFailed(_log, rewriter, origOp, "Unsupported indices element type (only si32/si64 supported)");
     }
 
     _log.trace("Converting GatherElements: batch={0}, gatherSize={1}, rowsPerChunk={2}, numChunks={3}", batchSize,
@@ -148,10 +148,10 @@ mlir::LogicalResult GatherElementsFlatConverter::matchAndRewrite(IE::GatherEleme
     // Reshape data and indices to 2D: [batchSize, gatherSize]
     const auto shape2D = SmallVector<int64_t>{batchSize, gatherSize};
     auto dataReshaped =
-            rewriter.create<IE::ReshapeOp>(appendLoc(loc, "data_2d"), origOp.getInput(), getIntArrayAttr(ctx, shape2D))
+            IE::ReshapeOp::create(rewriter, appendLoc(loc, "data_2d"), origOp.getInput(), getIntArrayAttr(ctx, shape2D))
                     .getOutput();
-    auto indicesReshaped = rewriter.create<IE::ReshapeOp>(appendLoc(loc, "indices_2d"), origOp.getIndices(),
-                                                          getIntArrayAttr(ctx, shape2D))
+    auto indicesReshaped = IE::ReshapeOp::create(rewriter, appendLoc(loc, "indices_2d"), origOp.getIndices(),
+                                                 getIntArrayAttr(ctx, shape2D))
                                    .getOutput();
 
     // Build row offsets constant matching the indices element type
@@ -199,8 +199,8 @@ mlir::LogicalResult GatherElementsFlatConverter::matchAndRewrite(IE::GatherEleme
                                                    getIntArrayAttr(ctx, SmallVector<int64_t>{chunkRows, gatherSize}));
 
         // Flatten indices to 1D: [chunkElements]
-        auto indicesFlat = rewriter.create<IE::ReshapeOp>(appendLoc(loc, "indices_flat_{0}", chunk), indicesSlice,
-                                                          getIntArrayAttr(ctx, SmallVector<int64_t>{chunkElements}))
+        auto indicesFlat = IE::ReshapeOp::create(rewriter, appendLoc(loc, "indices_flat_{0}", chunk), indicesSlice,
+                                                 getIntArrayAttr(ctx, SmallVector<int64_t>{chunkElements}))
                                    .getOutput();
 
         // Add row offsets to indices
@@ -208,32 +208,32 @@ mlir::LogicalResult GatherElementsFlatConverter::matchAndRewrite(IE::GatherEleme
                 (chunkRows == rowsPerChunk) ? offsetConst : buildRowOffsets(chunkRows, "row_offsets_last");
 
         auto indicesAbsolute =
-                rewriter.create<IE::AddOp>(appendLoc(loc, "indices_abs_{0}", chunk), indicesFlat, offsetVal,
-                                           IE::AutoBroadcastTypeAttr::get(ctx, IE::AutoBroadcastType::NONE_OR_EXPLICIT),
-                                           nullptr, nullptr, nullptr, nullptr);
+                IE::AddOp::create(rewriter, appendLoc(loc, "indices_abs_{0}", chunk), indicesFlat, offsetVal,
+                                  IE::AutoBroadcastTypeAttr::get(ctx, IE::AutoBroadcastType::NONE_OR_EXPLICIT), nullptr,
+                                  nullptr, nullptr, nullptr);
 
         // Flatten data to 1D: [chunkElements]
-        auto dataFlat = rewriter.create<IE::ReshapeOp>(appendLoc(loc, "data_flat_{0}", chunk), dataSlice,
-                                                       getIntArrayAttr(ctx, SmallVector<int64_t>{chunkElements}))
+        auto dataFlat = IE::ReshapeOp::create(rewriter, appendLoc(loc, "data_flat_{0}", chunk), dataSlice,
+                                              getIntArrayAttr(ctx, SmallVector<int64_t>{chunkElements}))
                                 .getOutput();
 
         // Gather: output[i] = data_flat[indices_absolute[i]]
-        auto gatherResult = rewriter.create<IE::GatherOp>(appendLoc(loc, "gather_{0}", chunk), dataFlat,
-                                                          indicesAbsolute.getOutput(), /*axis=*/0,
-                                                          /*batchDims=*/0, nullptr);
+        auto gatherResult = IE::GatherOp::create(rewriter, appendLoc(loc, "gather_{0}", chunk), dataFlat,
+                                                 indicesAbsolute.getOutput(), /*axis=*/0,
+                                                 /*batchDims=*/0, nullptr);
 
         // Reshape to 2D chunk: [chunkRows, gatherSize]
         auto chunkReshaped =
-                rewriter.create<IE::ReshapeOp>(appendLoc(loc, "chunk_2d_{0}", chunk), gatherResult.getOutput(),
-                                               getIntArrayAttr(ctx, SmallVector<int64_t>{chunkRows, gatherSize}))
+                IE::ReshapeOp::create(rewriter, appendLoc(loc, "chunk_2d_{0}", chunk), gatherResult.getOutput(),
+                                      getIntArrayAttr(ctx, SmallVector<int64_t>{chunkRows, gatherSize}))
                         .getOutput();
 
         chunkResults.push_back(chunkReshaped);
     }
 
     // Concat all chunks along dim 0: [batchSize, gatherSize]
-    auto combined = rewriter.create<IE::ConcatOp>(appendLoc(loc, "concat_chunks"), mlir::ValueRange(chunkResults),
-                                                  getIntAttr(ctx, 0))
+    auto combined = IE::ConcatOp::create(rewriter, appendLoc(loc, "concat_chunks"), mlir::ValueRange(chunkResults),
+                                         getIntAttr(ctx, 0))
                             .getOutput();
 
     // Reshape back to original shape
@@ -300,13 +300,14 @@ mlir::LogicalResult GatherElementsOpConverter::matchAndRewrite(IE::GatherElement
 
     auto maybeTileOp = mlir::dyn_cast_or_null<IE::TileOp>(origOp.getOperand(1).getDefiningOp());
     if (maybeTileOp == nullptr) {
-        return matchFailed(rewriter, origOp, "No parent TileOp found");
+        return matchFailed(_log, rewriter, origOp, "No parent TileOp found");
     }
 
     auto tileOpInShape = getShape(maybeTileOp.getInput());
     SmallVector<Dim> nonOneDims = getNonOneDim(tileOpInShape);
     if (nonOneDims.size() > 1) {
-        return matchFailed(rewriter, maybeTileOp, "Not supported TileOp with input shape of non-one dims size > 1");
+        return matchFailed(_log, rewriter, maybeTileOp,
+                           "Not supported TileOp with input shape of non-one dims size > 1");
     }
 
     // Get repeatsValues from TileOp
@@ -325,23 +326,23 @@ mlir::LogicalResult GatherElementsOpConverter::matchAndRewrite(IE::GatherElement
 
     auto repeatAxesValue = getNonOneRepeatAxesValue(repeatsValues);
     if (repeatAxesValue.size() != 1) {
-        return matchFailed(rewriter, maybeTileOp, "Not one repeat axis");
+        return matchFailed(_log, rewriter, maybeTileOp, "Not one repeat axis");
     }
 
     int64_t repeatAxis = repeatAxesValue[0].first;
     if (nonOneDims[0] == Dim(repeatAxis)) {
-        return matchFailed(rewriter, maybeTileOp, "Not supported repeat axis");
+        return matchFailed(_log, rewriter, maybeTileOp, "Not supported repeat axis");
     }
 
     // Get axis from GatherElementsOp
     int64_t axis = origOp.getAxis();
     if (Dim(axis) != nonOneDims[0]) {
-        return matchFailed(rewriter, origOp, "Not supported GatherElementsOp axis");
+        return matchFailed(_log, rewriter, origOp, "Not supported GatherElementsOp axis");
     }
 
     auto origOpInShape = getShape(origOp.getInput());
     if (origOpInShape[Dim(repeatAxis)] != (int64_t)repeatAxesValue[0].second) {
-        return matchFailed(rewriter, origOp, "Not supported GatherElementsOp shape");
+        return matchFailed(_log, rewriter, origOp, "Not supported GatherElementsOp shape");
     }
 
     auto generateAxesValue = [](size_t shapeSize, int64_t nonOneAxis) -> SmallVector<size_t> {

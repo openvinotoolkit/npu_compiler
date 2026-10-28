@@ -139,29 +139,40 @@ public:
     }
 };
 
-class ConvertToQuantizeTest_NPU3720 : public ConvertToQuantizeTestCommon {};
-class ConvertToQuantizeTest_NPU4000 : public ConvertToQuantizeTestCommon {};
-
-TEST_P(ConvertToQuantizeTest_NPU3720, HW) {
+TEST_P(ConvertToQuantizeTestCommon, NPU3720_HW) {
     setDefaultHardwareMode();
     run(Platform::NPU3720);
 }
 
-TEST_P(ConvertToQuantizeTest_NPU4000, HW) {
+TEST_P(ConvertToQuantizeTestCommon, NPU4000_HW) {
     setDefaultHardwareMode();
     run(Platform::NPU4000);
 }
 
-class ConvertToQuantizeTest_NPU5010 : public ConvertToQuantizeTestCommon {};
-
-TEST_P(ConvertToQuantizeTest_NPU5010, HW) {
+TEST_P(ConvertToQuantizeTestCommon, NPU5010_HW) {
     setDefaultHardwareMode();
     run(Platform::NPU5010);
 }
 
-class ConvertToQuantizeTest_NPU5020 : public ConvertToQuantizeTestCommon {};
+TEST_P(ConvertToQuantizeTestCommon, NPU5020_HW) {
+    setDefaultHardwareMode();
+    run(Platform::NPU5020);
+}
 
-TEST_P(ConvertToQuantizeTest_NPU5020, HW) {
+// 4-bit quantization is only supported on NPU >= 4
+class ConvertToQuantizeTest4bit : public ConvertToQuantizeTestCommon {};
+
+TEST_P(ConvertToQuantizeTest4bit, NPU4000_HW) {
+    setDefaultHardwareMode();
+    run(Platform::NPU4000);
+}
+
+TEST_P(ConvertToQuantizeTest4bit, NPU5010_HW) {
+    setDefaultHardwareMode();
+    run(Platform::NPU5010);
+}
+
+TEST_P(ConvertToQuantizeTest4bit, NPU5020_HW) {
     setDefaultHardwareMode();
     run(Platform::NPU5020);
 }
@@ -199,48 +210,17 @@ const std::vector<QuantizationConfig> quantizationConfigs4bit = {
         {ov::element::i4, -8.0, 7.0, 1.0, 0.0},
 };
 
-INSTANTIATE_TEST_SUITE_P(smoke_ConvertToQuantize, ConvertToQuantizeTest_NPU3720,
+INSTANTIATE_TEST_SUITE_P(smoke_ConvertToQuantize, ConvertToQuantizeTestCommon,
                          ::testing::Combine(::testing::ValuesIn(inputShapes), ::testing::ValuesIn(inputPrecisions),
                                             ::testing::ValuesIn(patternTypes),
                                             ::testing::ValuesIn(quantizationConfigs)),
-                         ConvertToQuantizeTest_NPU3720::getTestCaseName);
+                         ConvertToQuantizeTestCommon::getTestCaseName);
 
-INSTANTIATE_TEST_SUITE_P(smoke_ConvertToQuantize, ConvertToQuantizeTest_NPU4000,
-                         ::testing::Combine(::testing::ValuesIn(inputShapes), ::testing::ValuesIn(inputPrecisions),
-                                            ::testing::ValuesIn(patternTypes),
-                                            ::testing::ValuesIn(quantizationConfigs)),
-                         ConvertToQuantizeTest_NPU4000::getTestCaseName);
-
-INSTANTIATE_TEST_SUITE_P(smoke_ConvertToQuantize4bit, ConvertToQuantizeTest_NPU4000,
+INSTANTIATE_TEST_SUITE_P(smoke_ConvertToQuantize4bit, ConvertToQuantizeTest4bit,
                          ::testing::Combine(::testing::ValuesIn(inputShapes), ::testing::ValuesIn(inputPrecisions),
                                             ::testing::Values(PatternType::Simple),
                                             ::testing::ValuesIn(quantizationConfigs4bit)),
-                         ConvertToQuantizeTest_NPU4000::getTestCaseName);
-
-INSTANTIATE_TEST_SUITE_P(smoke_ConvertToQuantize, ConvertToQuantizeTest_NPU5010,
-                         ::testing::Combine(::testing::ValuesIn(inputShapes), ::testing::ValuesIn(inputPrecisions),
-                                            ::testing::ValuesIn(patternTypes),
-                                            ::testing::ValuesIn(quantizationConfigs)),
-                         ConvertToQuantizeTest_NPU5010::getTestCaseName);
-
-INSTANTIATE_TEST_SUITE_P(smoke_ConvertToQuantize4bit, ConvertToQuantizeTest_NPU5010,
-                         ::testing::Combine(::testing::ValuesIn(inputShapes), ::testing::ValuesIn(inputPrecisions),
-                                            ::testing::Values(PatternType::Simple),
-                                            ::testing::ValuesIn(quantizationConfigs4bit)),
-                         ConvertToQuantizeTest_NPU5010::getTestCaseName);
-
-INSTANTIATE_TEST_SUITE_P(smoke_ConvertToQuantize, ConvertToQuantizeTest_NPU5020,
-                         ::testing::Combine(::testing::ValuesIn(inputShapes), ::testing::ValuesIn(inputPrecisions),
-                                            ::testing::ValuesIn(patternTypes),
-                                            ::testing::ValuesIn(quantizationConfigs)),
-                         ConvertToQuantizeTest_NPU5020::getTestCaseName);
-
-INSTANTIATE_TEST_SUITE_P(smoke_ConvertToQuantize4bit, ConvertToQuantizeTest_NPU5020,
-                         ::testing::Combine(::testing::ValuesIn(inputShapes), ::testing::ValuesIn(inputPrecisions),
-                                            ::testing::Values(PatternType::Simple),
-                                            ::testing::ValuesIn(quantizationConfigs4bit)),
-                         ConvertToQuantizeTest_NPU5020::getTestCaseName);
+                         ConvertToQuantizeTestCommon::getTestCaseName);
 
 }  // namespace
-
 }  // namespace ov::test

@@ -3,15 +3,15 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-#include "vpux/compiler/dialect/IE/IR/dialect.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/data_type.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/eltwise.hpp"
-#include "vpux/compiler/dialect/IE/IR/ops/shape_manipulation.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
+#include "vpux/compiler/dialect/IE/utils/dynamic_dequantize_utils.hpp"
 #include "vpux/compiler/dialect/IE/utils/transposed_convolution_utils.hpp"
 #include "vpux/compiler/dialect/config/IR/attributes.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
+#include "vpux/compiler/dialect/const/utils/utils.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
 #include "vpux/compiler/utils/quantization.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
@@ -28,6 +28,7 @@
 #include <openvino/core/coordinate_diff.hpp>
 #include <openvino/core/strides.hpp>
 
+#include <cstring>
 #include <variant>
 
 namespace vpux::IE {
@@ -164,6 +165,53 @@ void fill3x3SplitWeights(std::vector<std::vector<char>>& weightsSet, const std::
     }
 }
 
+// Fills the whole buffer with repeated copies of the raw bytes of `value`, truncated/reinterpreted to
+// the storage element width `elemSize`. Used to pre-initialize a split-kernel buffer so that any
+// position later left untouched (e.g. the 5 unused positions in a 3x3 split kernel) already holds the
+// correct raw zero-point encoding instead of raw 0.
+void fillRawScalar(std::vector<char>& buf, const int64_t value, const Byte& elemSize) {
+    const auto width = checked_cast<size_t>(elemSize.count());
+    VPUX_THROW_WHEN(width == 0 || width > sizeof(int64_t), "Unsupported element size for raw scalar fill: {0}", width);
+    VPUX_THROW_WHEN(buf.size() % width != 0, "Buffer size {0} is not a multiple of element size {1}", buf.size(),
+                    width);
+
+    // Narrow `value` to the storage width via static_cast (not checked_cast, since zero-points may be
+    // negative for signed types) and memcpy its native representation, so the result is correct on both
+    // little- and big-endian hosts.
+    switch (width) {
+    case sizeof(uint8_t): {
+        const auto narrowed = static_cast<uint8_t>(value);
+        for (size_t offset = 0; offset < buf.size(); offset += width) {
+            std::memcpy(buf.data() + offset, &narrowed, width);
+        }
+        break;
+    }
+    case sizeof(uint16_t): {
+        const auto narrowed = static_cast<uint16_t>(value);
+        for (size_t offset = 0; offset < buf.size(); offset += width) {
+            std::memcpy(buf.data() + offset, &narrowed, width);
+        }
+        break;
+    }
+    case sizeof(uint32_t): {
+        const auto narrowed = static_cast<uint32_t>(value);
+        for (size_t offset = 0; offset < buf.size(); offset += width) {
+            std::memcpy(buf.data() + offset, &narrowed, width);
+        }
+        break;
+    }
+    case sizeof(uint64_t): {
+        const auto narrowed = static_cast<uint64_t>(value);
+        for (size_t offset = 0; offset < buf.size(); offset += width) {
+            std::memcpy(buf.data() + offset, &narrowed, width);
+        }
+        break;
+    }
+    default:
+        VPUX_THROW("Unsupported element size for raw scalar fill: {0}", width);
+    }
+}
+
 template <typename T>
 mlir::DenseElementsAttr createContent(mlir::RankedTensorType dataStorageType, const std::vector<char>& weightsSet) {
     return Const::createConstContent(
@@ -203,33 +251,30 @@ SmallVector<mlir::DenseElementsAttr> createSplitFilterAttrs(mlir::Type elemType,
     return splitFilterAttrs;
 }
 
-// Helper function for the logic of transposing the inputs used for FakeQuantize when the filter tensor is transposed
-mlir::Value transposeFqInput(mlir::PatternRewriter& rewriter, mlir::Value fqInput, mlir::Location baseLoc,
-                             StringRef locSuffix, mlir::MLIRContext* ctx, size_t dimIndex1, size_t dimIndex2,
-                             bool checkSplat = false) {
-    auto fqInputType = mlir::cast<vpux::NDTypeInterface>(fqInput.getType());
+// Helper for transposing a DynamicDequantize scale/zp input when the filter tensor is transposed
+mlir::Value transposeDynDeqParam(mlir::PatternRewriter& rewriter, mlir::Value param, mlir::Location baseLoc,
+                                 StringRef locSuffix, mlir::MLIRContext* ctx, size_t dimIndex1, size_t dimIndex2) {
+    auto paramType = mlir::cast<vpux::NDTypeInterface>(param.getType());
 
     // Early return for scalar tensors (no transpose needed)
-    if (fqInputType.getNumElements() == 1) {
-        return fqInput;
+    if (paramType.getNumElements() == 1) {
+        return param;
     }
 
-    if (checkSplat) {
-        if (auto constOp = fqInput.getDefiningOp<Const::DeclareOp>()) {
-            auto denseAttr = mlir::dyn_cast<mlir::DenseElementsAttr>(constOp.getContentAttr().getBaseContent());
-            if (denseAttr && denseAttr.isSplat()) {
-                return fqInput;
-            }
+    if (auto constOp = param.getDefiningOp<Const::DeclareOp>()) {
+        auto denseAttr = mlir::dyn_cast<mlir::DenseElementsAttr>(constOp.getContentAttr().getBaseContent());
+        if (denseAttr && denseAttr.isSplat()) {
+            return param;
         }
     }
 
-    auto permutation = to_small_vector(fqInputType.getDimsOrder().toPermutation() | transformed([](Dim dim) {
+    auto permutation = to_small_vector(paramType.getDimsOrder().toPermutation() | transformed([](Dim dim) {
                                            return checked_cast<uint32_t>(dim.ind());
                                        }));
     std::swap(permutation[dimIndex1], permutation[dimIndex2]);
     auto orderAttr = mlir::AffineMapAttr::get(mlir::AffineMap::getPermutationMap(permutation, ctx));
-    auto transposeOp = rewriter.create<IE::TransposeOp>(appendLoc(baseLoc, locSuffix), fqInput,
-                                                        /*order=*/nullptr, orderAttr);
+    auto transposeOp = IE::TransposeOp::create(rewriter, appendLoc(baseLoc, locSuffix), param,
+                                               /*order=*/nullptr, orderAttr);
     return transposeOp.getOutput();
 }
 
@@ -246,7 +291,7 @@ public:
         // Supported filter pattern:
         //          Const::DeclareOp
         //                |
-        // (IE::FakeQuantizeOp/IE::DequantizeOp)
+        //          (IE::DynamicDequantizeOp)
         //                |
         //          (IE::ConvertOp)
         //                |
@@ -258,7 +303,7 @@ public:
         }
 
         filterDqOrFqOp = _filterTensor.getDefiningOp();
-        if (mlir::isa_and_present<IE::FakeQuantizeOp, IE::DequantizeOp>(filterDqOrFqOp)) {
+        if (mlir::isa_and_present<IE::DynamicDequantizeOp>(filterDqOrFqOp)) {
             if (auto typedValue =
                         mlir::dyn_cast<mlir::TypedValue<mlir::RankedTensorType>>(filterDqOrFqOp->getOperand(0))) {
                 _filterTensor = typedValue;
@@ -311,24 +356,31 @@ public:
         return _filterTensor;
     }
 
+    // Checks whether the filter is dequantized at runtime via IE::DynamicDequantizeOp (i.e. stored as an integer type
+    // and rescaled with a scale/zero-point pair downstream)
+    bool hasDynamicDequantize() const {
+        return mlir::isa_and_present<IE::DynamicDequantizeOp>(filterDqOrFqOp);
+    }
+
+    // Returns the zero-point used by the filter's IE::DynamicDequantizeOp, if it is known at compile
+    // time to be a single, per-tensor value (can also be a constant splat or no zero-point at all)
+    std::optional<int64_t> getConstantZeroPoint() const {
+        auto dynDeqOp = mlir::dyn_cast_if_present<IE::DynamicDequantizeOp>(filterDqOrFqOp);
+        if (dynDeqOp == nullptr) {
+            return std::nullopt;
+        }
+        auto zp = dynDeqOp.getZp();
+        if (zp == nullptr) {
+            return 0;
+        }
+        auto splatValue = Const::getSplatValue<int64_t>(zp);
+        if (mlir::failed(splatValue)) {
+            return std::nullopt;
+        }
+        return *splatValue;
+    }
+
 private:
-    // Normalizes per-axis quantization to ensure consistent storage types
-    void normalizeQuantization(vpux::NDTypeInterface& type, vpux::Const::ContentAttr& attr) {
-        if (!mlir::isa_and_present<IE::DequantizeOp>(filterDqOrFqOp)) {
-            return;
-        }
-
-        auto constFilterOp = mlir::dyn_cast_if_present<Const::DeclareOp>(getFilterOp());
-        VPUX_THROW_WHEN(constFilterOp == nullptr, "Filter must be Const::DeclareOp");
-        auto elemType = mlir::cast<vpux::NDTypeInterface>(constFilterOp.getType()).getElementType();
-
-        if (auto quantPerAxis = mlir::dyn_cast<mlir::quant::UniformQuantizedPerAxisType>(elemType)) {
-            auto normalized = normalizeQuantStorageType(quantPerAxis);
-            type = type.changeElemType(normalized);
-            attr = attr.transform().castElemType(normalized).get();
-        }
-    };
-
     // Creates a new constant filter with transformed dimensions and attributes
     Const::DeclareOp getUpdatedConstant(mlir::PatternRewriter& rewriter, int32_t inChannelDimIndex,
                                         int32_t outChannelDimIndex, std::optional<Dim> filterDimToReverse,
@@ -344,8 +396,6 @@ private:
                                     : getNewFilterDimsOrderForConv(newFilterType.getRank());
         auto filterShape = to_small_vector(newFilterType.getShape());
 
-        normalizeQuantization(newFilterType, contentAttr);
-
         if (filterDimToReverse.has_value()) {
             contentAttr = contentAttr.transform().reverse(filterDimToReverse.value()).transpose(newDimsOrder).get();
         } else {
@@ -357,40 +407,8 @@ private:
             newFilterType = newFilterType.changeShape(ShapeRef(filterShape));
         }
 
-        updateQuantization(newFilterType, contentAttr, inChannelDimIndex, outChannelDimIndex);
-
         auto loc = filterDqOrFqOp ? filterDqOrFqOp->getLoc() : constFilterOp.getLoc();
-        return rewriter.create<Const::DeclareOp>(loc, newFilterType, std::move(contentAttr));
-    }
-
-    // Updates per-axis quantization parameters after dimension transposition
-    void updateQuantization(vpux::NDTypeInterface& type, vpux::Const::ContentAttr& attr, int32_t inChannelDimIndex,
-                            int32_t outChannelDimIndex) {
-        if (!mlir::isa_and_present<IE::DequantizeOp>(filterDqOrFqOp)) {
-            return;
-        }
-
-        auto constFilterOp = mlir::dyn_cast_if_present<Const::DeclareOp>(getFilterOp());
-        VPUX_THROW_WHEN(constFilterOp == nullptr, "Filter must be Const::DeclareOp");
-        auto filterType = mlir::cast<vpux::NDTypeInterface>(constFilterOp.getType());
-        auto elemType = mlir::cast<vpux::NDTypeInterface>(filterType).getElementType();
-
-        if (auto quantPerAxis = mlir::dyn_cast<mlir::quant::UniformQuantizedPerAxisType>(elemType)) {
-            auto oldQuantDim = quantPerAxis.getQuantizedDimension();
-            auto newQuantDim = (oldQuantDim == inChannelDimIndex)    ? outChannelDimIndex
-                               : (oldQuantDim == outChannelDimIndex) ? inChannelDimIndex
-                                                                     : oldQuantDim;
-            auto newQuant = mlir::quant::UniformQuantizedPerAxisType::get(
-                    quantPerAxis.isSigned(), quantPerAxis.getStorageType(), quantPerAxis.getExpressedType(),
-                    quantPerAxis.getScales(), quantPerAxis.getZeroPoints(), newQuantDim,
-                    quantPerAxis.getStorageTypeMin(), quantPerAxis.getStorageTypeMax());
-            type = type.changeElemType(newQuant);
-            attr = attr.transform().castElemType(newQuant).get();
-        } else if (auto quant = mlir::dyn_cast<mlir::quant::UniformQuantizedType>(elemType)) {
-            type = type.changeElemType(quant);
-        } else {
-            VPUX_THROW("Unsupported quantType");
-        }
+        return Const::DeclareOp::create(rewriter, loc, newFilterType, std::move(contentAttr));
     }
 
     // Recreates the complete filter subgraph with the transformed constant
@@ -402,27 +420,27 @@ private:
         mlir::Value currentFilter = newConst.getOutput();
         std::string suffix = splitIndex.has_value() ? ("_w" + std::to_string(*splitIndex + 1)) : "";
 
-        if (auto filterFqOp = mlir::dyn_cast_if_present<IE::FakeQuantizeOp>(filterDqOrFqOp)) {
-            auto transposeFq = [&](mlir::Value input, const std::string& name) {
-                return transposeFqInput(rewriter, input, filterFqOp.getLoc(), name + suffix, rewriter.getContext(),
-                                        outChannelDimIndex, inChannelDimIndex, false);
+        if (auto filterDynDeqOp = mlir::dyn_cast_if_present<IE::DynamicDequantizeOp>(filterDqOrFqOp)) {
+            auto transposeParam = [&](mlir::Value input, const std::string& name) {
+                return transposeDynDeqParam(rewriter, input, filterDynDeqOp.getLoc(), name + suffix,
+                                            rewriter.getContext(), outChannelDimIndex, inChannelDimIndex);
             };
 
-            auto inputLow = transposeFq(filterFqOp.getInputLow(), "transpose_in_low");
-            auto inputHigh = transposeFq(filterFqOp.getInputHigh(), "transpose_in_high");
-            auto outputLow = transposeFq(filterFqOp.getOutputLow(), "transpose_out_low");
-            auto outputHigh = transposeFq(filterFqOp.getOutputHigh(), "transpose_out_high");
+            auto scale = transposeParam(filterDynDeqOp.getScale(), "transpose_scale");
+            auto zp = filterDynDeqOp.getZp() != nullptr ? transposeParam(filterDynDeqOp.getZp(), "transpose_zp")
+                                                        : nullptr;
 
-            auto loc = takeOpLoc(filterFqOp, "fq_in" + suffix);
-            currentFilter = rewriter.createOrFold<IE::FakeQuantizeOp>(
-                    loc, currentFilter, inputLow, inputHigh, outputLow, outputHigh, filterFqOp.getLevelsAttr(),
-                    filterFqOp.getLowFpTypeAttr(), filterFqOp.getAutoBroadcastAttr());
-        }
-
-        if (auto filterDqOp = mlir::dyn_cast_if_present<IE::DequantizeOp>(filterDqOrFqOp)) {
-            auto loc = takeOpLoc(filterDqOp, "dq_in" + suffix);
-            currentFilter =
-                    rewriter.createOrFold<IE::DequantizeOp>(loc, currentFilter, filterDqOp.getDstElemTypeAttr());
+            auto loc = takeOpLoc(filterDynDeqOp, "dyn_dq_in" + suffix);
+            auto newDynDeqOp = rewriter.createOrFold<IE::DynamicDequantizeOp>(loc, currentFilter, scale, zp,
+                                                                              filterDynDeqOp.getDstElemType());
+            // newDynDeqOp is a Value; need to get the defining op for attributes
+            if (auto newDynDeqOpDef = newDynDeqOp.getDefiningOp<IE::DynamicDequantizeOp>()) {
+                if (filterDynDeqOp->hasAttr(IE::WEIGHTS_IMPORT_DYN_DEQUANT_ATTR)) {
+                    newDynDeqOpDef->setAttr(IE::WEIGHTS_IMPORT_DYN_DEQUANT_ATTR,
+                                            mlir::UnitAttr::get(rewriter.getContext()));
+                }
+            }
+            currentFilter = newDynDeqOp;
         }
 
         if (filterConvertOp != nullptr) {
@@ -495,14 +513,14 @@ mlir::LogicalResult ConvBackpropDataToTransConvConversion::matchAndRewrite(IE::C
 
         // Create transposeOp
         auto orderAttr = mlir::AffineMapAttr::get(mlir::AffineMap::getPermutationMap(permutation, getContext()));
-        auto transposeOp = rewriter.create<IE::TransposeOp>(appendLoc(origOp->getLoc(), "transpose"), filterTensor,
-                                                            /*order=*/nullptr, orderAttr);
+        auto transposeOp = IE::TransposeOp::create(rewriter, appendLoc(origOp->getLoc(), "transpose"), filterTensor,
+                                                   /*order=*/nullptr, orderAttr);
 
         // Create reverseOp
         const auto axesAttr = getIntArrayAttr(getContext(), axes);
         IE::ReverseModeAttr modeAttr = IE::ReverseModeAttr::get(getContext(), IE::ReverseMode::INDEX);
-        auto reverseOp = rewriter.create<IE::ReverseOp>(appendLoc(origOp->getLoc(), "reverse"), transposeOp.getOutput(),
-                                                        nullptr, axesAttr, modeAttr);
+        auto reverseOp = IE::ReverseOp::create(rewriter, appendLoc(origOp->getLoc(), "reverse"),
+                                               transposeOp.getOutput(), nullptr, axesAttr, modeAttr);
 
         // Replace Op with transposedConv
         rewriter.replaceOpWithNewOp<IE::TransposedConvolutionOp>(
@@ -674,6 +692,25 @@ mlir::LogicalResult ConvBackpropDataToMultipleConvConversion::matchAndRewrite(IE
         use3x3 = true;
     }
 
+    // fill3x3SplitWeights repacks each 2x2 split kernel into a 3x3 buffer, leaving 5 of the 9 raw
+    // storage positions untouched. For plain float filters, leaving those bytes as raw 0 is already
+    // correct (0.0f). For quantized filters going through IE::DynamicDequantizeOp
+    // ((raw - zero_point) * scale), raw 0 only decodes to 0.0 when zero_point == 0; for any asymmetric
+    // (nonzero zero-point) scheme, those padding positions would otherwise decode to a spurious
+    // nonzero weight, corrupting every 3x3 split convolution. When the zero-point is known at compile
+    // time to be a single per-tensor value (constant splat, or no zero-point at all), pre-fill those
+    // padding bytes with the *raw* zero-point value instead of 0, so they decode to exactly 0.0 after
+    // dequantization - this avoids adding a runtime mask-multiply op entirely, and still benefits from
+    // the 3x3 kernel-split performance optimization.
+    // When the zero-point is non-constant or varies per-channel, the padding positions cannot be safely
+    // pre-filled with a single raw value, so fall back to the 2x2 kernel split instead, which has no
+    // unused padding positions and therefore doesn't need any zeroing at all.
+    const auto constZeroPoint = pattern.hasDynamicDequantize() ? pattern.getConstantZeroPoint() : std::nullopt;
+    const bool bakeZeroPointIntoPadding = constZeroPoint.has_value();
+    if (use3x3 && pattern.hasDynamicDequantize() && !bakeZeroPointIntoPadding) {
+        use3x3 = false;
+    }
+
     // If use3x3, allocate and fill 3x3 buffer using 2x2 split buffer
     std::vector<std::vector<char>> weightsSet(numSplits);
     SmallVector<int64_t> splitFilterShape;
@@ -682,6 +719,9 @@ mlir::LogicalResult ConvBackpropDataToMultipleConvConversion::matchAndRewrite(IE
         const auto shiftRawByteSize = elemBitSize * shiftKernelType.getNumElements();
         for (int i = 0; i < numSplits; ++i) {
             weightsSet[i].resize(Byte(shiftRawByteSize).count());
+            if (bakeZeroPointIntoPadding) {
+                fillRawScalar(weightsSet[i], *constZeroPoint, elemSize);
+            }
         }
         fill3x3SplitWeights(weightsSet, weightsSplit, IC, OC, splitKernelSize, kernelShiftSize, splitKY, splitKX,
                             shiftKX, elemSize);
@@ -739,9 +779,9 @@ mlir::LogicalResult ConvBackpropDataToMultipleConvConversion::matchAndRewrite(IE
 
     for (int splitIdx = 0; splitIdx < numSplits; ++splitIdx) {
         std::string suffix = "_split_" + std::to_string(splitIdx + 1);
-        auto convOp = rewriter.create<IE::ConvolutionOp>(
-                appendLoc(origOp->getLoc(), "Convolution" + suffix), origOp.getInput(), weightsConstOps[splitIdx],
-                newStrides, padsBegin[splitIdx], padsEnd[splitIdx], origOp.getDilationsAttr());
+        auto convOp = IE::ConvolutionOp::create(rewriter, appendLoc(origOp->getLoc(), "Convolution" + suffix),
+                                                origOp.getInput(), weightsConstOps[splitIdx], newStrides,
+                                                padsBegin[splitIdx], padsEnd[splitIdx], origOp.getDilationsAttr());
         convOutputs.push_back(convOp.getOutput());
     }
 
@@ -758,9 +798,9 @@ mlir::LogicalResult ConvBackpropDataToMultipleConvConversion::matchAndRewrite(IE
         }
         for (auto splitIdx = 0; splitIdx < numSplits; ++splitIdx) {
             std::string suffix = "+Bias_Add_" + std::to_string(splitIdx + 1);
-            auto op = rewriter.create<IE::AddOp>(appendLoc(origOp->getLoc(), suffix), convOutputs[splitIdx],
-                                                 ((biasInput1 == nullptr) ? biasInput2 : biasInput1),
-                                                 addOp.getAutoBroadcastAttr(), nullptr, nullptr, nullptr, nullptr);
+            auto op = IE::AddOp::create(rewriter, appendLoc(origOp->getLoc(), suffix), convOutputs[splitIdx],
+                                        ((biasInput1 == nullptr) ? biasInput2 : biasInput1),
+                                        addOp.getAutoBroadcastAttr(), nullptr, nullptr, nullptr, nullptr);
             convOutputs[splitIdx] = op.getOutput();
         }
         return true;
@@ -784,7 +824,7 @@ mlir::LogicalResult ConvBackpropDataToMultipleConvConversion::matchAndRewrite(IE
 
     // Block size for DepthToSpaceOp. For 2x2 or 3x3 kernel split, this is always 2 (spatial upscaling factor).
     constexpr int spatialBlockSize = 2;
-    auto combined = rewriter.create<IE::ConcatOp>(appendLoc(origOp->getLoc(), "Concat_Convs"), convOutputs, 1);
+    auto combined = IE::ConcatOp::create(rewriter, appendLoc(origOp->getLoc(), "Concat_Convs"), convOutputs, 1);
     mlir::Operation* opToReplace = (biasAddOp != nullptr && isBiasAdd) ? biasAddOp : origOp;
 
     auto interleave = rewriter.replaceOpWithNewOp<IE::DepthToSpaceOp>(
@@ -833,15 +873,15 @@ mlir::LogicalResult ConvBackpropDataToGroupTransConvConversion::matchAndRewrite(
         std::swap(permutation[IE::GROUP_TRANSPOSED_CONV_C_IN_DIM_INDEX],
                   permutation[IE::GROUP_TRANSPOSED_CONV_C_OUT_DIM_INDEX]);
         auto orderAttr = mlir::AffineMapAttr::get(mlir::AffineMap::getPermutationMap(permutation, getContext()));
-        auto transposeOp = rewriter.create<IE::TransposeOp>(appendLoc(origOp->getLoc(), "transpose"), filterTensor,
-                                                            /*order=*/nullptr, orderAttr);
+        auto transposeOp = IE::TransposeOp::create(rewriter, appendLoc(origOp->getLoc(), "transpose"), filterTensor,
+                                                   /*order=*/nullptr, orderAttr);
 
         const auto rank = filterTensorType.getRank();
         const auto axes = SmallVector<int64_t>{rank - 2, rank - 1};  // height and width are flipped
         const auto axesAttr = getIntArrayAttr(getContext(), axes);
         IE::ReverseModeAttr modeAttr = IE::ReverseModeAttr::get(getContext(), IE::ReverseMode::INDEX);
-        auto reverseOp = rewriter.create<IE::ReverseOp>(appendLoc(origOp->getLoc(), "reverse"), transposeOp.getOutput(),
-                                                        nullptr, axesAttr, modeAttr);
+        auto reverseOp = IE::ReverseOp::create(rewriter, appendLoc(origOp->getLoc(), "reverse"),
+                                               transposeOp.getOutput(), nullptr, axesAttr, modeAttr);
         auto newFilter = reverseOp.getOutput();
 
         rewriter.replaceOpWithNewOp<IE::GroupTransposedConvolutionOp>(

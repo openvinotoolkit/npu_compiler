@@ -64,10 +64,7 @@ void vpux::VPU::arch50xx::buildIncrementalPipeline(mlir::OpPassManager& pm, cons
 
     auto& nestedPm = options.enableScfComputeOpsOutlining ? pm.nest<mlir::ModuleOp>() : pm;
 
-    // Re-run RunMVNNormalizeOnDPU (which includes RunAddBroadcastOnDPU) after tiling and
-    // ScfComputeOpsOutlining. Tiling does not create new MVN1NormalizeOps (those are fixed before
-    // tiling), but tiling of a force-decomposed MVN1Normalize can produce broadcast VPU.AddOps that
-    // RunAddBroadcastOnDPU (a sub-pattern of RunMVNNormalizeOnDPU) must convert to DPU NCE.MaxPool.
+    // Re-run RunMVNNormalizeOnDPU after tiling and ScfComputeOpsOutlining.
     // Note: RunMVNNormalizeOnDPU is a FunctionPass; adding it to a ModuleOp-scoped nestedPm is
     // valid -- OpPassManager::addPass() implicitly nests it under func::FuncOp (standard MLIR behaviour).
     if (options.enableRunMVNNormalizeOnDPU) {
@@ -94,6 +91,33 @@ void vpux::VPU::arch50xx::buildIncrementalPipeline(mlir::OpPassManager& pm, cons
 }
 
 //
+// NCEWorkloadsPipeline
+//
+// Splits NCE operations onto DPU workloads and legalizes them. When SCF tiling is enabled the workloads are
+// generated on the still-rolled loops and the loops are fully unrolled only after all workload legalization
+// passes have run, so that every unrolled tile inherits an already correct workload.
+//
+
+void vpux::VPU::arch50xx::buildNCEWorkloadsPipeline(mlir::OpPassManager& pm, const VPU::NCEWorkloadsOptions& options,
+                                                    Logger log) {
+    if (options.enableSCFTiling) {
+        pm.addPass(VPU::createWorkloadsForNCEOpsSCFPass(log));
+    }
+
+    pm.addPass(VPU::createSplitNCEOpsOntoWorkloadsPass(log));
+    if (options.enablePrintStatistics) {
+        pm.addPass(VPU::createPrintNNCacheStatisticsPass(log, "split-NCE-ops-onto-workloads"));
+    }
+    pm.addPass(VPU::createCorrectNCEWorkloadsPass(log));
+    pm.addPass(VPU::createComputeNCEInputWorkloadsPass(log));
+    pm.addPass(VPU::createShiftOutputWorkloadsForHaloPass(log));
+
+    if (options.enableSCFTiling) {
+        pm.addPass(VPU::createFullUnrollSCFLoopPass(log));
+    }
+}
+
+//
 // DefaultHWPipeline
 //
 
@@ -101,28 +125,10 @@ void vpux::VPU::arch50xx::buildDefaultHWPipeline(mlir::OpPassManager& pm,
                                                  const VPU::arch50xx::DefaultHWOptions& options, Logger log) {
     const auto grc = getDefaultGreedyRewriteConfig();
 
-    /*
-        Memory reservation for CMX has to happen as early in VPU as possible. It is required because memory reservation
-        decreases usable CMX size which can result in different tiling decisions. If different passes see different
-        effective CMX size different failures which can be hard to diagnose can happen. Examples of such failures
-       include:
-        - Fail during compilation if additional memory was reserved after tiling but before scheduling since tiles
-        selected by tiling pipeline won't fit CMX anymore
-        - Memory corruption if additional memory is reserved after scheduler since additional memory will overlap
-        addresses allocated by the scheduler Currently there is no validation if memory is not reserved before the first
-        call to getTotalCMXSize.
-    */
-    if (options.enableCompressActivationSpill) {
-        pm.addPass(VPU::createCompressDmaReserveMemPass(log));
-    }
-
-    if (options.enableProfiling) {
-        pm.addPass(VPU::createDMATaskProfilingReserveMemPass(options.enableDMAProfiling.getValue(), log));
-    }
-
-    // TODO: E#140041 enable profiling with outlining
-    if (options.enableConcatRepeatingBlockOutlining && canOutlineFromProfilingPerspective(options)) {
-        pm.addPass(VPU::createConcatRepeatingBlocksOutliningPass(options.concatRepeatingBlockOutliningSeqLength, log));
+    if (options.enableConcatRepeatingBlockOutlining) {
+        pm.addPass(VPU::createConcatRepeatingBlocksOutliningPass(options.concatRepeatingBlockOutliningSeqLength,
+                                                                 options.concatRepeatingBlockOutliningSdpaHeadThreshold,
+                                                                 log));
         pm.addPass(mlir::createCanonicalizerPass(grc));
     }
 
@@ -132,6 +138,7 @@ void vpux::VPU::arch50xx::buildDefaultHWPipeline(mlir::OpPassManager& pm,
         pm.addPass(VPU::arch50xx::createDecomposeSoftmaxInSdpaPass(log));
     }
     pm.addPass(VPU::createAdjustForOptimizedLayersPass(log));
+    pm.addPass(VPU::createConvertTileWithEltwiseToNCEPoolPass(log));
     pm.addPass(VPU::createDetectionOutputDecompositionPass(log));
     pm.addPass(VPU::createSplitRealDFTOpsPass(log));
     pm.addPass(VPU::createAdjustLSTMCellInputsPass(log));
@@ -189,24 +196,13 @@ void vpux::VPU::arch50xx::buildDefaultHWPipeline(mlir::OpPassManager& pm,
     nestedPm.addPass(VPU::createMoveReflectPadToCMXPass(log));
     nestedPm.addPass(VPU::createMoveTensorOpsToCMXPass(log));
 
-    if (options.enableSCFTiling) {
-        nestedPm.addPass(VPU::createWorkloadsForNCEOpsSCFPass(log));
-        nestedPm.addPass(VPU::createFullUnrollSCFLoopPass(log));
-    }
-
-    nestedPm.addPass(vpux::VPU::createSplitNCEOpsOntoWorkloadsPass(log));
-    if (options.enablePrintStatistics) {
-        nestedPm.addPass(VPU::createPrintNNCacheStatisticsPass(log, "split-NCE-ops-onto-workloads"));
-    }
-    nestedPm.addPass(VPU::createCorrectNCEWorkloadsPass(log));
-    nestedPm.addPass(VPU::createComputeNCEInputWorkloadsPass(log));
-    nestedPm.addPass(VPU::createShiftOutputWorkloadsForHaloPass(log));
+    VPU::arch50xx::buildNCEWorkloadsPipeline(nestedPm, VPU::NCEWorkloadsOptions(options), log);
 
     nestedPm.addPass(mlir::createCanonicalizerPass(grc));
     nestedPm.addPass(createAdjustDynamicOpsBeforeBufferizationPass());
     nestedPm.addPass(VPU::createLegalizeDynamicShapeConcatForSWLayersPass(log));
     nestedPm.addPass(VPU::createAdjustMemorySpaceForSHVOpsPass(log));
-    if (options.enableEntireMainContentOutlining && canOutlineFromProfilingPerspective(options)) {
+    if (options.enableEntireMainContentOutlining) {
         nestedPm.addPass(VPU::createOutlineEntireMainContentPass(log));
     }
 }
@@ -229,5 +225,11 @@ void vpux::VPU::arch50xx::registerVPUPipelines() {
             "sm-pipeline", "Apply SM Pipeline",
             [](mlir::OpPassManager& pm, const vpux::arch40xx::MCAndTilingOptionsDevice& options) {
                 VPU::buildSMPipeline(pm, vpux::MCAndTilingOptionsBase(options));
+            });
+
+    mlir::PassPipelineRegistration<VPU::NCEWorkloadsOptions>(
+            "nce-workloads", "Split NCE operations onto DPU workloads and legalize them",
+            [](mlir::OpPassManager& pm, const VPU::NCEWorkloadsOptions& options) {
+                VPU::arch50xx::buildNCEWorkloadsPipeline(pm, options);
             });
 }

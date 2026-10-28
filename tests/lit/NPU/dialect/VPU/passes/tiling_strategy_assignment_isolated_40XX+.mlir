@@ -1760,7 +1760,8 @@ module @Test {
             ) -> (tensor<1x2x2x6xui8>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xui8>) {
         %output, %scale, %zero_point = VPU.DynamicQuantize(%arg0, %arg1, %arg2) {
                 dstElemType = ui8,
-                multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>
+                multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>,
+                operandSegmentSizes = array<i32: 1, 1, 1>
             } : tensor<1x2x2x6xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>
             -> tensor<1x2x2x6xui8>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xui8>
 

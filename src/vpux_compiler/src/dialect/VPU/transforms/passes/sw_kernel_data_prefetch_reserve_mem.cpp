@@ -37,24 +37,9 @@ private:
     void safeRunOnModule() final;
 };
 
-bool checkSWKernelOp(mlir::ModuleOp& func) {
-    bool hasSWKernelOp = false;
-    func->walk([&](VPU::SWOpInterface) {
-        hasSWKernelOp = true;
-        return;
-    });
-
-    return hasSWKernelOp;
-}
-
 void SWKernelDataPrefetchReserveMemPass::safeRunOnModule() {
     auto module = getOperation();
     auto* ctx = module->getContext();
-
-    auto hasSWKernelOp = checkSWKernelOp(module);
-    if (!hasSWKernelOp) {
-        return;
-    }
 
     auto maxPrefetchDataSize = VPUIP::getMaximalSWKernelPrefetchDataSize(module);
     auto memSpaceAttr = mlir::SymbolRefAttr::get(ctx, stringifyEnum(VPU::MemoryKind::CMX_NN));

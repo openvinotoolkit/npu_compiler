@@ -87,8 +87,8 @@ mlir::LogicalResult CreateCausalAttentionMask::matchAndRewrite(IE::SDPAOp origOp
     auto attentionMaskType = mlir::RankedTensorType::get(attentionMaskDims, mlir::Float16Type::get(ctx));
 
     auto denseElementVal = Const::createConstContent(attentionMaskType, ArrayRef(data));
-    auto causalMask = rewriter.create<Const::DeclareOp>(origOp.getLoc(), attentionMaskType,
-                                                        Const::ContentAttr::get(denseElementVal));
+    auto causalMask = Const::DeclareOp::create(rewriter, origOp.getLoc(), attentionMaskType,
+                                               Const::ContentAttr::get(denseElementVal));
 
     rewriter.replaceOpWithNewOp<IE::SDPAOp>(origOp, origOp.getInputQ(), origOp.getInputK(), origOp.getInputV(),
                                             causalMask, origOp.getInputScale(), /*causal*/ nullptr);

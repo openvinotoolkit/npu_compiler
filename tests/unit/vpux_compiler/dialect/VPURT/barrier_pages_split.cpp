@@ -5681,6 +5681,8 @@ graphToCheckEnqueueOfDpuDelayedDueToShvWithDpuAndDma() {
     barrierMapsConfig.taskQueueTypeMap[dpuType] = {6};
     barrierMapsConfig.taskQueueTypeMap[shvType] = {4};
 
+    barrierMapsConfig.wlmTaskDependencies = {{4, 5}};
+
     size_t pageSize = 3;
 
     SmallVector<size_t> barrierToPidVec = {0, 1, 2, 3, 4, 5, 0};
@@ -5715,62 +5717,6 @@ graphToCheckEnqueueOfDpuDelayedDueToShvWithDpuAndDma() {
 
     return std::make_tuple(barrierMapsConfig, pageSize, barrierToPidVec, shvTasksWithDpu, shvTasksWithDma,
                            expectedBarrierMapsConfig);
-}
-
-// Create a tuple with BarrierInfoMaps, pageSize, barrierToPidVec, shvTasksWithDpu and shvTasksWithDma.
-std::tuple<BarrierInfoMaps, size_t, SmallVector<size_t>, SmallVector<size_t>, SmallVector<size_t>>
-graphToCheckEnqueueOfFirstShvSubmitDmaAfterLatestStartBarrierProducer() {
-    BarrierInfoMaps barrierMapsConfig;
-
-    // Dedicated layout to differentiate heuristics for SHV enqueue placement:
-    // - Current rule: insert after latest producer of start barrier b0 -> task 0 => insertBefore = 1.
-    // - Historical rule: insert before earliest consumer of b0 -> task 3 => insertBefore = 3.
-    barrierMapsConfig.taskUpdateBarriers = {
-            {0},  // task 0
-            {7},  // task 1
-            {8},  // task 2
-            {1},  // task 3
-            {2},  // task 4
-            {3},  // task 5
-            {5},  // task 6
-            {4},  // task 7
-            {6},  // task 8
-            {6}   // task 9
-    };
-
-    barrierMapsConfig.taskWaitBarriers = {
-            {},   // task 0
-            {},   // task 1
-            {7},  // task 2
-            {0},  // task 3
-            {1},  // task 4
-            {2},  // task 5
-            {3},  // task 6
-            {3},  // task 7
-            {4},  // task 8
-            {5}   // task 9
-    };
-
-    fillProducersAndConsumers(barrierMapsConfig);
-
-    const VPURT::TaskQueueType dmaType0{config::ExecutorKind::DMA_NN,
-                                        getDMAQueueIdEncoding(/*port*/ 0, VPUIP::DmaChannelType::DDR)};
-    const VPURT::TaskQueueType dmaType1{config::ExecutorKind::DMA_NN,
-                                        getDMAQueueIdEncoding(/*port*/ 1, VPUIP::DmaChannelType::DDR)};
-    const VPURT::TaskQueueType dpuType{config::ExecutorKind::DPU, 0};
-    const VPURT::TaskQueueType shvType{config::ExecutorKind::SHAVE_ACT, 1};  // SHV tile 0 list 1
-
-    barrierMapsConfig.taskQueueTypeMap[dmaType0] = {0, 3, 7, 9};
-    barrierMapsConfig.taskQueueTypeMap[dmaType1] = {1, 2, 4, 5};
-    barrierMapsConfig.taskQueueTypeMap[dpuType] = {8};
-    barrierMapsConfig.taskQueueTypeMap[shvType] = {6};
-
-    size_t pageSize = 4;
-    SmallVector<size_t> barrierToPidVec = {0, 1, 2, 3, 4, 5, 0, 1, 2};
-    SmallVector<size_t> shvTasksWithDpu = {6};
-    SmallVector<size_t> shvTasksWithDma = {6};
-
-    return std::make_tuple(barrierMapsConfig, pageSize, barrierToPidVec, shvTasksWithDpu, shvTasksWithDma);
 }
 
 TEST_F(BarrierPagesSplitTests, CheckEnqueueOfDpuDelayedDueToShvWithDpuAndDma) {
@@ -5824,6 +5770,64 @@ TEST_F(BarrierPagesSplitTests, CheckEnqueueOfDpuDelayedDueToShvWithDpuAndDma) {
     EXPECT_EQ(expectedBarrierMapsConfig.taskWaitBarriers, testResult.taskWaitBarriers);
     EXPECT_EQ(expectedBarrierMapsConfig.barrierProducerMap, testResult.barrierProducerMap);
     EXPECT_EQ(expectedBarrierMapsConfig.barrierConsumerMap, testResult.barrierConsumerMap);
+}
+
+// Create a tuple with BarrierInfoMaps, pageSize, barrierToPidVec, shvTasksWithDpu and shvTasksWithDma.
+std::tuple<BarrierInfoMaps, size_t, SmallVector<size_t>, SmallVector<size_t>, SmallVector<size_t>>
+graphToCheckEnqueueOfFirstShvSubmitDmaAfterLatestStartBarrierProducer() {
+    BarrierInfoMaps barrierMapsConfig;
+
+    // Dedicated layout to differentiate heuristics for SHV enqueue placement:
+    // - Current rule: insert after latest producer of start barrier b0 -> task 0 => insertBefore = 1.
+    // - Historical rule: insert before earliest consumer of b0 -> task 3 => insertBefore = 3.
+    barrierMapsConfig.taskUpdateBarriers = {
+            {0},  // task 0
+            {7},  // task 1
+            {8},  // task 2
+            {1},  // task 3
+            {2},  // task 4
+            {3},  // task 5
+            {5},  // task 6
+            {4},  // task 7
+            {6},  // task 8
+            {6}   // task 9
+    };
+
+    barrierMapsConfig.taskWaitBarriers = {
+            {},   // task 0
+            {},   // task 1
+            {7},  // task 2
+            {0},  // task 3
+            {1},  // task 4
+            {2},  // task 5
+            {3},  // task 6
+            {3},  // task 7
+            {4},  // task 8
+            {5}   // task 9
+    };
+
+    fillProducersAndConsumers(barrierMapsConfig);
+
+    const VPURT::TaskQueueType dmaType0{config::ExecutorKind::DMA_NN,
+                                        getDMAQueueIdEncoding(/*port*/ 0, VPUIP::DmaChannelType::DDR)};
+    const VPURT::TaskQueueType dmaType1{config::ExecutorKind::DMA_NN,
+                                        getDMAQueueIdEncoding(/*port*/ 1, VPUIP::DmaChannelType::DDR)};
+    const VPURT::TaskQueueType dpuType{config::ExecutorKind::DPU, 0};
+    const VPURT::TaskQueueType shvType{config::ExecutorKind::SHAVE_ACT, 1};  // SHV tile 0 list 1
+
+    barrierMapsConfig.taskQueueTypeMap[dmaType0] = {0, 3, 7, 9};
+    barrierMapsConfig.taskQueueTypeMap[dmaType1] = {1, 2, 4, 5};
+    barrierMapsConfig.taskQueueTypeMap[dpuType] = {8};
+    barrierMapsConfig.taskQueueTypeMap[shvType] = {6};
+
+    barrierMapsConfig.wlmTaskDependencies = {{6, 7}};
+
+    size_t pageSize = 4;
+    SmallVector<size_t> barrierToPidVec = {0, 1, 2, 3, 4, 5, 0, 1, 2};
+    SmallVector<size_t> shvTasksWithDpu = {6};
+    SmallVector<size_t> shvTasksWithDma = {6};
+
+    return std::make_tuple(barrierMapsConfig, pageSize, barrierToPidVec, shvTasksWithDpu, shvTasksWithDma);
 }
 
 TEST_F(BarrierPagesSplitTests, CheckEnqueueOfFirstShvSubmitDmaAfterLatestStartBarrierProducer) {

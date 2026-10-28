@@ -1,5 +1,5 @@
 //
-// Copyright (C) 2024-2025 Intel Corporation
+// Copyright (C) 2024-2026 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -34,6 +34,16 @@ mlir::LogicalResult vpux::IE::ShapeOfOp::inferReturnTypeComponents(
     const auto outElemType = shapeOf.getDstElemType();
     inferredReturnShapes.emplace_back(ArrayRef(outShape), outElemType);
 
+    return mlir::success();
+}
+
+mlir::LogicalResult vpux::IE::ShapeOfOp::reifyResultShapes(mlir::OpBuilder& builder,
+                                                           mlir::ReifiedRankedShapedTypeDims& reifiedReturnShapes) {
+    auto inputType = mlir::dyn_cast<mlir::RankedTensorType>(getInput().getType());
+    if (!inputType) {
+        return mlir::failure();
+    }
+    reifiedReturnShapes.push_back({builder.getIndexAttr(inputType.getRank())});
     return mlir::success();
 }
 

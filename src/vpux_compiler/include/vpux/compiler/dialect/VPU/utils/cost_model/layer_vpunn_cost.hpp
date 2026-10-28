@@ -5,10 +5,10 @@
 
 #pragma once
 
+#include "vpux/compiler/core/dma_cost_model_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/cost_model/cost_model.hpp"
 #include "vpux/compiler/dialect/VPU/utils/distributed_tensor_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/strategy_manager/operation_strategies.hpp"
-
 namespace vpux::VPU {
 
 namespace CostModelConfig {
@@ -152,7 +152,7 @@ public:
             std::function<bool(mlir::Value value)> findOperand = nullptr,
             std::function<vpux::NDTypeInterface(const TileInfo&)> getOperandType = nullptr) const;
 
-    StrategyCost getSpillingTypeCost(vpux::NDTypeInterface type,
+    StrategyCost getSpillingTypeCost(vpux::NDTypeInterface type, vpux::DmaDirectionType dmaDirection,
                                      const std::optional<ShapeRef>& tileAxis = std::nullopt) const;
     void resetNNCacheCounter();
     void printNNCacheStatistics() const;

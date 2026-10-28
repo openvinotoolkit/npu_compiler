@@ -583,8 +583,7 @@ func.func @NoChangesDifferentMemSpace(%arg0: memref<1x16x4x4xf16, {order = #NHWC
     %1 = VPUIP.Copy inputs(%arg0 : memref<1x16x4x4xf16, {order = #NHWC}>) outputs(%0 : memref<1x16x4x4xf16, {order = #NHWC}, @CMX_NN>) -> memref<1x16x4x4xf16, {order = #NHWC}, @CMX_NN>
 
     %2 = memref.alloc() : memref<1x16x2x2xf16, {order = #NHWC}, @CMX_NN>
-    %3 = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>}
-     <{
+    %3 = VPUIP.NCEClusterTask <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>,
             kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
             kernel_size = [2, 2],
             kernel_strides = [2, 2],
@@ -1126,4 +1125,192 @@ func.func @FuseLastCopyConcatViewHasMultipleUsers(
     // DDR->DDR copy eliminated; %arg2 returned directly.
     // CHECK-NOT:       VPUIP.Copy
     // CHECK:           return [[ARG2]] : memref<1x4x128xf16, @DDR>
+}
+
+// -----
+
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+
+!DistBuffer = !VPUIP.DistributedBuffer<1x1x1x1323291xui8, #NCHW, @CMX_NN,
+    {mode = "DUPLICATED", num_clusters = 4 : i64, uniform_distributed_segments,
+    compute_shapes = [[1, 1, 1, 1323291], [1, 1, 1, 1323291], [1, 1, 1, 1323291], [1, 1, 1, 1323291]],
+    compute_offsets = [[0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]],
+    memory_shapes = [[1, 1, 1, 1323291], [1, 1, 1, 1323291], [1, 1, 1, 1323291], [1, 1, 1, 1323291]],
+    memory_offsets = [[0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]]}>
+
+// CHECK-LABEL: func.func @FuseLastCopyWithCastsOnOutputs
+// CHECK-SAME:  ({{%.+}}: memref<1x3x?x?xf16, strided<[?, ?, ?, ?], offset: ?>>, {{%.+}}: memref<2xf32, strided<[?], offset: ?>>,
+// CHECK-SAME:   {{%.+}}: memref<4xsi32>, [[OUT:%.+]]: memref<1x3x?x?xf16, strided<[?, ?, ?, ?], offset: ?>>,
+func.func @FuseLastCopyWithCastsOnOutputs(
+        %in: memref<1x3x?x?xf16, strided<[?, ?, ?, ?], offset: ?>>,
+        %scales: memref<2xf32, strided<[?], offset: ?>>,
+        %shape: memref<4xsi32>,
+        %out: memref<1x3x?x?xf16, strided<[?, ?, ?, ?], offset: ?>>,
+        %out_shape: memref<4xsi32>)
+        -> (memref<1x3x?x?xf16, strided<[?, ?, ?, ?], offset: ?>>, memref<4xsi32>) {
+    %in_ddr = Core.ReinterpretCast(%in) : memref<1x3x?x?xf16, strided<[?, ?, ?, ?], offset: ?>>
+        -> memref<1x3x368x432xf16, @DDR>
+    %scales_ddr = Core.ReinterpretCast(%scales) : memref<2xf32, strided<[?], offset: ?>> -> memref<2xf32, @DDR>
+    %shape_ddr = Core.ReinterpretCast(%shape) : memref<4xsi32> -> memref<4xsi32, @DDR>
+    %out_ddr = Core.ReinterpretCast(%out) : memref<1x3x?x?xf16, strided<[?, ?, ?, ?], offset: ?>>
+        -> memref<1x3x?x?xf16, strided<[?, ?, ?, ?], offset: ?>, @DDR>
+    %out_shape_ddr = Core.ReinterpretCast(%out_shape) : memref<4xsi32> -> memref<4xsi32, @DDR>
+    %buff = VPURT.AllocDistributed -> !DistBuffer
+    %res_alloc = memref.alloc() : memref<1x3x2944x3456xf16, @DDR>
+    %res_shape_alloc = memref.alloc() : memref<4xsi32, @DDR>
+    // CHECK: [[OUT_DDR:%.+]] = Core.ReinterpretCast([[OUT]]) {{.*}} -> memref<1x3x?x?xf16, strided<[?, ?, ?, ?], offset: ?>, @DDR>
+    // CHECK: [[OUT_STATIC:%.+]] = Core.ReinterpretCast([[OUT_DDR]]) {{.*}} -> memref<1x3x2944x3456xf16, @DDR>
+
+    %res:4, %res_shape = VPUIP.SW.Kernel
+        {dynamicInputShapesMap = array<i32: 0, -1, -1>, dynamicOutputShapesMap = array<i32: 0, -1>, resultSegmentSizes = array<i32: 4, 1, 0>}
+        @VPU.SW::@builtin_InterpolateDMA
+        inputs(%in_ddr as %arg0: memref<1x3x368x432xf16, @DDR>,
+               %scales_ddr as %arg1: memref<2xf32, @DDR>,
+               %buff as %arg2: !DistBuffer,
+               %in_ddr as %arg3: memref<1x3x368x432xf16, @DDR>,
+               %scales_ddr as %arg4: memref<2xf32, @DDR>,
+               %buff as %arg5: !DistBuffer)
+        dynamicInputShapes(%shape_ddr : memref<4xsi32, @DDR>)
+        outputs(%res_alloc as %out0: memref<1x3x2944x3456xf16, @DDR>,
+                %buff as %out1: !DistBuffer,
+                %res_alloc as %out2: memref<1x3x2944x3456xf16, @DDR>,
+                %buff as %out3: !DistBuffer)
+        dynamicOutputShapes(%res_shape_alloc : memref<4xsi32, @DDR>) on tile 0
+        -> (memref<1x3x2944x3456xf16, @DDR>, !DistBuffer, memref<1x3x2944x3456xf16, @DDR>, !DistBuffer, memref<4xsi32, @DDR>)
+    {
+        VPUIP.SW.Kernel.run {attrs = [1, 0, 2, 0, [2, 3], -7.500000e-01, 0.000000e+00, 8589934596]}
+            (%arg0, %arg1, %arg2, %out0, %out1)
+            : memref<1x3x368x432xf16, @DDR>, memref<2xf32, @DDR>, !DistBuffer, memref<1x3x2944x3456xf16, @DDR>, !DistBuffer
+        VPUIP.SW.Kernel.run {attrs = [1, 0, 2, 0, [2, 3], -7.500000e-01, 0.000000e+00, 8589934596]}
+            (%arg3, %arg4, %arg5, %out2, %out3)
+            : memref<1x3x368x432xf16, @DDR>, memref<2xf32, @DDR>, !DistBuffer, memref<1x3x2944x3456xf16, @DDR>, !DistBuffer
+    }
+    // Note: SW kernel directly writes into the network output:
+    // CHECK: [[RES:%.+]]:4, [[OUT_SHAPE:%.+]] = VPUIP.SW.Kernel {{.*}} @VPU.SW::@builtin_InterpolateDMA
+    // CHECK-SAME: outputs([[OUT_STATIC]]
+
+    %res_dynamic = Core.ReinterpretCast(%res#0) : memref<1x3x2944x3456xf16, @DDR>
+        -> memref<1x3x?x?xf16, strided<[?, ?, ?, ?], offset: ?>, @DDR>
+    %copy_out = VPUIP.Copy inputs(%res_dynamic : memref<1x3x?x?xf16, strided<[?, ?, ?, ?], offset: ?>, @DDR>)
+        outputs(%out_ddr : memref<1x3x?x?xf16, strided<[?, ?, ?, ?], offset: ?>, @DDR>)
+        -> memref<1x3x?x?xf16, strided<[?, ?, ?, ?], offset: ?>, @DDR>
+    %copy_shape = VPUIP.Copy inputs(%res_shape : memref<4xsi32, @DDR>)
+        outputs(%out_shape_ddr : memref<4xsi32, @DDR>) -> memref<4xsi32, @DDR>
+    %out_noddr = Core.ReinterpretCast(%copy_out) : memref<1x3x?x?xf16, strided<[?, ?, ?, ?], offset: ?>, @DDR>
+        -> memref<1x3x?x?xf16, strided<[?, ?, ?, ?], offset: ?>>
+    %shape_noddr = Core.ReinterpretCast(%copy_shape) : memref<4xsi32, @DDR> -> memref<4xsi32>
+    return %out_noddr, %shape_noddr : memref<1x3x?x?xf16, strided<[?, ?, ?, ?], offset: ?>>, memref<4xsi32>
+    // CHECK: [[OUT_NODDR:%.+]] = Core.ReinterpretCast([[OUT_DDR]]) {{.*}} -> memref<1x3x?x?xf16, strided<[?, ?, ?, ?], offset: ?>>
+    // CHECK: [[SHAPE_NODDR:%.+]] = Core.ReinterpretCast([[OUT_SHAPE]]) {{.*}} -> memref<4xsi32>
+    // CHECK: return [[OUT_NODDR]], [[SHAPE_NODDR]]
+}
+
+// -----
+
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+!DistBuf = !VPUIP.DistributedBuffer<1x16x89x1000xf16, #NHWC, @CMX_NN,
+    {mode = "OVERLAPPED", num_tiles = [1, 1, 6, 1], num_clusters = 6 : i64, uniform_distributed_segments,
+     compute_shapes = [[1, 16, 15, 1000], [1, 16, 15, 1000], [1, 16, 15, 1000], [1, 16, 15, 1000], [1, 16, 15, 1000], [1, 16, 14, 1000]],
+     compute_offsets = [[0, 0, 0, 0], [0, 0, 15, 0], [0, 0, 30, 0], [0, 0, 45, 0], [0, 0, 60, 0], [0, 0, 75, 0]],
+     memory_shapes = [[1, 16, 15, 1000], [1, 16, 15, 1000], [1, 16, 15, 1000], [1, 16, 15, 1000], [1, 16, 15, 1000], [1, 16, 14, 1000]],
+     memory_offsets = [[0, 0, 0, 0], [0, 0, 15, 0], [0, 0, 30, 0], [0, 0, 45, 0], [0, 0, 60, 0], [0, 0, 75, 0]]}>
+
+// CHECK: func.func @FuseLastCopyWithCastsOnOutputBuffers
+// CHECK-SAME: ([[IN0:%[^:]+]]: memref<1x623x1000x16xf16, strided<[?, ?, ?, ?], offset: ?>>,
+// CHECK-SAME:  [[IN1:%[^:]+]]: memref<1x623x1000x16xf16, strided<[?, ?, ?, ?], offset: ?>>,
+// CHECK-SAME:  [[OUT:%[^:]+]]: memref<1x623x1000x16xf16, strided<[?, ?, ?, ?], offset: ?>>)
+func.func @FuseLastCopyWithCastsOnOutputBuffers(
+        %arg0: memref<1x623x1000x16xf16, strided<[?, ?, ?, ?], offset: ?>>,
+        %arg1: memref<1x623x1000x16xf16, strided<[?, ?, ?, ?], offset: ?>>,
+        %arg2: memref<1x623x1000x16xf16, strided<[?, ?, ?, ?], offset: ?>>)
+        -> memref<1x623x1000x16xf16, strided<[?, ?, ?, ?], offset: ?>> {
+    %alloc = memref.alloc() : memref<1x16x623x1000xf16, {order = #NHWC}, @DDR>
+    %0 = Core.ReinterpretCast(%arg0) : memref<1x623x1000x16xf16, strided<[?, ?, ?, ?], offset: ?>>
+        -> memref<1x16x623x1000xf16, {order = #NHWC}, @DDR>
+    %1 = Core.ReinterpretCast(%arg1) : memref<1x623x1000x16xf16, strided<[?, ?, ?, ?], offset: ?>>
+        -> memref<1x16x623x1000xf16, {order = #NHWC}, @DDR>
+    %2 = Core.ReinterpretCast(%arg2) : memref<1x623x1000x16xf16, strided<[?, ?, ?, ?], offset: ?>>
+        -> memref<1x623x1000x16xf16, strided<[?, ?, ?, ?], offset: ?>, @DDR>
+
+    // CHECK: [[ORIG_OUT_CAST:%.+]] = Core.ReinterpretCast([[OUT]])
+    // CHECK-SAME:  -> memref<1x623x1000x16xf16, strided<[?, ?, ?, ?], offset: ?>, @DDR>
+    // CHECK: [[NEW_OUT_CAST:%.+]] = Core.ReinterpretCast([[ORIG_OUT_CAST]])
+    // CHECK-SAME:  -> memref<1x16x623x1000xf16, {order = #NHWC}, @DDR>
+
+    %s00 = VPUIP.SubView %0 [0, 0, 445, 0] [1, 16, 89, 1000] : memref<1x16x623x1000xf16, {order = #NHWC}, @DDR>
+        to memref<1x16x89x1000xf16, {order = #NHWC, strides = [9968000, 1, 16000, 16]}, @DDR>
+    %s01 = VPUIP.SubView %1 [0, 0, 445, 0] [1, 16, 89, 1000] : memref<1x16x623x1000xf16, {order = #NHWC}, @DDR>
+        to memref<1x16x89x1000xf16, {order = #NHWC, strides = [9968000, 1, 16000, 16]}, @DDR>
+    %alloc00 = VPURT.AllocDistributed -> !DistBuf
+    %in0 = VPUIP.Copy inputs(%s00 : memref<1x16x89x1000xf16, {order = #NHWC, strides = [9968000, 1, 16000, 16]}, @DDR>)
+        outputs(%alloc00 : !DistBuf) -> !DistBuf
+    %alloc01 = VPURT.AllocDistributed -> !DistBuf
+    %w0 = VPUIP.Copy inputs(%s01 : memref<1x16x89x1000xf16, {order = #NHWC, strides = [9968000, 1, 16000, 16]}, @DDR>)
+        outputs(%alloc01 : !DistBuf) -> !DistBuf
+    %alloc_out0 = VPURT.AllocDistributed -> !DistBuf
+    %nce0 = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 18748 : i64, tiling_loop_index = 0 : i64}
+        <{eltwise_type = #VPU.eltwise_type<ADD>, mpe_engine = #VPU.MPEEngine37XX<mode = <SCL>>,
+        resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>, task_type = #VPUIP.nce_task_type<ELTWISE>}>
+        input(%in0 : !DistBuf) weights(%w0 : !DistBuf) parent_input(%in0 : !DistBuf)
+        parent_output(%alloc_out0 : !DistBuf) outputs(%alloc_out0 : !DistBuf) -> !DistBuf variants : {
+        DPUTask {cluster_id = 0 : i64, inEnd = [999, 14, 15], inStart = [0, 0, 0], mpe_mode = #VPU.mpe_mode<CUBOID_8x16>,
+                outEnd = [999, 14, 15], outStart = [0, 0, 0],
+                pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>}
+    } PPE : {}
+    %s_out0 = VPUIP.SubView %alloc [0, 0, 445, 0] [1, 16, 89, 1000] : memref<1x16x623x1000xf16, {order = #NHWC}, @DDR>
+        to memref<1x16x89x1000xf16, {order = #NHWC, strides = [9968000, 1, 16000, 16]}, @DDR>
+    %out0 = VPUIP.Copy inputs(%nce0 : !DistBuf)
+        outputs(%s_out0 : memref<1x16x89x1000xf16, {order = #NHWC, strides = [9968000, 1, 16000, 16]}, @DDR>)
+        -> memref<1x16x89x1000xf16, {order = #NHWC, strides = [9968000, 1, 16000, 16]}, @DDR>
+
+    // CHECK: [[NCE0:%.+]] = VPUIP.NCEClusterTask
+    // CHECK: [[SUBVIEW0:%.+]] = VPUIP.SubView [[NEW_OUT_CAST]] [0, 0, 445, 0] [1, 16, 89, 1000]
+    // CHECK: [[COPY0:%.+]] = VPUIP.Copy inputs([[NCE0]]
+    // CHECK-SAME: outputs([[SUBVIEW0]]
+
+    %s10 = VPUIP.SubView %0 [0, 0, 534, 0] [1, 16, 89, 1000] : memref<1x16x623x1000xf16, {order = #NHWC}, @DDR>
+        to memref<1x16x89x1000xf16, {order = #NHWC, strides = [9968000, 1, 16000, 16]}, @DDR>
+    %s11 = VPUIP.SubView %1 [0, 0, 534, 0] [1, 16, 89, 1000] : memref<1x16x623x1000xf16, {order = #NHWC}, @DDR>
+        to memref<1x16x89x1000xf16, {order = #NHWC, strides = [9968000, 1, 16000, 16]}, @DDR>
+    %alloc10 = VPURT.AllocDistributed -> !DistBuf
+    %in1 = VPUIP.Copy inputs(%s10 : memref<1x16x89x1000xf16, {order = #NHWC, strides = [9968000, 1, 16000, 16]}, @DDR>)
+        outputs(%alloc10 : !DistBuf) -> !DistBuf
+    %alloc11 = VPURT.AllocDistributed -> !DistBuf
+    %w1 = VPUIP.Copy inputs(%s11 : memref<1x16x89x1000xf16, {order = #NHWC, strides = [9968000, 1, 16000, 16]}, @DDR>)
+        outputs(%alloc11 : !DistBuf) -> !DistBuf
+    %alloc_out1 = VPURT.AllocDistributed -> !DistBuf
+    %70 = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 18748 : i64, tiling_loop_index = 0 : i64}
+        <{eltwise_type = #VPU.eltwise_type<ADD>, mpe_engine = #VPU.MPEEngine37XX<mode = <SCL>>,
+        resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>, task_type = #VPUIP.nce_task_type<ELTWISE>}>
+        input(%in1 : !DistBuf) weights(%w1 : !DistBuf) parent_input(%in1 : !DistBuf)
+        parent_output(%alloc_out1 : !DistBuf) outputs(%alloc_out1 : !DistBuf) -> !DistBuf variants : {
+        DPUTask {cluster_id = 0 : i64, inEnd = [999, 14, 15], inStart = [0, 0, 0], mpe_mode = #VPU.mpe_mode<CUBOID_8x16>,
+                outEnd = [999, 14, 15], outStart = [0, 0, 0],
+                pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>}
+    } PPE : {}
+    %s_out1 = VPUIP.SubView %alloc [0, 0, 534, 0] [1, 16, 89, 1000] : memref<1x16x623x1000xf16, {order = #NHWC}, @DDR>
+        to memref<1x16x89x1000xf16, {order = #NHWC, strides = [9968000, 1, 16000, 16]}, @DDR>
+    %out1 = VPUIP.Copy inputs(%70 : !DistBuf)
+        outputs(%s_out1 : memref<1x16x89x1000xf16, {order = #NHWC, strides = [9968000, 1, 16000, 16]}, @DDR>)
+        -> memref<1x16x89x1000xf16, {order = #NHWC, strides = [9968000, 1, 16000, 16]}, @DDR>
+
+    // CHECK: [[NCE1:%.+]] = VPUIP.NCEClusterTask
+    // CHECK: [[SUBVIEW1:%.+]] = VPUIP.SubView [[NEW_OUT_CAST]] [0, 0, 534, 0] [1, 16, 89, 1000]
+    // CHECK: [[COPY1:%.+]] = VPUIP.Copy inputs([[NCE1]]
+    // CHECK-SAME: outputs([[SUBVIEW1]]
+
+    %concat = VPUIP.ConcatView inputs(%out0, %out1 : memref<1x16x89x1000xf16, {order = #NHWC, strides = [9968000, 1, 16000, 16]}, @DDR>,
+                                                    memref<1x16x89x1000xf16, {order = #NHWC, strides = [9968000, 1, 16000, 16]}, @DDR>)
+        outputs(%alloc : memref<1x16x623x1000xf16, {order = #NHWC}, @DDR>) -> memref<1x16x623x1000xf16, {order = #NHWC}, @DDR>
+    %cast = Core.ReinterpretCast(%concat) : memref<1x16x623x1000xf16, {order = #NHWC}, @DDR>
+        -> memref<1x623x1000x16xf16, strided<[?, ?, ?, ?], offset: ?>, @DDR>
+    %concat_copy = VPUIP.Copy inputs(%cast : memref<1x623x1000x16xf16, strided<[?, ?, ?, ?], offset: ?>, @DDR>)
+        outputs(%2 : memref<1x623x1000x16xf16, strided<[?, ?, ?, ?], offset: ?>, @DDR>)
+        -> memref<1x623x1000x16xf16, strided<[?, ?, ?, ?], offset: ?>, @DDR>
+    %res = Core.ReinterpretCast(%concat_copy) : memref<1x623x1000x16xf16, strided<[?, ?, ?, ?], offset: ?>, @DDR>
+        -> memref<1x623x1000x16xf16, strided<[?, ?, ?, ?], offset: ?>>
+    return %res : memref<1x623x1000x16xf16, strided<[?, ?, ?, ?], offset: ?>>
+    // CHECK: [[RES_NODDR:%.+]] = Core.ReinterpretCast([[ORIG_OUT_CAST]])
+    // CHECK-SAME:  -> memref<1x623x1000x16xf16, strided<[?, ?, ?, ?], offset: ?>>
+    // CHECK: return [[RES_NODDR]]
 }

@@ -192,10 +192,10 @@ void SplitNCEOpsOntoWorkloadsPass::safeRunOnFunc() {
     const auto arch = config::getArch(module);
 
     auto nceCluster = config::getTileExecutor(module);
-    VPUX_THROW_UNLESS(nceCluster != nullptr, "Failed to get NCE_Cluster information");
+    VPUX_THROW_WHEN(nceCluster == nullptr, "Failed to get NCE_Cluster information");
 
     auto dpuExec = nceCluster.getSubExecutor(config::ExecutorKind::DPU);
-    VPUX_THROW_UNLESS(dpuExec != nullptr, "Failed to get DPU information");
+    VPUX_THROW_WHEN(dpuExec == nullptr, "Failed to get DPU information");
 
     const auto numDPUs = dpuExec.getCount();
 

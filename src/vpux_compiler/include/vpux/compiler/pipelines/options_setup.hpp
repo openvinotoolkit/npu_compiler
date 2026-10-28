@@ -120,6 +120,7 @@ private:
         }
 
         auto optimizationAggressiveEnabled = getQDQOptimizationAggressive(config);
+
         maybeSetValue(_initCompilerOptions->enableQDQOptimizationAggressive, optimizationAggressiveEnabled);
 
         auto optimizationEnabled = getQDQOptimization(config);

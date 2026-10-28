@@ -137,10 +137,10 @@ SmallVector<mlir::Type> convertToUnrankedTypes(mlir::Value operand) {
     } else if (auto type = mlir::dyn_cast_or_null<VPUIP::DistributedBufferType>(operand.getType())) {
         result.emplace_back(mlir::UnrankedMemRefType::get(type.getElementType(), type.getMemSpace()));
     } else {
-        VPUX_THROW_UNLESS(!result.empty(),
-                          "This type is not supported by createBuiltInFunction."
-                          "Got: {0}",
-                          operand.getType());
+        VPUX_THROW_WHEN(result.empty(),
+                        "This type is not supported by createBuiltInFunction. "
+                        "Got: {0}",
+                        operand.getType());
     }
     return result;
 };
@@ -242,8 +242,8 @@ mlir::LogicalResult ConvertVPUIPCopyToSWCopy::matchAndRewrite(VPUIP::CopyOp orig
     auto builtInFunction = vpux::VPUIP::createBuiltInFunction(module, builtInFunctionName, types, kernelInfo.entryName,
                                                               kernelInfo.sourceFileName, kernelInfo.layerName, _log);
 
-    auto swKernelOp = rewriter.create<VPUIP::SwKernelOp>(location, operandsBuff, outputsBuff, builtInFunction,
-                                                         getIntAttr(ctx, tileIndex));
+    auto swKernelOp = VPUIP::SwKernelOp::create(rewriter, location, operandsBuff, outputsBuff, builtInFunction,
+                                                getIntAttr(ctx, tileIndex));
 
     vpux::VPUIP::initSwKernel(swKernelOp, operandsBuff, outputsBuff, kernelInfo.args, _log.nest(),
                               /*swKernelRunOp=*/nullptr);
@@ -312,12 +312,12 @@ void ConvertVPUIPCopyToSWCopyPass::safeRunOnModule() {
         auto& aliasesInfo = getChildAnalysis<AliasesInfo>(parentFunc);
 
         // Tracking number [E#160558]
-        VPUX_THROW_UNLESS(!getRootBlockArgument(copyOp.getInput(), aliasesInfo),
-                          "Got Input Network I/O block argument when converting VPUIP.Copy to SW.Copy."
-                          "Direct access to Network I/O arguments is not supported!");
-        VPUX_THROW_UNLESS(!getRootBlockArgument(copyOp.getOutput(), aliasesInfo),
-                          "Got Output Network I/O block argument when converting VPUIP.Copy to SW.Copy."
-                          "Direct access to Network I/O arguments is not supported!");
+        VPUX_THROW_WHEN(getRootBlockArgument(copyOp.getInput(), aliasesInfo),
+                        "Got Input Network I/O block argument when converting VPUIP.Copy to SW.Copy."
+                        "Direct access to Network I/O arguments is not supported!");
+        VPUX_THROW_WHEN(getRootBlockArgument(copyOp.getOutput(), aliasesInfo),
+                        "Got Output Network I/O block argument when converting VPUIP.Copy to SW.Copy."
+                        "Direct access to Network I/O arguments is not supported!");
         return false;
     });
 

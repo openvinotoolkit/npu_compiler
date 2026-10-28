@@ -173,7 +173,7 @@ void ConcatInitResults::updateInit(mlir::func::FuncOp initFunc) {
     _log.debug("Running obfuscateOutputs():");
     VPU::obfuscateOutputs(_log.nest(), appendLoc(initFunc.getLoc(), "obfuscated_outputs"), initFunc, outputIndices,
                           [](mlir::OpBuilder& builder, mlir::Location loc, ArrayRef<mlir::Value> inputs, int64_t axis) {
-                              return builder.create<IE::ConcatOp>(loc, inputs, axis);
+                              return IE::ConcatOp::create(builder, loc, inputs, axis);
                           });
 }
 
@@ -192,7 +192,7 @@ void ConcatInitResults::updateNetworkInfoForInit(net::NetworkInfoOp netInfo, mli
     const auto outputName = getUniqueConcatenatedNameOfInitResults(thisInitResults, _initPart);
     // Note: guaranteed single result by definition of this pass
     const auto outputType = stripEncoding(mlir::cast<mlir::RankedTensorType>(initFunc.getFunctionType().getResult(0)));
-    builder.create<net::DataInfoOp>(appendLoc(netInfo.getLoc(), "concat_out"), outputName, outputType);
+    net::DataInfoOp::create(builder, appendLoc(netInfo.getLoc(), "concat_out"), outputName, outputType);
 
     _log.debug("Updating network info for init:");
     _log.nest().debug("Added \"DataInfo\" {0} : {1}", outputName, outputType);
@@ -207,7 +207,7 @@ std::vector<size_t> ConcatInitResults::updateTopLevelMain(
                               obfuscationInfo.inputGroupsToObfuscate,
                               [](mlir::OpBuilder& builder, mlir::Location loc, mlir::Value input,
                                  ArrayRef<int64_t> offsets, ArrayRef<int64_t> sizes) {
-                                  return builder.create<VPU::SliceOp>(loc, input, offsets, sizes);
+                                  return VPU::SliceOp::create(builder, loc, input, offsets, sizes);
                               });
     return obfuscationInfo.inputsToPreserve;
 }
@@ -249,7 +249,7 @@ void ConcatInitResults::updateNetworkInfoForMain(net::NetworkInfoOp netInfo, mli
         const auto inputName = getUniqueConcatenatedNameOfInitResults(initPartResults, initPart);
         const auto inputType = stripEncoding(
                 mlir::cast<mlir::RankedTensorType>(mainFunc.getFunctionType().getInput(newInputsOffset + i)));
-        builder.create<net::DataInfoOp>(appendLoc(netInfo.getLoc(), "concat_in{0}", i), inputName, inputType);
+        net::DataInfoOp::create(builder, appendLoc(netInfo.getLoc(), "concat_in{0}", i), inputName, inputType);
 
         log.nest().debug("Added \"DataInfo\" {0} : {1}", inputName, inputType);
     }

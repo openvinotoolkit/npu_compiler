@@ -6,7 +6,10 @@
 #pragma once
 
 #include "vpux/compiler/dialect/VPU/utils/vertical_fusion/v2/vertical_fusion_config.hpp"
+#include "vpux/compiler/dialect/VPU/utils/vertical_fusion/v2/vertical_fusion_scheduler_interface.hpp"
+#include "vpux/compiler/dialect/VPU/utils/vertical_fusion/v2/vf_cost_strategy_factory.hpp"
 #include "vpux/compiler/dialect/VPU/utils/vertical_fusion/vertical_fusion_scheduler_interface.hpp"
+#include "vpux/compiler/utils/options.hpp"
 
 namespace vpux::VPU::VF::v2 {
 
@@ -16,7 +19,8 @@ namespace vpux::VPU::VF::v2 {
 
 class VFSchedulingFactory {
 public:
-    VFSchedulingFactory(bool prefetching);
+    VFSchedulingFactory(bool prefetching, std::shared_ptr<const VFCostStrategy> costStrategy =
+                                                  VFCostStrategyFactory::create(VFMergeCostMode::PERFORMANCE));
     /*
       create scheduling scenario
     */
@@ -24,6 +28,7 @@ public:
 
 private:
     bool _prefetching = true;
+    std::shared_ptr<const VFCostStrategy> _costStrategy;
 };
 
 }  // namespace vpux::VPU::VF::v2

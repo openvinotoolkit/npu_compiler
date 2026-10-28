@@ -20,13 +20,13 @@ func.func @view_static_reshape() -> () attributes {config.pureHostCompileFunc} {
 // CHECK:  bytecode.func_section @func_section {
 // CHECK:    bytecode.ext.func @view_static_reshape () -> () {
 // CHECK-NOT:   memref.reinterpret_cast
-// CHECK:       [[BUF:%.+]] = bytecode.virtual_general_register
+// CHECK:       [[BUF:%.+]] = bytecode.virtual_value_register
 // CHECK:       bytecode.ext.buffer.create [[BUF]], memref<8xf32>
 // CHECK:       [[SZ0:%.+]] = bytecode.imm_register 2
 // CHECK:       [[SZ1:%.+]] = bytecode.imm_register 4
 // CHECK:       [[ST0:%.+]] = bytecode.imm_register 4
 // CHECK:       [[ST1:%.+]] = bytecode.imm_register 1
-// CHECK:       [[VIEW:%.+]] = bytecode.virtual_general_register
+// CHECK:       [[VIEW:%.+]] = bytecode.virtual_value_register
 // CHECK:       [[ZERO:%.+]] = bytecode.imm_register 0
 // CHECK:       bytecode.ext.buffer.view [[VIEW]], [[BUF]], f32 offset([[ZERO]]) shape([[SZ0]], [[SZ1]]) strides([[ST0]], [[ST1]])
 // CHECK:       bytecode.ret
@@ -52,7 +52,7 @@ func.func @view_dynamic_size(%src: memref<1x?xf32>, %rows: index) -> ()
 // CHECK:        [[SZ1:%.+]] = bytecode.imm_register 16
 // CHECK:        [[ST0:%.+]] = bytecode.imm_register 16
 // CHECK:        [[ST1:%.+]] = bytecode.imm_register 1
-// CHECK:        [[VIEW:%.+]] = bytecode.virtual_general_register
+// CHECK:        [[VIEW:%.+]] = bytecode.virtual_value_register
 // CHECK:        [[ZERO:%.+]] = bytecode.imm_register 0
 // CHECK:        bytecode.ext.buffer.view [[VIEW]], [[ARG0]], f32 offset([[ZERO]]) shape([[ARG1]], [[SZ1]]) strides([[ST0]], [[ST1]])
 // CHECK:        bytecode.ret
@@ -75,11 +75,11 @@ func.func @view_element_type_cast() -> () attributes {config.pureHostCompileFunc
 
 // CHECK:      bytecode.ext.func @view_element_type_cast () -> () {
 // CHECK-NOT:    memref.reinterpret_cast
-// CHECK:        [[BUF:%.+]] = bytecode.virtual_general_register
+// CHECK:        [[BUF:%.+]] = bytecode.virtual_value_register
 // CHECK:        bytecode.ext.buffer.create [[BUF]], memref<16xi8>
 // CHECK:        [[SZ0:%.+]] = bytecode.imm_register 4
 // CHECK:        [[ST0:%.+]] = bytecode.imm_register 1
-// CHECK:        [[VIEW:%.+]] = bytecode.virtual_general_register
+// CHECK:        [[VIEW:%.+]] = bytecode.virtual_value_register
 // CHECK:        [[ZERO:%.+]] = bytecode.imm_register 0
 // CHECK:        bytecode.ext.buffer.view [[VIEW]], [[BUF]], i8 offset([[ZERO]]) shape([[SZ0]]) strides([[ST0]])
 // CHECK:        bytecode.ret
@@ -104,9 +104,9 @@ func.func @view_2d(%base: memref<64xi8>, %rows: index, %cols: index) -> ()
 // CHECK-DAG:    [[ARG2:%.+]] = bytecode.virtual_parameter_register 2
 // CHECK:        [[C0:%.+]] = bytecode.imm_register 0
 // CHECK:        [[ST1:%.+]] = bytecode.imm_register 1
-// CHECK:        [[ST0:%.+]] = bytecode.virtual_general_register
+// CHECK:        [[ST0:%.+]] = bytecode.virtual_value_register
 // CHECK:        bytecode.mul.i64 [[ST0]], [[ARG2]], [[ST1]]
-// CHECK:        [[VIEW:%.+]] = bytecode.virtual_general_register
+// CHECK:        [[VIEW:%.+]] = bytecode.virtual_value_register
 // CHECK:        bytecode.ext.buffer.view [[VIEW]], [[ARG0]], f32 offset([[C0]]) shape([[ARG1]], [[ARG2]]) strides([[ST0]], [[ST1]])
 // CHECK:        bytecode.ret
 
@@ -136,12 +136,12 @@ func.func @view_4d_mixed(%base: memref<1024xi8>, %h: index, %w: index) -> ()
 // CHECK:        [[D0:%.+]] = bytecode.imm_register 1
 // CHECK:        [[D3:%.+]] = bytecode.imm_register 16
 // CHECK:        [[ST3:%.+]] = bytecode.imm_register 1
-// CHECK:        [[ST2:%.+]] = bytecode.virtual_general_register
+// CHECK:        [[ST2:%.+]] = bytecode.virtual_value_register
 // CHECK:        bytecode.mul.i64 [[ST2]], [[D3]], [[ST3]]
-// CHECK:        [[ST1:%.+]] = bytecode.virtual_general_register
+// CHECK:        [[ST1:%.+]] = bytecode.virtual_value_register
 // CHECK:        bytecode.mul.i64 [[ST1]], [[W]], [[ST2]]
-// CHECK:        [[ST0:%.+]] = bytecode.virtual_general_register
+// CHECK:        [[ST0:%.+]] = bytecode.virtual_value_register
 // CHECK:        bytecode.mul.i64 [[ST0]], [[H]], [[ST1]]
-// CHECK:        [[VIEW:%.+]] = bytecode.virtual_general_register
+// CHECK:        [[VIEW:%.+]] = bytecode.virtual_value_register
 // CHECK:        bytecode.ext.buffer.view [[VIEW]], [[BASE]], f16 offset([[C0]]) shape([[D0]], [[H]], [[W]], [[D3]]) strides([[ST0]], [[ST1]], [[ST2]], [[ST3]])
 // CHECK:        bytecode.ret

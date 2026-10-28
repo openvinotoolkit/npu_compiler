@@ -126,31 +126,45 @@ module @Activation attributes {config.compilationMode = #config.compilation_mode
   
   // CHECK: [[BAR0:%.+]] = VPURT.DeclareVirtualBarrier
   // CHECK: [[BAR1:%.+]] = VPURT.DeclareVirtualBarrier
-  
-  // Port 0 DDR Sync
-  // CHECK-DAG: VPUIP.SkipDMA <{port = 0 : i64}> inputs(%3 : memref<0x0x0x0xi32, @DDR>) outputs(%2 : memref<0x0x0x0xi32, @DDR>) skip_dma(<tile = 0 : i64, list = 1 : i64, logicalTask = 0 : i64, descId = 4 : i64>) -> memref<0x0x0x0xi32, @DDR>
-  // CHECK-DAG: VPUIP.SkipDMA <{port = 0 : i64}> inputs(%3 : memref<0x0x0x0xi32, @DDR>) outputs(%2 : memref<0x0x0x0xi32, @DDR>) skip_dma(<tile = 0 : i64, list = 0 : i64, logicalTask = 0 : i64, descId = 0 : i64>) -> memref<0x0x0x0xi32, @DDR>
-  // CHECK: VPURT.Task waits([[BAR1]] : !VPURT.Barrier) {
-  // CHECK: VPUIP.SyncDMA {logical_task = 0 : i64, shv_release_dma} <{port = 0 : i64}> inputs(%17 : memref<0x0x0x0xi32, @DDR>) outputs(%17 : memref<0x0x0x0xi32, @DDR>) -> memref<0x0x0x0xi32, @DDR>
-  
-  
-  // Port 1 DDR Sync
-  // CHECK-DAG: VPUIP.SkipDMA <{port = 1 : i64}> inputs(%5 : memref<0x0x0x0xi32, @DDR>) outputs(%2 : memref<0x0x0x0xi32, @DDR>) skip_dma(<tile = 0 : i64, list = 1 : i64, logicalTask = 0 : i64, descId = 6 : i64>) -> memref<0x0x0x0xi32, @DDR>
-  // CHECK-DAG: VPUIP.SkipDMA <{port = 1 : i64}> inputs(%5 : memref<0x0x0x0xi32, @DDR>) outputs(%2 : memref<0x0x0x0xi32, @DDR>) skip_dma(<tile = 0 : i64, list = 0 : i64, logicalTask = 0 : i64, descId = 2 : i64>) -> memref<0x0x0x0xi32, @DDR>
-  // CHECK: VPURT.Task waits([[BAR1]] : !VPURT.Barrier) {
-  // CHECK: VPUIP.SyncDMA {logical_task = 0 : i64, shv_release_dma} <{port = 1 : i64}> inputs(%17 : memref<0x0x0x0xi32, @DDR>) outputs(%17 : memref<0x0x0x0xi32, @DDR>) -> memref<0x0x0x0xi32, @DDR>
-  
-  
-  // Port 0 CMX Sync
-  // CHECK-DAG: VPUIP.SkipDMA <{port = 0 : i64}> inputs(%4 : memref<0x0x0x0xi32, [@CMX_NN, 0]>) outputs(%2 : memref<0x0x0x0xi32, @DDR>) skip_dma(<tile = 0 : i64, list = 1 : i64, logicalTask = 0 : i64, descId = 5 : i64>) -> memref<0x0x0x0xi32, @DDR>
-  // CHECK-DAG: VPUIP.SkipDMA <{port = 0 : i64}> inputs(%4 : memref<0x0x0x0xi32, [@CMX_NN, 0]>) outputs(%2 : memref<0x0x0x0xi32, @DDR>) skip_dma(<tile = 0 : i64, list = 0 : i64, logicalTask = 0 : i64, descId = 1 : i64>) -> memref<0x0x0x0xi32, @DDR>
-  // CHECK: VPURT.Task waits([[BAR1]] : !VPURT.Barrier) {
-  // CHECK: VPUIP.SyncDMA {logical_task = 0 : i64, shv_release_dma} <{port = 0 : i64}> inputs(%22 : memref<0x0x0x0xui8, [@CMX_NN, 0]>) outputs(%17 : memref<0x0x0x0xi32, @DDR>) -> memref<0x0x0x0xi32, @DDR>
-  
-  
-  // Port 1 CMX Sync
-  // CHECK-DAG: VPUIP.SkipDMA <{port = 1 : i64}> inputs(%6 : memref<0x0x0x0xi32, [@CMX_NN, 0]>) outputs(%2 : memref<0x0x0x0xi32, @DDR>) skip_dma(<tile = 0 : i64, list = 1 : i64, logicalTask = 0 : i64, descId = 7 : i64>) -> memref<0x0x0x0xi32, @DDR>
-  // CHECK-DAG: VPUIP.SkipDMA <{port = 1 : i64}> inputs(%6 : memref<0x0x0x0xi32, [@CMX_NN, 0]>) outputs(%2 : memref<0x0x0x0xi32, @DDR>) skip_dma(<tile = 0 : i64, list = 0 : i64, logicalTask = 0 : i64, descId = 3 : i64>) -> memref<0x0x0x0xi32, @DDR>
-  // CHECK: VPURT.Task waits([[BAR1]] : !VPURT.Barrier) {
-  // CHECK: VPUIP.SyncDMA {logical_task = 0 : i64, shv_release_dma} <{port = 1 : i64}> inputs(%22 : memref<0x0x0x0xui8, [@CMX_NN, 0]>) outputs(%17 : memref<0x0x0x0xi32, @DDR>) -> memref<0x0x0x0xi32, @DDR>
+
+  // CHECK: [[OUT_BUF:%.+]] = VPURT.DeclareBuffer <DDR> <0> -> memref<0x0x0x0xi32, @DDR>
+  // CHECK: [[IN_DDR_P0:%.+]] = VPURT.DeclareBuffer <DDR> <0> -> memref<0x0x0x0xi32, @DDR>
+  // CHECK: [[IN_CMX_P0:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<0x0x0x0xi32, [@CMX_NN, 0]>
+  // CHECK: [[IN_DDR_P1:%.+]] = VPURT.DeclareBuffer <DDR> <0> -> memref<0x0x0x0xi32, @DDR>
+  // CHECK: [[IN_CMX_P1:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<0x0x0x0xi32, [@CMX_NN, 0]>
+
+  // SkipDMAs for tile 0 list 0 are inserted immediately after the SHV task.
+  // setInsertionPointAfter reverses insertion order: last-sorted (port1_CMX) ends up first in IR.
+  // CHECK: VPURT.Task waits([[BAR0]] : !VPURT.Barrier) updates([[BAR1]] : !VPURT.Barrier)
+  // CHECK: VPUIP.SW.Kernel {{.*}} on tile 0 list 0
+  // CHECK: VPURT.Task
+  // CHECK: VPUIP.SkipDMA <{port = 1 : i64}> inputs([[IN_CMX_P1]] : memref<0x0x0x0xi32, [@CMX_NN, 0]>) outputs([[OUT_BUF]] : memref<0x0x0x0xi32, @DDR>) skip_dma(<tile = 0 : i64, list = 0 : i64, logicalTask = 0 : i64, descId = 3 : i64>)
+  // CHECK: VPURT.Task
+  // CHECK: VPUIP.SkipDMA <{port = 1 : i64}> inputs([[IN_DDR_P1]] : memref<0x0x0x0xi32, @DDR>) outputs([[OUT_BUF]] : memref<0x0x0x0xi32, @DDR>) skip_dma(<tile = 0 : i64, list = 0 : i64, logicalTask = 0 : i64, descId = 2 : i64>)
+  // CHECK: VPURT.Task
+  // CHECK: VPUIP.SkipDMA <{port = 0 : i64}> inputs([[IN_CMX_P0]] : memref<0x0x0x0xi32, [@CMX_NN, 0]>) outputs([[OUT_BUF]] : memref<0x0x0x0xi32, @DDR>) skip_dma(<tile = 0 : i64, list = 0 : i64, logicalTask = 0 : i64, descId = 1 : i64>)
+  // CHECK: VPURT.Task
+  // CHECK: VPUIP.SkipDMA <{port = 0 : i64}> inputs([[IN_DDR_P0]] : memref<0x0x0x0xi32, @DDR>) outputs([[OUT_BUF]] : memref<0x0x0x0xi32, @DDR>) skip_dma(<tile = 0 : i64, list = 0 : i64, logicalTask = 0 : i64, descId = 0 : i64>)
+
+  // SkipDMAs for tile 0 list 1 are inserted immediately after the SHV task
+  // CHECK: VPURT.Task waits([[BAR0]] : !VPURT.Barrier) updates([[BAR1]] : !VPURT.Barrier)
+  // CHECK: VPUIP.SW.Kernel {{.*}} on tile 0 list 1
+  // CHECK: VPURT.Task
+  // CHECK: VPUIP.SkipDMA <{port = 1 : i64}> inputs([[IN_CMX_P1]] : memref<0x0x0x0xi32, [@CMX_NN, 0]>) outputs([[OUT_BUF]] : memref<0x0x0x0xi32, @DDR>) skip_dma(<tile = 0 : i64, list = 1 : i64, logicalTask = 0 : i64, descId = 7 : i64>)
+  // CHECK: VPURT.Task
+  // CHECK: VPUIP.SkipDMA <{port = 1 : i64}> inputs([[IN_DDR_P1]] : memref<0x0x0x0xi32, @DDR>) outputs([[OUT_BUF]] : memref<0x0x0x0xi32, @DDR>) skip_dma(<tile = 0 : i64, list = 1 : i64, logicalTask = 0 : i64, descId = 6 : i64>)
+  // CHECK: VPURT.Task
+  // CHECK: VPUIP.SkipDMA <{port = 0 : i64}> inputs([[IN_CMX_P0]] : memref<0x0x0x0xi32, [@CMX_NN, 0]>) outputs([[OUT_BUF]] : memref<0x0x0x0xi32, @DDR>) skip_dma(<tile = 0 : i64, list = 1 : i64, logicalTask = 0 : i64, descId = 5 : i64>)
+  // CHECK: VPURT.Task
+  // CHECK: VPUIP.SkipDMA <{port = 0 : i64}> inputs([[IN_DDR_P0]] : memref<0x0x0x0xi32, @DDR>) outputs([[OUT_BUF]] : memref<0x0x0x0xi32, @DDR>) skip_dma(<tile = 0 : i64, list = 1 : i64, logicalTask = 0 : i64, descId = 4 : i64>)
+
+  // Release syncs follow after all SkipDMAs
+  // CHECK: VPURT.Task waits([[BAR1]] : !VPURT.Barrier)
+  // CHECK: VPUIP.SyncDMA {logical_task = 0 : i64, shv_release_dma} <{port = 0 : i64}>
+  // CHECK: VPURT.Task waits([[BAR1]] : !VPURT.Barrier)
+  // CHECK: VPUIP.SyncDMA {logical_task = 0 : i64, shv_release_dma} <{port = 1 : i64}>
+  // CHECK: VPURT.Task waits([[BAR1]] : !VPURT.Barrier)
+  // CHECK: VPUIP.SyncDMA {logical_task = 0 : i64, shv_release_dma} <{port = 0 : i64}>
+  // CHECK: VPURT.Task waits([[BAR1]] : !VPURT.Barrier)
+  // CHECK: VPUIP.SyncDMA {logical_task = 0 : i64, shv_release_dma} <{port = 1 : i64}>
 }

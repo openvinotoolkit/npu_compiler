@@ -30,6 +30,14 @@ class ConvolutionLayerTest_HostCompile : public ConvolutionLayerTest, virtual pu
                                                                        "auto-unrolling-mode=disabled";
     }
 };
+
+class ConvolutionLayerTest_HostCompile_TileAgnostic : public ConvolutionLayerTest, virtual public VpuOv2LayerTest {
+    void configure_model() override {
+        // Intentionally set the tiles to 1 to test tile-agnostic mode; this is not a default configuration.
+        configuration[ov::intel_npu::tiles.name()] = "1";
+    }
+};
+
 class ConvolutionLayerTest_HostCompile_Profiling : public ConvolutionLayerTest, virtual public VpuOv2LayerTest {
     void configure_model() override {
         // After HostCompile default params were changed to a more performant configuration, these tests fail under the
@@ -221,6 +229,13 @@ TEST_P(ConvolutionLayerTest_MULTI_BATCH_HW, NPU5010_HW) {
 }
 
 TEST_P(ConvolutionLayerTest_HostCompile, NPU5010_HC) {
+    rel_threshold = 0.02;
+    setHostCompileMode();
+    setPluginCompilerType();
+    run(Platform::NPU5010);
+}
+
+TEST_P(ConvolutionLayerTest_HostCompile_TileAgnostic, NPU5010_HC) {
     rel_threshold = 0.02;
     setHostCompileMode();
     setPluginCompilerType();
@@ -956,6 +971,9 @@ const auto DynamicShapesHostCompileConvParams =
 
 INSTANTIATE_TEST_SUITE_P(smoke_DynamicShapes, ConvolutionLayerTest_HostCompile, DynamicShapesHostCompileConvParams,
                          ConvolutionLayerTest::getTestCaseName);
+
+INSTANTIATE_TEST_SUITE_P(smoke_DynamicShapes, ConvolutionLayerTest_HostCompile_TileAgnostic,
+                         DynamicShapesHostCompileConvParams, ConvolutionLayerTest::getTestCaseName);
 
 INSTANTIATE_TEST_SUITE_P(smoke_DynamicShapes, ConvolutionLayerTest_HostCompile_Profiling,
                          DynamicShapesHostCompileConvParams, ConvolutionLayerTest::getTestCaseName);

@@ -193,7 +193,7 @@ func.func @main(%in: memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>, %out: 
 
     %t0, %f0 = async.execute -> !async.value<memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>>
             attributes {VPUIP.executor = @DPU, VPUIP.num_units = 1 : i64, "async-deps-index" = 0 : i64} {
-        %0 = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
+        %0 = VPUIP.NCEClusterTask <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>,
                 kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
                 kernel_size = [1, 1],
                 kernel_strides = [1, 1],
@@ -215,7 +215,7 @@ func.func @main(%in: memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>, %out: 
 
     %t1, %f1 = async.execute [%t0] (%f0 as %0 : !async.value<memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>>)
             -> !async.value<memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>> attributes {VPUIP.executor = @DPU, VPUIP.num_units = 1 : i64, "async-deps-index" = 1 : i64} {
-        %1 = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
+        %1 = VPUIP.NCEClusterTask <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>,
                 kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
                 kernel_size = [1, 1],
                 kernel_strides = [1, 1],
@@ -237,7 +237,7 @@ func.func @main(%in: memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>, %out: 
 
     %t2, %f2 = async.execute [%t1] (%f1 as %1 : !async.value<memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>>)
             -> !async.value<memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>> attributes {VPUIP.executor = @DPU, VPUIP.num_units = 1 : i64, "async-deps-index" = 2 : i64}  {
-        %2 = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
+        %2 = VPUIP.NCEClusterTask <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>,
                 kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
                 kernel_size = [1, 1],
                 kernel_strides = [1, 1],
@@ -311,7 +311,7 @@ func.func @main(%in: memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>, %out: 
 
     %t0, %f0 = async.execute -> !async.value<memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>>
             attributes {VPUIP.executor = @DPU, VPUIP.num_units = 1 : i64, "async-deps-index" = 0 : i64} {
-        %0 = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
+        %0 = VPUIP.NCEClusterTask <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>,
                 kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
                 kernel_size = [1, 1],
                 kernel_strides = [1, 1],
@@ -333,7 +333,7 @@ func.func @main(%in: memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>, %out: 
 
     %t1, %f1 = async.execute [%t0] (%f0 as %0 : !async.value<memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>>)
             -> !async.value<memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>> attributes {VPUIP.executor = @DPU, VPUIP.num_units = 1 : i64, "async-deps-index" = 1 : i64} {
-        %1 = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
+        %1 = VPUIP.NCEClusterTask <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>,
                 kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
                 kernel_size = [1, 1],
                 kernel_strides = [1, 1],
@@ -355,7 +355,7 @@ func.func @main(%in: memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>, %out: 
 
     %t2, %f2 = async.execute [%t1] (%f1 as %1 : !async.value<memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>>)
             -> !async.value<memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>> attributes {VPUIP.executor = @DPU, VPUIP.num_units = 1 : i64, "async-deps-index" = 2 : i64}  {
-        %2 = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
+        %2 = VPUIP.NCEClusterTask <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>,
                 kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
                 kernel_size = [1, 1],
                 kernel_strides = [1, 1],
@@ -423,7 +423,7 @@ func.func @main(%arg0: memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>, %arg
 
     %token, %results = async.execute -> !async.value<memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>>
             attributes {VPUIP.executor = @DPU, VPUIP.num_units = 1 : i64, "async-deps-index" = 0 : i64}  {
-        %0 = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
+        %0 = VPUIP.NCEClusterTask <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>,
                 kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
                 kernel_size = [1, 1],
                 kernel_strides = [1, 1],
@@ -445,7 +445,7 @@ func.func @main(%arg0: memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>, %arg
 
     %token_0, %results_1 = async.execute -> !async.value<memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>>
             attributes {VPUIP.executor = @DPU, VPUIP.num_units = 1 : i64, "async-deps-index" = 1 : i64}  {
-        %1 = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
+        %1 = VPUIP.NCEClusterTask <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>,
                 kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
                 kernel_size = [1, 1],
                 kernel_strides = [1, 1],
@@ -505,7 +505,7 @@ func.func @main(%in: memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>, %out: 
 
     %t0, %f0 = async.execute -> !async.value<memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>>
             attributes {VPUIP.executor = @DPU, VPUIP.num_units = 1 : i64, "async-deps-index" = 0 : i64} {
-        %0 = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
+        %0 = VPUIP.NCEClusterTask <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>,
                 kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
                 kernel_size = [1, 1],
                 kernel_strides = [1, 1],
@@ -529,7 +529,7 @@ func.func @main(%in: memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>, %out: 
 
     %t1, %f1 = async.execute [%t0] (%f0 as %0 : !async.value<memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>>)
             -> !async.value<memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>> attributes {VPUIP.executor = @DPU, VPUIP.num_units = 1 : i64, "async-deps-index" = 1 : i64} {
-        %1 = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
+        %1 = VPUIP.NCEClusterTask <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>,
                 kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
                 kernel_size = [1, 1],
                 kernel_strides = [1, 1],
@@ -553,7 +553,7 @@ func.func @main(%in: memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>, %out: 
 
     %t2, %f2 = async.execute [%t1] (%f1 as %1 : !async.value<memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>>)
             -> !async.value<memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>> attributes {VPUIP.executor = @DPU, VPUIP.num_units = 1 : i64, "async-deps-index" = 2 : i64}  {
-        %2 = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
+        %2 = VPUIP.NCEClusterTask <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>,
                 kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
                 kernel_size = [1, 1],
                 kernel_strides = [1, 1],

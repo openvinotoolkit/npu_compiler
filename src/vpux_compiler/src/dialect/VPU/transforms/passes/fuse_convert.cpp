@@ -6,9 +6,12 @@
 #include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/data_movement.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/data_type.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/specialized.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops_interfaces.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
 #include "vpux/compiler/utils/walk_utils.hpp"
 
+#include <mlir/IR/IRMapping.h>
 #include <mlir/Transforms/DialectConversion.h>
 
 namespace vpux::VPU {
@@ -71,7 +74,7 @@ mlir::LogicalResult FuseD2sConvertRewrite::matchAndRewrite(VPU::ConvertOp conver
 
     if (supportedConfig) {
         auto origD2sOutType = mlir::cast<vpux::NDTypeInterface>(d2sOp.getOutput().getType());
-        auto newOp = mlir::dyn_cast_or_null<VPU::DepthToSpaceOp>(rewriter.clone(*d2sOp));
+        auto newOp = mlir::dyn_cast_if_present<VPU::DepthToSpaceOp>(rewriter.clone(*d2sOp));
         newOp.setDstElemType(convertOp.getDstElemType());
         newOp.getOutput().setType(
                 mlir::cast<mlir::RankedTensorType>(origD2sOutType.changeElemType(convertOp.getDstElemType())));
@@ -81,6 +84,76 @@ mlir::LogicalResult FuseD2sConvertRewrite::matchAndRewrite(VPU::ConvertOp conver
 
     nestedLogger.trace("Unsupported DepthToSpaceOp/ConvertOp config");
     return mlir::failure();
+}
+
+//
+// FuseScalesConvertToGroupQuantCorrectionRewrite
+//
+
+// Removes a VPU.Convert (F32 -> F16) located on the scales path of a VPU.GroupQuantCorrection.
+// GroupQuantCorrection accepts F32 scales directly, so the conversion is redundant and the
+// scales can be fed in F32, avoiding a software Convert on a large tensor.
+class FuseScalesConvertToGroupQuantCorrectionRewrite final :
+        public mlir::OpRewritePattern<VPU::GroupQuantCorrectionOp> {
+public:
+    FuseScalesConvertToGroupQuantCorrectionRewrite(mlir::MLIRContext* ctx, Logger log)
+            : mlir::OpRewritePattern<VPU::GroupQuantCorrectionOp>(ctx), _log(log) {
+        this->setDebugName("FuseScalesConvertToGroupQuantCorrectionRewrite");
+    }
+
+private:
+    mlir::LogicalResult matchAndRewrite(VPU::GroupQuantCorrectionOp gqcOp, mlir::PatternRewriter& rewriter) const final;
+
+private:
+    Logger _log;
+};
+
+mlir::LogicalResult FuseScalesConvertToGroupQuantCorrectionRewrite::matchAndRewrite(
+        VPU::GroupQuantCorrectionOp gqcOp, mlir::PatternRewriter& rewriter) const {
+    _log.trace("Got '{0}' at '{1}'", gqcOp->getName(), gqcOp->getLoc());
+    auto nestedLogger = _log.nest();
+
+    // Walk backwards from the scales operand through single-use view-like ops to reach a Convert.
+    SmallVector<mlir::Operation*> viewLikeChain;
+    auto curVal = gqcOp.getScales();
+    auto convertOp = mlir::dyn_cast_if_present<VPU::ConvertOp>(curVal.getDefiningOp());
+    while (convertOp == nullptr) {
+        auto* defOp = curVal.getDefiningOp();
+        if (defOp == nullptr || !VPU::isPureViewOp(defOp) || !defOp->hasOneUse()) {
+            nestedLogger.trace("No Convert found on scales path through view-like ops");
+            return mlir::failure();
+        }
+        viewLikeChain.push_back(defOp);
+        curVal = defOp->getOperand(0);
+        convertOp = mlir::dyn_cast_if_present<VPU::ConvertOp>(curVal.getDefiningOp());
+    }
+
+    // GroupQuantCorrection accepts F32 scales directly, so only an F32 -> F16 Convert is redundant.
+    const auto convertInElemType = mlir::cast<vpux::NDTypeInterface>(convertOp.getInput().getType()).getElementType();
+    const auto convertOutElemType = mlir::cast<vpux::NDTypeInterface>(convertOp.getOutput().getType()).getElementType();
+    if (!convertInElemType.isF32() || !convertOutElemType.isF16()) {
+        nestedLogger.trace("ConvertOp is not F32 -> F16");
+        return mlir::failure();
+    }
+
+    // Replay the view-like chain on the F32 input, keeping the scales in F32.
+    rewriter.setInsertionPointAfter(convertOp);
+    mlir::Value newScales = convertOp.getInput();
+    for (auto* viewOp : llvm::reverse(viewLikeChain)) {
+        mlir::IRMapping mapper;
+        mapper.map(viewOp->getOperand(0), newScales);
+        auto* newViewOp = rewriter.clone(*viewOp, mapper);
+        const auto newResType =
+                mlir::cast<vpux::NDTypeInterface>(viewOp->getResult(0).getType()).changeElemType(convertInElemType);
+        newViewOp->getResult(0).setType(newResType);
+        newScales = newViewOp->getResult(0);
+    }
+
+    rewriter.modifyOpInPlace(gqcOp, [&]() {
+        gqcOp.getScalesMutable().assign(newScales);
+    });
+
+    return mlir::success();
 }
 
 //
@@ -103,6 +176,7 @@ void FuseConvertPass::safeRunOnFunc() {
 
     mlir::RewritePatternSet patterns(&ctx);
     patterns.add<FuseD2sConvertRewrite>(&ctx, _log);
+    patterns.add<FuseScalesConvertToGroupQuantCorrectionRewrite>(&ctx, _log);
     collectOpsAndApplyPatterns(func, std::move(patterns));
 }
 

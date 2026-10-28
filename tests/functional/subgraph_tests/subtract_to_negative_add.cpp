@@ -5,8 +5,11 @@
 
 #include <vpu_ov2_layer_test.hpp>
 
+#include <common_test_utils/ov_tensor_utils.hpp>
 #include "common_test_utils/node_builders/fake_quantize.hpp"
 
+#include "openvino/op/constant.hpp"
+#include "openvino/op/convolution.hpp"
 #include "openvino/op/relu.hpp"
 #include "openvino/op/subtract.hpp"
 
@@ -88,11 +91,6 @@ INSTANTIATE_TEST_SUITE_P(smoke_subtract_diff_shape_const_inputs, SubtractSubGrap
 //
 
 class SubtractFqSubGraphTest_NPU3720 : public VpuOv2LayerTest, public testing::WithParamInterface<SubtractTestParams> {
-    void configure_model() override {
-        // #E-210493 - to remove quant-dequant-removal=false when proper solution is found
-        configuration[ov::intel_npu::compilation_mode_params.name()] = "quant-dequant-removal=false";
-    }
-
 public:
     static std::string getTestCaseName(const testing::TestParamInfo<SubtractTestParams>& obj) {
         const std::string sep = "_";
@@ -225,6 +223,10 @@ INSTANTIATE_TEST_SUITE_P(smoke_subtract_diff_shapes_act_inputs, SubtractActInput
 //             |
 //         [Subtract] --- [FakeQuantize] --- [ReLU] --- [DeclareOp]
 //             |
+//       [Convolution] --- [FakeQuantize] (weights) (applied to each Subtract operand)
+//             |
+//           [ReLU]
+//             |
 //       [FakeQuantize]
 //             |
 //          [output]
@@ -233,11 +235,6 @@ INSTANTIATE_TEST_SUITE_P(smoke_subtract_diff_shapes_act_inputs, SubtractActInput
 class SubtractFqActInputsSubGraphTest_NPU3720 :
         public VpuOv2LayerTest,
         public testing::WithParamInterface<SubtractTestParams> {
-    void configure_model() override {
-        // #E-210493 - to remove quant-dequant-removal=false when proper solution is found
-        configuration[ov::intel_npu::compilation_mode_params.name()] = "quant-dequant-removal=false";
-    }
-
 public:
     static std::string getTestCaseName(const testing::TestParamInfo<SubtractTestParams>& obj) {
         const std::string sep = "_";
@@ -246,6 +243,17 @@ public:
         result << "TestIdx=" << obj.index << sep;
         return result.str();
     };
+    // Keep input1 >= input2: HW doesn't clamp negative broadcast-Subtract results to 0
+    void generate_inputs(const std::vector<ov::Shape>& targetInputStaticShapes) override {
+        VpuOv2LayerTest::inputs.clear();
+        const auto& funcInputs = VpuOv2LayerTest::function->inputs();
+        ov::Tensor input1 = ov::test::utils::create_and_fill_tensor(funcInputs[0].get_element_type(),
+                                                                    targetInputStaticShapes[0], 50, 150, 1);
+        ov::Tensor input2 = ov::test::utils::create_and_fill_tensor(funcInputs[1].get_element_type(),
+                                                                    targetInputStaticShapes[1], 50, 0, 1);
+        VpuOv2LayerTest::inputs.insert({funcInputs[0].get_node_shared_ptr(), input1});
+        VpuOv2LayerTest::inputs.insert({funcInputs[1].get_node_shared_ptr(), input2});
+    }
     void SetUp() override {
         const auto test_params = GetParam();
 
@@ -263,16 +271,48 @@ public:
         const std::vector<float> dataLow = {0.0f};
         const std::vector<float> dataHigh = {255.0f};
 
+        // Quantize each Subtract input via its own Conv so the FQ fuses into a PPE instead of
+        // being stripped (broadcast Subtract can't become a quantized NCE.Eltwise)
+        const auto buildQuantizedIdentityConv = [&](const ov::Output<ov::Node>& input) {
+            const auto channels = input.get_shape().at(1);
+            const auto convWShape = ov::Shape{channels, channels, 1, 1};
+            const auto convWeights = ov::op::v0::Constant::create(ov::element::f16, convWShape,
+                                                                  std::vector<float>(ov::shape_size(convWShape), 1.0f));
+            const auto convWeightsFq = ov::test::utils::make_fake_quantize(convWeights, ov::element::f16, dataLevels,
+                                                                           {}, {0.0f}, {1.0f}, {0.0f}, {1.0f});
+            const auto conv = std::make_shared<ov::op::v1::Convolution>(input, convWeightsFq, ov::Strides{1, 1},
+                                                                        ov::CoordinateDiff{0, 0},
+                                                                        ov::CoordinateDiff{0, 0}, ov::Strides{1, 1});
+            const auto convRelu = std::make_shared<ov::op::v0::Relu>(conv);
+            return ov::test::utils::make_fake_quantize(convRelu, ov::element::f16, dataLevels, {}, dataLow, dataHigh,
+                                                       dataLow, dataHigh);
+        };
+
         const auto relu1 = std::make_shared<ov::op::v0::Relu>(params[0]);
         const auto relu1Fq = ov::test::utils::make_fake_quantize(relu1, ov::element::f16, dataLevels, {}, dataLow,
                                                                  dataHigh, dataLow, dataHigh);
+        const auto input1Quantized = buildQuantizedIdentityConv(relu1Fq->output(0));
 
         const auto relu2 = std::make_shared<ov::op::v0::Relu>(params[1]);
         const auto relu2Fq = ov::test::utils::make_fake_quantize(relu2, ov::element::f16, dataLevels, {}, dataLow,
                                                                  dataHigh, dataLow, dataHigh);
+        const auto input2Quantized = buildQuantizedIdentityConv(relu2Fq->output(0));
 
-        const auto subtract = std::make_shared<ov::op::v1::Subtract>(relu1Fq->output(0), relu2Fq->output(0));
-        const auto outFq = ov::test::utils::make_fake_quantize(subtract, ov::element::f16, dataLevels, {}, dataLow,
+        const auto subtract =
+                std::make_shared<ov::op::v1::Subtract>(input1Quantized->output(0), input2Quantized->output(0));
+
+        // Quantized Conv + activation + output FQ so the FQ fuses into the Conv PPE
+        const auto subtractChannels = subtract->get_output_shape(0).at(1);
+        const auto convWShape = ov::Shape{subtractChannels, subtractChannels, 1, 1};
+        const auto convWeights = ov::op::v0::Constant::create(ov::element::f16, convWShape,
+                                                              std::vector<float>(ov::shape_size(convWShape), 0.5f));
+        const auto convWeightsFq = ov::test::utils::make_fake_quantize(convWeights, ov::element::f16, dataLevels, {},
+                                                                       {0.0f}, {0.5f}, {0.0f}, {0.5f});
+        const auto conv = std::make_shared<ov::op::v1::Convolution>(subtract, convWeightsFq, ov::Strides{1, 1},
+                                                                    ov::CoordinateDiff{0, 0}, ov::CoordinateDiff{0, 0},
+                                                                    ov::Strides{1, 1});
+        const auto convRelu = std::make_shared<ov::op::v0::Relu>(conv);
+        const auto outFq = ov::test::utils::make_fake_quantize(convRelu, ov::element::f16, dataLevels, {}, dataLow,
                                                                dataHigh, dataLow, dataHigh);
 
         const ov::ResultVector results{std::make_shared<ov::op::v0::Result>(outFq)};

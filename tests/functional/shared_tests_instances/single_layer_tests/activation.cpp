@@ -113,7 +113,7 @@ class ActivationLayerTest_SCFTiling : public ActivationLayerTestCommon {
 #define DEFINE_DYNAMIC_ACT_HC_TESTS(PLATFORM, DISABLE_DYN_HC, EXTRA_DYN_HC)     \
     TEST_P(DynamicActivationLayerTest_HC_FP16, DISABLE_DYN_HC##PLATFORM##_HC) { \
         abs_threshold = 0.0056;                                                 \
-        setHostCompileMode("HostCompile_Interpreter");                          \
+        setHostCompileMode();                                                   \
         setPluginCompilerType();                                                \
         EXTRA_DYN_HC;                                                           \
         run(Platform::PLATFORM);                                                \

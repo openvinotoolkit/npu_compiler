@@ -626,14 +626,14 @@ mlir::LogicalResult OptimizeGroupConvConcat::matchAndRewrite(IE::ConcatOp origOp
         }
         auto biasContentAttr =
                 biasConst.transformContentAttr().padWithZero({0, padBefore, 0, 0}, {0, padEnd, 0, 0}).get();
-        newBiasValue = rewriter.create<Const::DeclareOp>(takeOpLoc(origOp, "bias_const_grpconv"),
-                                                         biasContentAttr.getType(), std::move(biasContentAttr))
+        newBiasValue = Const::DeclareOp::create(rewriter, takeOpLoc(origOp, "bias_const_grpconv"),
+                                                biasContentAttr.getType(), std::move(biasContentAttr))
                                .getResult();
     }
 
     // GroupConv has no scale parameter, so it's nullptr when creating 'IE::ConvolutionOp'
-    auto newConv = rewriter.create<IE::ConvolutionOp>(
-            takeOpLoc(origOp, "as_conv_grpconv"), root, concatWeights, newBiasValue, /*scale*/ nullptr,
+    auto newConv = IE::ConvolutionOp::create(
+            rewriter, takeOpLoc(origOp, "as_conv_grpconv"), root, concatWeights, newBiasValue, /*scale*/ nullptr,
             /*zero_points*/ nullptr, origGroupConv.getStrides(), origGroupConv.getPadsBegin(),
             origGroupConv.getPadsEnd(), origGroupConv.getDilations(), origGroupConv.getPostOpAttr(),
             origGroupConv.getClampAttr(), nullptr, origGroupConv.getOutputPaddingAttr(),
@@ -1094,8 +1094,9 @@ mlir::LogicalResult OptimizeSliceMultiplyConcat::matchAndRewrite(IE::ConcatOp or
     auto ctx = rewriter.getContext();
     auto identityMap = mlir::AffineMap::getMultiDimIdentityMap(checked_cast<uint32_t>(outputType.getRank()), ctx);
     auto targetInOrderMap = DimsOrder::NHWC.toAffineMap(ctx);
-    auto inputCast = rewriter.create<IE::PermuteCastOp>(
-            appendLoc(origOp.getLoc(), "branches_concat_to_conv_permute_cast_in"), root, targetInOrderMap, identityMap);
+    auto inputCast =
+            IE::PermuteCastOp::create(rewriter, appendLoc(origOp.getLoc(), "branches_concat_to_conv_permute_cast_in"),
+                                      root, targetInOrderMap, identityMap);
 
     // Create filter for new Conv
     SmallVector<mlir::Value> newWeights;
@@ -1136,16 +1137,15 @@ mlir::LogicalResult OptimizeSliceMultiplyConcat::matchAndRewrite(IE::ConcatOp or
     auto stridesAttr = getIntArrayAttr(rewriter, SmallVector<int32_t>{1, 1});
     auto padBeginAttr = getIntArrayAttr(rewriter, SmallVector<int32_t>{0, 0});
     auto padEndAttr = getIntArrayAttr(rewriter, SmallVector<int32_t>{0, 0});
-    auto newConv =
-            rewriter.create<IE::ConvolutionOp>(appendLoc(origOp.getLoc(), "branches_concat_to_conv"), inputCast,
-                                               concatWeights, stridesAttr, padBeginAttr, padEndAttr, dilationsAttr);
+    auto newConv = IE::ConvolutionOp::create(rewriter, appendLoc(origOp.getLoc(), "branches_concat_to_conv"), inputCast,
+                                             concatWeights, stridesAttr, padBeginAttr, padEndAttr, dilationsAttr);
     changeDimsOrder(newConv, DimsOrder::NHWC, _log.nest());
 
     // Cast to the original DimsOrder
     auto targetOutOrderMap = DimsOrder::NCHW.toAffineMap(ctx);
     auto outputCast =
-            rewriter.create<IE::PermuteCastOp>(appendLoc(origOp.getLoc(), "branches_concat_to_conv_permute_cast_out"),
-                                               newConv.getOutput(), targetOutOrderMap, identityMap);
+            IE::PermuteCastOp::create(rewriter, appendLoc(origOp.getLoc(), "branches_concat_to_conv_permute_cast_out"),
+                                      newConv.getOutput(), targetOutOrderMap, identityMap);
 
     rewriter.replaceOp(origOp, outputCast.getOutput());
 

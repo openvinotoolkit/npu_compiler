@@ -176,9 +176,9 @@ mlir::LogicalResult FuseInefficientTileRewriter::matchAndRewrite(IE::AddOp addOp
 
     const auto addLoc = addOp->getLoc();
 
-    auto newAddOp = rewriter.create<IE::AddOp>(
-            takeOpLoc(addOp, "fuse_broadcast"), addOutputType, newInput1, newInput2, addOp.getAutoBroadcastAttr(),
-            addOp.getPostOpAttr(), addOp.getClampAttr(), addOp.getOutputPaddingAttr(), addOp.getInputPaddingAttr());
+    auto newAddOp = IE::AddOp::create(rewriter, takeOpLoc(addOp, "fuse_broadcast"), addOutputType, newInput1, newInput2,
+                                      addOp.getAutoBroadcastAttr(), addOp.getPostOpAttr(), addOp.getClampAttr(),
+                                      addOp.getOutputPaddingAttr(), addOp.getInputPaddingAttr());
     rewriter.replaceOp(addOp, newAddOp.getOutput());
     rewriter.eraseOp(tileOp);
 

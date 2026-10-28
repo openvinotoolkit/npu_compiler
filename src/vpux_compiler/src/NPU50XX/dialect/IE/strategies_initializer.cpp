@@ -88,6 +88,7 @@ class StrategyFactory50XX : public IE::StrategyFactory {
     }
 
     std::unique_ptr<SEPadICPerfThresholdVerifierBase> getSEPadICPerfThresholdVerifier() override {
+        // Fallback to arch37xx threshold behavior for NPU5 to avoid performance regressions on specific models.
         return std::make_unique<IE::arch37xx::SEPadICPerfThresholdVerifier>();
     }
 };

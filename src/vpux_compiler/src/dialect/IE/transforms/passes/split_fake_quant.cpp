@@ -7,8 +7,9 @@
 #include "vpux/compiler/dialect/IE/interfaces/strategies.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
 #include "vpux/compiler/dialect/IE/utils/analysis.hpp"
+#include "vpux/compiler/dialect/IE/utils/dynamic_dequantize_utils.hpp"
 #include "vpux/compiler/dialect/IE/utils/quantization.hpp"
-#include "vpux/compiler/dialect/VPU/utils/mpe_engine_utils.hpp"
+#include "vpux/compiler/dialect/VPU/interfaces/strategies.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
 #include "vpux/compiler/dialect/config/utils/config_option_utils.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
@@ -239,13 +240,13 @@ mlir::LogicalResult UseQuantDequant::matchAndRewrite(IE::FakeQuantizeOp origOp, 
 
     innerLog.trace("Insert Quantize op '{0}' -> '{1}'", realElemType, inQuantizeElemType);
     auto quantizeOp =
-            rewriter.create<IE::QuantizeOp>(takeOpLoc(origOp, "quant_in"), origOp.getInput(), inQuantizeElemType);
+            IE::QuantizeOp::create(rewriter, takeOpLoc(origOp, "quant_in"), origOp.getInput(), inQuantizeElemType);
 
     auto result = quantizeOp.getResult();
     if (inQuantizeElemType != outQuantizeElemType) {
         innerLog.trace("Insert QuantizeCast op '{0}' -> '{1}'", inQuantizeElemType, outQuantizeElemType);
         auto quantizeCastOp =
-                rewriter.create<IE::QuantizeCastOp>(takeOpLoc(origOp, "quantize_cast"), result, outQuantizeElemType);
+                IE::QuantizeCastOp::create(rewriter, takeOpLoc(origOp, "quantize_cast"), result, outQuantizeElemType);
         result = quantizeCastOp.getResult();
     }
 
@@ -403,22 +404,6 @@ mlir::LogicalResult UseConstDequant::matchAndRewrite(IE::FakeQuantizeOp origOp, 
         }
     }
 
-    auto qElemType = getQuantizedType(outLowConst.getContentAttr(), outHighConst.getContentAttr(), origOp.getLevels(),
-                                      origOp.getLowFpType(), realElemType, Const::hasNegativeValues(inLowContent),
-                                      origOp.getLoc(), origOp.getAutoBroadcast(), multiZeroPoint, innerLog);
-    if (qElemType == nullptr) {
-        return mlir::failure();
-    }
-
-    qElemType = IE::keepZeroScaleForConstDequant(qElemType, outLowConst.getContentAttr(), outHighConst.getContentAttr(),
-                                                 origOp.getAutoBroadcast());
-
-    innerLog.trace("Use quantized element type '{0}'", qElemType);
-
-    const auto qType = realType.changeElemType(qElemType);
-
-    auto newInConstAttrSetup = inConstAttr.transform();
-    newInConstAttrSetup = newInConstAttrSetup.castElemType(qElemType);
     const auto moduleOp = getModuleOp(origOp.getOperation());
     const auto isAsymmetricPerChannelZeroPointSupported = config::asymmetricPerChannelZeroPointSupported(moduleOp);
 
@@ -430,16 +415,156 @@ mlir::LogicalResult UseConstDequant::matchAndRewrite(IE::FakeQuantizeOp origOp, 
 
     // Fuse dequantize to const directly since it could not convert to HW for multi zero point case
     if (shouldDequantize) {
-        newInConstAttrSetup = newInConstAttrSetup.dequantize();
-        auto newConstOp =
-                rewriter.replaceOpWithNewOp<Const::DeclareOp>(origOp, origOp.getType(), newInConstAttrSetup.get());
+        auto qElemType =
+                getQuantizedType(outLowConst.getContentAttr(), outHighConst.getContentAttr(), origOp.getLevels(),
+                                 origOp.getLowFpType(), realElemType, Const::hasNegativeValues(inLowContent),
+                                 origOp.getLoc(), origOp.getAutoBroadcast(), multiZeroPoint, innerLog);
+        if (qElemType == nullptr) {
+            return mlir::failure();
+        }
+        qElemType = IE::keepZeroScaleForConstDequant(qElemType, outLowConst.getContentAttr(),
+                                                     outHighConst.getContentAttr(), origOp.getAutoBroadcast());
+        innerLog.trace("Fold to dequantized const using quantized element type '{0}'", qElemType);
+
+        auto dequantAttr = inConstAttr.transform().castElemType(qElemType).dequantize().get();
+        auto newConstOp = rewriter.replaceOpWithNewOp<Const::DeclareOp>(origOp, origOp.getType(), dequantAttr);
         extendOpLoc(newConstOp, "const_dequantized");
         return mlir::success();
     }
 
-    auto newInOp =
-            rewriter.create<Const::DeclareOp>(takeOpLoc(origOp, "const_quantized"), qType, newInConstAttrSetup.get());
-    auto dequantizeOp = rewriter.replaceOpWithNewOp<IE::DequantizeOp>(origOp, newInOp.getOutput(), realElemType);
+    // Determine raw storage type from levels/lowFpType
+    const auto isSigned = Const::hasNegativeValues(inLowContent);
+    mlir::Type rawStorageType;
+    if (origOp.getLowFpType().has_value()) {
+        const auto storageParams = getStorageParams(origOp.getLowFpType().value());
+        if (mlir::failed(storageParams)) {
+            return mlir::failure();
+        }
+        rawStorageType = std::get<2>(*storageParams);
+    } else if (origOp.getLevels().has_value()) {
+        const auto storageParams = getStorageParams(getContext(), *origOp.getLevels(), isSigned);
+        if (mlir::failed(storageParams)) {
+            return mlir::failure();
+        }
+        rawStorageType = std::get<2>(*storageParams);
+    } else {
+        return mlir::failure();
+    }
+
+    // Float consts (f16/f32) must be quantized numerically before the storage cast, otherwise castElemType would
+    // reinterpret them. Consts whose base is already in storage format (integers, QuantileType, lowFp) only need
+    // the cast. The current element type - not attribute identity - tells whether the block above already
+    // quantized the attribute.
+    const auto curElemType = mlir::cast<vpux::NDTypeInterface>(inConstAttr.getType()).getElementType();
+    const bool baseNeedsQuantize =
+            mlir::isa<mlir::FloatType>(inBaseElemType) && !isLowFpType(inBaseElemType) && !isLowFpType(rawStorageType);
+    const bool isStillFloat = mlir::isa<mlir::FloatType>(curElemType) && !isLowFpType(curElemType);
+    if (baseNeedsQuantize && isStillFloat) {
+        const auto inputQType = getQuantizedType(inLowConst.getContentAttr(), inHighConst.getContentAttr(),
+                                                 origOp.getLevels(), origOp.getLowFpType(), realElemType, isSigned,
+                                                 origOp.getLoc(), origOp.getAutoBroadcast(), multiZeroPoint, innerLog);
+        if (inputQType != nullptr) {
+            inConstAttr = inConstAttr.transform().quantize(inputQType).get();
+        }
+    }
+
+    // Build raw-storage weight const
+    const auto rawType = realType.changeElemType(rawStorageType);
+    auto rawConstAttr = inConstAttr.transform().castElemType(rawStorageType).get();
+    auto newInOp = Const::DeclareOp::create(rewriter, takeOpLoc(origOp, "const_quantized"), rawType, rawConstAttr);
+
+    // Compute scales and zero-points for the dequantization.
+    // Prefer the fp32/int32 values captured at FakeQuantize creation. Fall back to recomputing from the
+    // output limits when the attribute is absent.
+    SmallVector<float> scales;
+    SmallVector<int32_t> zeroPoints;
+    if (auto preciseParams = IE::getPreciseScalesZeroPoints(origOp); mlir::succeeded(preciseParams)) {
+        scales = std::move(preciseParams->scales);
+        zeroPoints = std::move(preciseParams->zeroPoints);
+    } else {
+        const auto scalesAndZPs = IE::getScalesAndZeroPointsFromContentAttr(
+                outLowConst.getContentAttr(), outHighConst.getContentAttr(), origOp.getAutoBroadcast(),
+                origOp.getLevels(), origOp.getLowFpType(), isSigned, innerLog);
+        if (mlir::failed(scalesAndZPs)) {
+            return mlir::failure();
+        }
+        const auto& [dScales, dZPs] = *scalesAndZPs;
+        scales.reserve(dScales.size());
+        for (double s : dScales) {
+            scales.push_back(static_cast<float>(s));
+        }
+        zeroPoints.reserve(dZPs.size());
+        for (const int64_t zp : dZPs) {
+            zeroPoints.push_back(static_cast<int32_t>(zp));
+        }
+    }
+
+    // The precise values travel as discardable attributes set several pipelines earlier, so the one-ZP-per-scale
+    // invariant is validated rather than trusted.
+    if (scales.size() != zeroPoints.size()) {
+        return matchFailed(innerLog, rewriter, origOp, "Got {0} scales but {1} zero-points", scales.size(),
+                           zeroPoints.size());
+    }
+
+    // Zero scales for dead channels (outLow == outHigh == 0) + splat case handling
+    {
+        const auto outLowAttr = outLowConst.getContentAttr().fold();
+        const auto outHighAttr = outHighConst.getContentAttr().fold();
+
+        const auto isZeroRange = [](double low, double high) {
+            return isDoubleEqual(low, high) && isDoubleEqual(low, 0.0);
+        };
+
+        if (outLowAttr.isSplat() && outHighAttr.isSplat()) {
+            if (isZeroRange(outLowAttr.getSplatValue<double>(), outHighAttr.getSplatValue<double>())) {
+                std::fill(scales.begin(), scales.end(), 0.0f);
+            }
+        } else {
+            auto outLowVals = to_small_vector(outLowAttr.getValues<double>());
+            auto outHighVals = to_small_vector(outHighAttr.getValues<double>());
+            IE::broadcastRange(outLowVals, outHighVals, origOp.getAutoBroadcast());
+
+            if (outLowVals.size() == scales.size() && outHighVals.size() == scales.size()) {
+                for (size_t i = 0; i < scales.size(); ++i) {
+                    if (isZeroRange(outLowVals[i], outHighVals[i])) {
+                        scales[i] = 0.0f;
+                    }
+                }
+            }
+        }
+    }
+
+    // Determine scale/ZP shape: per-tensor (all dims=1) or per-axis (one dim > 1)
+    const auto inputRank = realType.getRank();
+    SmallVector<int64_t> scaleShape(inputRank, 1);
+    SmallVector<int64_t> zpShape(inputRank, 1);
+
+    if (scales.size() > 1) {
+        const auto outLowShape = getShape(outLowConst.getOutput());
+        const auto outHighShape = getShape(outHighConst.getOutput());
+        const auto quantDim = IE::getQuantizedDimension(outLowShape, outHighShape, origOp.getAutoBroadcast(),
+                                                        origOp.getLoc(), innerLog);
+        if (mlir::failed(quantDim)) {
+            return mlir::failure();
+        }
+        // IE::DynamicDequantizeOp requires the scale/ZP dim to match the input dim exactly - bail out gracefully
+        // instead of emitting an op that fails verification.
+        const auto quantDimSize = realType.getShape()[Dim(*quantDim)];
+        if (static_cast<int64_t>(scales.size()) != quantDimSize) {
+            return matchFailed(innerLog, rewriter, origOp, "Got {0} scales for quantized dim {1} of size {2}",
+                               scales.size(), *quantDim, quantDimSize);
+        }
+        scaleShape[*quantDim] = static_cast<int64_t>(scales.size());
+        zpShape[*quantDim] = static_cast<int64_t>(zeroPoints.size());
+    }
+
+    const auto dynDeqConsts = IE::buildDynamicDequantizeScaleZpConsts(rewriter, takeOpLoc(origOp, "scale_out"),
+                                                                      takeOpLoc(origOp, "zp_out"), rawStorageType,
+                                                                      scaleShape, zpShape, scales, zeroPoints);
+
+    auto dequantizeOp = rewriter.replaceOpWithNewOp<IE::DynamicDequantizeOp>(
+            origOp, newInOp.getOutput(), dynDeqConsts.scale, dynDeqConsts.zeroPoint, realElemType);
+    dequantizeOp->setAttr(IE::SYNTHETIC_DYN_DEQUANT_ATTR, mlir::UnitAttr::get(rewriter.getContext()));
     extendOpLoc(dequantizeOp, "dequant_out");
     return mlir::success();
 }
@@ -463,10 +588,10 @@ void SplitFakeQuantPass::safeRunOnFunc() {
 
     // Retrieve strategy once to amortize allocation cost across all pattern applications.
     const auto& strategyFactory = IE::getIEStrategyFactory(&ctx);
-    VPUX_THROW_UNLESS(strategyFactory != nullptr,
-                      "IE StrategyFactory is not registered; make sure --init-compiler runs before --split-fake-quant");
+    VPUX_THROW_WHEN(strategyFactory == nullptr,
+                    "IE StrategyFactory is not registered; make sure --init-compiler runs before --split-fake-quant");
     auto strategy = strategyFactory->getConvertWeightsToUnsignedStrategy();
-    VPUX_THROW_UNLESS(strategy != nullptr, "Failed to retrieve IConvertWeightsToUnsignedStrategy");
+    VPUX_THROW_WHEN(strategy == nullptr, "Failed to retrieve IConvertWeightsToUnsignedStrategy");
 
     mlir::RewritePatternSet patterns(&ctx);
     patterns.add<UseQuantDequant>(&ctx, strategy.get(), _log);

@@ -310,7 +310,7 @@ VPU::VerticalFusionOp DynamicDequantConvVFPattern::getExpectedMemPermuteProducer
     }
 
     auto producerVF = dequantVF.getOperand(inputBlockArg.getArgNumber()).getDefiningOp<VPU::VerticalFusionOp>();
-    if (producerVF == nullptr || getSingleVFUser(producerVF) != dequantVF ||
+    if (producerVF == nullptr || getUniqUser(producerVF) != dequantVF ||
         !hasExpectedMemPermuteProducer(producerVF, dequantVF)) {
         return nullptr;
     }
@@ -327,7 +327,7 @@ std::optional<SmallVector<VPU::VerticalFusionOp>> DynamicDequantConvVFPattern::g
         chain.push_back(memPermuteVF);
     }
 
-    auto convVF = getSingleVFUser(dequantVF);
+    auto convVF = getUniqUser(dequantVF);
     if (convVF == nullptr) {
         return std::nullopt;
     }
@@ -347,7 +347,7 @@ std::optional<SmallVector<VPU::VerticalFusionOp>> DynamicDequantConvVFPattern::g
 
 std::optional<VPU::VF::v2::VFCase> DynamicDequantConvVFPattern::buildVFCase(
         VPU::VerticalFusionOp mergedOp, VPU::VerticalFusionOp convVFOp,
-        const std::unique_ptr<VPU::LayerVPUNNCost>& costFunction, Logger log) const {
+        const std::unique_ptr<VPU::LayerVPUNNCost>& costFunction, VFMergeCostMode costMode, Logger log) const {
     VPU::VF::v2::VFCacheAnalysis cache(mergedOp.getOperation());
     VPU::VF::v2::VFConfig vfConfig(mergedOp, cache, /*enableVFPipelining=*/true, /*firstVFNeedsTiling=*/true,
                                    /*secondVFNeedsTiling=*/true);
@@ -376,8 +376,8 @@ std::optional<VPU::VF::v2::VFCase> DynamicDequantConvVFPattern::buildVFCase(
     }
 
     split[Dims4D::Act::C] = std::nullopt;
-    auto vfCase = VPU::VF::v2::findBestVFCaseFromSplits(vfConfig, {split}, minNumCalc, maxNumCalc, costFunction, log,
-                                                        mergedOp.getContext());
+    auto vfCase = VPU::VF::v2::findBestVFCaseFromSplits(vfConfig, {split}, minNumCalc, maxNumCalc, costFunction, false,
+                                                        log, mergedOp.getContext(), nullptr, costMode);
     if (!vfCase.has_value()) {
         return std::nullopt;
     }
@@ -394,7 +394,7 @@ std::optional<VPU::VF::v2::VFCase> DynamicDequantConvVFPattern::buildVFCase(
     const auto maxNumTiles = vpux::getMaxNumTiles(vfConfig.getOutputs().front(), /*checkMinimalWidthAndHeight=*/true,
                                                   /*checkWorkloadEfficiency=*/true);
 
-    auto vfSchedulingChecks = VPU::VF::v2::getSchedulingScenarios(vfConfig, log);
+    auto vfSchedulingChecks = VPU::VF::v2::getSchedulingScenarios(vfConfig, log, costMode);
     const auto adjustedMinNumCalc = [&](Dim dim, const VPU::VF::v2::VFSplit&) {
         return baseTiling[dim.ind()];
     };
@@ -404,7 +404,7 @@ std::optional<VPU::VF::v2::VFCase> DynamicDequantConvVFPattern::buildVFCase(
 
     const auto filterDynamicDequantConvCMXOverflow = [&](Dim dim, const VPU::VF::v2::VFSplit& candidateSplit) {
         auto candidate = VPU::VF::v2::getVFCaseWithTiling(vfConfig, dim, candidateSplit, adjustedMinNumCalc,
-                                                          adjustedMaxNumCalc, log, vfSchedulingChecks);
+                                                          adjustedMaxNumCalc, false, log, vfSchedulingChecks);
         return !candidate.isInitialized() ||
                !fitsDynamicDequantConvCMX(vfConfig, dequantOp, convOp, candidate.getTilingStorage());
     };
@@ -413,8 +413,8 @@ std::optional<VPU::VF::v2::VFCase> DynamicDequantConvVFPattern::buildVFCase(
     adjustedSplit[spatialDim] = std::nullopt;
 
     auto fullPrefetchVFCase = VPU::VF::v2::findBestVFCaseFromSplits(
-            vfConfig, {std::move(adjustedSplit)}, adjustedMinNumCalc, adjustedMaxNumCalc, costFunction, log,
-            mergedOp.getContext(), filterDynamicDequantConvCMXOverflow);
+            vfConfig, {std::move(adjustedSplit)}, adjustedMinNumCalc, adjustedMaxNumCalc, costFunction, false, log,
+            mergedOp.getContext(), filterDynamicDequantConvCMXOverflow, costMode);
     if (fullPrefetchVFCase.has_value()) {
         return fullPrefetchVFCase;
     }
@@ -423,9 +423,9 @@ std::optional<VPU::VF::v2::VFCase> DynamicDequantConvVFPattern::buildVFCase(
 
 mlir::FailureOr<VPU::VerticalFusionOp> DynamicDequantConvVFPattern::tryMerge(
         VPU::VerticalFusionOp rootOp, mlir::RewriterBase& rewriter,
-        const std::unique_ptr<VPU::LayerVPUNNCost>& costFunction, Logger log) const {
+        const std::unique_ptr<VPU::LayerVPUNNCost>& costFunction, VFMergeCostMode costMode, Logger log) const {
     log.trace("DynamicDequantConvVFPattern::tryMerge start root={0}", rootOp->getLoc());
-    auto convAlignmentState = getConvAlignmentState(getSingleVFUser(rootOp));
+    auto convAlignmentState = getConvAlignmentState(getUniqUser(rootOp));
     const auto restoreConvAlignmentOnFailure = [&]() {
         if (convAlignmentState.has_value()) {
             restoreConvAlignmentState(convAlignmentState.value());
@@ -448,7 +448,7 @@ mlir::FailureOr<VPU::VerticalFusionOp> DynamicDequantConvVFPattern::tryMerge(
         return mlir::failure();
     }
 
-    auto vfCase = buildVFCase(mergedOp, matchedOps->back(), costFunction, log);
+    auto vfCase = buildVFCase(mergedOp, matchedOps->back(), costFunction, costMode, log);
     if (!vfCase.has_value()) {
         log.trace("DynamicDequantConvVFPattern::tryMerge buildVFCase failed, skip fusion at {0}", mergedOp->getLoc());
         rewriter.eraseOp(mergedOp);

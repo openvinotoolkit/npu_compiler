@@ -47,7 +47,7 @@ public:
 
     void collectFetchAndSkipDMAs(DMAMap& fetchMap, DMAMap& skipMap);
 
-    uint64_t getRegionOffset(VPURegMapped::TaskType target, config::ArchKind arch, const uint64_t& shaveCountPerTile);
+    uint64_t getRegionOffset(VPURegMapped::TaskType target, const uint64_t& shaveCountPerTile);
     mlir::MemRefType createFetchOutputMemRefs(mlir::OpBuilder& builder, uint32_t tile, size_t dmaTaskBinarySize);
     VPUMI40XX::DeclareTaskBufferOp createTaskBuffer(mlir::OpBuilder& builder, PlannedFetch plannedFetch,
                                                     mlir::Operation* insertionPoint,
@@ -125,7 +125,7 @@ private:
 // this base offset.
 //
 // Each new DMA increments the offset by:
-//   VPUMI40XX::getTaskBinarySize(VPURegMapped::TaskType::DMA, ...)
+//   VPUMI40XX::getTaskBinarySizeConstraint(netFunc, VPURegMapped::TaskType::DMA)
 //
 // This ensures:
 //   - DMA descriptors do not overlap with earlier metadata sections
@@ -184,8 +184,7 @@ private:
 // lists do not introduce fragmentation within that block.
 //
 // Offset assignment in this pass strictly follows this layout.
-uint64_t UpdateFetchDMAForSkipDMAs::getRegionOffset(VPURegMapped::TaskType target, config::ArchKind arch,
-                                                    const uint64_t& shaveCountPerTile) {
+uint64_t UpdateFetchDMAForSkipDMAs::getRegionOffset(VPURegMapped::TaskType target, const uint64_t& shaveCountPerTile) {
     struct Entry {
         VPURegMapped::TaskType type;
         size_t count;
@@ -212,9 +211,8 @@ uint64_t UpdateFetchDMAForSkipDMAs::getRegionOffset(VPURegMapped::TaskType targe
         if (entry.type == target) {
             return offset;
         }
-
         offset += checked_cast<uint64_t>(entry.count) *
-                  checked_cast<uint64_t>(VPUMI40XX::getTaskBinarySize(entry.type, arch));
+                  checked_cast<uint64_t>(VPUMI40XX::getTaskBinarySizeConstraint(netFunc, entry.type));
     }
 
     VPUX_THROW("Task Type {0} not registered in metadata layout", target);
@@ -242,9 +240,9 @@ mlir::Value createFetchBuffer(mlir::OpBuilder& builder, size_t dmaTaskBinarySize
     const auto sectionAttr =
             VPURT::BufferSectionAttr::get(builder.getContext(), VPURT::getBufferSection(VPU::MemoryKind::DDR));
 
-    return builder.create<VPURT::DeclareBufferOp>(builder.getUnknownLoc(), zeroBufferMemref, sectionAttr,
-                                                  /*sectionIndex=*/nullptr, /*byteOffset=*/getIntAttr(builder, 0),
-                                                  /*swizzlingKey=*/nullptr);
+    return VPURT::DeclareBufferOp::create(builder, builder.getUnknownLoc(), zeroBufferMemref, sectionAttr,
+                                          /*sectionIndex=*/nullptr, /*byteOffset=*/getIntAttr(builder, 0),
+                                          /*swizzlingKey=*/nullptr);
 }
 
 // ------------------------------------------------------
@@ -301,8 +299,8 @@ VPUMI40XX::DeclareTaskBufferOp UpdateFetchDMAForSkipDMAs::createTaskBuffer(
     auto indexAttr =
             VPURegMapped::IndexType::get(builder.getContext(), plannedFetch.tile, plannedFetch.list, taskBufferIdx++);
 
-    return builder.create<VPUMI40XX::DeclareTaskBufferOp>(builder.getUnknownLoc(), indexAttr,
-                                                          VPURegMapped::TaskType::DMA, offsetAttr);
+    return VPUMI40XX::DeclareTaskBufferOp::create(builder, builder.getUnknownLoc(), indexAttr,
+                                                  VPURegMapped::TaskType::DMA, offsetAttr);
 }
 
 void UpdateFetchDMAForSkipDMAs::collectFetchAndSkipDMAs(DMAMap& fetchMap, DMAMap& skipMap) {
@@ -348,9 +346,8 @@ void UpdateFetchDMAForSkipDMAs::safeRunOnFunc() {
 
     auto parentModule = netFunc->getParentOfType<mlir::ModuleOp>();
     auto shavesCountPerTile = config::getAvailableExecutor(parentModule, config::ExecutorKind::SHAVE_ACT).getCount();
-    auto dmaMetadataOffset =
-            getRegionOffset(VPURegMapped::TaskType::DMA, config::getArch(getOperation()), shavesCountPerTile);
-    auto dmaTaskBinarySize = VPUMI40XX::getTaskBinarySize(VPURegMapped::TaskType::DMA, config::getArch(getOperation()));
+    auto dmaMetadataOffset = getRegionOffset(VPURegMapped::TaskType::DMA, shavesCountPerTile);
+    auto dmaTaskBinarySize = VPUMI40XX::getTaskBinarySizeConstraint(netFunc, VPURegMapped::TaskType::DMA);
 
     // (tile,list) -> running task buffer index
     TileListToIndexMap taskBufferIndex;
@@ -381,12 +378,12 @@ void UpdateFetchDMAForSkipDMAs::safeRunOnFunc() {
         dmaToFetch.setTaskLocation(taskBuffer.getResult());
 
         builder.setInsertionPoint(placeholderDmaOp);
-        auto taskLocationsView = builder.create<VPURegMapped::ViewTaskRangeOp>(
-                dmaToFetch.getLoc(), memrefCMX, taskBuffer.getResult(), taskBuffer.getResult());
+        auto taskLocationsView = VPURegMapped::ViewTaskRangeOp::create(builder, dmaToFetch.getLoc(), memrefCMX,
+                                                                       taskBuffer.getResult(), taskBuffer.getResult());
 
         // Create FetchDMA
-        auto fetchDma = builder.create<VPUMI40XX::NNDMAOp>(
-                placeholderDmaOp.getLoc(), placeholderDmaOp.getIndexType(), nullptr, inputBuffer,
+        auto fetchDma = VPUMI40XX::NNDMAOp::create(
+                builder, placeholderDmaOp.getLoc(), placeholderDmaOp.getIndexType(), nullptr, inputBuffer,
                 mlir::ValueRange({taskLocationsView.getResult()}), placeholderDmaOp.getPreviousTask(),
                 placeholderDmaOp.getWaitBarriers(), placeholderDmaOp.getUpdateBarriers(), /*start_after*/ 0,
                 /*clean_after*/ 0, placeholderDmaOp.getIsOutOfOrder(), placeholderDmaOp.getIsCritical(),

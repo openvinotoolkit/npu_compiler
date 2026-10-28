@@ -58,7 +58,6 @@ std::unique_ptr<mlir::Pass> createDMAOutOfOrderOptimizationPass(
         std::optional<WorkloadManagementMode> workloadManagementMode = std::nullopt, Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createOptimizeConvertDMAOpPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createCompressSpillDmaPass(Logger log = Logger::global());
-std::unique_ptr<mlir::Pass> createConstantDpuProfHwpBasePass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createDMATaskProfilingHwDdrPass(const std::string& enableDMAProfiling = "true",
                                                             Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createComputeHaloRegionForDPUTaskOpPass(Logger log = Logger::global());
@@ -93,7 +92,6 @@ std::unique_ptr<mlir::Pass> createPatchPopulateWeightTableWithShavePass(Logger l
 std::unique_ptr<mlir::Pass> createDMATaskProfilingAfterBarrierSchedPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createCaptureWorkpointPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createDPUProfilingPass(Logger log = Logger::global());
-std::unique_ptr<mlir::Pass> createM2IProfilingPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createGroupProfilingBuffersPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createActShaveProfilingPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createWrapWithPermuteAsNNDMAPass(Logger log = Logger::global());
@@ -166,7 +164,6 @@ std::unique_ptr<mlir::Pass> createNNDMATilingPass(Logger log = Logger::global())
 std::unique_ptr<mlir::Pass> createUngroupBoundedBuffersPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createConvertDynamicMemrefsToBoundedBuffersPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createUngroupBoundedBuffersAsFuncArgsPass(Logger log = Logger::global());
-std::unique_ptr<mlir::Pass> createUngroupHostBuffersAsFuncArgsPass(Logger log = Logger::global());
 
 //
 // Memory allocation pipeline

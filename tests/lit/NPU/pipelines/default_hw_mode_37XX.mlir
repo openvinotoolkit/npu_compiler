@@ -190,9 +190,6 @@ module @DynamicReshape {
     // CHECK-DAG:  {{    }}func.func nested @runtime
     // CHECK-DAG:  {{  }}config.ExecutorResource 2 of @DMA_NN
     // CHECK-DAG:  {{  }}config.Resources {activity_factor = {{.+}} : f64} 2 of @NCE at 1.300000e+03 MHz
-    // CHECK-DAG:  {{    }}builtin.module @ReservedMemory {
-    // CHECK-DAG:  {{      }}module @SWKernelPrefetchingReservedMemory {
-    // CHECK-DAG:  {{        }}config.MemoryResource {{[0-9]+}} bytes of @CMX_NN offset {{[0-9]+}}
     // CHECK-DAG:  {{    }}config.MemoryResource {{[0-9]+}} bytes of @CMX_NN {config.bandwidth = 32 : i64, config.derateFactor = {{.+}} : f64}
     // CHECK-DAG:  {{    }}config.ExecutorResource 1 of @DPU
     // CHECK-DAG:  {{    }}config.ExecutorResource 2 of @SHAVE_ACT
@@ -266,9 +263,6 @@ module @DynamicReshape {
     // CHECK-DAG:  {{    }}func.func nested @runtime
     // CHECK-DAG:  {{  }}config.ExecutorResource 2 of @DMA_NN
     // CHECK-DAG:  {{  }}config.Resources {activity_factor = {{.+}} : f64} 2 of @NCE at 1.300000e+03 MHz
-    // CHECK-DAG:  {{    }}builtin.module @ReservedMemory {
-    // CHECK-DAG:  {{      }}module @SWKernelPrefetchingReservedMemory {
-    // CHECK-DAG:  {{        }}config.MemoryResource {{[0-9]+}} bytes of @CMX_NN offset {{[0-9]+}}
     // CHECK-DAG:  {{    }}config.MemoryResource {{[0-9]+}} bytes of @CMX_NN {config.bandwidth = 32 : i64, config.derateFactor = {{.+}} : f64}
     // CHECK-DAG:  {{    }}config.ExecutorResource 1 of @DPU
     // CHECK-DAG:  {{    }}config.ExecutorResource 2 of @SHAVE_ACT

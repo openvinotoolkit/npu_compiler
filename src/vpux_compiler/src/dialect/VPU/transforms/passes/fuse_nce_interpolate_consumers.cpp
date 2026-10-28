@@ -47,18 +47,18 @@ mlir::LogicalResult FuseNCEInterpolateConsumers::matchAndRewrite(VPU::NCEInterpo
     auto seAttr = mlir::cast<vpux::VPU::SEInterpolateAttr>(sparseInput.getSeAttr());
     auto mode = seAttr.getMode().getValue();
     if (mode != VPU::NCEInterpolateMode::NEAREST) {
-        return matchFailed(rewriter, interpOp, "Only NEAREST interpolate can be fused");
+        return matchFailed(_log, rewriter, interpOp, "Only NEAREST interpolate can be fused");
     }
 
     // Currently the operation is fused only if there is only one consumer operation
     // Experiments should be run in order to determine if the performance increases when all users have a sparse input
     if (!interpOp.getOutput().hasOneUse()) {
-        return matchFailed(rewriter, interpOp, "Operation has more than one user");
+        return matchFailed(_log, rewriter, interpOp, "Operation has more than one user");
     }
 
     auto users = interpOp->getUsers();
     if (!mlir::isa<VPU::NCEConvolutionOp>(*users.begin())) {
-        return matchFailed(rewriter, interpOp, "User is not an NCEConvolution");
+        return matchFailed(_log, rewriter, interpOp, "User is not an NCEConvolution");
     }
 
     interpOp.getOutput().replaceAllUsesWith(interpOp.getInput());

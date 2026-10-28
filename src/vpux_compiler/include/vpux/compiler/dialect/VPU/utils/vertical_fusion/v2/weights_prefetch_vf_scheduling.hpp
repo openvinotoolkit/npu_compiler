@@ -13,17 +13,13 @@ namespace vpux::VPU::VF::v2 {
 */
 class WeightsPrefetchingVFScheduling : public VFScheduling {
 public:
-    WeightsPrefetchingVFScheduling(Logger log, bool prefetching);
-
-    bool validate(VFConfig& config, const TilingOperationStorage::UPtr& tilingInfo,
-                  const Byte reservedMemory = Byte(0)) const override;
+    WeightsPrefetchingVFScheduling(Logger log, bool prefetching, std::shared_ptr<const VFCostStrategy> costStrategy);
 
     VFScenario getType() const override;
 
 protected:
-    void correctInputPrefetchingCost(StrategyCost& prefetchCost, mlir::Operation* operation, VFConfig& config,
-                                     const DenseMap<mlir::Operation*, StrategyCost>& isolatedOperCost,
-                                     SmallVector<StrategyCost>& prefetchCostList, const size_t index) const override;
+    bool validateScenario(VFConfig& config, const TilingOperationStorage::UPtr& tilingInfo,
+                          Byte reservedMemory) const override;
 };
 
 }  // namespace vpux::VPU::VF::v2

@@ -21,20 +21,17 @@ func.func @UI2WeightsDequantizeToDynamicDequantize(%arg0: tensor<1x1x8192xf16>) 
   return %6 : tensor<1x1x3072xf32>
 
   // CHECK-DAG:  [[CST_SCALE_RESHAPED:%.+]] = const.Declare tensor<3072x128xf32> = dense<2.000000e+00> : tensor<3072x128x1xf32>, [#const.Reshape<[3072, 128]>]
-  // CHECK-DAG:  [[CST_WEIGHTS:%.+]] = const.Declare tensor<3072x128x64xf32> = dense<0> : tensor<3072x128x64xui2>, [#const.ConvertElemType<ui8>, #const.CastElemType<f32>]
-  // CHECK-DAG:  [[CST_IN_LOW:%.+]] = const.Declare tensor<1x1x1xf32> = dense<0.000000e+00> : tensor<1x1x1xf32>
-  // CHECK-DAG:  [[CST_IN_HIGH:%.+]] = const.Declare tensor<1x1x1xf32> = dense<3.000000e+00> : tensor<1x1x1xf32>
-  // CHECK-DAG:  [[CST_OUT_LOW:%.+]] = const.Declare tensor<3072x128x1xf32> = dense<0.000000e+00> : tensor<3072x128x1xf32>
-  // CHECK-DAG:  [[CST_OUT_HIGH:%.+]] = const.Declare tensor<3072x128x1xf32> = dense<6.000000e+00> : tensor<3072x128x1xf32>
+  // CHECK-DAG:  [[CST_WEIGHTS:%.+]] = const.Declare tensor<3072x128x64xui2> = dense<0> : tensor<3072x128x64xui2>, [#const.ConvertElemType<ui8>, #const.CastElemType<ui2>]
+  // CHECK-DAG:  [[CST_SCALE:%.+]] = const.Declare tensor<3072x128x1xf32> = dense<2.000000e+00> : tensor<3072x128x1xf32>
 
-  // CHECK:      IE.FakeQuantize([[CST_WEIGHTS]], [[CST_IN_LOW]], [[CST_IN_HIGH]], [[CST_OUT_LOW]], [[CST_OUT_HIGH]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 4 : i64} : tensor<3072x128x64xf32>, tensor<1x1x1xf32>, tensor<1x1x1xf32>, tensor<3072x128x1xf32>, tensor<3072x128x1xf32> -> tensor<3072x128x64xf32>
+  // CHECK:      [[DYN_DEQUANT:%.+]] = IE.DynamicDequantize([[CST_WEIGHTS]], [[CST_SCALE]]) {dstElemType = f32, vpux.weights_import_dyn_dequant} : tensor<3072x128x64xui2>, tensor<3072x128x1xf32> -> tensor<3072x128x64xf32>
   // CHECK-NEXT: IE.Convert
-  // CHECK-NEXT: IE.AffineReshape
+  // CHECK-NEXT: IE.AffineReshape([[DYN_DEQUANT]])
   // CHECK-NEXT: IE.Reshape
   // CHECK-NEXT: IE.FullyConnected
   // CHECK-NEXT: IE.Reshape
   // CHECK-NEXT: IE.ReduceSum
-  // CHECK-NEXT: IE.FullyConnected
+  // CHECK-NEXT: IE.FullyConnected([[REDUCE_SUM:%.+]], [[CST_SCALE_RESHAPED]])
   // CHECK-NEXT: IE.Subtract
   // CHECK-NEXT: IE.Reshape
   // CHECK-NEXT: return {{[^:*]+}} : tensor<1x1x3072xf32>
@@ -55,15 +52,12 @@ func.func @UI2WeightsMultiplyToDynamicDequantize(%arg0: tensor<1x1x128xf16>) -> 
   %5 = IE.Reshape(%4) {shape_value = [1, 1, 64]} : tensor<1x64xf32> -> tensor<1x1x64xf32>
   return %5 : tensor<1x1x64xf32>
 
-  // CHECK-DAG:  [[CST_WEIGHTS:%.+]] = const.Declare tensor<64x16x8xf32> = dense<0> : tensor<64x16x8xui2>, [#const.ConvertElemType<ui8>, #const.CastElemType<f32>]
-  // CHECK-DAG:  [[CST_IN_LOW:%.+]] = const.Declare tensor<1x1x1xf32> = dense<0.000000e+00> : tensor<1x1x1xf32>
-  // CHECK-DAG:  [[CST_IN_HIGH:%.+]] = const.Declare tensor<1x1x1xf32> = dense<3.000000e+00> : tensor<1x1x1xf32>
-  // CHECK-DAG:  [[CST_OUT_LOW:%.+]] = const.Declare tensor<64x16x1xf32> = dense<0.000000e+00> : tensor<64x16x1xf32>
-  // CHECK-DAG:  [[CST_OUT_HIGH:%.+]] = const.Declare tensor<64x16x1xf32> = dense<4.500000e+00> : tensor<64x16x1xf32>
+  // CHECK-DAG:  [[CST_WEIGHTS:%.+]] = const.Declare tensor<64x16x8xui2> = dense<0> : tensor<64x16x8xui2>, [#const.ConvertElemType<ui8>, #const.CastElemType<ui2>]
+  // CHECK-DAG:  [[CST_SCALE:%.+]] = const.Declare tensor<64x16x1xf32> = dense<1.500000e+00> : tensor<64x16x1xf32>
 
-  // CHECK:      IE.FakeQuantize([[CST_WEIGHTS]], [[CST_IN_LOW]], [[CST_IN_HIGH]], [[CST_OUT_LOW]], [[CST_OUT_HIGH]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 4 : i64} : tensor<64x16x8xf32>, tensor<1x1x1xf32>, tensor<1x1x1xf32>, tensor<64x16x1xf32>, tensor<64x16x1xf32> -> tensor<64x16x8xf32>
+  // CHECK:      [[DYN_DEQUANT:%.+]] = IE.DynamicDequantize([[CST_WEIGHTS]], [[CST_SCALE]]) {dstElemType = f32, vpux.weights_import_dyn_dequant} : tensor<64x16x8xui2>, tensor<64x16x1xf32> -> tensor<64x16x8xf32>
   // CHECK-NEXT: IE.Convert
-  // CHECK-NEXT: IE.AffineReshape
+  // CHECK-NEXT: IE.AffineReshape([[DYN_DEQUANT]])
   // CHECK-NEXT: IE.Reshape
   // CHECK-NEXT: IE.FullyConnected
   // CHECK-NEXT: IE.Reshape

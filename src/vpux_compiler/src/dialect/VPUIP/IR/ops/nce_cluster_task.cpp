@@ -11,7 +11,7 @@
 #include "vpux/compiler/core/attributes/stride_reqs.hpp"
 #include "vpux/compiler/core/cost_model_utils.hpp"
 #include "vpux/compiler/core/layers.hpp"
-#include "vpux/compiler/core/types/quantile_float/types.hpp"
+#include "vpux/compiler/core/types/quantile_types/types.hpp"
 #include "vpux/compiler/dialect/VPU/IR/attributes.hpp"
 #include "vpux/compiler/dialect/VPU/utils/auto_padding_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_invariant.hpp"
@@ -202,8 +202,7 @@ void vpux::VPUIP::NCEClusterTaskOp::build(
           kernel_strides, kernel_padding, is_continued, cm_sp_pattern, is_segmented, out_channel_offset,
           input_channels_compression, is_zero_offset_weights_table, is_superdense, is_inplace, input_se_size,
           output_se_size, isPermuteQuantize, isSmallKernelOptimized, sparsityConfig,
-          /*profilingMetadata=*/nullptr, mpeEngineAttr, dynamicScaleConfig, localRegion, s2dd2sConfig,
-          /*split_id=*/nullptr);
+          /*profilingMetadata=*/nullptr, mpeEngineAttr, dynamicScaleConfig, localRegion, s2dd2sConfig);
 
     // The auto-generated builders don't populate the regions even if SizedRegion<1> is specified.
     for (auto& region : state.regions) {
@@ -226,7 +225,7 @@ VPUIP::DPUTaskOp vpux::VPUIP::NCEClusterTaskOp::addDPUTask(mlir::OpBuilder& buil
     mlir::OpBuilder::InsertionGuard guard(builder);
     builder.setInsertionPointToEnd(&getVariants().front());
 
-    return builder.create<VPUIP::DPUTaskOp>(getLoc(), outStart, outEnd, inStart, inEnd, pad, mpeMode, clusterId);
+    return VPUIP::DPUTaskOp::create(builder, getLoc(), outStart, outEnd, inStart, inEnd, pad, mpeMode, clusterId);
 }
 
 VPUIP::DPUTaskOp vpux::VPUIP::NCEClusterTaskOp::addDPUTask(mlir::OpBuilder& builder, mlir::ArrayAttr outStart,
@@ -241,8 +240,8 @@ VPUIP::DPUTaskOp vpux::VPUIP::NCEClusterTaskOp::addDPUTask(mlir::OpBuilder& buil
     mlir::OpBuilder::InsertionGuard guard(builder);
     builder.setInsertionPointToEnd(&getVariants().front());
 
-    return builder.create<VPUIP::DPUTaskOp>(getLoc(), outStart, outEnd, inStart, inEnd, pad, mpeMode, clusterId,
-                                            haloRegions);
+    return VPUIP::DPUTaskOp::create(builder, getLoc(), outStart, outEnd, inStart, inEnd, pad, mpeMode, clusterId,
+                                    haloRegions);
 }
 
 VPUIP::DPUTaskOp vpux::VPUIP::NCEClusterTaskOp::addDPUTask(mlir::OpBuilder& builder, mlir::ArrayAttr outStart,
@@ -255,7 +254,7 @@ VPUIP::DPUTaskOp vpux::VPUIP::NCEClusterTaskOp::addDPUTask(mlir::OpBuilder& buil
     mlir::OpBuilder::InsertionGuard guard(builder);
     builder.setInsertionPointToEnd(&getVariants().front());
 
-    return builder.create<VPUIP::DPUTaskOp>(getLoc(), outStart, outEnd, pad, mpeMode, clusterId);
+    return VPUIP::DPUTaskOp::create(builder, getLoc(), outStart, outEnd, pad, mpeMode, clusterId);
 }
 
 VPUIP::DPUTaskOp vpux::VPUIP::NCEClusterTaskOp::addDPUTask(mlir::OpBuilder& builder, mlir::ArrayAttr outStart,
@@ -269,10 +268,10 @@ VPUIP::DPUTaskOp vpux::VPUIP::NCEClusterTaskOp::addDPUTask(mlir::OpBuilder& buil
     mlir::OpBuilder::InsertionGuard guard(builder);
     builder.setInsertionPointToEnd(&getVariants().front());
 
-    return builder.create<VPUIP::DPUTaskOp>(getLoc(), outStart, outEnd, inStart, inEnd, pad, mpeMode,
-                                            /*cluster_id=*/nullptr,
-                                            /*halo_regions=*/nullptr, /*workload_id=*/nullptr, variant_primitive_id,
-                                            /*is_dummy=*/false, /*weight_table_offset=*/nullptr);
+    return VPUIP::DPUTaskOp::create(builder, getLoc(), outStart, outEnd, inStart, inEnd, pad, mpeMode,
+                                    /*cluster_id=*/nullptr,
+                                    /*halo_regions=*/nullptr, /*workload_id=*/nullptr, variant_primitive_id,
+                                    /*is_dummy=*/false, /*weight_table_offset=*/nullptr);
 }
 
 //
@@ -370,9 +369,11 @@ mlir::LogicalResult verifyNCEConv(VPUIP::NCEClusterTaskOp op, config::ArchKind a
         if (mlir::isa_and_present<mlir::quant::UniformQuantizedType, mlir::quant::UniformQuantizedPerAxisType>(
                     weightsElementType)) {
             const auto quantized = mlir::cast<mlir::quant::QuantizedType>(weightsElementType);
-            if (mlir::isa<vpux::type::QuantileType>(quantized.getStorageType())) {
-                const auto inputChannels = getShape(op.getInput())[Dims4D::Act::C];
-                if (inputChannels < 16) {
+            if (mlir::isa<mlir::quant::QuantileType>(quantized.getStorageType())) {
+                const auto inputShape = getShape(op.getInput());
+                const auto channelDim =
+                        inputShape.size() == DimsGroups5D::Act::numDims ? DimsGroups5D::Act::C : Dims4D::Act::C;
+                if (inputShape[channelDim] < 16) {
                     return errorAt(op,
                                    "For palletisation, input channels must be greater than or equal to 16 for "
                                    "NCETaskType : '{0}'",

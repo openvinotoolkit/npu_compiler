@@ -115,7 +115,7 @@ flatbuffers::Offset<ProfilingFB::DPUTask> createDPUTaskMeta(
     const auto maxVariants = metaAttr.getMaxVariants().getInt();
 
     VPUX_THROW_WHEN(workloadIds.size() != 0 && workloadIds.size() != static_cast<size_t>(numVariants),
-                    "Expected {0} workloads, but got {1}", numVariants, workloadIds.size());
+                    "Expected {0} workloads, but got {1} for op {2}", numVariants, workloadIds.size(), name);
 
     auto fbTensorInfo = ProfilingFB::CreateTensorInfo(builder, &tensorInfo);
     auto variants = to_std_vector(variantArray | transformed([&builder](const profiling::DPUVariantInfo& variant) {
@@ -133,7 +133,7 @@ TaskBarriers getOpBarriersImpl(const BarrierMap& virtBarriers, const mlir::Value
         ids.reserve(barriers.size());
         for (const auto& bar : barriers) {
             const auto it = virtBarriers.find(bar);
-            VPUX_THROW_UNLESS(it != virtBarriers.end(), "Value {0} wasn't serialized yet", bar);
+            VPUX_THROW_WHEN(it == virtBarriers.end(), "Value {0} wasn't serialized yet", bar);
             ids.push_back(it->second);
         }
         return ids;
@@ -179,12 +179,8 @@ TaskBarriers getOpBarriers(const BarrierMap& virtBarriers, mlir::Operation* op) 
 std::vector<uint32_t> getWorkloadIds(VPUIP::NCEClusterTaskOp dpuOp) {
     std::vector<uint32_t> workloadIds;
     for (auto variant : dpuOp.getVariants().getOps<VPUIP::DPUTaskOp>()) {
-        if (variant.getIsDummy()) {
-            continue;
-        }
-        if (variant.getWorkloadId().has_value()) {
-            workloadIds.push_back(variant.getWorkloadId().value());
-        }
+        VPUX_THROW_WHEN(!variant.getWorkloadId().has_value(), "Expected workload_id in DPU variant {0}", variant);
+        workloadIds.push_back(variant.getWorkloadId().value());
     }
     return workloadIds;
 }
@@ -262,7 +258,8 @@ FbVector<ProfilingFB::DMATask> getDmaTasksOffset(flatbuffers::FlatBufferBuilder&
         if (!metadata) {
             continue;
         }
-        VPUX_THROW_UNLESS(!!metadata.getDataIndex() ^ !!metadata.getProfBegin(), "Invalid DMA metadata '{0}'");
+        VPUX_THROW_WHEN(static_cast<bool>(metadata.getDataIndex()) == static_cast<bool>(metadata.getProfBegin()),
+                        "Invalid DMA metadata '{0}'");
 
         const unsigned short hwpId = getDmaHwpId(dmaTask);
         // Do not serialize task with hwpId = 0 when HWP enabled
@@ -310,34 +307,9 @@ FbVector<ProfilingFB::DMATask> getDmaTasksOffset(flatbuffers::FlatBufferBuilder&
     return builder.CreateVector(dmaOffsets);
 }
 
-FbVector<ProfilingFB::M2ITask> getM2iTasksOffset(flatbuffers::FlatBufferBuilder& builder,
-                                                 const SmallVector<VPUIP::M2ITaskOp>& m2iTasks,
-                                                 const BarrierMap& barriers) {
-    std::vector<flatbuffers::Offset<ProfilingFB::M2ITask>> m2iOffsets;
-    for (auto m2iTask : m2iTasks) {
-        const auto name = stringifyPrimaryLocationChecked(m2iTask->getLoc());
-        const auto [waitBarriers, updateBarriers] = getOpBarriers(barriers, m2iTask);
-
-        auto profMeta = m2iTask.getProfilingMetadata();
-        VPUX_THROW_UNLESS(profMeta.has_value(), "Empty profiling metadata at '{0}'", m2iTask);
-
-        m2iOffsets.push_back(ProfilingFB::CreateM2ITaskDirect(builder, name.c_str(), &waitBarriers, &updateBarriers));
-    }
-    return builder.CreateVector(m2iOffsets);
-}
-
 FbVector<ProfilingFB::DPUTask> getDpuTasksOffset(flatbuffers::FlatBufferBuilder& builder,
                                                  const SmallVector<VPUIP::NCEClusterTaskOp>& dpuTasks,
                                                  const BarrierMap& barriers) {
-    // Build a map from split_id -> ordered NCEClusterTaskOps sharing that ID.
-    // Only the first op in each group carries profiling metadata; the rest are split chunks.
-    DenseMap<int64_t, SmallVector<VPUIP::NCEClusterTaskOp>> splitGroups;
-    for (auto dpuTask : dpuTasks) {
-        if (auto splitIdAttr = dpuTask.getSplitIdAttr()) {
-            splitGroups[splitIdAttr.getInt()].push_back(dpuTask);
-        }
-    }
-
     std::vector<flatbuffers::Offset<ProfilingFB::DPUTask>> dpuOffsets;
     for (auto dpuInvariant : dpuTasks) {
         auto profMeta = dpuInvariant.getProfilingMetadata();
@@ -352,21 +324,6 @@ FbVector<ProfilingFB::DPUTask> getDpuTasksOffset(flatbuffers::FlatBufferBuilder&
         auto tensorInfo = extractTensorInfoFromOp(dpuInvariant);
         auto variantArray = extractVariantInfoFromOp(dpuInvariant);
         auto workloadIds = getWorkloadIds(dpuInvariant);
-
-        // Append workload IDs and variant info from the remaining chunks of the same split group.
-        if (auto splitIdAttr = dpuInvariant.getSplitIdAttr()) {
-            const auto& group = splitGroups[splitIdAttr.getInt()];
-            // group[0] is dpuInvariant itself (the chunk carrying profiling metadata).
-            for (size_t i = 1; i < group.size(); ++i) {
-                auto sibling = group[i];
-                VPUX_THROW_WHEN(sibling.getProfilingMetadata().has_value(),
-                                "Unexpected profiling metadata on split chunk '{0}'", sibling);
-                auto moreWorkloadIds = getWorkloadIds(sibling);
-                workloadIds.insert(workloadIds.end(), moreWorkloadIds.begin(), moreWorkloadIds.end());
-                auto moreVariantInfo = extractVariantInfoFromOp(sibling);
-                variantArray.insert(variantArray.end(), moreVariantInfo.begin(), moreVariantInfo.end());
-            }
-        }
 
         dpuOffsets.push_back(createDPUTaskMeta(builder, profMeta.value(), name, waitBarriers, updateBarriers,
                                                workloadIds, tensorInfo, variantArray));
@@ -435,7 +392,6 @@ flatbuffers::DetachedBuffer buildProfilingMeta(net::NetworkInfoOp netInfo, mlir:
     FbVector<ProfilingFB::DMATask> dmaOffset;
     FbVector<ProfilingFB::DPUTask> dpuOffset;
     FbVector<ProfilingFB::SWTask> swTaskOffset;
-    FbVector<ProfilingFB::M2ITask> m2iOffset;
 
     for (auto sectionOp : getProfilingSections(profilingOutputInfoOp)) {
         profilingSectionsOffsets.push_back(createProfilingSectionOffset(builder, sectionOp));
@@ -450,9 +406,6 @@ flatbuffers::DetachedBuffer buildProfilingMeta(net::NetworkInfoOp netInfo, mlir:
         case profiling::ExecutorType::ACTSHAVE:
             swTaskOffset = getSwTasksOffset(builder, extractOp<VPUIP::SwKernelOp>(funcOp), barriers);
             break;
-        case profiling::ExecutorType::M2I:
-            m2iOffset = getM2iTasksOffset(builder, extractOp<VPUIP::M2ITaskOp>(funcOp), barriers);
-            break;
         case profiling::ExecutorType::WORKPOINT:
             // no metadata
             break;
@@ -464,7 +417,7 @@ flatbuffers::DetachedBuffer buildProfilingMeta(net::NetworkInfoOp netInfo, mlir:
             ProfilingFB::CreateProfilingBufferDirect(builder, &profilingSectionsOffsets, sectionTotalSizeBytes);
     const auto metadataOffset = ProfilingFB::CreateProfilingMeta(
             builder, profiling::PROFILING_METADATA_VERSION_MAJOR, profiling::PROFILING_METADATA_VERSION_MINOR,
-            platformOffset, profilingBufferOffset, dmaOffset, dpuOffset, swTaskOffset, m2iOffset);
+            platformOffset, profilingBufferOffset, dmaOffset, dpuOffset, swTaskOffset);
     builder.Finish(metadataOffset);
     return builder.Release();
 }

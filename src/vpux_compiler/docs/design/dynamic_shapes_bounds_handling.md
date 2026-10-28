@@ -52,6 +52,75 @@ When precise bounds cannot be determined:
 - Use configurable defaults for unbounded scenarios
 - Prioritize compilation success over optimal memory usage
 
+## Shape Representation Rules
+
+A dynamic dimension is stored as `ShapedType::kDynamic` in the shape itself. Its upper bound is stored
+beside the shape, in the type's encoding attribute (`vpux::TensorAttr` for a tensor, `MemRefAttr` for a
+memref). The rules below say which combinations of the two are legal.
+
+### Allowed
+
+| Shape | Encoding | Meaning |
+|---|---|---|
+| has `?` dimensions | `bounds`, one entry per dimension | the bounded dynamic form, and the one the hardware path needs |
+| has `?` dimensions | no `bounds` | legal in the IE dialect. A pass can run before anything has bounds to propagate |
+| fully static | `dynamic_dims_mask` | the other dynamic representation. It pairs a static shape with a mask and carries no bounds |
+| fully static | neither | the ordinary case |
+
+Avoid `dynamic_dims_mask` in new code; it is expected to be deprecated. Prefer dynamic shapes with
+`bounds`.
+
+A `bounds` vector holds exactly one entry per dimension, and no entry is negative.
+
+Examples of each row, in the same order:
+
+```mlir
+tensor<1x?x3x3xf32, {bounds = #const.OpaqueI64Elements<[1, 18, 3, 3]> : tensor<4xsi64>, order = #NCHW}>
+tensor<1x?x3x3xf32, {order = #NCHW}>
+tensor<1x18x3x3xf32, {dynamic_dims_mask = #const.OpaqueI64Elements<[0, 1, 0, 0]> : tensor<4xsi64>, order = #NCHW}>
+tensor<1x18x3x3xf32>
+```
+
+### Not allowed
+
+Rejected when the type is parsed or constructed:
+
+- A `bounds` vector whose length differs from the rank.
+- A negative bound.
+
+```mlir
+// three bounds for four dimensions
+tensor<1x?x3x3xf32, {bounds = #const.OpaqueI64Elements<[1, 18, 3]> : tensor<3xsi64>}>
+// error: TensorType bounds '[1, 18, 3]' do not match to shape '[1, -9223372036854775808, 3, 3]'
+
+// a negative bound
+tensor<1x?x3x3xf32, {bounds = #const.OpaqueI64Elements<[1, -1, 3, 3]> : tensor<4xsi64>}>
+// error: TensorType bounds '[1, -1, 3, 3]' has negative value '-1' at dim '1'
+```
+
+A dynamic dimension prints as `-9223372036854775808` in these messages. That is
+`ShapedType::kDynamic`, and not a corrupt value.
+
+### Tolerated today, but not intended
+
+These forms are still accepted because existing compiler transformations produce them, but they are
+not intended representations.
+
+**Bounds on a fully static shape** (`E#233281`). A fully static shape already specifies every
+dimension exactly, so a separate bounds vector is redundant and should be omitted.
+
+```mlir
+tensor<1x18x3x3xf32, {bounds = #const.OpaqueI64Elements<[1, 18, 3, 3]> : tensor<4xsi64>, order = #NCHW}>
+```
+
+**A bound that does not equal a static dimension** (`E#233282`). A static dimension has an exact size,
+so its bounds entry should match it. A different value leaves the shape and bounds inconsistent.
+
+```mlir
+// Dim 2 is 3, but its bound is 6.
+tensor<1x?x3x3xf32, {bounds = #const.OpaqueI64Elements<[1, 18, 6, 3]> : tensor<4xsi64>, order = #NCHW}>
+```
+
 ## Implementation Details
 
 ### MLIR Compiler Frontend Level 
@@ -79,3 +148,15 @@ Upper bounds are not specified for node 'Relu_70' (type 'Relu'): input '0' bound
 **When to modify**: When adding new operations or when existing operations need bounds inference logic based on their mathematical semantics.
 
 **Example**: Range operation sets bounds using `setBounds(Bounds{RANGEBOUND})` when output size cannot be statically determined.
+
+### Type Verification Level
+**Location**: `src/dialect/core/IR/dialect.cpp`
+
+**Purpose**: `TensorEncodingVerifier` checks tensor bounds against the
+[Shape Representation Rules](#shape-representation-rules) when types are parsed or constructed.
+`MemRefAttr` verifies bounds for buffers.
+
+**When to modify**: When a new field is added to `TensorAttr` or its validation rules change.
+
+**Error indicators**: A type that breaks a rule fails at parse time with a `TensorType ...` message,
+for example `TensorType bounds '[1, 18, 3]' do not match to shape '[1, -9223372036854775808, 3, 3]'`.

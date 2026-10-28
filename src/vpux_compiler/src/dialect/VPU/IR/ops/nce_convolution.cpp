@@ -17,6 +17,8 @@
 #include "vpux/compiler/dialect/VPU/utils/generate_tiling.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_invariant.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_reduce_output_utils.hpp"
+#include "vpux/compiler/dialect/VPU/utils/nce_sparsity.hpp"
+#include "vpux/compiler/dialect/VPU/utils/odu_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/sparsity_support.hpp"
 #include "vpux/compiler/dialect/VPU/utils/sprlut_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/tile_utils.hpp"
@@ -26,6 +28,11 @@
 #include "vpux/compiler/utils/infer_output_shape.hpp"
 #include "vpux/compiler/utils/verifier_utils.hpp"
 
+#include "vpux/compiler/dialect/VPU/utils/nce_utils.hpp"
+
+#include "vpux/utils/core/numeric.hpp"
+
+#include <mlir/Dialect/Arith/Utils/Utils.h>
 #include <mlir/IR/Matchers.h>
 #include <openvino/op/convolution.hpp>
 
@@ -107,7 +114,35 @@ static mlir::LogicalResult verifyConv(mlir::Location loc, mlir::Operation* op, V
                                            ? std::nullopt
                                            : std::optional<vpux::ShapeRef>(getShape(opAdaptor.getWeightsTable()));
 
-    return VPU::verifyConvUtil(loc, op, filterShape, kernelStrides, padAttr, weightsTableShape, output);
+    auto weightsTableShapeForVerify = weightsTableShape;
+    if (const auto s2dd2sConfig = opAdaptor.getS2dd2sConfigAttr()) {
+        const auto outputShape = getShape(output);
+        const auto rank = static_cast<int64_t>(outputShape.size());
+        const auto transformInfo = VPU::getODUS2DD2STransformInfo(s2dd2sConfig, rank);
+        if (transformInfo.has_value() && weightsTableShape.has_value()) {
+            const auto scales = VPU::getODUS2DD2SScaling(*transformInfo, rank);
+            const auto preODUOutputShapeResult =
+                    VPU::invertODUScaling(scales, SmallVector<int64_t>(outputShape.raw()), loc);
+            if (mlir::failed(preODUOutputShapeResult)) {
+                return mlir::failure();
+            }
+
+            const auto outputChannels = (*preODUOutputShapeResult)[Dims4D::Act::C.ind()];
+            const auto channelAlignment = VPU::NCEInvariant::VPU_CHANNEL_ALIGNMENT;
+            const auto weightsTableOC = alignValUp(outputChannels, channelAlignment);
+            const auto expectedWeightsTableShape = VPU::NCESparsity::inferWeightsTableShape(weightsTableOC);
+
+            if (weightsTableShape.value() != expectedWeightsTableShape) {
+                return errorAt(loc, "Got wrong shape for 'weightsTable' '{0}', expected '{1}'",
+                               weightsTableShape.value(), expectedWeightsTableShape);
+            }
+
+            // We validated weights table shape in pre-ODU space, so skip the post-ODU check in verifyConvUtil.
+            weightsTableShapeForVerify = std::nullopt;
+        }
+    }
+
+    return VPU::verifyConvUtil(loc, op, filterShape, kernelStrides, padAttr, weightsTableShapeForVerify, output);
 }
 
 mlir::LogicalResult vpux::VPU::NCEConvolutionOp::verify() {
@@ -159,6 +194,15 @@ Shape vpux::VPU::NCEConvolutionOp::inferAlignedFilterShape(NDTypeInterface input
     const auto KX = rawFilterShape[Dims4D::Filter::KX];
     const auto inputShape = getBoundedShape(input);
     const auto outputShape = getBoundedShape(output);
+    auto preODUOutputChannels = outputShape[Dims4D::Act::C];
+    const auto oduScales = VPU::getODUScaling(getOperation());
+    if (!oduScales.empty()) {
+        const auto preODUOutputShapeResult =
+                VPU::invertODUScaling(oduScales, SmallVector<int64_t>(outputShape.raw()), getLoc());
+        VPUX_THROW_UNLESS(mlir::succeeded(preODUOutputShapeResult),
+                          "Failed to invert ODU scaling for NCEConvolutionOp output shape at '{0}'", getLoc());
+        preODUOutputChannels = (*preODUOutputShapeResult)[Dims4D::Act::C.ind()];
+    }
 
     // When IDU autopad is used and the weight pointers are computed during the inference by the DPU, the weight set
     // must have the input channels aligned to 16 as a hardware requirement. For this reason, the filter shape is larger
@@ -166,7 +210,7 @@ Shape vpux::VPU::NCEConvolutionOp::inferAlignedFilterShape(NDTypeInterface input
     const auto usesIDUAutopad = inputShape[Dims4D::Act::C] < VPU::NCEInvariant::VPU_CHANNEL_ALIGNMENT;
     const auto weightSetsNeedPaddedIC = usesIDUAutopad && getWeightsTable() == nullptr;
     const auto IC = weightSetsNeedPaddedIC ? VPU::NCEInvariant::VPU_CHANNEL_ALIGNMENT : inputShape[Dims4D::Act::C];
-    const auto OC = outputShape[Dims4D::Act::C];
+    const auto OC = preODUOutputChannels;
 
     // Without HW weight set packing the per-OC weight set must be aligned to 16 bytes (in elements,
     // that is `getAlignment()`). When packing is supported, the constraint is relaxed to byte alignment,
@@ -241,9 +285,27 @@ mlir::LogicalResult vpux::VPU::NCEConvolutionOp::inferReturnTypes(
 
     auto shapeInfo = inferConvolutionOutputShapeInfo(inShapeInfo, filterShapeInfo, filterType, windowStrides,
                                                      dataPaddingBelow, dataPaddingAbove, windowDilations);
-    const auto outType =
-            vpux::getTensorType(ShapeRef(shapeInfo.shape), inputType.getElementType(), inputType.getDimsOrder(),
-                                /*memSpace=*/nullptr, BoundsRef(shapeInfo.bounds), /*DynamicDimsMask=*/{});
+
+    // When the ODU D2S/S2D feature is active, apply the spatial transform so that consumers
+    // of the op see the correct output type.
+    auto outShape = shapeInfo.shape;
+    auto outBounds = shapeInfo.bounds;
+    if (const auto s2dd2sConfig = op.getS2dd2sConfigAttr()) {
+        const auto rank = static_cast<int64_t>(outShape.size());
+        const auto transformInfo = VPU::getODUS2DD2STransformInfo(s2dd2sConfig, rank);
+        if (transformInfo.has_value()) {
+            const auto scales = VPU::getODUS2DD2SScaling(*transformInfo, rank);
+            const auto result = VPU::applyODUScaling(scales, vpux::ShapeInfo{outShape, outBounds}, loc);
+            if (mlir::failed(result)) {
+                return mlir::failure();
+            }
+            outShape = result->shape;
+            outBounds = result->bounds;
+        }
+    }
+
+    const auto outType = vpux::getTensorType(ShapeRef(outShape), inputType.getElementType(), inputType.getDimsOrder(),
+                                             /*memSpace=*/nullptr, BoundsRef(outBounds), /*DynamicDimsMask=*/{});
     inferredReturnTypes.push_back(outType);
 
     // Infer the extra NCE output types if any
@@ -261,11 +323,17 @@ vpux::InputTiling vpux::VPU::NCEConvolutionOp::backInferTileInfo(const vpux::Til
     const auto origFilterShape = Shape(getStaticRawFilterShape());
     const auto origPadding = toPadInfo(getPad());
 
+    // Invert the per-dimension ODU scaling to recover the pre-ODU tile before convolution back-inference.
+    const auto scales = VPU::getODUScaling(getOperation());
+    const auto convOutputTileResult = VPU::invertODUScaling(scales, outputTile, getLoc());
+    VPUX_THROW_UNLESS(mlir::succeeded(convOutputTileResult),
+                      "Failed to invert ODU scaling for NCEConvolutionOp at '{0}'", getLoc());
+
     // This op incorporates bias values in WeightsTable
     const auto origBiasShape = ShapeRef();
 
-    auto inputTiling =
-            backInferConvTile(outputTile, origInputShape, origFilterShape, origBiasShape, getStrides(), origPadding);
+    auto inputTiling = backInferConvTile(*convOutputTileResult, origInputShape, origFilterShape, origBiasShape,
+                                         getStrides(), origPadding);
     VPUX_THROW_UNLESS(mlir::succeeded(checkAndAlignActInputTiling(
                               mlir::cast<VPU::NCEOpInterface>(*this->getOperation()), inputTiling, log)),
                       "Failed to get an aligned act input tiling");
@@ -298,24 +366,24 @@ vpux::InputTiling vpux::VPU::NCEConvolutionOp::backInferTileInfo(const vpux::Til
 
     // Adjust filter tile for the aligned filter
     inputTiling.tiles[1].shape = getShape(getFilter()).toValues();
-    inputTiling.tiles[1].shape[Dims4D::Filter::OC] = outputTile.shape[Dims4D::Act::C];
+    inputTiling.tiles[1].shape[Dims4D::Filter::OC] = convOutputTileResult->shape[Dims4D::Act::C];
 
     auto nceOp = mlir::cast<VPU::NCEConvolutionOp>(getOperation());
     if (nceOp.getWeightsTable()) {
         inputTiling.tiles.push_back(
-                VPU::getWeightsTableTile(this, outputTile, VPU::getWeightsChannelsAutopad(getOperation())));
+                VPU::getWeightsTableTile(this, *convOutputTileResult, VPU::getWeightsChannelsAutopad(getOperation())));
     }
     if (nceOp.getWeightTableScale()) {
         inputTiling.tiles.push_back(
-                VPU::getScaleTableTile(this, outputTile, VPU::getWeightsChannelsAutopad(getOperation())));
+                VPU::getScaleTableTile(this, *convOutputTileResult, VPU::getWeightsChannelsAutopad(getOperation())));
     }
     if (nceOp.getWeightTableBias()) {
         inputTiling.tiles.push_back(
-                VPU::getBiasTableTile(this, outputTile, VPU::getWeightsChannelsAutopad(getOperation())));
+                VPU::getBiasTableTile(this, *convOutputTileResult, VPU::getWeightsChannelsAutopad(getOperation())));
     }
     if (nceOp.getWeightZeroPoints()) {
-        inputTiling.tiles.push_back(
-                VPU::getZeroPointTableTile(this, outputTile, VPU::getWeightsChannelsAutopad(getOperation())));
+        inputTiling.tiles.push_back(VPU::getZeroPointTableTile(this, *convOutputTileResult,
+                                                               VPU::getWeightsChannelsAutopad(getOperation())));
     }
 
     return inputTiling;
@@ -323,7 +391,13 @@ vpux::InputTiling vpux::VPU::NCEConvolutionOp::backInferTileInfo(const vpux::Til
 
 void vpux::VPU::NCEConvolutionOp::adjustAttrs(const TilingInfo& inputTiling, const TileInfo& outputTile) {
     VPU::adjustPaddings(this, inputTiling);
-    VPU::adjustRawFilterShape(this, outputTile);
+
+    const auto scales = VPU::getODUScaling(getOperation());
+    const auto preODUOutputTileResult = VPU::invertODUScaling(scales, outputTile, getLoc());
+    VPUX_THROW_UNLESS(mlir::succeeded(preODUOutputTileResult),
+                      "Failed to invert ODU scaling for NCEConvolutionOp adjustAttrs at '{0}'", getLoc());
+
+    VPU::adjustRawFilterShape(this, *preODUOutputTileResult);
 }
 
 vpux::OutputTiling vpux::VPU::NCEConvolutionOp::getOutputTiling(const vpux::TileInfo& firstOutputTile,
@@ -378,6 +452,14 @@ bool vpux::VPU::NCEConvolutionOp::checkStrategyCompatibility(VPU::MultiClusterSt
         return strategy == VPU::MultiClusterStrategy::SplitOverBatch;
     }
 
+    // BLOCK_FIRST S2DD2S does not support C-dim splits.
+    if (const auto s2dd2sCfg = getS2dd2sConfigAttr()) {
+        if (!VPU::isS2DD2SDimSplitSupported(s2dd2sCfg, Dims4D::Act::C)) {
+            return strategy == VPU::MultiClusterStrategy::Clustering ||
+                   strategy == VPU::MultiClusterStrategy::SplitOverHeight;
+        }
+    }
+
     // SplitOverKernel uses num_tiles over C. For ops with active reduce outputs the reduce result
     // has C=1, so per-cluster partials cannot be distributed across clusters.
     if (VPU::hasReduceOutputs(getOperation())) {
@@ -417,6 +499,9 @@ bool VPU::NCEConvolutionOp::isOperationSplitOverWidthCompatible(ShapeRef outputS
 bool VPU::NCEConvolutionOp::isOperationSplitOverKernelCompatible(ShapeRef outputShape, ShapeRef offset, ShapeRef axis) {
     // SplitOverKernel tiles over C. Reduce outputs have C=1, so SOK is incompatible.
     if (VPU::hasReduceOutputs(getOperation())) {
+        return false;
+    }
+    if (!VPU::isS2DD2SDimSplitSupported(getS2dd2sConfigAttr(), Dims4D::Act::C)) {
         return false;
     }
     return VPU::isOperationSplitOverKernelCompatible(getOperation(), outputShape, offset, axis);
@@ -493,9 +578,7 @@ SmallVector<mlir::OpFoldResult> vpux::VPU::NCEConvolutionOp::getMixedRawFilterSh
  * Return the constant raw filter shape by extracting the constant values from the mixed raw filter shape.
  */
 SmallVector<int64_t> vpux::VPU::NCEConvolutionOp::getConstRawFilterShape() {
-    auto vals = mlir::getConstantIntValues(getMixedRawFilterShape());
-    VPUX_THROW_WHEN(!vals.has_value(), "Cannot get constant raw filter shape from NCEConvolutionOp '{0}'", getLoc());
-    return vals.value();
+    return VPU::getConstRawFilterShape(getMixedRawFilterShape(), getLoc());
 }
 
 DimArr vpux::VPU::NCEConvolutionOp::restrictedFusionAxes() {
@@ -680,6 +763,33 @@ mlir::LogicalResult vpux::VPU::NCEConvolutionOp::reifyResultShapes(
         return outShape;
     }
 
-    reifiedReturnShapes.emplace_back(std::move(outShape.value()));
+    auto dims = std::move(outShape.value());
+
+    // Apply per-dimension ODU scaling to dynamic dims. For static dims the output type already
+    // encodes the correct value so no arith ops are needed.
+    const auto oduScales = VPU::getODUScaling(getOperation());
+    if (!oduScales.empty()) {
+        const auto outputType = mlir::cast<mlir::ShapedType>(getOutput().getType());
+        const auto loc = getLoc();
+        for (size_t i = 0; i < oduScales.size(); ++i) {
+            const auto& scale = oduScales[i];
+            if (scale.multiplier == 1 && scale.divisor == 1) {
+                continue;
+            }
+            if (!outputType.isDynamicDim(static_cast<unsigned>(i))) {
+                continue;
+            }
+            auto dimVal = mlir::getValueOrCreateConstantIndexOp(builder, loc, dims[i]);
+            if (scale.multiplier > 1) {
+                auto factor = mlir::arith::ConstantIndexOp::create(builder, loc, scale.multiplier);
+                dims[i] = mlir::arith::MulIOp::create(builder, loc, dimVal, factor).getResult();
+            } else {
+                auto factor = mlir::arith::ConstantIndexOp::create(builder, loc, scale.divisor);
+                dims[i] = mlir::arith::DivSIOp::create(builder, loc, dimVal, factor).getResult();
+            }
+        }
+    }
+
+    reifiedReturnShapes.emplace_back(std::move(dims));
     return mlir::success();
 }

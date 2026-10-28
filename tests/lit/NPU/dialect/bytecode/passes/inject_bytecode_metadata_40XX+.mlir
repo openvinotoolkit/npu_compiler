@@ -19,7 +19,7 @@ module @StaticEltwiseNHWC attributes {config.compilationMode = #config.compilati
 
   bytecode.func_section @function_section {
     bytecode.ext.func @main (memref<1x720x1000x16xf16>, memref<1x720x1000x16xf16>, memref<1x720x1000x16xf16>) -> () {
-      %cl0 = bytecode.virtual_general_register
+      %cl0 = bytecode.virtual_value_register
       bytecode.cmd_list.create %cl0
       bytecode.ret
     }
@@ -32,13 +32,13 @@ module @StaticEltwiseNHWC attributes {config.compilationMode = #config.compilati
   // CHECK:        bytecode.string [[STATIC_OUT_0_NAME:@[A-Za-z0-9_.$-]+]] "output"
   // CHECK:      }
   // CHECK:      bytecode.type_section @type_section {
-  // CHECK:        bytecode.type [[STATIC_F16_TYPE:@[A-Za-z0-9_.$-]+]] #bytecode.float_type<width = 16, format = IEEE754>
-  // CHECK:      }
+  // CHECK-NEXT:   bytecode.type [[STATIC_F16_TYPE:@[A-Za-z0-9_.$-]+]] #bytecode.float_type<width = 16, format = IEEE754>
+  // CHECK-NEXT: }
   // CHECK:      bytecode.constant_section @constant_section {
   // CHECK:        bytecode.constant [[STATIC_SHAPE:@[A-Za-z0-9_.$-]+]] dense<[1, 16, 720, 1000]> : tensor<4xi64>
   // CHECK:      }
   // CHECK:      bytecode.metadata_section @metadata_section {
-  // CHECK:        bytecode.network_metadata [[STATIC_NET_NAME]] [[TILE_COUNT:[0-9]+]] 1
+  // CHECK:        bytecode.network_metadata [[STATIC_NET_NAME]] [[TILE_COUNT:[1-9]+]] 1
   // CHECK:        bytecode.input_metadata [[STATIC_IN_0_NAME]] {nodeFriendlyName = [[STATIC_IN_0_NAME]], shapeFromIRModel = [[STATIC_SHAPE]]} [[STATIC_F16_TYPE]] [[STATIC_SHAPE]] index_used_by_driver(0) has_dynamic_strides(false)
   // CHECK:        bytecode.input_metadata [[STATIC_IN_1_NAME]] {nodeFriendlyName = [[STATIC_IN_1_NAME]], shapeFromIRModel = [[STATIC_SHAPE]]} [[STATIC_F16_TYPE]] [[STATIC_SHAPE]] index_used_by_driver(1) has_dynamic_strides(false)
   // CHECK:        bytecode.output_metadata [[STATIC_OUT_0_NAME]] {nodeFriendlyName = [[STATIC_OUT_0_NAME]], shapeFromIRModel = [[STATIC_SHAPE]]} [[STATIC_F16_TYPE]] [[STATIC_SHAPE]] index_used_by_driver(0) has_dynamic_strides(false)
@@ -57,7 +57,7 @@ module @DynamicEltwiseNHWC attributes {config.compilationMode = #config.compilat
 
   bytecode.func_section @function_section {
     bytecode.ext.func @main (memref<1x720x?x16xf16>, memref<1x720x?x16xf16>) -> () {
-      %cl0 = bytecode.virtual_general_register
+      %cl0 = bytecode.virtual_value_register
       bytecode.cmd_list.create %cl0
       bytecode.ret
     }
@@ -69,8 +69,8 @@ module @DynamicEltwiseNHWC attributes {config.compilationMode = #config.compilat
   // CHECK:        bytecode.string [[DYN_OUT_0_NAME:@[A-Za-z0-9_.$-]+]] "output_dynamic"
   // CHECK:      }
   // CHECK:      bytecode.type_section @type_section {
-  // CHECK:        bytecode.type [[DYN_F16_TYPE:@[A-Za-z0-9_.$-]+]] #bytecode.float_type<width = 16, format = IEEE754>
-  // CHECK:      }
+  // CHECK-NEXT:   bytecode.type [[DYN_F16_TYPE:@[A-Za-z0-9_.$-]+]] #bytecode.float_type<width = 16, format = IEEE754>
+  // CHECK-NEXT: }
   // CHECK:      bytecode.constant_section @constant_section {
   // CHECK:        bytecode.constant [[DYN_BOUND:@[A-Za-z0-9_.$-]+]] dense<[1, 16, 720, 1280]> : tensor<4xi64>
   // CHECK:        bytecode.constant [[DYN_SHAPE:@[A-Za-z0-9_.$-]+]] {{.*-9223372036854775808.*}}
@@ -97,9 +97,9 @@ module @PipelinedWithThreeStreams attributes {config.compilationMode = #config.c
 
   bytecode.func_section @function_section {
     bytecode.ext.func @main (memref<1x16x8x8xf16>, memref<1x16x8x8xf16>) -> () {
-      %cl0 = bytecode.virtual_general_register
-      %cl1 = bytecode.virtual_general_register
-      %cl2 = bytecode.virtual_general_register
+      %cl0 = bytecode.virtual_value_register
+      %cl1 = bytecode.virtual_value_register
+      %cl2 = bytecode.virtual_value_register
       bytecode.cmd_list.create %cl0
       bytecode.cmd_list.create %cl1
       bytecode.cmd_list.create %cl2
@@ -109,5 +109,41 @@ module @PipelinedWithThreeStreams attributes {config.compilationMode = #config.c
 
   // CHECK:      bytecode.metadata_section @metadata_section {
   // CHECK:        bytecode.network_metadata [[PIPE_NET_NAME:@[A-Za-z0-9_.$-]+]] [[TILE_COUNT:[0-9]+]] 3
+  // CHECK:      }
+}
+
+// -----
+
+// Several passes build sections over one module, each with its own SectionBuilder, so a builder routinely
+// starts on a type section an earlier one already populated. It has to reuse those entries rather than append
+// its own: consumers compare types by their index in this section, so a duplicate makes the same type compare
+// unequal to itself - which is what bytecode.buffer.copy rejects a copy over. Here the f16 entry is already
+// present under a name this pass would never pick, so reuse is visible in the metadata's type reference.
+// CHECK-LABEL: module @ReusesExistingTypeSectionEntry{{.*}}{
+module @ReusesExistingTypeSectionEntry attributes {config.compilationMode = #config.compilation_mode<HostCompile_Interpreter>} {
+  net.NetworkInfo entryPoint : @main inputsInfo : {
+    DataInfo "input" : tensor<1x16x8x8xf16>
+  } outputsInfo : {
+    DataInfo "output" : tensor<1x16x8x8xf16>
+  }
+
+  bytecode.type_section @type_section {
+    bytecode.type @f16_from_an_earlier_pass #bytecode.float_type<width = 16, format = IEEE754>
+  }
+
+  bytecode.func_section @function_section {
+    bytecode.ext.func @main (memref<1x16x8x8xf16>, memref<1x16x8x8xf16>) -> () {
+      %cl0 = bytecode.virtual_value_register
+      bytecode.cmd_list.create %cl0
+      bytecode.ret
+    }
+  }
+
+  // CHECK:      bytecode.type_section @type_section {
+  // CHECK-NEXT:   bytecode.type @f16_from_an_earlier_pass #bytecode.float_type<width = 16, format = IEEE754>
+  // CHECK-NEXT: }
+  // CHECK:      bytecode.metadata_section @metadata_section {
+  // CHECK:        bytecode.input_metadata {{.*}} @f16_from_an_earlier_pass {{.*}}
+  // CHECK:        bytecode.output_metadata {{.*}} @f16_from_an_earlier_pass {{.*}}
   // CHECK:      }
 }

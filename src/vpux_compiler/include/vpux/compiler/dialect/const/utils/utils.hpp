@@ -60,13 +60,13 @@ mlir::Value createConst(
                       "data size != shape size: {0} vs {1}", values.size(), shapeTotalSize);
 
     const auto dataAttr = createConstContent(type, values);
-    VPUX_THROW_UNLESS(dataAttr != nullptr, "Data is incompatible with the supplied type {0}", type.getElementType());
+    VPUX_THROW_WHEN(dataAttr == nullptr, "Data is incompatible with the supplied type {0}", type.getElementType());
 
     Const::ContentSetup setup(dataAttr, mlir::cast<mlir::Type>(dataAttr.getType()));
     setup = transform(setup);
 
     auto contentAttr = Const::ContentAttr::get(dataAttr, setup);
-    return builder.create<Const::DeclareOp>(loc, contentAttr.getType(), std::move(contentAttr)).getOutput();
+    return Const::DeclareOp::create(builder, loc, contentAttr.getType(), std::move(contentAttr)).getOutput();
 }
 
 template <typename In>

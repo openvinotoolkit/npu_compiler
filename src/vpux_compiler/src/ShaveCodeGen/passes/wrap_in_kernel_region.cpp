@@ -182,8 +182,8 @@ static Shave::KernelRegionOp wrapSubgraphInKernelRegion(mlir::IRRewriter& rewrit
     auto outputTypes = llvm::to_vector(llvm::map_range(outputValues, [](mlir::Value v) {
         return v.getType();
     }));
-    auto kernelOp =
-            rewriter.create<Shave::KernelRegionOp>(lastInIROrder->getLoc(), outputTypes, /*inputs=*/mlir::ValueRange{});
+    auto kernelOp = Shave::KernelRegionOp::create(rewriter, lastInIROrder->getLoc(), outputTypes,
+                                                  /*inputs=*/mlir::ValueRange{});
     kernelOp.getBody().emplaceBlock();
     auto* bodyBlock = &kernelOp.getBody().front();
 
@@ -207,7 +207,7 @@ static Shave::KernelRegionOp wrapSubgraphInKernelRegion(mlir::IRRewriter& rewrit
     auto clonedOutputValues = llvm::to_vector(llvm::map_range(outputValues, [&](mlir::Value v) {
         return bodyMap.lookupOrDefault(v);
     }));
-    rewriter.create<Shave::KernelRegionYieldOp>(kernelOp.getLoc(), clonedOutputValues);
+    Shave::KernelRegionYieldOp::create(rewriter, kernelOp.getLoc(), clonedOutputValues);
 
     // Isolate the kernel region from above. Collect all values captured from above, then extend the
     // set to include clonable ops.

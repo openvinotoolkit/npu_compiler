@@ -115,8 +115,8 @@ IE::CodeGenCapsuleOp fuseCapsules(IE::CodeGenCapsuleOp producer, IE::CodeGenCaps
     // Need to create new CodeGenCapsule, as op results are immutable
     mlir::OpBuilder builder(producer->getContext());
     builder.setInsertionPoint(producer);
-    auto fusedOp = builder.create<IE::CodeGenCapsuleOp>(producer->getLoc(), consumer->getResultTypes(),
-                                                        possiblyUpdatedProducerOperands);
+    auto fusedOp = IE::CodeGenCapsuleOp::create(builder, producer->getLoc(), consumer->getResultTypes(),
+                                                possiblyUpdatedProducerOperands);
     producer.replaceAllUsesWith(fusedOp->getResults());
     consumer.replaceAllUsesWith(fusedOp->getResults());
 

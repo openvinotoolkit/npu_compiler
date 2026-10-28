@@ -166,7 +166,7 @@ bool ReduceExceedingActiveCountBarriersPass::linearizeTasks(std::set<size_t>& li
             }
         }
 
-        auto newBarrier = builder.create<VPURT::DeclareVirtualBarrierOp>(earliestConsumer->getLoc());
+        auto newBarrier = VPURT::DeclareVirtualBarrierOp::create(builder, earliestConsumer->getLoc());
         _log.trace("Created new barrier '{0}'", newBarrier);
         barrierInfo.addNewBarrier(newBarrier);
 

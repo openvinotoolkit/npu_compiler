@@ -16,6 +16,7 @@
 #include "vpux/compiler/dialect/IE/utils/matmul.hpp"
 #include "vpux/compiler/dialect/IE/utils/transpose_op_utils.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/specialized.hpp"
+#include "vpux/compiler/dialect/VPU/utils/nce_invariant.hpp"
 #include "vpux/compiler/dialect/const/utils/utils.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
@@ -160,8 +161,8 @@ mlir::Value prepareAttentionInput(mlir::OpBuilder& builder, mlir::Location loc, 
             }
         }
         if (!skippedCancelOutReshape) {
-            processedInput = builder.create<IE::ReshapeOp>(appendLoc(loc, formatv("{0}_reshape", suffix)),
-                                                           processedInput, getIntArrayAttr(ctx, reshapeTarget))
+            processedInput = IE::ReshapeOp::create(builder, appendLoc(loc, formatv("{0}_reshape", suffix)),
+                                                   processedInput, getIntArrayAttr(ctx, reshapeTarget))
                                      .getOutput();
         }
     }
@@ -176,10 +177,10 @@ mlir::Value prepareAttentionInput(mlir::OpBuilder& builder, mlir::Location loc, 
         // 4D -> 5D: split heads dimension into (heads, 1)
         SmallVector<int64_t> shape5D = {N, heads, 1, L, E};
         SmallVector<SmallVector<int64_t>> dimMapping4Dto5D = {{0}, {1, 2}, {3}, {4}};
-        processedInput = builder.create<IE::AffineReshapeOp>(appendLoc(loc, formatv("{0}_reshape_5d", suffix)),
-                                                             processedInput, getIntArrayOfArray(ctx, dimMapping4Dto5D),
-                                                             getIntArrayAttr(ctx, shape5D))
-                                 .getOutput();
+        processedInput =
+                IE::AffineReshapeOp::create(builder, appendLoc(loc, formatv("{0}_reshape_5d", suffix)), processedInput,
+                                            getIntArrayOfArray(ctx, dimMapping4Dto5D), getIntArrayAttr(ctx, shape5D))
+                        .getOutput();
 
         // Step 2: Broadcast [N, heads, 1, L, E] -> [N, heads, repeatFactor, L, E]
         SmallVector<int64_t> broadcastShape = {N, heads, repeatFactor, L, E};
@@ -190,19 +191,19 @@ mlir::Value prepareAttentionInput(mlir::OpBuilder& builder, mlir::Location loc, 
                                    ArrayRef(broadcastShape), [&](Const::ContentSetup& setup) {
                                        return setup.castElemType(getSInt32Type(ctx));
                                    });
-        processedInput = builder.create<IE::BroadcastOp>(
-                                        appendLoc(loc, formatv("{0}_broadcast", suffix)), processedInput, shapeConst,
-                                        nullptr, IE::BroadcastTypeAttr::get(ctx, IE::BroadcastType::BIDIRECTIONAL))
+        processedInput = IE::BroadcastOp::create(builder, appendLoc(loc, formatv("{0}_broadcast", suffix)),
+                                                 processedInput, shapeConst, nullptr,
+                                                 IE::BroadcastTypeAttr::get(ctx, IE::BroadcastType::BIDIRECTIONAL))
                                  .getOutput();
 
         // Step 3: AffineReshape back to 4D [N, targetHeads, L, E]
         // 5D -> 4D: merge (heads, repeatFactor) dimensions into targetHeads
         SmallVector<int64_t> shape4D = {N, targetHeads, L, E};
         SmallVector<SmallVector<int64_t>> dimMapping5Dto4D = {{0}, {1}, {1}, {2}, {3}};
-        processedInput = builder.create<IE::AffineReshapeOp>(appendLoc(loc, formatv("{0}_reshape_4d", suffix)),
-                                                             processedInput, getIntArrayOfArray(ctx, dimMapping5Dto4D),
-                                                             getIntArrayAttr(ctx, shape4D))
-                                 .getOutput();
+        processedInput =
+                IE::AffineReshapeOp::create(builder, appendLoc(loc, formatv("{0}_reshape_4d", suffix)), processedInput,
+                                            getIntArrayOfArray(ctx, dimMapping5Dto4D), getIntArrayAttr(ctx, shape4D))
+                        .getOutput();
     }
 
     return processedInput;
@@ -305,7 +306,7 @@ mlir::Value createMatMul(mlir::OpBuilder& builder, mlir::Location loc, mlir::Val
         auto orderAttr =
                 mlir::AffineMapAttr::get(mlir::AffineMap::getPermutationMap(transposeOrder, builder.getContext()));
         auto rebuildTranspose =
-                builder.create<IE::TransposeOp>(appendLoc(loc, "{0}_transpose_b", suffix), b, nullptr, orderAttr);
+                IE::TransposeOp::create(builder, appendLoc(loc, "{0}_transpose_b", suffix), b, nullptr, orderAttr);
         b = rebuildTranspose.getOutput();
         if (outSquareRebuildTranspose != nullptr) {
             *outSquareRebuildTranspose = rebuildTranspose;
@@ -317,8 +318,8 @@ mlir::Value createMatMul(mlir::OpBuilder& builder, mlir::Location loc, mlir::Val
     }
 
     bool transposeB = (widthA != heightB) || (widthB == heightB);
-    auto matmul = builder.create<IE::MatMulOp>(appendLoc(loc, suffix), a, b,
-                                               /*transpose_a=*/false, /*transpose_b=*/transposeB);
+    auto matmul = IE::MatMulOp::create(builder, appendLoc(loc, suffix), a, b,
+                                       /*transpose_a=*/false, /*transpose_b=*/transposeB);
 
     return matmul.getOutput();
 }
@@ -377,8 +378,8 @@ void decomposeAttention(IE::AttentionOp origOp, Logger log, bool maskAware, bool
                 const auto maskShape = mlir::cast<vpux::NDTypeInterface>(attentionMask.getType()).getShape().raw();
                 if (maskShape.size() == 4 && maskShape[0] == qBatch) {
                     SmallVector<int64_t> newMaskShape = {1, qBatch * maskShape[1], maskShape[2], maskShape[3]};
-                    attentionMask = builder.create<IE::ReshapeOp>(appendLoc(loc, "reshape_mask_gqa"), attentionMask,
-                                                                  getIntArrayAttr(ctx, newMaskShape))
+                    attentionMask = IE::ReshapeOp::create(builder, appendLoc(loc, "reshape_mask_gqa"), attentionMask,
+                                                          getIntArrayAttr(ctx, newMaskShape))
                                             .getOutput();
                 }
             }
@@ -388,8 +389,8 @@ void decomposeAttention(IE::AttentionOp origOp, Logger log, bool maskAware, bool
                 const auto biasShape = mlir::cast<vpux::NDTypeInterface>(bias.getType()).getShape().raw();
                 if (biasShape.size() == 4 && biasShape[0] == qBatch) {
                     SmallVector<int64_t> newBiasShape = {1, qBatch * biasShape[1], biasShape[2], biasShape[3]};
-                    bias = builder.create<IE::ReshapeOp>(appendLoc(loc, "reshape_bias_gqa"), bias,
-                                                         getIntArrayAttr(ctx, newBiasShape))
+                    bias = IE::ReshapeOp::create(builder, appendLoc(loc, "reshape_bias_gqa"), bias,
+                                                 getIntArrayAttr(ctx, newBiasShape))
                                    .getOutput();
                 }
             }
@@ -429,7 +430,10 @@ void decomposeAttention(IE::AttentionOp origOp, Logger log, bool maskAware, bool
         const bool seqMisaligned = (S % 16 != 0) || (L % 16 != 0);
         const bool willUnrollPerHead = !IE::isGroupedMatMulBeneficial(qkMatMul, getShape(qkMatMul.getInput1()),
                                                                       getShape(qkMatMul.getInput2()));
-        if (willUnrollPerHead && seqMisaligned) {
+        const int64_t totalQHeads = qBatch * qHeads;
+        const bool groupedHeadAligned =
+                !willUnrollPerHead && (qBatch > 1) && (totalQHeads >= VPU::NCEInvariant::VPU_CHANNEL_ALIGNMENT);
+        if ((willUnrollPerHead && seqMisaligned) || ((L == 1) && groupedHeadAligned)) {
             scalePlacement = ScalePlacement::OnResult;
         }
 
@@ -439,7 +443,14 @@ void decomposeAttention(IE::AttentionOp origOp, Logger log, bool maskAware, bool
             const mlir::Value operandVal = onQuery ? qkMatMul.getInput1() : qkMatMul.getInput2();
 
             mlir::OpBuilder::InsertionGuard guard(builder);
-            builder.setInsertionPoint(qkMatMul);
+            // Batched (qBatch > 1): insert after the producer so FuseScale folds it in. Flat layouts
+            // regress if moved, so keep it before the MatMul (also the block-arg fallback).
+            auto* defOp = operandVal.getDefiningOp();
+            if (defOp != nullptr && qBatch > 1) {
+                builder.setInsertionPointAfter(defOp);
+            } else {
+                builder.setInsertionPoint(qkMatMul);
+            }
             auto scaledOperand = builder.createOrFold<IE::MultiplyOp>(
                     appendLoc(loc, onQuery ? "scale_query" : "scale_key"), operandVal, scale,
                     IE::AutoBroadcastType::NUMPY, nullptr, nullptr, nullptr, nullptr);
@@ -479,9 +490,9 @@ void decomposeAttention(IE::AttentionOp origOp, Logger log, bool maskAware, bool
                                                      llvm::ArrayRef<float>{-std::numeric_limits<float>::infinity()});
 
             // If mask != 0 (true), use keepValue (0.0), else use maskValue (-INF)
-            attentionMask = builder.create<IE::SelectOp>(
-                                           appendLoc(loc, "mask_select"), attentionMask, keepValueConst, maskValueConst,
-                                           IE::AutoBroadcastTypeAttr::get(ctx, IE::AutoBroadcastType::NUMPY))
+            attentionMask = IE::SelectOp::create(builder, appendLoc(loc, "mask_select"), attentionMask, keepValueConst,
+                                                 maskValueConst,
+                                                 IE::AutoBroadcastTypeAttr::get(ctx, IE::AutoBroadcastType::NUMPY))
                                     .getOutput();
         }
 
@@ -505,8 +516,8 @@ void decomposeAttention(IE::AttentionOp origOp, Logger log, bool maskAware, bool
         const auto sinkShapeRaw = mlir::cast<vpux::NDTypeInterface>(sink.getType()).getShape().raw();
         if (sinkShapeRaw.size() == 4 && sinkShapeRaw[0] == qBatch) {
             SmallVector<int64_t> newSinkShape = {1, qBatch * sinkShapeRaw[1], sinkShapeRaw[2], sinkShapeRaw[3]};
-            sink = builder.create<IE::ReshapeOp>(appendLoc(loc, "reshape_sink_gqa"), sink,
-                                                 getIntArrayAttr(ctx, newSinkShape))
+            sink = IE::ReshapeOp::create(builder, appendLoc(loc, "reshape_sink_gqa"), sink,
+                                         getIntArrayAttr(ctx, newSinkShape))
                            .getOutput();
         }
     }
@@ -524,13 +535,13 @@ void decomposeAttention(IE::AttentionOp origOp, Logger log, bool maskAware, bool
                                                  ArrayRef(sinkColShape), [&](Const::ContentSetup& setup) {
                                                      return setup.castElemType(getSInt32Type(ctx));
                                                  });
-            sinkCol = builder.create<IE::BroadcastOp>(appendLoc(loc, "sink_broadcast"), sink, shapeConst, nullptr,
-                                                      IE::BroadcastTypeAttr::get(ctx, IE::BroadcastType::BIDIRECTIONAL))
+            sinkCol = IE::BroadcastOp::create(builder, appendLoc(loc, "sink_broadcast"), sink, shapeConst, nullptr,
+                                              IE::BroadcastTypeAttr::get(ctx, IE::BroadcastType::BIDIRECTIONAL))
                               .getOutput();
         }
-        attentionScores = builder.create<IE::ConcatOp>(appendLoc(loc, "sink_concat"),
-                                                       SmallVector<mlir::Value>{attentionScores, sinkCol},
-                                                       Dim(static_cast<size_t>(rank) - 1))
+        attentionScores = IE::ConcatOp::create(builder, appendLoc(loc, "sink_concat"),
+                                               SmallVector<mlir::Value>{attentionScores, sinkCol},
+                                               Dim(static_cast<size_t>(rank) - 1))
                                   .getOutput();
         log.trace("Appended attention sink column before softmax");
     }
@@ -539,17 +550,16 @@ void decomposeAttention(IE::AttentionOp origOp, Logger log, bool maskAware, bool
     const auto softmaxAxisAttr = getIntAttr(ctx, static_cast<int64_t>(rank) - 1);
     const auto maskAwareAttr = maskAware ? mlir::UnitAttr::get(ctx) : mlir::UnitAttr{};
     const auto padSizeAttr = origOp.getPadSizeS().has_value() ? origOp.getPadSizeSAttr() : mlir::IntegerAttr{};
-    auto softmaxOp = builder.create<IE::SoftMaxOp>(appendLoc(loc, "softmax"), attentionScores, softmaxAxisAttr,
-                                                   padSizeAttr, mlir::TypeAttr{}, maskAwareAttr);
+    auto softmaxOp = IE::SoftMaxOp::create(builder, appendLoc(loc, "softmax"), attentionScores, softmaxAxisAttr,
+                                           padSizeAttr, mlir::TypeAttr{}, maskAwareAttr);
     log.trace("Applied softmax with mask awareness: {0}", maskAware);
 
     mlir::Value softmaxResult = softmaxOp.getOutput();
     if (sink) {
         const SmallVector<int64_t> sliceOffsets(rank, 0);
-        softmaxResult =
-                builder.create<IE::SliceOp>(appendLoc(loc, "sink_slice"), softmaxResult,
+        softmaxResult = IE::SliceOp::create(builder, appendLoc(loc, "sink_slice"), softmaxResult,
                                             getIntArrayAttr(ctx, sliceOffsets), getIntArrayAttr(ctx, preSinkSizes))
-                        .getOutput();
+                                .getOutput();
         log.trace("Dropped attention sink column after softmax");
     }
 
@@ -567,11 +577,10 @@ void decomposeAttention(IE::AttentionOp origOp, Logger log, bool maskAware, bool
     mlir::Value finalOutput = outputMatMul;
     if (qBatchFolded) {
         const auto origOutShape = mlir::cast<vpux::NDTypeInterface>(origOp.getOutput().getType()).getShape();
-        finalOutput =
-                builder.create<IE::ReshapeOp>(
-                               appendLoc(loc, "reshape_output_batch"), outputMatMul,
-                               getIntArrayAttr(ctx, SmallVector<int64_t>(origOutShape.begin(), origOutShape.end())))
-                        .getOutput();
+        finalOutput = IE::ReshapeOp::create(
+                              builder, appendLoc(loc, "reshape_output_batch"), outputMatMul,
+                              getIntArrayAttr(ctx, SmallVector<int64_t>(origOutShape.begin(), origOutShape.end())))
+                              .getOutput();
     }
 
     origOp.getOutput().replaceAllUsesWith(finalOutput);

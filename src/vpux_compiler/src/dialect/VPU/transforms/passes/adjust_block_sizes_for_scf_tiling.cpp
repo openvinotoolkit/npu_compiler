@@ -121,7 +121,7 @@ private:
 
         mlir::OpBuilder builder(_firstForOp);
         auto constAttr = builder.getIntegerAttr(builder.getIndexType(), val);
-        auto constOp = builder.create<mlir::arith::ConstantOp>(takeOpLoc(_firstForOp, "const_val"), constAttr);
+        auto constOp = mlir::arith::ConstantOp::create(builder, takeOpLoc(_firstForOp, "const_val"), constAttr);
         _constOpCache[val] = {constAttr, constOp};
         return _constOpCache[val];
     }
@@ -129,8 +129,8 @@ private:
     mlir::tensor::DimOp createDimOp(mlir::OpBuilder builder, mlir::scf::ForOp forOp, mlir::Value tensor, size_t idx) {
         mlir::OpBuilder localBuilder(forOp);
         auto dimOp = forOp.isDefinedOutsideOfLoop(tensor)
-                             ? localBuilder.create<mlir::tensor::DimOp>(takeOpLoc(forOp, "dim"), tensor, idx)
-                             : builder.create<mlir::tensor::DimOp>(takeOpLoc(forOp, "dim"), tensor, idx);
+                             ? mlir::tensor::DimOp::create(localBuilder, takeOpLoc(forOp, "dim"), tensor, idx)
+                             : mlir::tensor::DimOp::create(builder, takeOpLoc(forOp, "dim"), tensor, idx);
         return dimOp;
     }
 
@@ -140,8 +140,8 @@ private:
         }
 
         mlir::OpBuilder builder(_firstForOp);
-        auto cstOp = builder.create<mlir::arith::ConstantIndexOp>(
-                takeOpLoc(_firstForOp, "const_" + std::to_string(val)), val);
+        auto cstOp = mlir::arith::ConstantIndexOp::create(builder,
+                                                          takeOpLoc(_firstForOp, "const_" + std::to_string(val)), val);
         _constIndexOpCache[val] = cstOp;
         return cstOp;
     }
@@ -244,12 +244,12 @@ mlir::scf::IfOp AdjustBlockSizeForScfTilingPass::getTensorBlockPosition(mlir::sc
     auto oneConst = getCstIndexOp(static_cast<int64_t>(TilePosition::END));
     auto twoConst = getCstIndexOp(static_cast<int64_t>(TilePosition::START));
     auto threeConst = getCstIndexOp(static_cast<int64_t>(TilePosition::FULLBLK));
-    auto indexIsZero = builder.create<mlir::arith::CmpIOp>(takeOpLoc(insertionPoint, "cmp_index_zero"),
-                                                           mlir::arith::CmpIPredicate::eq, offset, zeroConst);
+    auto indexIsZero = mlir::arith::CmpIOp::create(builder, takeOpLoc(insertionPoint, "cmp_index_zero"),
+                                                   mlir::arith::CmpIPredicate::eq, offset, zeroConst);
 
-    auto ifIndexZero = builder.create<mlir::scf::IfOp>(takeOpLoc(insertionPoint, "if_offset_zero"),
-                                                       llvm::ArrayRef<mlir::Type>{builder.getIndexType()}, indexIsZero,
-                                                       /*withElseRegion=*/true);
+    auto ifIndexZero = mlir::scf::IfOp::create(builder, takeOpLoc(insertionPoint, "if_offset_zero"),
+                                               llvm::ArrayRef<mlir::Type>{builder.getIndexType()}, indexIsZero,
+                                               /*withElseRegion=*/true);
     // if index == 0 :
     //    assert if num_elements < first_blk_size
     //    if num_elements == total_elements
@@ -258,12 +258,12 @@ mlir::scf::IfOp AdjustBlockSizeForScfTilingPass::getTensorBlockPosition(mlir::sc
     //       yield 2
     {
         mlir::OpBuilder thenBuilder = ifIndexZero.getThenBodyBuilder();
-        auto checkForFullTile = thenBuilder.create<mlir::arith::CmpIOp>(
-                takeOpLoc(ifIndexZero, "full_tile_check"), mlir::arith::CmpIPredicate::eq, currentBlkSize, upperBound);
-        auto selectIndex = thenBuilder.create<mlir::arith::SelectOp>(takeOpLoc(ifIndexZero, "select_full_tile"),
-                                                                     checkForFullTile, threeConst, twoConst);
-        thenBuilder.create<mlir::scf::YieldOp>(takeOpLoc(selectIndex, "yield"),
-                                               mlir::ValueRange{selectIndex->getResult(0)});
+        auto checkForFullTile = mlir::arith::CmpIOp::create(thenBuilder, takeOpLoc(ifIndexZero, "full_tile_check"),
+                                                            mlir::arith::CmpIPredicate::eq, currentBlkSize, upperBound);
+        auto selectIndex = mlir::arith::SelectOp::create(thenBuilder, takeOpLoc(ifIndexZero, "select_full_tile"),
+                                                         checkForFullTile, threeConst, twoConst);
+        mlir::scf::YieldOp::create(thenBuilder, takeOpLoc(selectIndex, "yield"),
+                                   mlir::ValueRange{selectIndex->getResult(0)});
     }
     // Else block: index != 0
     // sum = index + current_block_size
@@ -273,12 +273,12 @@ mlir::scf::IfOp AdjustBlockSizeForScfTilingPass::getTensorBlockPosition(mlir::sc
     //    yield 1
     {
         mlir::OpBuilder elseBuilder = ifIndexZero.getElseBodyBuilder();
-        auto sum = elseBuilder.create<mlir::arith::AddIOp>(takeOpLoc(ifIndexZero, "else_add"), offset, currentBlkSize);
-        auto sumLessThanBound = elseBuilder.create<mlir::arith::CmpIOp>(
-                takeOpLoc(ifIndexZero, "pos_check"), mlir::arith::CmpIPredicate::slt, sum, upperBound);
-        auto selectIndex = elseBuilder.create<mlir::arith::SelectOp>(takeOpLoc(ifIndexZero, "select_tile_pos"),
-                                                                     sumLessThanBound, zeroConst, oneConst);
-        elseBuilder.create<mlir::scf::YieldOp>(takeOpLoc(ifIndexZero, "yield"), selectIndex->getResult(0));
+        auto sum = mlir::arith::AddIOp::create(elseBuilder, takeOpLoc(ifIndexZero, "else_add"), offset, currentBlkSize);
+        auto sumLessThanBound = mlir::arith::CmpIOp::create(elseBuilder, takeOpLoc(ifIndexZero, "pos_check"),
+                                                            mlir::arith::CmpIPredicate::slt, sum, upperBound);
+        auto selectIndex = mlir::arith::SelectOp::create(elseBuilder, takeOpLoc(ifIndexZero, "select_tile_pos"),
+                                                         sumLessThanBound, zeroConst, oneConst);
+        mlir::scf::YieldOp::create(elseBuilder, takeOpLoc(ifIndexZero, "yield"), selectIndex->getResult(0));
     }
     return ifIndexZero;
 }
@@ -327,7 +327,7 @@ mlir::LogicalResult AdjustBlockSizeForScfTilingPass::adjustOutputBlockIdxAndSize
             auto offset = insertSliceOp.getMixedOffsets()[idx];
             newOffsets.push_back(offset);
             auto forOp = getEnclosingForOp(val, _opChainAnalysis);
-            VPUX_THROW_UNLESS(forOp != nullptr, "Expected parent scf.for operation for slice size but got none");
+            VPUX_THROW_WHEN(forOp == nullptr, "Expected parent scf.for operation for slice size but got none");
             auto blockSize = forOp.getStep();
             newSizes.push_back(blockSize);
 
@@ -354,9 +354,9 @@ mlir::LogicalResult AdjustBlockSizeForScfTilingPass::adjustOutputBlockIdxAndSize
 
         // Create a new insert_slice operation with adjusted offsets and sizes
         builder.setInsertionPoint(insertSliceOp);
-        auto newInsertSliceOp = builder.create<mlir::tensor::InsertSliceOp>(
-                insertSliceOp.getLoc(), insertSliceOp.getSource(), insertSliceOp.getDest(), newOffsets, newSizes,
-                insertSliceOp.getMixedStrides());
+        auto newInsertSliceOp = mlir::tensor::InsertSliceOp::create(
+                builder, insertSliceOp.getLoc(), insertSliceOp.getSource(), insertSliceOp.getDest(), newOffsets,
+                newSizes, insertSliceOp.getMixedStrides());
         newInsertSliceOp->setAttrs(insertSliceOp->getAttrs());
         extendOpLoc(newInsertSliceOp, "insert_slice_adjusted");
 
@@ -559,9 +559,9 @@ mlir::LogicalResult AdjustBlockSizeForScfTilingPass::calculateInputBlockPosAndSh
         // will be created to process different slices of the input tensor. Insert a CastOp to keep the dynamic
         // dimensions, as different funcOps might require different input shapes
         builder.setInsertionPoint(sliceOp);
-        auto newSliceOp = builder.create<mlir::tensor::ExtractSliceOp>(
-                appendLoc(sliceOp->getLoc(), "adjusted_input_slice"), sliceOp.getSource(), newOffsets, newSizes,
-                sliceOp.getMixedStrides());
+        auto newSliceOp = mlir::tensor::ExtractSliceOp::create(
+                builder, appendLoc(sliceOp->getLoc(), "adjusted_input_slice"), sliceOp.getSource(), newOffsets,
+                newSizes, sliceOp.getMixedStrides());
         auto newResultType = removeBoundsAttr(newSliceOp.getResultType());
         newSliceOp.getResult().setType(newResultType);
 
@@ -571,8 +571,8 @@ mlir::LogicalResult AdjustBlockSizeForScfTilingPass::calculateInputBlockPosAndSh
         for (auto& use : make_early_inc_range(sliceOp->getUses())) {
             if (mlir::isa<mlir::tensor::CastOp>(use.getOwner())) {
                 auto castOp = mlir::cast<mlir::tensor::CastOp>(use.getOwner());
-                auto newCastOp = builder.create<mlir::tensor::CastOp>(
-                        newSliceOp->getLoc(), castOp.getResult().getType(), newSliceOp.getResult());
+                auto newCastOp = mlir::tensor::CastOp::create(builder, newSliceOp->getLoc(),
+                                                              castOp.getResult().getType(), newSliceOp.getResult());
                 castOp.getResult().replaceAllUsesWith(newCastOp);
                 castOp.erase();
             } else {
@@ -580,8 +580,8 @@ mlir::LogicalResult AdjustBlockSizeForScfTilingPass::calculateInputBlockPosAndSh
             }
         }
         for (auto* opOperand : requireCastOp) {
-            auto newCastOp = builder.create<mlir::tensor::CastOp>(newSliceOp->getLoc(), sliceOp->getResult(0).getType(),
-                                                                  newSliceOp->getResult(0));
+            auto newCastOp = mlir::tensor::CastOp::create(builder, newSliceOp->getLoc(),
+                                                          sliceOp->getResult(0).getType(), newSliceOp->getResult(0));
             opOperand->set(newCastOp.getResult());
         }
 
@@ -645,8 +645,8 @@ mlir::FailureOr<mlir::func::CallOp> createNewFuncOp(mlir::ModuleOp moduleOp, mli
 
     if (moduleOp.lookupSymbol<mlir::func::FuncOp>(newFuncName) != nullptr) {
         // Clone the call operation with new function
-        auto newCallOp = builder.create<mlir::func::CallOp>(callOp.getLoc(), newFuncName, callOp.getResultTypes(),
-                                                            callOp.getOperands());
+        auto newCallOp = mlir::func::CallOp::create(builder, callOp.getLoc(), newFuncName, callOp.getResultTypes(),
+                                                    callOp.getOperands());
         assert(newCallOp != nullptr && "Failed to create new call operation");
         return newCallOp;
     }
@@ -699,8 +699,8 @@ mlir::FailureOr<mlir::func::CallOp> createNewFuncOp(mlir::ModuleOp moduleOp, mli
     });
 
     // Clone the call operation with new function
-    auto newCallOp = builder.create<mlir::func::CallOp>(callOp.getLoc(), newFuncName, callOp.getResultTypes(),
-                                                        callOp.getOperands());
+    auto newCallOp = mlir::func::CallOp::create(builder, callOp.getLoc(), newFuncName, callOp.getResultTypes(),
+                                                callOp.getOperands());
     assert(newCallOp != nullptr && "Failed to create new call operation");
     return newCallOp;
 }
@@ -788,8 +788,8 @@ void pruneCallOpOperands(mlir::OpBuilder& builder, mlir::func::CallOp callOp, Ar
     }
 
     builder.setInsertionPoint(callOp);
-    auto newCallOp = builder.create<mlir::func::CallOp>(callOp.getLoc(), callOp.getCallee(), callOp.getResultTypes(),
-                                                        newOperands);
+    auto newCallOp = mlir::func::CallOp::create(builder, callOp.getLoc(), callOp.getCallee(), callOp.getResultTypes(),
+                                                newOperands);
     callOp.replaceAllUsesWith(newCallOp.getResults());
     callOp.erase();
 }
@@ -841,7 +841,7 @@ mlir::LogicalResult updateFunctionAndCallOp(mlir::OpBuilder& builder, mlir::func
         {
             builder.setInsertionPointToStart(&funcOp.getBody().front());
             auto staticAttr = builder.getIndexAttr(operandToStaticValue.at(operandIdx));
-            auto constOp = builder.create<mlir::arith::ConstantIndexOp>(funcOp.getLoc(), staticAttr.getInt());
+            auto constOp = mlir::arith::ConstantIndexOp::create(builder, funcOp.getLoc(), staticAttr.getInt());
             mapper.map(funcArg, constOp.getResult());
         }
 
@@ -1017,7 +1017,7 @@ mlir::LogicalResult AdjustBlockSizeForScfTilingPass::generateBlockAwareFuncOps(
             return std::make_pair(mlir::func::CallOp(), mlir::func::FuncOp());
         }
         auto newCallOp = newCallOpOrFail.value();
-        builder.create<mlir::scf::YieldOp>(newCallOp.getLoc(), newCallOp.getResults());
+        mlir::scf::YieldOp::create(builder, newCallOp.getLoc(), newCallOp.getResults());
         builder.setInsertionPointToStart(&block);
         auto locString = defaultCase ? "_default_case" : ("_case_" + std::to_string(caseIndex));
 
@@ -1028,16 +1028,16 @@ mlir::LogicalResult AdjustBlockSizeForScfTilingPass::generateBlockAwareFuncOps(
             getShapeAttrs(shapeMap[caseIndex], newShape);
 
             if (defaultCase) {
-                auto falseAttr = builder.create<mlir::arith::ConstantOp>(takeOpLoc(callOp, "bool_" + locString),
-                                                                         builder.getBoolAttr(false));
-                builder.create<mlir::cf::AssertOp>(takeOpLoc(callOp, "assert_valid_shape" + locString), falseAttr,
-                                                   builder.getStringAttr("Unsupported case"));
+                auto falseAttr = mlir::arith::ConstantOp::create(builder, takeOpLoc(callOp, "bool_" + locString),
+                                                                 builder.getBoolAttr(false));
+                mlir::cf::AssertOp::create(builder, takeOpLoc(callOp, "assert_valid_shape" + locString), falseAttr,
+                                           builder.getStringAttr("Unsupported case"));
             }
 
             // Create new extract slice op with adjusted shape and remove bounds attribute
             // Add CastOp to convert back to dynamic shape
-            auto newSliceOp = builder.create<mlir::tensor::ExtractSliceOp>(
-                    takeOpLoc(newCallOp, "adjusted_input_slice_" + locString), extractSliceOp.getSource(),
+            auto newSliceOp = mlir::tensor::ExtractSliceOp::create(
+                    builder, takeOpLoc(newCallOp, "adjusted_input_slice_" + locString), extractSliceOp.getSource(),
                     extractSliceOp.getMixedOffsets(), newShape, extractSliceOp.getMixedStrides());
             auto newSliceOpResultType = newSliceOp->getResult(0).getType();
             assert(mlir::isa<mlir::RankedTensorType>(newSliceOpResultType) &&
@@ -1055,8 +1055,8 @@ mlir::LogicalResult AdjustBlockSizeForScfTilingPass::generateBlockAwareFuncOps(
                 adjustedCastOpType = mlir::RankedTensorType::get(adjustedCastOpType.getShape(),
                                                                  adjustedCastOpType.getElementType(), tensorAttr);
             }
-            auto newCastOp = builder.create<mlir::tensor::CastOp>(newCallOp.getLoc(), adjustedCastOpType,
-                                                                  newSliceOp.getResult());
+            auto newCastOp = mlir::tensor::CastOp::create(builder, newCallOp.getLoc(), adjustedCastOpType,
+                                                          newSliceOp.getResult());
             newCallOp->setOperand(operandIdx, newCastOp.getResult());
         }
 
@@ -1071,8 +1071,8 @@ mlir::LogicalResult AdjustBlockSizeForScfTilingPass::generateBlockAwareFuncOps(
                 return std::make_pair(mlir::func::CallOp(), mlir::func::FuncOp());
             }
 
-            auto updatedCallOp = builder.create<mlir::func::CallOp>(
-                    newCallOp.getLoc(), funcOp.getName(), newCallOp.getResultTypes(), alignedOperands.value());
+            auto updatedCallOp = mlir::func::CallOp::create(builder, newCallOp.getLoc(), funcOp.getName(),
+                                                            newCallOp.getResultTypes(), alignedOperands.value());
             newCallOp.replaceAllUsesWith(updatedCallOp.getResults());
             newCallOp.erase();
             newCallOp = updatedCallOp;
@@ -1084,8 +1084,8 @@ mlir::LogicalResult AdjustBlockSizeForScfTilingPass::generateBlockAwareFuncOps(
     auto dimToEncodingIndex = buildDimToEncodingIndexMap(forOpToDimInfo);
     llvm::DenseSet<llvm::StringRef> processedFunctions;
 
-    auto switchOp = builder.create<mlir::scf::IndexSwitchOp>(callOp.getLoc(), callOp.getResultTypes(), encodedIdx,
-                                                             validCaseValues, validCaseValues.size());
+    auto switchOp = mlir::scf::IndexSwitchOp::create(builder, callOp.getLoc(), callOp.getResultTypes(), encodedIdx,
+                                                     validCaseValues, validCaseValues.size());
     for (auto caseIndex : switchOp.getCases()) {
         auto it = llvm::find(validCaseValues, caseIndex);
         auto index = std::distance(validCaseValues.begin(), it);

@@ -27,3 +27,59 @@ func.func @FuseD2sConvert(%input: tensor<1x16x20x40xf16, {order = #NHWC}>) -> te
 
     // CHECK:       return [[OUTPUT]] : tensor<1x40x80x4xf32>
 }
+
+// -----
+
+// CHECK-LABEL: @FuseScalesConvertGroupQuantCorrection
+// CHECK-SAME:  [[ACT_OUT:%.+]]: tensor<8x96x1x1xf16>
+// CHECK-SAME:  [[ACT_IN:%.+]]: tensor<8x1x1x64xf16>
+// CHECK-SAME:  [[SCALES:%.+]]: tensor<1x8x1x96xf32>
+// CHECK-SAME:  [[ZP:%.+]]: tensor<8x96x1x1xui2>
+func.func @FuseScalesConvertGroupQuantCorrection(%actOut: tensor<8x96x1x1xf16>, %actIn: tensor<8x1x1x64xf16>,
+                                                 %scales: tensor<1x8x1x96xf32>, %zp: tensor<8x96x1x1xui2>)
+        -> tensor<8x96x1x1xf16> {
+    %0 = VPU.Convert(%scales) {dstElemType = f16} : tensor<1x8x1x96xf32> -> tensor<1x8x1x96xf16>
+    %1 = VPU.AffineReshape(%0) {
+        dim_mapping = [[0], [0], [0], [1, 2, 3]],
+        shape_value = [8, 96, 1, 1]
+    } : tensor<1x8x1x96xf16> -> tensor<8x96x1x1xf16>
+    %2 = VPU.GroupQuantCorrection(%actOut, %actIn, %1, %zp)
+        : tensor<8x96x1x1xf16>, tensor<8x1x1x64xf16>, tensor<8x96x1x1xf16>, tensor<8x96x1x1xui2>
+        -> tensor<8x96x1x1xf16>
+    return %2 : tensor<8x96x1x1xf16>
+
+    // CHECK-NOT:   VPU.Convert
+    // CHECK:       [[SCALES_RESHAPE:%.+]] = VPU.AffineReshape([[SCALES]])
+    // CHECK-SAME:      : tensor<1x8x1x96xf32> -> tensor<8x96x1x1xf32>
+    // CHECK:       [[GQC:%.+]] = VPU.GroupQuantCorrection([[ACT_OUT]], [[ACT_IN]], [[SCALES_RESHAPE]], [[ZP]])
+    // CHECK-SAME:      : tensor<8x96x1x1xf16>, tensor<8x1x1x64xf16>, tensor<8x96x1x1xf32>, tensor<8x96x1x1xui2>
+    // CHECK-SAME:      -> tensor<8x96x1x1xf16>
+    // CHECK:       return [[GQC]] : tensor<8x96x1x1xf16>
+}
+
+// -----
+
+// CHECK-LABEL: @NotFuseScalesConvertGroupQuantCorrectionNoConvert
+// CHECK-SAME:  [[ACT_OUT:%.+]]: tensor<8x96x1x1xf16>
+// CHECK-SAME:  [[ACT_IN:%.+]]: tensor<8x1x1x64xf16>
+// CHECK-SAME:  [[SCALES:%.+]]: tensor<1x8x1x96xf16>
+// CHECK-SAME:  [[ZP:%.+]]: tensor<8x96x1x1xui2>
+func.func @NotFuseScalesConvertGroupQuantCorrectionNoConvert(%actOut: tensor<8x96x1x1xf16>, %actIn: tensor<8x1x1x64xf16>,
+                                                             %scales: tensor<1x8x1x96xf16>, %zp: tensor<8x96x1x1xui2>)
+        -> tensor<8x96x1x1xf16> {
+    %0 = VPU.AffineReshape(%scales) {
+        dim_mapping = [[0], [0], [0], [1, 2, 3]],
+        shape_value = [8, 96, 1, 1]
+    } : tensor<1x8x1x96xf16> -> tensor<8x96x1x1xf16>
+    %1 = VPU.GroupQuantCorrection(%actOut, %actIn, %0, %zp)
+        : tensor<8x96x1x1xf16>, tensor<8x1x1x64xf16>, tensor<8x96x1x1xf16>, tensor<8x96x1x1xui2>
+        -> tensor<8x96x1x1xf16>
+    return %1 : tensor<8x96x1x1xf16>
+
+    // CHECK:       [[SCALES_RESHAPE:%.+]] = VPU.AffineReshape([[SCALES]])
+    // CHECK-SAME:      : tensor<1x8x1x96xf16> -> tensor<8x96x1x1xf16>
+    // CHECK:       [[GQC:%.+]] = VPU.GroupQuantCorrection([[ACT_OUT]], [[ACT_IN]], [[SCALES_RESHAPE]], [[ZP]])
+    // CHECK-SAME:      : tensor<8x96x1x1xf16>, tensor<8x1x1x64xf16>, tensor<8x96x1x1xf16>, tensor<8x96x1x1xui2>
+    // CHECK-SAME:      -> tensor<8x96x1x1xf16>
+    // CHECK:       return [[GQC]] : tensor<8x96x1x1xf16>
+}

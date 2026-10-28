@@ -29,3 +29,40 @@ func.func @SuperdenseNCEEltwise(%arg0: tensor<1x32x16x320xf16, {order = #NHWC}>)
     // CHECK-SAME:      task_type = #VPUIP.nce_task_type<ELTWISE>
     // CHECK-SAME:  }
 }
+
+// -----
+
+#GNHWC = affine_map<(d0, d1, d2, d3, d4) -> (d0, d1, d3, d4, d2)>
+
+!qElemType = !quant.uniform<!quant.quantile<ui2:f16, {0.000000e+00, 1.000000e+00, 2.000000e+00, 3.000000e+00}>:f16, 1.000000e+00>
+
+// CHECK-LABEL: @MatMulQuantileTypeWeights
+func.func @MatMulQuantileTypeWeights(%arg0: tensor<43x1x32x16x4xf16, {mem_space = @CMX_NN, order = #GNHWC}>,
+                                      %arg1: tensor<43x64x32x1x1x!qElemType, {mem_space = @CMX_NN, order = #GNHWC}>,
+                                      %arg2: tensor<43x64x1x1x4xsi32, {mem_space = @CMX_NN}>)
+                                      -> tensor<43x1x64x16x4xf16, {mem_space = @CMX_NN, order = #GNHWC}> {
+
+    %0 = VPU.NCE.MatMul(%arg0, %arg1, %arg2) rawFilterShape [43, 64, 32, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
+                pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
+                ppe = #VPU.PPEStub<>,
+                strides = [1, 1]
+            } -> tensor<43x1x64x16x4xf16, {mem_space = @CMX_NN, order = #GNHWC}> {
+        VPU.DPU.Workload inOffsets [0, 0, 0, 0, 0] inSizes [43, 1, 32, 16, 4] outOffsets [0, 0, 0, 0, 0] outSizes [43, 1, 64, 16, 4] pad [0, 0, 0, 0] <CUBOID_16x16>
+    }
+
+    return %0 : tensor<43x1x64x16x4xf16, {mem_space = @CMX_NN, order = #GNHWC}>
+
+    // CHECK: [[OUT_BUF:%.+]] = memref.alloc() : memref<43x1x64x16x4xf16, {order = #GNHWC}, @CMX_NN>
+
+    // CHECK:       VPUIP.NCEClusterTask
+    // CHECK-SAME:      task_type = #VPUIP.nce_task_type<CONV>
+    // CHECK-SAME:  input({{%[^ ]+}} : memref<43x1x32x16x4xf16, {order = #GNHWC}, @CMX_NN>)
+    // CHECK-SAME:  weights({{%[^ ]+}} : memref<43x64x32x1x1x!qElemType, {order = #GNHWC}, @CMX_NN>)
+    // CHECK-SAME:  weight_table({{%[^ ]+}} : memref<43x64x1x1x4xsi32, @CMX_NN>)
+    // CHECK-SAME:  parent_input({{%[^ ]+}} : memref<43x1x32x16x4xf16, {order = #GNHWC}, @CMX_NN>)
+    // CHECK-SAME:  parent_output([[OUT_BUF]] : memref<43x1x64x16x4xf16, {order = #GNHWC}, @CMX_NN>)
+    // CHECK-SAME:  outputs([[OUT_BUF]] : memref<43x1x64x16x4xf16, {order = #GNHWC}, @CMX_NN>)
+
+    // CHECK: return
+    // CHECK-SAME: memref<43x1x64x16x4xf16, {order = #GNHWC}, @CMX_NN>
+}

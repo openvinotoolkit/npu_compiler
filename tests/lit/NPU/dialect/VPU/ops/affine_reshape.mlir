@@ -109,3 +109,43 @@ func.func @DoNotSwapAffineReshapeAndSubView() -> tensor<2x2xf32> {
     // CHECK-SAME{LITERAL}:     [#const.AffineReshape<[[0], [0], [1]], [4, 3]>, #const.SubView<[1, 0], [2, 2]>]
     // CHECK:     return [[CST]]
 }
+
+// -----
+
+#NCDHW = affine_map<(d0, d1, d2, d3, d4) -> (d0, d1, d2, d3, d4)>
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+
+!Segmented5D = !VPU.DistributedTensor<
+    2x1x48x1x1xf16, #NCDHW, @CMX_NN, {
+    mode = "SEGMENTED",
+    num_tiles = [1, 1, 3, 1, 1],
+    num_clusters = 3 : i64,
+    alignment = [1, 1, 16, 1, 1],
+    uniform_distributed_segments,
+    compute_shapes = [[2, 1, 16, 1, 1], [2, 1, 16, 1, 1], [2, 1, 16, 1, 1]],
+    compute_offsets = [[0, 0, 0, 0, 0], [0, 0, 16, 0, 0], [0, 0, 32, 0, 0]],
+    memory_shapes = [[2, 1, 16, 1, 1], [2, 1, 16, 1, 1], [2, 1, 16, 1, 1]],
+    memory_offsets = [[0, 0, 0, 0, 0], [0, 0, 16, 0, 0], [0, 0, 32, 0, 0]]
+}>
+
+!Segmented4D = !VPU.DistributedTensor<
+    2x48x1x1xf16, #NCHW, @CMX_NN, {
+    mode = "SEGMENTED",
+    num_tiles = [1, 3, 1, 1],
+    num_clusters = 3 : i64,
+    alignment = [1, 16, 1, 1],
+    uniform_distributed_segments,
+    compute_shapes = [[2, 16, 1, 1], [2, 16, 1, 1], [2, 16, 1, 1]],
+    compute_offsets = [[0, 0, 0, 0], [0, 16, 0, 0], [0, 32, 0, 0]],
+    memory_shapes = [[2, 16, 1, 1], [2, 16, 1, 1], [2, 16, 1, 1]],
+    memory_offsets = [[0, 0, 0, 0], [0, 16, 0, 0], [0, 32, 0, 0]]
+}>
+
+// CHECK-LABEL: @RankChangingSegmentedDistribution
+func.func @RankChangingSegmentedDistribution(%arg0: !Segmented5D) -> !Segmented4D {
+    // CHECK: VPU.AffineReshape
+    // CHECK-SAME: num_tiles = [1, 3, 1, 1]
+    // CHECK-SAME: alignment = [1, 16, 1, 1]
+    %0 = VPU.AffineReshape(%arg0) {dim_mapping = [[0], [1], [1], [2], [3]], shape_value = [2, 48, 1, 1]} : !Segmented5D -> !Segmented4D
+    return %0 : !Segmented4D
+}

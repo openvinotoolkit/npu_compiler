@@ -482,6 +482,10 @@ struct LowPrecisionTransformOptions : mlir::PassPipelineOptions<LowPrecisionTran
                                    llvm::cl::desc("Enable execution of grouped MatMul as a single operation."),
                                    llvm::cl::init(false)};
 
+    BoolOption enableGroupQuantCorrection{*this, "enable-group-quant-correction",
+                                          llvm::cl::desc("Enable GroupQuantCorrection operation"),
+                                          llvm::cl::init(false)};
+
     template <class OtherOptions>
     explicit LowPrecisionTransformOptions(const OtherOptions& options) {
         this->matchAndCopyOptionValuesFrom(options);
@@ -660,6 +664,7 @@ std::unique_ptr<mlir::Pass> createQDQOptimizationAggressivePass(const bool fuseF
 std::unique_ptr<mlir::Pass> createFuseQuantizationMultiplyPass(const bool fuseFQAndMulWithNonConstInput = false,
                                                                Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createEltwiseFakeQuantizeFusionPass(Logger log = Logger::global());
+std::unique_ptr<mlir::Pass> createUseGroupQuantCorrectionPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createConsolidateNF4WeightsPatternPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createFoldActivationBeforeFQPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createOptDynamicEltwiseWithShapeOfPass(Logger log = Logger::global());
@@ -698,7 +703,6 @@ std::unique_ptr<mlir::Pass> createConvertDynamicDequantizeToDequantizePass(Logge
 std::unique_ptr<mlir::Pass> createConvertDynamicDequantizeToFakeQuantizePass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createConvertDequantizeToDynamicDequantizePass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createSwapOperationsWithGatherAndSlicePass(Logger log = Logger::global());
-std::unique_ptr<mlir::Pass> createDecomposeMatMulThroughSlicePass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createConvertVariadicSplitToStridedSlicePass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createAdjustFakeQdqParamsPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createInitialLowPrecisionTransformationsPipelineRewriterExecutorPass(

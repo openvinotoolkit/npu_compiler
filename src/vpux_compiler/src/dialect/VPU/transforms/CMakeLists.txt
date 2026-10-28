@@ -38,4 +38,5 @@ add_npu_library(npu_compiler_dialect_vpu_transforms
         npu_compiler_dialect_vpuip
         npu_compiler_dialect_vpuip_utils
         npu_compiler_dialect_shave
+        npu_compiler_dialect_shave_transforms
 )

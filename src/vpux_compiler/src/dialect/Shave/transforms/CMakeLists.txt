@@ -16,4 +16,5 @@ add_npu_library(npu_compiler_dialect_shave_transforms
         npu_compiler_dialect_config
         npu_core_utils
         npu_compiler_act_kernels
+        npu_compiler_dialect_shave_utils
         )

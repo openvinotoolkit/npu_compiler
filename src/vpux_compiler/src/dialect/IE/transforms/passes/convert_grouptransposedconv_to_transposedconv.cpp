@@ -93,14 +93,14 @@ mlir::LogicalResult GroupTransposedConvConverter::matchAndRewrite(IE::GroupTrans
     const auto inputShape = mlir::cast<vpux::NDTypeInterface>(input.getType()).getShape();
     const auto weightsShape = mlir::cast<vpux::NDTypeInterface>(weights.getType()).getShape();
     if (inputShape.size() != 4 || weightsShape.size() != 5) {
-        return matchFailed(rewriter, origOp,
+        return matchFailed(_log, rewriter, origOp,
                            "Only 4D inputs and 5D weights are supported, got {0}D inputs and {1}D weights",
                            inputShape.size(), weightsShape.size());
     }
 
     const auto groups = weightsShape.front();
     if (groups == inputShape[Dims4D::Act::C]) {
-        return matchFailed(rewriter, origOp, "Depthwise operation skipped");
+        return matchFailed(_log, rewriter, origOp, "Depthwise operation skipped");
     }
 
     Shape newInShape(inputShape.raw());
@@ -161,9 +161,9 @@ mlir::LogicalResult GroupTransposedConvConverter::matchAndRewrite(IE::GroupTrans
             auto inputHigh = sliceFqConstInput(fqOp.getInputHigh(), "in_high");
             auto outputLow = sliceFqConstInput(fqOp.getOutputLow(), "out_low");
             auto outputHigh = sliceFqConstInput(fqOp.getOutputHigh(), "out_high");
-            weightsSlice = rewriter.create<IE::FakeQuantizeOp>(
-                    takeOpLoc(fqOp, "fq_in_{0}", sliceIdx), newInput, inputLow, inputHigh, outputLow, outputHigh,
-                    fqOp.getLevelsAttr(), fqOp.getLowFpTypeAttr(), fqOp.getAutoBroadcastAttr());
+            weightsSlice = IE::FakeQuantizeOp::create(rewriter, takeOpLoc(fqOp, "fq_in_{0}", sliceIdx), newInput,
+                                                      inputLow, inputHigh, outputLow, outputHigh, fqOp.getLevelsAttr(),
+                                                      fqOp.getLowFpTypeAttr(), fqOp.getAutoBroadcastAttr());
         } else {
             weightsSlice = rewriter.createOrFold<IE::SliceOp>(takeOpLoc(origOp, "weights_{0}", sliceIdx), weights,
                                                               weightsOffsetsAttr, weightsShapeAttr);
@@ -177,8 +177,8 @@ mlir::LogicalResult GroupTransposedConvConverter::matchAndRewrite(IE::GroupTrans
                           inputOffsets[Dims4D::Act::C], inputOffsets[Dims4D::Act::C] + newInShape[Dims4D::Act::C]);
 
         auto newTransposedConvLoc = appendLoc(origOp->getLoc(), "as_gconv_{0}", sliceIdx);
-        auto transposedConvOp = rewriter.create<IE::TransposedConvolutionOp>(
-                newTransposedConvLoc, inputSlice, weightsSlice, origOp.getOutputShape(), /*bias*/ nullptr,
+        auto transposedConvOp = IE::TransposedConvolutionOp::create(
+                rewriter, newTransposedConvLoc, inputSlice, weightsSlice, origOp.getOutputShape(), /*bias*/ nullptr,
                 origOp.getStridesAttr(), origOp.getPadsBeginAttr(), origOp.getPadsEndAttr(), origOp.getDilationsAttr(),
                 origOp.getSpatialOutputPaddingAttr(), origOp.getPostOpAttr(), origOp.getClampAttr(),
                 origOp.getOutputPaddingAttr(), origOp.getInputPaddingAttr());
@@ -276,19 +276,19 @@ mlir::LogicalResult DepthwiseGroupTransposedConvConverter::matchAndRewrite(IE::G
     const auto inputShape = mlir::cast<vpux::NDTypeInterface>(input.getType()).getShape();
     const auto weightsShape = mlir::cast<vpux::NDTypeInterface>(weights.getType()).getShape();
     if (inputShape.size() != 4 || weightsShape.size() != 5) {
-        return matchFailed(rewriter, origOp,
+        return matchFailed(_log, rewriter, origOp,
                            "Only 4D inputs and 5D weights are supported, got {0}D inputs and {1}D weights",
                            inputShape.size(), weightsShape.size());
     }
 
     const auto groups = weightsShape.front();
     if (groups != inputShape[Dims4D::Act::C]) {
-        return matchFailed(rewriter, origOp, "Non-Depthwise operation skipped");
+        return matchFailed(_log, rewriter, origOp, "Non-Depthwise operation skipped");
     }
 
     const auto weightsOp = findWeightsConstant(weights);
     if (weightsOp == nullptr) {
-        return matchFailed(rewriter, origOp, "Unable to find weights constant");
+        return matchFailed(_log, rewriter, origOp, "Unable to find weights constant");
     }
 
     _log.nest().trace("Converting to TransposedConvolution");
@@ -315,9 +315,9 @@ mlir::LogicalResult DepthwiseGroupTransposedConvConverter::matchAndRewrite(IE::G
         outputHigh = mlir::cast<mlir::TypedValue<mlir::RankedTensorType>>(rewriter.createOrFold<IE::ReshapeOp>(
                 takeOpLoc(origOp, "weights_out_high_resh"), outputHigh, newFQParamShapeSqueezedAttr));
 
-        newWeights = rewriter.create<IE::FakeQuantizeOp>(takeOpLoc(origOp, "weights_fq"), newWeights, inputLow,
-                                                         inputHigh, outputLow, outputHigh, fqOp.getLevelsAttr(),
-                                                         fqOp.getLowFpTypeAttr(), fqOp.getAutoBroadcastAttr());
+        newWeights = IE::FakeQuantizeOp::create(rewriter, takeOpLoc(origOp, "weights_fq"), newWeights, inputLow,
+                                                inputHigh, outputLow, outputHigh, fqOp.getLevelsAttr(),
+                                                fqOp.getLowFpTypeAttr(), fqOp.getAutoBroadcastAttr());
     }
 
     rewriter.replaceOpWithNewOp<IE::TransposedConvolutionOp>(

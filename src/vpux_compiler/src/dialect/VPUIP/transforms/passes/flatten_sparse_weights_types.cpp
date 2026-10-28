@@ -38,8 +38,8 @@ void setDenseWeightsOperandType(mlir::func::FuncOp func) {
         }
 
         auto declareOp = nceOp.getWeights().getDefiningOp<VPURT::DeclareBufferOp>();
-        VPUX_THROW_UNLESS(declareOp != nullptr, "Expected buffer declaration for weights, got {0}",
-                          nceOp.getWeights().getDefiningOp());
+        VPUX_THROW_WHEN(declareOp == nullptr, "Expected buffer declaration for weights, got {0}",
+                        nceOp.getWeights().getDefiningOp());
         mlir::OpBuilder builder(declareOp);
         auto newDeclareOp = builder.clone(*declareOp.getOperation());
         declareOp.getBuffer().replaceUsesWithIf(newDeclareOp->getResult(0), [](mlir::OpOperand& operand) -> bool {

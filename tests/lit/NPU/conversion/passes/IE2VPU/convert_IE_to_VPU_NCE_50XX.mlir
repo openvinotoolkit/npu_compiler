@@ -651,7 +651,7 @@ func.func @AveragePoolToNCE(%arg0: tensor<1x64x28x28xf16, {order = #NHWC}>)
 
 // -----
 
-// Check that an IE.Convolution whose filter uses !QuantileType.quantile weights
+// Check that an IE.Convolution whose filter uses !quant.quantile weights
 // (produced by a QuantizeCast → AffineReshape → QuantizeCast → AffineReshape →
 // QuantizeCast → PermuteCast → Concat chain) is lowered to VPU.NCE.Convolution
 // with the correct weight-table constants and NCE weight-tensor layout
@@ -660,13 +660,13 @@ func.func @AveragePoolToNCE(%arg0: tensor<1x64x28x28xf16, {order = #NHWC}>)
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
 // Quantile quant type: lookup-table index encoding, per-output-channel scales.
-// !qElemType0 – the i4 per-channel type before QuantileType cast
-// !qElemType1 – the QuantileType.quantile weight type
+// !qElemType0 – the i4 per-channel type before quant.quantile cast
+// !qElemType1 – the !quant.quantile weight type
 !qElemType0 = !quant.uniform<i4:f16:0, {4.343750e+00,3.625000e+00,-5.031250e+00,-1.375000e+00,-3.484375,4.156250e+00,-2.687500e+00,3.656250e+00,2.765625,-3.062500e+00,-1.640625,-6.281250e+00,-9.625000e+00,-1.7265625,7.937500e+00,5.906250e+00}>
-!qElemType1 = !quant.uniform<!QuantileType.quantile<ui4:si8, {0.000000e+00,1.000000e+00,2.000000e+00,3.000000e+00,4.000000e+00,5.000000e+00,6.000000e+00,7.000000e+00,-8.000000e+00,-7.000000e+00,-6.000000e+00,-5.000000e+00,-4.000000e+00,-3.000000e+00,-2.000000e+00,-1.000000e+00}>:f16:0, {4.343750e+00,3.625000e+00,-5.031250e+00,-1.375000e+00,-3.484375,4.156250e+00,-2.687500e+00,3.656250e+00,2.765625,-3.062500e+00,-1.640625,-6.281250e+00,-9.625000e+00,-1.7265625,7.937500e+00,5.906250e+00}>
+!qElemType1 = !quant.uniform<!quant.quantile<ui4:si8, {0.000000e+00,1.000000e+00,2.000000e+00,3.000000e+00,4.000000e+00,5.000000e+00,6.000000e+00,7.000000e+00,-8.000000e+00,-7.000000e+00,-6.000000e+00,-5.000000e+00,-4.000000e+00,-3.000000e+00,-2.000000e+00,-1.000000e+00}>:f16:0, {4.343750e+00,3.625000e+00,-5.031250e+00,-1.375000e+00,-3.484375,4.156250e+00,-2.687500e+00,3.656250e+00,2.765625,-3.062500e+00,-1.640625,-6.281250e+00,-9.625000e+00,-1.7265625,7.937500e+00,5.906250e+00}>
 
 // CHECK-DAG: [[QTYPE0:!.+]] = !quant.uniform<i4:f16:0,
-// CHECK-DAG: [[QTYPE1:!.+]] = !quant.uniform<!QuantileType.quantile<ui4:si8,
+// CHECK-DAG: [[QTYPE1:!.+]] = !quant.uniform<!quant.quantile<ui4:si8,
 
 // CHECK: @NCEConvolutionWithQuantileTypeFilter
 // CHECK-SAME: ([[ACT:%.+]]: tensor<1x16x1x1xf16, {order = #NHWC}>,
@@ -739,4 +739,38 @@ func.func @NCEConvolutionWithQuantileTypeFilter(
     // CHECK-SAME:      output_padding = [0, 0, 0, 0]
     // CHECK-SAME:      -> tensor<1x16x1x1xf16, {order = #NHWC}>
     // CHECK:       return [[OUT]]
+}
+
+// -----
+
+// CHECK-LABEL: @MatMulToNCEWTReuse
+module @MatMulToNCEWTReuse {
+    config.PipelineOptions @Options {
+        config.Option @config.WeightsTableReuseMode : 0 : ui64
+    }
+
+    func.func @main(%input0: tensor<1x4x8x16xf16>,%input1: tensor<1x4x64x16xf16>) -> tensor<1x4x8x64xf16> {
+
+        %matmul = IE.MatMul(%input0, %input1) {transpose_b} : tensor<1x4x8x16xf16>, tensor<1x4x64x16xf16> -> tensor<1x4x8x64xf16>
+
+        return %matmul : tensor<1x4x8x64xf16>
+
+
+        // CHECK:       [[PERMUTE_CAST_0:%.+]] = IE.PermuteCast(
+        // CHECK-SAME:      tensor<4x8x16x1x1xf16> -> tensor<4x1x16x8x1xf16, {order = #GNHWC}>
+
+        // CHECK:       [[PERMUTE_CAST_1:%.+]] = IE.PermuteCast(
+        // CHECK-SAME:      tensor<4x64x16x1x1xf16> -> tensor<4x64x16x1x1xf16, {order = #GNHWC}>
+
+        // CHECK:       [[WEIGHTS_TABLE:%.+]] = const.Declare tensor<1x64x1x1x4xsi32>
+
+        // CHECK:       [[MATMUL:%.+]] = VPU.NCE.MatMul([[PERMUTE_CAST_0]], [[PERMUTE_CAST_1]], [[WEIGHTS_TABLE]]) rawFilterShape [4, 64, 16, 1, 1] {
+        // CHECK-SAME:      pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>
+        // CHECK-SAME:      ppe = #VPU.PPEFp<mode = <NOOP>,
+        // CHECK-SAME:          clamp_low = -3.4028234663852886E+38 : f64,
+        // CHECK-SAME:          clamp_high = 3.4028234663852886E+38 : f64,
+        // CHECK-SAME:          scale = 1.000000e+00 : f64, prelu_alpha = [1.000000e+00], bias = 0.000000e+00 : f64, adder = 0.000000e+00 : f64>
+        // CHECK-SAME:      strides = [1, 1]
+        // CHECK-SAME:      } -> tensor<4x1x64x8x1xf16, {order = #GNHWC}>
+    }
 }

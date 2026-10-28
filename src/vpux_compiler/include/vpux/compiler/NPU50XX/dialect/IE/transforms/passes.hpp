@@ -38,7 +38,7 @@ struct DefaultHWOptions : public IE::DefaultHWOptionsDialectBase, virtual vpux::
 
     BoolOption mergeUnrolledMatmulForLargeOC{*this, "merge-unrolled-matmul-for-large-oc",
                                              llvm::cl::desc("Enable merging unrolled Matmul ops for large OC"),
-                                             llvm::cl::init(false)};
+                                             llvm::cl::init(true)};
     BoolOption convertDynamicDequantize{*this, "convert-dynamic-dequantize",
                                         llvm::cl::desc("Enable convert dynamic dequantize to dequantize ops"),
                                         llvm::cl::init(true)};
@@ -64,6 +64,10 @@ struct DefaultHWOptions : public IE::DefaultHWOptionsDialectBase, virtual vpux::
     BoolOption enableNCEEltwiseMultiply{*this, "enable-nce-eltwise-multiply",
                                         llvm::cl::desc("Enable NCEEltwise for Multiply ops with [1,C,1,1] shape"),
                                         llvm::cl::init(true)};
+
+    BoolOption enableGroupQuantCorrection{*this, "enable-group-quant-correction",
+                                          llvm::cl::desc("Enable GroupQuantCorrection operation"),
+                                          llvm::cl::init(true)};
 };
 
 //

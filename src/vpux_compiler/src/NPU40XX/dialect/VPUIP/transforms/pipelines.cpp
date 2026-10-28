@@ -38,7 +38,6 @@ void vpux::VPUIP::arch40xx::buildMemoryAllocationPipeline(mlir::OpPassManager& p
     }
 
     pm.addPass(VPUIP::createQueryArgsAllocationAnalysisPass());
-    pm.addPass(VPUIP::createUngroupBoundedBuffersPass(log));
     pm.addPass(VPUIP::createStaticAllocationPass(VPU::getMemKind<VPU::MemoryKind::DDR>, log));
 }
 
@@ -64,6 +63,10 @@ void vpux::VPUIP::arch40xx::buildDefaultHWPipeline(mlir::OpPassManager& pm,
     if (options.enableOpsAsDMA) {
         pm.addPass(VPUIP::createWrapWithPermuteAsNNDMAPass(log));
     }
+
+    pm.addPass(VPUIP::createUngroupBoundedBuffersPass(log));
+    pm.addPass(mlir::createCanonicalizerPass(grc));
+
     pm.addPass(VPUIP::createOptimizeExpandSubviewPass(log));
     pm.addPass(VPUIP::createConvertExpandPass(options.deferExpandToExpandDMA, log));
     pm.addPass(mlir::createCanonicalizerPass(grc));
@@ -88,8 +91,6 @@ void vpux::VPUIP::arch40xx::buildDefaultHWPipeline(mlir::OpPassManager& pm,
         pm.addPass(VPUIP::createUngroupBufferSectionRewriterExecutorPass(options.enableSEPtrsOperations ||
                                                                          options.enableExperimentalSEPtrsOperations));
     }
-
-    pm.addPass(VPUIP::createUngroupBoundedBuffersPass(log));
 
     VPUIP::buildOptimizeCopiesPipeline(pm, VPUIP::OptimizeCopiesOptionsBase(options), log);
 
@@ -135,16 +136,8 @@ void vpux::VPUIP::arch40xx::buildDefaultHWPipeline(mlir::OpPassManager& pm,
 
     pm.addPass(VPUIP::createLegalizeStridedDMAsPass(log));
 
-    if (options.enableProfiling && options.enableDPUProfiling) {
-        pm.addPass(VPUIP::createDPUProfilingPass(log));
-    }
-
-    if (options.enableProfiling && options.enableSWProfiling) {
-        pm.addPass(VPUIP::createActShaveProfilingPass(log));
-    }
-
     VPUIP::buildAsyncSchedulingPipeline(pm, log);
-    if (options.enableAsyncRegionOutlining && canOutlineFromProfilingPerspective(options)) {
+    if (options.enableAsyncRegionOutlining) {
         pm.addPass(VPUIP::createAsyncRegionsOutliningPass(options.asyncRegionOutliningMinOpsInBlock, log));
     }
 
@@ -220,6 +213,16 @@ void vpux::VPUIP::arch40xx::buildDefaultHWPipeline(mlir::OpPassManager& pm,
         pm.addPass(VPUIP::createDMATaskProfilingHwDdrPass(options.enableDMAProfiling, log));
     }
 
+    pm.addPass(VPUIP::createSplitLargeInvariantsPass(log));
+
+    if (options.enableProfiling && options.enableDPUProfiling) {
+        pm.addPass(VPUIP::createDPUProfilingPass(log));
+    }
+
+    if (options.enableProfiling && options.enableSWProfiling) {
+        pm.addPass(VPUIP::createActShaveProfilingPass(log));
+    }
+
     pm.addPass(VPURT::createSplitControlGraphPass(options.controlGraphSplitBlockSize, log));
 
     if (!options.linearizeSchedule) {
@@ -239,7 +242,7 @@ void vpux::VPUIP::arch40xx::buildDefaultHWPipeline(mlir::OpPassManager& pm,
     if (options.workloadManagementMode == WorkloadManagementMode::FWLM_V1_PAGES) {
         pm.addPass(VPUIP::createPrepareShaveSubmitDMAsPass(log));
     }
-    pm.addPass(VPUIP::createSplitLargeInvariantsPass(log));
+
     pm.addPass(VPURT::createInsertBarrierToMarkTheEndOfDescriptorGroupPass(options.workloadManagementMode, log));
 
     if (options.workloadManagementMode == WorkloadManagementMode::FWLM_V1_PAGES) {
@@ -289,9 +292,6 @@ void vpux::VPUIP::arch40xx::buildDefaultHWPipeline(mlir::OpPassManager& pm,
     pm.addPass(VPUIP::createDMAOutOfOrderOptimizationPass(options.workloadManagementMode, log));
 
     if (options.enableProfiling) {
-        if (options.enableDPUProfiling) {
-            pm.addPass(VPUIP::createConstantDpuProfHwpBasePass(log));
-        }
         pm.addPass(VPUIP::createCaptureWorkpointPass(log));
         pm.addPass(VPUIP::createGroupProfilingBuffersPass(log));
         pm.addPass(Core::createMoveDeclarationsToTopPass(log));
@@ -302,6 +302,7 @@ void vpux::VPUIP::arch40xx::buildDefaultHWPipeline(mlir::OpPassManager& pm,
     pm.addPass(VPURT::createOptimizeBarriersSlotsUsagePass(log));
 
     if (options.workloadManagementMode == WorkloadManagementMode::FWLM_V1_PAGES) {
+        pm.addPass(VPUIP::createInsertShaveSubmitSkipDMAsPass(log));
         pm.addPass(VPURT::createFindWlmEnqueueDmasBarrierPass(log));
     }
 
@@ -316,9 +317,6 @@ void vpux::VPUIP::arch40xx::buildDefaultHWPipeline(mlir::OpPassManager& pm,
         pm.addPass(VPURT::createFindWlmEnqueueBarrierWithPagesPass(log));
     }
 
-    if (options.workloadManagementMode == WorkloadManagementMode::FWLM_V1_PAGES) {
-        pm.addPass(VPUIP::createInsertShaveSubmitSkipDMAsPass(log));
-    }
     pm.addPass(
             VPURT::createInferenceExecutionAnalysisPass(options.scheduleTraceFile, options.enableScheduleTrace, log));
     pm.addPass(VPU::createCostModelAnalysisDestroyPass(log));
@@ -351,10 +349,6 @@ void vpux::VPUIP::arch40xx::buildReferenceSWPipeline(mlir::OpPassManager& pm,
     pm.addPass(VPUIP::createCopyOpTilingPass(log));
     pm.addPass(mlir::createCanonicalizerPass(grc));
 
-    if (options.enableProfiling && options.enableSWProfiling) {
-        pm.addPass(VPUIP::createActShaveProfilingPass(log));
-    }
-
     pm.addPass(VPUIP::createUngroupBoundedBuffersPass(log));
 
     pm.addPass(VPUIP::createConvertTransferOpsToDMAsPass(log));
@@ -371,6 +365,10 @@ void vpux::VPUIP::arch40xx::buildReferenceSWPipeline(mlir::OpPassManager& pm,
     pm.addPass(VPUIP::createAddSwKernelCacheHandlingOpsPass(log));
 
     VPUIP::buildHardwareAdaptationPipeline(pm, log);
+
+    if (options.enableProfiling && options.enableSWProfiling) {
+        pm.addPass(VPUIP::createActShaveProfilingPass(log));
+    }
 
     pm.addPass(VPURT::createInsertBarrierToMarkTheEndOfDescriptorGroupPass(options.workloadManagementMode, log));
 

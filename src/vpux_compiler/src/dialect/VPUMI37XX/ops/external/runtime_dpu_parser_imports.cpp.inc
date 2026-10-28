@@ -133,7 +133,7 @@ std::optional<MVCNN::TensorReference> getTensorReferenceWithUpdatedQuantParams(
 
     // Find corresponding DeclareBufferOp to get all the data needed to build new TensorReference
     auto bufferOp = tensor.getDefiningOp<VPURT::DeclareBufferOp>();
-    VPUX_THROW_UNLESS(bufferOp != nullptr, "Unable to find parent DeclareBufferOp to build new TensorReference");
+    VPUX_THROW_WHEN(bufferOp == nullptr, "Unable to find parent DeclareBufferOp to build new TensorReference");
 
     auto sectionIndex = bufferOp.getNonEmptySectionIndex();
     return createTensorRef(type, bufferOp, ppeQuantMult, ppeQuantShift, quantZeroPoints, sparsityMapOffset,

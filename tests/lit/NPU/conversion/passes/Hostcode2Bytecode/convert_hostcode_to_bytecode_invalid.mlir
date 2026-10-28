@@ -72,6 +72,17 @@ module @kernel_not_in_section {
 
 // -----
 
+module @strided_memref_copy {
+  // expected-error @+1 {{Failed to apply conversion patterns}}
+  func.func @fn(%src: memref<2x2xi64, strided<[3, 1]>>, %dst: memref<2x2xi64, strided<[3, 1]>>) attributes {config.pureHostCompileFunc} {
+    // expected-error @+1 {{failed to legalize operation 'memref.copy' that was explicitly marked illegal}}
+    memref.copy %src, %dst : memref<2x2xi64, strided<[3, 1]>> to memref<2x2xi64, strided<[3, 1]>>
+    return
+  }
+}
+
+// -----
+
 // Negative test: async.execute body contains more than one non-terminator op.
 // Only a single Core.NestedCallOp besides the terminator is accepted.
 

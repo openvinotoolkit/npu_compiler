@@ -79,7 +79,7 @@ mlir::LogicalResult ReduceMinRewriter::matchAndRewrite(IE::ReduceMinOp origOp, m
         auto maxAxis = maxNonOneAxis.value_or(Dim(0)).ind();
         SmallVector<int64_t> unrolledAxes = {maxAxis};
         auto axesAttr = getIntArrayAttr(ctx, ArrayRef(unrolledAxes));
-        auto newOp = rewriter.create<IE::ReduceMinOp>(takeOpLoc(origOp, "dim_{0}", idx), prevInput, axesAttr, false);
+        auto newOp = IE::ReduceMinOp::create(rewriter, takeOpLoc(origOp, "dim_{0}", idx), prevInput, axesAttr, false);
         prevInput = newOp->getResult(0);
         _log.trace("[{0}] create newOp {1} with size {2}", getDebugName(), newOp, unrolledAxes.size());
     }

@@ -54,7 +54,7 @@ TEST_F(MLIR_MemLiveRangeInfo, GetInputOutputAndAllBuffers) {
                 %t2, %r2:2 = async.execute [%t0] (%r0 as %arg0 : !async.value<memref<1x32x96x96xf16, {order = #NHWC}, [@CMX_NN, 0]>>)
                         -> (!async.value<memref<1x32x96x96xf16, {order = #NHWC}, [@CMX_NN, 1]>>, !async.value<memref<1x32x96x96xf16, {order = #NHWC}, [@CMX_NN, 2]>>)
                         attributes {VPUIP.executor = @DPU, VPUIP.num_units = 1 : i64, "async-deps-index" = 2 : i64} {
-                    %1 = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
+                    %1 = VPUIP.NCEClusterTask <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>,
                             kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
                             kernel_size = [1, 1],
                             kernel_strides = [1, 1],
@@ -71,7 +71,7 @@ TEST_F(MLIR_MemLiveRangeInfo, GetInputOutputAndAllBuffers) {
                         }
                         PPE : {
                         }
-                    %2 = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
+                    %2 = VPUIP.NCEClusterTask <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>,
                             kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
                             kernel_size = [1, 1],
                             kernel_strides = [1, 1],
@@ -93,7 +93,7 @@ TEST_F(MLIR_MemLiveRangeInfo, GetInputOutputAndAllBuffers) {
 
                 %t3, %r3 = async.execute [%t1, %t2] (%r2#0 as %arg0 : !async.value<memref<1x32x96x96xf16, {order = #NHWC}, [@CMX_NN, 1]>>, %r1 as %arg1 : !async.value<memref<1x32x96x96xf16, {order = #NHWC}, [@CMX_NN, 3]>>)
                         -> !async.value<memref<1x32x96x96xf16, {order = #NHWC}, [@CMX_NN, 4]>> attributes {VPUIP.executor = @DPU, VPUIP.num_units = 1 : i64, "async-deps-index" = 3 : i64} {
-                    %0 = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
+                    %0 = VPUIP.NCEClusterTask <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>,
                             task_type = #VPUIP.nce_task_type<ELTWISE>
                         }>
                         input(%arg0 : memref<1x32x96x96xf16, {order = #NHWC}, [@CMX_NN, 1]>)
@@ -113,7 +113,7 @@ TEST_F(MLIR_MemLiveRangeInfo, GetInputOutputAndAllBuffers) {
 
                 %t4, %r4 = async.execute [%t1, %t3] (%r2#1 as %arg0 : !async.value<memref<1x32x96x96xf16, {order = #NHWC}, [@CMX_NN, 2]>>, %r3 as %arg1 : !async.value<memref<1x32x96x96xf16, {order = #NHWC}, [@CMX_NN, 4]>>)
                         -> !async.value<memref<1x32x96x96xf16, {order = #NHWC}, [@CMX_NN, 5]>> attributes {VPUIP.executor = @DPU, VPUIP.num_units = 1 : i64, "async-deps-index" = 4 : i64} {
-                    %0 = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
+                    %0 = VPUIP.NCEClusterTask <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>,
                             task_type = #VPUIP.nce_task_type<ELTWISE>
                         }>
                         input(%arg0 : memref<1x32x96x96xf16, {order = #NHWC}, [@CMX_NN, 2]>)

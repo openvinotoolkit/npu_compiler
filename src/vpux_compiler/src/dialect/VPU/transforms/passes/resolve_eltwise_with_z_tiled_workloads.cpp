@@ -233,8 +233,8 @@ mlir::Value createEltwiseSlice(mlir::OpBuilder& builder, VPU::NCEEltwiseOp eltwi
         auto offsets = wl.getConstOutputOffsets();
         offsets[Dims4D::Act::C.ind()] = 0;
         auto offsetsAttr = mlir::DenseI64ArrayAttr::get(wl.getContext(), offsets);
-        workloadBuilder.create<VPU::DPUWorkloadOp>(wl.getLoc(), offsetsAttr, wl.getStaticOutSizesAttr(),
-                                                   wl.getPadAttribute(), wl.getMpeModeAttr(), wl.getClusterIdAttr());
+        VPU::DPUWorkloadOp::create(workloadBuilder, wl.getLoc(), offsetsAttr, wl.getStaticOutSizesAttr(),
+                                   wl.getPadAttribute(), wl.getMpeModeAttr(), wl.getClusterIdAttr());
     }
 
     return newEltwiseOp.getOutput();
@@ -265,7 +265,7 @@ void getOpValues(mlir::OpBuilder& builder, VPU::NCEEltwiseOp eltwiseOp, mlir::Va
                 auto outputType = mlir::cast<vpux::NDTypeInterface>(mlir::RankedTensorType::get(
                         valueType.getShape().raw(), valueType.getElementType(), tensorAttr));
                 auto newCopyOp =
-                        builder.create<VPU::CopyOp>(eltwiseOp->getLoc(), outputType, value, outputType.getMemSpace());
+                        VPU::CopyOp::create(builder, eltwiseOp->getLoc(), outputType, value, outputType.getMemSpace());
                 return newCopyOp.getOutput();
             }
         }
@@ -281,7 +281,7 @@ mlir::Value sliceEltwise(mlir::OpBuilder& builder, VPU::NCEEltwiseOp origEltwise
     // Slice operands and move them to CMX if they are not already there
     SmallVector<mlir::Value> newOperands;
     for (auto operand : operands) {
-        auto sliceOp = builder.create<VPU::SliceOp>(loc, operand, offsets, sizes);
+        auto sliceOp = VPU::SliceOp::create(builder, loc, operand, offsets, sizes);
         auto sliceOperand = sliceOp.getResult();
         auto sliceType = mlir::cast<vpux::NDTypeInterface>(sliceOperand.getType());
 
@@ -298,7 +298,8 @@ mlir::Value sliceEltwise(mlir::OpBuilder& builder, VPU::NCEEltwiseOp origEltwise
                         mlir::cast<vpux::NDTypeInterface>(origEltwiseOp.getInput1().getType()).getMemSpace();
                 copyType = copyType.changeMemSpace(memSpaceCMX);
             }
-            sliceOperand = builder.create<VPU::CopyOp>(loc, copyType, sliceOperand, copyType.getMemSpace()).getOutput();
+            sliceOperand =
+                    VPU::CopyOp::create(builder, loc, copyType, sliceOperand, copyType.getMemSpace()).getOutput();
         }
 
         newOperands.push_back(sliceOperand);
@@ -318,7 +319,7 @@ mlir::Value sliceEltwise(mlir::OpBuilder& builder, VPU::NCEEltwiseOp origEltwise
     auto outputType =
             origEltwiseOutputType.changeShape(sliceOutputType.getShape()).changeMemSpace(VPU::MemoryKind::DDR);
 
-    auto outputCopy = builder.create<VPU::CopyOp>(loc, outputType, sliceOutput, outputType.getMemSpace()).getOutput();
+    auto outputCopy = VPU::CopyOp::create(builder, loc, outputType, sliceOutput, outputType.getMemSpace()).getOutput();
 
     return outputCopy;
 }
@@ -367,7 +368,7 @@ void replaceOrigUses(mlir::OpBuilder& builder, mlir::Value origOutputValue, VPU:
         const auto memSpaceCMX = mlir::cast<vpux::NDTypeInterface>(cmxValues.front().getType()).getMemSpace();
         auto valueType = mlir::cast<vpux::NDTypeInterface>(concatOp.getOutput().getType()).changeMemSpace(memSpaceCMX);
         auto outputCopy =
-                builder.create<VPU::CopyOp>(loc, valueType, concatOp.getOutput(), valueType.getMemSpace()).getOutput();
+                VPU::CopyOp::create(builder, loc, valueType, concatOp.getOutput(), valueType.getMemSpace()).getOutput();
 
         outputCopy.setType(cmxValues.front().getType());
         for (auto value : cmxValues) {
@@ -427,7 +428,7 @@ void ResolveEltwiseWithZTiledWorkloads::safeRunOnFunc() {
     auto module = func->getParentOfType<mlir::ModuleOp>();
 
     auto tileOp = config::getTileExecutor(module);
-    VPUX_THROW_UNLESS(tileOp != nullptr, "Failed to get NCE_Cluster information");
+    VPUX_THROW_WHEN(tileOp == nullptr, "Failed to get NCE_Cluster information");
     const auto numClusters = tileOp.getCount();
 
     SmallVector<mlir::Operation*> toErase;
@@ -490,8 +491,8 @@ void ResolveEltwiseWithZTiledWorkloads::safeRunOnFunc() {
 
         auto origOutputValue = eltwiseOp.getOutput();
         auto concatType = getConcatType(origOutputValue);
-        auto concatOp = builder.create<VPU::ConcatOp>(eltwiseOp->getLoc(), concatType, mlir::ValueRange(newOutputs),
-                                                      ArrayRef(outputSlicesOffsets));
+        auto concatOp = VPU::ConcatOp::create(builder, eltwiseOp->getLoc(), concatType, mlir::ValueRange(newOutputs),
+                                              ArrayRef(outputSlicesOffsets));
 
         auto loc = eltwiseOp->getLoc();
         replaceOrigUses(builder, origOutputValue, concatOp, loc);

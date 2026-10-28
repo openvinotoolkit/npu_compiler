@@ -99,7 +99,7 @@ void MultiClusterStrategyAssignmentPass::safeRunOnFunc() {
     }
 
     auto tileOp = config::getTileExecutor(module);
-    VPUX_THROW_UNLESS(tileOp != nullptr, "Failed to get NCE_Cluster information");
+    VPUX_THROW_WHEN(tileOp == nullptr, "Failed to get NCE_Cluster information");
 
     if (tileOp.getCount() < 2) {
         return;

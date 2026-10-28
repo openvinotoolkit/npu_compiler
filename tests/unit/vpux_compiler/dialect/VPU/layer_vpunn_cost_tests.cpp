@@ -10,6 +10,7 @@
 #include "vpux/compiler/dialect/VPU/IR/ops/data_type.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/dpu.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/eltwise.hpp"
+#include "vpux/compiler/dialect/VPU/IR/types.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
 #include "vpux/compiler/dialect/VPU/utils/cost_model/cost_model.hpp"
 #include "vpux/compiler/dialect/VPU/utils/cost_model/layer_vpunn_cost.hpp"
@@ -87,8 +88,9 @@ VPUNN::CyclesInterfaceType getWeightsDMACost(VPU::NCEOpInterface nceOp, mlir::Mo
     const auto vpunnCostModel = VPU::CostModelConfig::createCostModel(module);
     const auto vpuDevice = VPU::getVPUDeviceType(module);
     const auto numDMAPorts = config::getAvailableExecutor(module, config::ExecutorKind::DMA_NN).getCount();
-    return checked_cast<VPUNN::CyclesInterfaceType>(
-            getDMACost(weightsType, config::getArch(module), vpuDevice, vpunnCostModel, numDMAPorts));
+    return checked_cast<VPUNN::CyclesInterfaceType>(getDMACost(weightsType, config::getArch(module), vpuDevice,
+                                                               vpunnCostModel, numDMAPorts,
+                                                               vpux::DmaDirectionType::DDR_TO_CMX));
 }
 
 }  // namespace
@@ -299,7 +301,8 @@ TEST_F(MLIR_VPU_LayerVPUNNCost, DMA_Cost) {
                                                                                 VPU::MultiClusterStrategy::Clustering);
         auto spillWriteCosts = std::accumulate(spillWriteCostPerTile.begin(), spillWriteCostPerTile.end(), 0);
         auto spillRefCost = getDMACost(mlir::cast<vpux::NDTypeInterface>(convOp.getResult(0).getType()), archKind,
-                                       vpuDevice, vpunnCostFunction->get_TheoreticalDMA_cost_model_shared(), dmaPorts);
+                                       vpuDevice, vpunnCostFunction->get_TheoreticalDMA_cost_model_shared(), dmaPorts,
+                                       vpux::DmaDirectionType::CMX_TO_DDR);
 
         EXPECT_EQ(spillWriteCosts, spillRefCost);
         EXPECT_EQ(layerCost.getSpillingWriteCost(convOp.getOperation(), VPU::MultiClusterStrategy::Clustering),
@@ -309,7 +312,8 @@ TEST_F(MLIR_VPU_LayerVPUNNCost, DMA_Cost) {
     func->walk([&](VPU::NCEMaxPoolOp poolOp) {
         const auto spillRefCost =
                 getDMACost(mlir::cast<vpux::NDTypeInterface>(poolOp.getOperand(0).getType()), archKind, vpuDevice,
-                           vpunnCostFunction->get_TheoreticalDMA_cost_model_shared(), dmaPorts);
+                           vpunnCostFunction->get_TheoreticalDMA_cost_model_shared(), dmaPorts,
+                           vpux::DmaDirectionType::DDR_TO_CMX);
         const auto findOperand = [](mlir::Value operand) {
             return operand.getDefiningOp() != nullptr;
         };
@@ -327,6 +331,199 @@ TEST_F(MLIR_VPU_LayerVPUNNCost, DMA_Cost) {
                   spillRefCost);
     });
 }
+
+// ---------------------------------------------------------------------------
+// DMA cost direction tests
+// ---------------------------------------------------------------------------
+
+class MLIR_VPU_DMACost_MultiPlatform : public testing::TestWithParam<Platform> {
+public:
+    void SetUp() override {
+        registry = vpux::createDialectRegistry();
+        auto interfacesRegistry = vpux::createInterfacesRegistry(GetParam());
+        interfacesRegistry->registerInterfaces(registry);
+        VPU::initializeSingletons(registry, GetParam());
+
+        ctx = std::make_unique<mlir::MLIRContext>(registry);
+    }
+
+    mlir::OwningOpRef<mlir::ModuleOp> parse(llvm::StringLiteral ir) {
+        auto module = mlir::parseSourceString<mlir::ModuleOp>(ir, ctx.get());
+        if (!module) {
+            return {};
+        }
+        mlir::PassManager pm(module.get()->getName(), mlir::OpPassManager::Nesting::Implicit);
+        auto opts = VPU::InitCompilerOptions(GetParam(), config::CompilationMode::DefaultHW);
+        VPU::buildInitCompilerPipeline(pm, opts, Logger::global());
+        if (mlir::failed(pm.run(module.get()))) {
+            return {};
+        }
+        return module;
+    }
+
+    mlir::DialectRegistry registry;
+    std::unique_ptr<mlir::MLIRContext> ctx;
+};
+
+// Exercises every DmaDirectionType on multiple tensor shapes and pins how the VPUNN DMA cost model
+// reacts to the source/destination memory locations. Guards the cost API against silent changes in
+// direction dependent cost
+TEST_P(MLIR_VPU_DMACost_MultiPlatform, DMA_Cost_PerDirection) {
+    constexpr llvm::StringLiteral inputIR = R"(
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+
+    module @main {
+        func.func @main(
+            %arg0: tensor<1x16x8x8xf16, {order = #NHWC}>,
+            %arg1: tensor<1x64x64x64xf16, {order = #NHWC}>,
+            %arg2: tensor<1x128x32x32xf16, {order = #NHWC}>,
+            %arg3: tensor<1x256x16x16xf16, {order = #NHWC}>,
+            %arg4: tensor<1x512x8x8xf16, {order = #NHWC}>
+        ) -> tensor<1x16x8x8xf16, {order = #NHWC}> {
+        return %arg0 : tensor<1x16x8x8xf16, {order = #NHWC}>
+    }
+    }
+    )";
+    auto module = parse(inputIR);
+    ASSERT_TRUE(module.get() != nullptr);
+
+    auto func = module.get().lookupSymbol<mlir::func::FuncOp>("main");
+    ASSERT_TRUE(func != nullptr);
+
+    const auto vpuDevice = VPU::getVPUDeviceType(*module);
+    const auto archKind = config::getArch(*module);
+    const auto costModel = VPU::CostModelConfig::createCostModel(module.get());
+    const auto dmaPorts = config::getAvailableExecutor(module.get(), config::ExecutorKind::DMA_NN).getCount();
+
+    for (unsigned argIdx = 0; argIdx < func.getNumArguments(); ++argIdx) {
+        const auto tensorType = mlir::cast<vpux::NDTypeInterface>(func.getArgument(argIdx).getType());
+
+        const auto costFor = [&](vpux::DmaDirectionType direction) {
+            return getDMACost(tensorType, archKind, vpuDevice, costModel, dmaPorts, direction);
+        };
+
+        const auto cmxToDdrCost = costFor(vpux::DmaDirectionType::CMX_TO_DDR);
+        const auto ddrToCmxCost = costFor(vpux::DmaDirectionType::DDR_TO_CMX);
+        const auto cmxToCmxCost = costFor(vpux::DmaDirectionType::CMX_TO_CMX);
+        const auto ddrToDdrCost = costFor(vpux::DmaDirectionType::DDR_TO_DDR);
+
+        // Every direction must produce a usable cost.
+        EXPECT_GT(cmxToDdrCost, 0u) << "arg" << argIdx;
+        EXPECT_GT(ddrToCmxCost, 0u) << "arg" << argIdx;
+        EXPECT_GT(cmxToCmxCost, 0u) << "arg" << argIdx;
+        EXPECT_GT(ddrToDdrCost, 0u) << "arg" << argIdx;
+
+        // CMX->DDR and DDR->CMX are symmetrical in current VPUNN
+        EXPECT_EQ(cmxToDdrCost, ddrToCmxCost) << "arg" << argIdx;
+
+        // CMX->CMX should be cheaper than transfers involving DDR
+        EXPECT_LT(cmxToCmxCost, cmxToDdrCost) << "arg" << argIdx;
+    }
+}
+
+// Exercises getDMACost with distributed tensor types across different distribution modes and all DmaDirectionType
+// values. Verifies that every combination returns a non-zero cost and that the CMX<->DDR direction symmetry holds
+TEST_P(MLIR_VPU_DMACost_MultiPlatform, DMA_Cost_PerDirection_Distributed) {
+    constexpr llvm::StringLiteral inputIR = R"(
+    module @main {
+        func.func @main(%arg0: tensor<1x64x16x16xf16>) -> tensor<1x64x16x16xf16> {
+        return %arg0 : tensor<1x64x16x16xf16>
+    }
+    }
+    )";
+    auto module = parse(inputIR);
+    ASSERT_TRUE(module.get() != nullptr);
+
+    const auto vpuDevice = VPU::getVPUDeviceType(*module);
+    const auto archKind = config::getArch(*module);
+    const auto costModel = VPU::CostModelConfig::createCostModel(module.get());
+    const auto dmaPorts = config::getAvailableExecutor(module.get(), config::ExecutorKind::DMA_NN).getCount();
+
+    // Common attributes
+    const auto shape = SmallVector<int64_t>({1, 64, 16, 16});
+    const auto elemType = mlir::Float16Type::get(ctx.get());
+    const auto dimsOrder = mlir::AffineMapAttr::get(DimsOrder::NHWC.toAffineMap(ctx.get()));
+    const auto dimsSpace = vpux::IndexedSymbolAttr::get(ctx.get(), "CMX_NN");
+    const auto numClusters = getIntAttr(ctx.get(), 4);
+    const auto numTiles = getIntArrayAttr(ctx.get(), SmallVector<int64_t>({1, 1, 4, 1}));
+
+    struct DistCase {
+        StringRef name;
+        VPU::DistributionInfoAttr distAttr;
+    };
+
+    // SEGMENTED
+    const auto segmentedAttr = VPU::DistributionInfoAttr::get(
+            ctx.get(), VPU::DistributionModeAttr::get(ctx.get(), VPU::DistributionMode::SEGMENTED), numTiles, nullptr,
+            nullptr, nullptr, numClusters, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);
+
+    // DUPLICATED
+    const auto duplicatedAttr = VPU::DistributionInfoAttr::get(
+            ctx.get(), VPU::DistributionModeAttr::get(ctx.get(), VPU::DistributionMode::DUPLICATED), numTiles, nullptr,
+            nullptr, nullptr, numClusters, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);
+
+    // OVERLAPPED (needs kernel/pads/strides)
+    const auto kernel = getIntArrayAttr(ctx.get(), SmallVector<int64_t>({3, 3}));
+    const auto pads = VPU::PaddingAttr::get(ctx.get(), getIntAttr(ctx.get(), 1), getIntAttr(ctx.get(), 1),
+                                            getIntAttr(ctx.get(), 1), getIntAttr(ctx.get(), 1));
+    const auto strides = getIntArrayAttr(ctx.get(), SmallVector<int64_t>({1, 1}));
+    const auto overlappedAttr = VPU::DistributionInfoAttr::get(
+            ctx.get(), VPU::DistributionModeAttr::get(ctx.get(), VPU::DistributionMode::OVERLAPPED), numTiles, kernel,
+            pads, strides, numClusters, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);
+
+    // DUPLICATED|SEGMENTED
+    const auto dupSegAttr = VPU::DistributionInfoAttr::get(
+            ctx.get(),
+            VPU::DistributionModeAttr::get(ctx.get(),
+                                           VPU::DistributionMode::DUPLICATED | VPU::DistributionMode::SEGMENTED),
+            numTiles, nullptr, nullptr, nullptr, numClusters, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr,
+            nullptr, nullptr);
+
+    const SmallVector<DistCase> cases = {
+            {"SEGMENTED", segmentedAttr},
+            {"DUPLICATED", duplicatedAttr},
+            {"OVERLAPPED", overlappedAttr},
+            {"DUPLICATED|SEGMENTED", dupSegAttr},
+    };
+
+    for (const auto& tc : cases) {
+        const auto distType = mlir::cast<vpux::NDTypeInterface>(
+                VPU::DistributedTensorType::get(ctx.get(), shape, elemType, dimsOrder, dimsSpace, tc.distAttr));
+        ASSERT_TRUE(distType != nullptr) << tc.name.str();
+
+        const auto costFor = [&](vpux::DmaDirectionType direction) {
+            return getDMACost(distType, archKind, vpuDevice, costModel, dmaPorts, direction);
+        };
+
+        const auto cmxToDdrCost = costFor(vpux::DmaDirectionType::CMX_TO_DDR);
+        const auto ddrToCmxCost = costFor(vpux::DmaDirectionType::DDR_TO_CMX);
+        const auto cmxToCmxCost = costFor(vpux::DmaDirectionType::CMX_TO_CMX);
+        const auto ddrToDdrCost = costFor(vpux::DmaDirectionType::DDR_TO_DDR);
+
+        // Every direction must produce a usable cost.
+        EXPECT_GT(cmxToDdrCost, 0u) << tc.name.str();
+        EXPECT_GT(ddrToCmxCost, 0u) << tc.name.str();
+        EXPECT_GT(cmxToCmxCost, 0u) << tc.name.str();
+        EXPECT_GT(ddrToDdrCost, 0u) << tc.name.str();
+
+        // CMX->DDR and DDR->CMX are symmetrical in current VPUNN
+        EXPECT_EQ(cmxToDdrCost, ddrToCmxCost) << tc.name.str();
+
+        // CMX->CMX should be cheaper than transfers involving DDR
+        EXPECT_LT(cmxToCmxCost, cmxToDdrCost) << tc.name.str();
+    }
+}
+
+namespace {
+auto dmaCostPlatformName = [](const testing::TestParamInfo<Platform>& info) {
+    return config::stringifyEnum(info.param).str();
+};
+}  // namespace
+
+INSTANTIATE_TEST_SUITE_P(NPU40XX, MLIR_VPU_DMACost_MultiPlatform, ::testing::Values(Platform::NPU4000),
+                         dmaCostPlatformName);
+INSTANTIATE_TEST_SUITE_P(NPU50XX, MLIR_VPU_DMACost_MultiPlatform, ::testing::Values(Platform::NPU5010),
+                         dmaCostPlatformName);
 
 // ---------------------------------------------------------------------------
 // LayerCostModel::hasSpilling tests

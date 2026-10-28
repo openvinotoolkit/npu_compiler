@@ -45,8 +45,8 @@ mlir::LogicalResult vpux::IE::AffineReshapeOp::inferReturnTypeComponents(
         return mlir::failure();
     }
 
-    VPUX_THROW_UNLESS(!mlir::isa<Core::BoundedTensorType>(ndInType), "{0} doesn't support dynamic shapes",
-                      IE::AffineReshapeOp::getOperationName());
+    VPUX_THROW_WHEN(mlir::isa<Core::BoundedTensorType>(ndInType), "{0} doesn't support dynamic shapes",
+                    IE::AffineReshapeOp::getOperationName());
     const auto outDesc = vpux::getTensorAttr(ctx, outputLayout.value(), ndInType.getMemSpace());
 
     const auto elemTypeInferResult = inferElemTypeAffineReshape(affineReshape, ndInType.getElementType());
@@ -68,7 +68,13 @@ bool vpux::IE::AffineReshapeOp::shouldJITCompile() {
 }
 
 bool vpux::IE::AffineReshapeOp::shouldJITCompileToEnableFusion() {
-    return vpux::ShaveCodeGen::hasOnlySupportedTypes(*this);
+    // Reject affine reshapes for unsupported types or in cases where the reshape reassociates
+    // non-unit dimensions. The reason for the latter rejection is that these cannot be currently
+    // lowered to tilable ops, leading to a capsule split if we need tiling, or an increase
+    // in the memory usage of the kernel.
+    return vpux::ShaveCodeGen::hasOnlySupportedTypes(*this) &&
+           vpux::ShaveCodeGen::hasMatchingNonUnitMemDims(mlir::cast<vpux::NDTypeInterface>(getInput().getType()),
+                                                         mlir::cast<vpux::NDTypeInterface>(getOutput().getType()));
 }
 
 //

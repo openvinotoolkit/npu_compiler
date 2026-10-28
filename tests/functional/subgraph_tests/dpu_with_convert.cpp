@@ -227,6 +227,7 @@ TEST_P(EltwiseWithF16ToF32ConvertTest, NPU5010_HW) {
     setDefaultHardwareMode();
     run(Platform::NPU5010);
 }
+
 TEST_P(ConvWithF16ToF32ConvertTest, NPU5020_HW) {
     setDefaultHardwareMode();
     run(Platform::NPU5020);

@@ -15,21 +15,28 @@ namespace {
 // if VF tiling was done sufficiently with respect to memory constraints
 constexpr VfStrategyRecipe vfStrategyRecipes[] = {
         {VPU::VFScenario::FULL_PREFETCHING, VfSchedStrategyDescriptor::FetchScope::ALL_INPUTS,
-         VfSchedStrategyDescriptor::OutputResidency::KEEP},
+         VfSchedStrategyDescriptor::LastComputeOverlapWithNextIterInputs::ENABLED},
         {VPU::VFScenario::LASTOP_PREFETCHING, VfSchedStrategyDescriptor::FetchScope::ALL_WEIGHTS,
-         VfSchedStrategyDescriptor::OutputResidency::KEEP},
+         VfSchedStrategyDescriptor::LastComputeOverlapWithNextIterInputs::ENABLED},
         {VPU::VFScenario::WEIGHTS_PREFETCHING, VfSchedStrategyDescriptor::FetchScope::ALL_WEIGHTS,
-         VfSchedStrategyDescriptor::OutputResidency::DROP},
+         VfSchedStrategyDescriptor::LastComputeOverlapWithNextIterInputs::DISABLED},
         // Minimal is last so any earlier feasible recipe short-circuits the search.
         {VPU::VFScenario::MINIMAL, VfSchedStrategyDescriptor::FetchScope::NONE,
-         VfSchedStrategyDescriptor::OutputResidency::DROP},
+         VfSchedStrategyDescriptor::LastComputeOverlapWithNextIterInputs::ENABLED},
 };
 
 // Create a map which associates each buffer value in the template body with
-// its position (opPos, slot) in the template body.
-// This will be later used to find the corresponding output buffer value of other iteration bodies
+// its position (opPos, slot, isInput) in the template body.
+// This will be later used to find the corresponding buffer value of other iteration bodies
 // when replicating the template schedule across iterations.
-using BufferPosition = std::pair<size_t, size_t>;
+// Outputs are recorded first so a producer's position wins over a consumer's; input entries
+// act as a fallback for buffers that have no in-loop producer (e.g. a persistent candidate
+// that got downgraded to temporary and thus appears only in inBuffers of consumer ops).
+struct BufferPosition {
+    size_t opPos;
+    size_t slot;
+    bool isInput;
+};
 llvm::DenseMap<mlir::Value, BufferPosition> buildBufferPositionMap(const LoopBody& templateBody) {
     llvm::DenseMap<mlir::Value, BufferPosition> map;
     for (size_t opPos = 0; opPos < templateBody.size(); ++opPos) {
@@ -37,7 +44,14 @@ llvm::DenseMap<mlir::Value, BufferPosition> buildBufferPositionMap(const LoopBod
         for (size_t slot = 0; slot < outBufs.size(); ++slot) {
             // First-seen position wins — duplicates would imply structural
             // in-place aliasing; they map to their original allocation site.
-            map.insert({outBufs[slot], BufferPosition{opPos, slot}});
+            map.insert({outBufs[slot], BufferPosition{opPos, slot, /*isInput=*/false}});
+        }
+    }
+    for (size_t opPos = 0; opPos < templateBody.size(); ++opPos) {
+        const auto& inBufs = templateBody[opPos].inBuffers;
+        for (size_t slot = 0; slot < inBufs.size(); ++slot) {
+            // Fallback only — do not overwrite a producer position recorded above.
+            map.insert({inBufs[slot], BufferPosition{opPos, slot, /*isInput=*/true}});
         }
     }
     return map;
@@ -49,14 +63,19 @@ mlir::Value findIterationBufferMatchingTemplateBuffer(mlir::Value templateValue,
                                                       const llvm::DenseMap<mlir::Value, BufferPosition>& posMap,
                                                       const LoopBody& bodyK) {
     const auto it = posMap.find(templateValue);
-    VPUX_THROW_UNLESS(it != posMap.end(),
-                      "Template schedule references value {0} not produced by any template op outBuffer. All buffers "
-                      "are expected to be produced by loop body ops",
-                      templateValue);
-    const auto [opPos, slot] = it->second;
-    VPUX_THROW_UNLESS(opPos < bodyK.size() && slot < bodyK[opPos].outBuffers.size(),
-                      "Iteration body shape diverges from template at op {0} slot {1}", opPos, slot);
-    return bodyK[opPos].outBuffers[slot];
+    VPUX_THROW_WHEN(it == posMap.end(),
+                    "Template schedule references value {0} not produced or consumed by any template op. All "
+                    "buffers are expected to appear in inBuffers or outBuffers of loop body ops",
+                    templateValue);
+    const auto [opPos, slot, isInput] = it->second;
+    VPUX_THROW_UNLESS(opPos < bodyK.size(),
+                      "Iteration body shape diverges from template at op {0} slot {1} (isInput={2})", opPos, slot,
+                      isInput);
+    const auto& bufList = isInput ? bodyK[opPos].inBuffers : bodyK[opPos].outBuffers;
+    VPUX_THROW_UNLESS(slot < bufList.size(),
+                      "Iteration body shape diverges from template at op {0} slot {1} (isInput={2})", opPos, slot,
+                      isInput);
+    return bufList[slot];
 }
 
 // Replicate the single iteration template emitted by VfAllocateLinear across
@@ -133,7 +152,7 @@ LoopScheduleResult buildLoopScheduleResult(const VfAllocateResult& result, const
                       result.peakUsedBytes, result.persistentReservedBytes);
     out.reservedSize = result.peakUsedBytes - result.persistentReservedBytes;
     out.sharedExternalBuffers = result.sharedExternalBuffers;
-    for (auto shared : region.sharedExternalBuffers) {
+    for (auto shared : region.externalBuffers) {
         out.sharedExternalBuffers.insert(shared);
     }
 
@@ -170,12 +189,12 @@ void verifyLocalSchedule(const LoopScheduleResult& scheduleResult) {
             for (const auto& [buffer, offset] : entry.allocations) {
                 const auto size = checked_cast<vpux::AddressType>(getTotalSize(buffer).count());
                 for (const auto& [liveBuffer, liveRange] : liveLocalRanges) {
-                    VPUX_THROW_UNLESS(!Partitioner::intersects(offset, size, liveRange.offset, liveRange.size),
-                                      "UndefinedVF verifier: local offset overlap in iteration {0}: opIdx={1} "
-                                      "allocates buffer {2} at [{3}, {4}) but live buffer {5} from opIdx={6} occupies "
-                                      "[{7}, {8})",
-                                      iteration, entry.allocInfo.opIdx, buffer, offset, offset + size, liveBuffer,
-                                      liveRange.producerOp, liveRange.offset, liveRange.offset + liveRange.size);
+                    VPUX_THROW_WHEN(Partitioner::intersects(offset, size, liveRange.offset, liveRange.size),
+                                    "UndefinedVF verifier: local offset overlap in iteration {0}: opIdx={1} "
+                                    "allocates buffer {2} at [{3}, {4}) but live buffer {5} from opIdx={6} occupies "
+                                    "[{7}, {8})",
+                                    iteration, entry.allocInfo.opIdx, buffer, offset, offset + size, liveBuffer,
+                                    liveRange.producerOp, liveRange.offset, liveRange.offset + liveRange.size);
                 }
                 liveLocalRanges[buffer] = {offset, size, entry.allocInfo.opIdx};
             }
@@ -197,7 +216,7 @@ void verifyLocalSchedule(const LoopScheduleResult& scheduleResult) {
 // Create IterationSchedule if feasible, otherwise return infeasible result
 VfAllocateResult tryStrategy(const VfStrategyRecipe& recipe, const ComputeRegion& region,
                              const ClassifierVFResult& classifier, AddressType memoryLimit, Logger log) {
-    VfSchedStrategyDescriptor params{recipe.fetchScp, recipe.outputRes};
+    VfSchedStrategyDescriptor params{recipe.fetchScp, recipe.lastCompOverlapNextIterIn};
     return VfAllocateLinear(region, classifier, memoryLimit, params, log).performAllocation();
 }
 
@@ -234,7 +253,7 @@ SearchOutcome UndefinedVF::runStrategySearch(const AllocatorFn& allocator) const
 
 LoopScheduleResult UndefinedVF::getScheduleStrategy(const ComputeRegion& loopRegion,
                                                     vpux::AddressType memorySize) const {
-    VPUX_THROW_UNLESS(loopRegion.schedulingLoop != nullptr, "ComputeRegion has no scheduling loop");
+    VPUX_THROW_WHEN(loopRegion.schedulingLoop == nullptr, "ComputeRegion has no scheduling loop");
     VPUX_THROW_UNLESS(loopRegion.schedulingLoop->type == LoopType::VF, "UndefinedVF invoked on non-VF loop type: {0}",
                       toString(loopRegion.schedulingLoop->type));
 
@@ -252,7 +271,8 @@ LoopScheduleResult UndefinedVF::getScheduleStrategy(const ComputeRegion& loopReg
     // Classifier reported the region contains a structural pattern it cannot model
     // soundly. Early return from loop allocator
     if (!classifier.classifierSupportedRegion) {
-        _log.warning("Classifier marked region as unsupported, returning empty schedule");
+        _log.warning("Classifier marked region as unsupported (reason={0}), returning empty schedule",
+                     stringifyClassifierVFFallbackReason(classifier.fallbackReason));
         return scheduleResult;
     }
 

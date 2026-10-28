@@ -104,6 +104,11 @@ def IE_LayerWithPostOpInterface : OpInterface<"LayerWithPostOpInterface"> {
         >,
 
         InterfaceMethod<
+            "Checks if the operation supports a given post-processing attribute",
+            "bool", "isSupportedPostOpAttr", (ins "vpux::IE::PostOpAttr":$postOpAttr, "const FuncRef<void(const formatv_object_base&)>&":$logCb)
+        >,
+
+        InterfaceMethod<
             "Returns the clamp operation attribute",
             "mlir::DictionaryAttr", "getClampAttr", (ins),
             [{}],

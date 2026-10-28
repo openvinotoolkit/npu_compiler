@@ -302,6 +302,36 @@ def AddPlatformInfo : PassBase<"add-platform-info", "vpux::FunctionPass"> {
 
 }
 
+def SetupTaskDescriptorConstraints : PassBase<"setup-task-descriptor-constraints", "vpux::ModulePass"> {
+    let summary = "Write task-descriptor binary-size constraints into PipelineOptionsOp";
+
+    let description = [{
+        Stores per-architecture task-descriptor binary sizes (DPU invariant/variant,
+        ActKernel invocation/range, DMA, M2I) as config::OptionOp entries in
+        PipelineOptionsOp. Called from each arch's VPUIP-to-VPUMI40XX conversion
+        pipeline with arch-specific sizes computed from the platform register-descriptor
+        layouts.
+    }];
+
+    let constructor = "vpux::VPUMI40XX::createSetupTaskDescriptorConstraintsPass()";
+
+    let options = [
+        Option<"dpuInvariantSize", "dpu-invariant-size", "int64_t", "0",
+               "Binary size of DPU invariant descriptor (bytes)">,
+        Option<"dpuVariantSize", "dpu-variant-size", "int64_t", "0",
+               "Binary size of DPU variant descriptor (bytes)">,
+        Option<"actKernelInvocationSize", "act-kernel-invocation-size", "int64_t", "0",
+               "Binary size of ActKernel invocation descriptor (bytes)">,
+        Option<"actKernelRangeSize", "act-kernel-range-size", "int64_t", "0",
+               "Binary size of ActKernel range descriptor (bytes)">,
+        Option<"dmaSize", "dma-size", "int64_t", "0",
+               "Binary size of DMA descriptor (bytes)">,
+        Option<"m2iSize", "m2i-size", "int64_t", "0",
+               "Binary size of M2I descriptor (bytes)">
+    ];
+
+}
+
 def DumpStatisticsOfWlmOps : PassBase<"dump-statistics-of-wlm-ops", "vpux::FunctionPass"> {
     let summary = "Print stats on WLM related ops";
 

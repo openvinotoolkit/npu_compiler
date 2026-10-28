@@ -34,8 +34,7 @@ bool isNceTileMemory(mlir::SymbolRefAttr memSpace) {
 config::ResourcesOp getResources(mlir::ModuleOp mainModule, mlir::SymbolRefAttr memSpace) {
     auto resources =
             isNceTileMemory(memSpace) ? config::getTileExecutor(mainModule) : config::getGlobalResource(mainModule);
-    VPUX_THROW_UNLESS(resources != nullptr, "Cannot find config.ResourcesOp in order to query '{0}' memspace.",
-                      memSpace);
+    VPUX_THROW_WHEN(resources == nullptr, "Cannot find config.ResourcesOp in order to query '{0}' memspace.", memSpace);
     return resources;
 }
 
@@ -49,8 +48,7 @@ bool isNceTileExecutor(mlir::SymbolRefAttr executor) {
 
 mlir::Region* getRegionContainer(mlir::ModuleOp mainModule, mlir::SymbolRefAttr memSpace) {
     auto resources = getResources(mainModule, memSpace);
-    VPUX_THROW_UNLESS(resources != nullptr, "Cannot find config.ResourcesOp in order to query '{0}' memspace.",
-                      memSpace);
+    VPUX_THROW_WHEN(resources == nullptr, "Cannot find config.ResourcesOp in order to query '{0}' memspace.", memSpace);
     return &resources.getRegion();
 }
 
@@ -121,8 +119,8 @@ config::MemoryResourceOp addReservedMemoryResource(mlir::ModuleOp mainModule, ml
     auto resMemTable = resources.lookupSymbol<mlir::ModuleOp>(config::resMemModuleName);
     if (resMemTable == nullptr) {
         auto mainBuilder = mlir::OpBuilder::atBlockBegin(&region->front());
-        resMemTable = mainBuilder.create<mlir::ModuleOp>(mlir::UnknownLoc::get(mainBuilder.getContext()),
-                                                         config::resMemModuleName);
+        resMemTable = mlir::ModuleOp::create(mainBuilder, mlir::UnknownLoc::get(mainBuilder.getContext()),
+                                             config::resMemModuleName);
     }
 
     auto resMemBuilder = mlir::OpBuilder::atBlockBegin(resMemTable.getBody());
@@ -146,8 +144,8 @@ config::MemoryResourceOp addReservedMemoryResource(mlir::ModuleOp mainModule, ml
 
     auto resMemModule = resMemTable.lookupSymbol<mlir::ModuleOp>(reservedMemorySection);
     if (resMemModule == nullptr) {
-        resMemModule = resMemBuilder.create<mlir::ModuleOp>(mlir::UnknownLoc::get(resMemBuilder.getContext()),
-                                                            reservedMemorySection);
+        resMemModule = mlir::ModuleOp::create(resMemBuilder, mlir::UnknownLoc::get(resMemBuilder.getContext()),
+                                              reservedMemorySection);
     }
 
     auto* ctx = resources.getContext();
@@ -160,9 +158,9 @@ config::MemoryResourceOp addReservedMemoryResource(mlir::ModuleOp mainModule, ml
     }
 
     auto innerBuilder = mlir::OpBuilder::atBlockBegin(resMemModule.getBody());
-    return innerBuilder.create<config::MemoryResourceOp>(mlir::UnknownLoc::get(resMemModule.getContext()),
-                                                         memSpace.getLeafReference(), byteSizeAttr,
-                                                         getIntAttr(mainModule.getContext(), offset));
+    return config::MemoryResourceOp::create(innerBuilder, mlir::UnknownLoc::get(resMemModule.getContext()),
+                                            memSpace.getLeafReference(), byteSizeAttr,
+                                            getIntAttr(mainModule.getContext(), offset));
 };
 
 config::MemoryResourceOp getReservedMemoryResource(mlir::ModuleOp mainModule, mlir::StringLiteral reservedMemorySection,
@@ -257,6 +255,36 @@ config::MemoryResourceOp vpux::config::getDmaProfilingReservedMemory(mlir::Modul
 }
 
 //
+// DPU profiling reserved memory
+//
+
+config::MemoryResourceOp vpux::config::setDpuProfilingReservedMemory(mlir::ModuleOp mainModule,
+                                                                     mlir::SymbolRefAttr memSpace, int64_t size) {
+    return addReservedMemoryResource(mainModule, dpuProfilingResMemModuleName, memSpace, size,
+                                     dpuProfilingResMemAlignment.count());
+}
+
+config::MemoryResourceOp vpux::config::getDpuProfilingReservedMemory(mlir::ModuleOp mainModule,
+                                                                     mlir::SymbolRefAttr memSpace) {
+    return getReservedMemoryResource(mainModule, dpuProfilingResMemModuleName, memSpace);
+}
+
+//
+// ActShave profiling reserved memory
+//
+
+config::MemoryResourceOp vpux::config::setActShaveProfilingReservedMemory(mlir::ModuleOp mainModule,
+                                                                          mlir::SymbolRefAttr memSpace, int64_t size) {
+    return addReservedMemoryResource(mainModule, actShaveProfilingResMemModuleName, memSpace, size,
+                                     actShaveProfilingResMemAlignment.count());
+}
+
+config::MemoryResourceOp vpux::config::getActShaveProfilingReservedMemory(mlir::ModuleOp mainModule,
+                                                                          mlir::SymbolRefAttr memSpace) {
+    return getReservedMemoryResource(mainModule, actShaveProfilingResMemModuleName, memSpace);
+}
+
+//
 // Compressed DMA reserved memory
 //
 
@@ -347,11 +375,11 @@ config::MemoryResourceOp vpux::config::getCMXMetadataReservedMemory(mlir::Module
 
 config::ExecutorResourceOp vpux::config::getAvailableExecutor(mlir::ModuleOp mainModule,
                                                               mlir::SymbolRefAttr executorAttr) {
-    VPUX_THROW_UNLESS(!config::isNceTile(executorAttr), "Unexpected '{0}' during executor query.", executorAttr);
+    VPUX_THROW_WHEN(config::isNceTile(executorAttr), "Unexpected '{0}' during executor query.", executorAttr);
     auto resources = isNceTileExecutor(executorAttr) ? config::getTileExecutor(mainModule)
                                                      : config::getGlobalResource(mainModule);
-    VPUX_THROW_UNLESS(resources != nullptr, "Cannot find config.ResourcesOp in order to query '{0}' executor.",
-                      executorAttr);
+    VPUX_THROW_WHEN(resources == nullptr, "Cannot find config.ResourcesOp in order to query '{0}' executor.",
+                    executorAttr);
     return resources.getSubExecutor(executorAttr);
 }
 
@@ -369,16 +397,16 @@ mlir::LogicalResult vpux::config::ExecutorResourceOp::verify() {
 config::ExecutorResourceOp vpux::config::ResourcesOp::addSubExecutor(mlir::SymbolRefAttr executorAttr, size_t count) {
     auto& region = getRegion();
     VPUX_THROW_UNLESS(count > 0, "Trying to set zero count of executor kind '{0}'", executorAttr);
-    VPUX_THROW_UNLESS(!config::isNceTile(executorAttr), "Unexpected '{0}' during executor query.", executorAttr);
+    VPUX_THROW_WHEN(config::isNceTile(executorAttr), "Unexpected '{0}' during executor query.", executorAttr);
     auto* ctx = region.getContext();
     const auto countAttr = getIntAttr(ctx, count);
     auto builder = mlir::OpBuilder::atBlockBegin(&region.front());
-    return builder.create<config::ExecutorResourceOp>(mlir::UnknownLoc::get(ctx), executorAttr.getLeafReference(),
-                                                      countAttr, nullptr);
+    return config::ExecutorResourceOp::create(builder, mlir::UnknownLoc::get(ctx), executorAttr.getLeafReference(),
+                                              countAttr, nullptr);
 }
 
 bool vpux::config::ResourcesOp::hasSubExecutor(mlir::SymbolRefAttr executorAttr) {
-    VPUX_THROW_UNLESS(!config::isNceTile(executorAttr), "Unexpected '{0}' during executor query.", executorAttr);
+    VPUX_THROW_WHEN(config::isNceTile(executorAttr), "Unexpected '{0}' during executor query.", executorAttr);
     return lookupSymbol<config::ExecutorResourceOp>(executorAttr.getLeafReference()) != nullptr;
 }
 
@@ -393,8 +421,8 @@ config::MemoryResourceOp vpux::config::ResourcesOp::addAvailableMemory(mlir::Sym
     VPUX_THROW_UNLESS(size.count() > 0, "Trying to set zero size of memory kind '{0}'", memSpace);
     const auto byteSizeAttr = getIntAttr(region.getContext(), size.count());
     auto builder = mlir::OpBuilder::atBlockBegin(&region.front());
-    return builder.create<config::MemoryResourceOp>(mlir::UnknownLoc::get(region.getContext()),
-                                                    memSpace.getLeafReference(), byteSizeAttr, /*offset*/ nullptr);
+    return config::MemoryResourceOp::create(builder, mlir::UnknownLoc::get(region.getContext()),
+                                            memSpace.getLeafReference(), byteSizeAttr, /*offset*/ nullptr);
 }
 
 bool vpux::config::ResourcesOp::hasAvailableMemory(mlir::SymbolRefAttr memSpace) {
@@ -430,9 +458,9 @@ int64_t vpux::config::getNumOfDMAPorts(mlir::Operation* op) {
 
 int64_t vpux::config::getNumOfEnginesOnTile(mlir::ModuleOp moduleOp, config::ExecutorKind execKind) {
     auto tileOp = getTileExecutor(moduleOp);
-    VPUX_THROW_UNLESS(tileOp != nullptr, "Expected tileOp executor in order to query {0} executor.", execKind);
+    VPUX_THROW_WHEN(tileOp == nullptr, "Expected tileOp executor in order to query {0} executor.", execKind);
     auto executorPerTile = tileOp.getSubExecutor(execKind);
-    VPUX_THROW_UNLESS(executorPerTile != nullptr, "Failed to get {0} information", execKind);
+    VPUX_THROW_WHEN(executorPerTile == nullptr, "Failed to get {0} information", execKind);
     return executorPerTile.getCount();
 }
 
@@ -442,9 +470,9 @@ int64_t vpux::config::getNumOfEnginesOnTile(mlir::Operation* op, config::Executo
 
 int64_t vpux::config::getTotalNumOfEngines(mlir::ModuleOp moduleOp, config::ExecutorKind execKind) {
     auto tileOp = getTileExecutor(moduleOp);
-    VPUX_THROW_UNLESS(tileOp != nullptr, "Expected tileOp executor in order to query {0} executor.", execKind);
+    VPUX_THROW_WHEN(tileOp == nullptr, "Expected tileOp executor in order to query {0} executor.", execKind);
     auto executorPerTile = tileOp.getSubExecutor(execKind);
-    VPUX_THROW_UNLESS(executorPerTile != nullptr, "Failed to get {0} information", execKind);
+    VPUX_THROW_WHEN(executorPerTile == nullptr, "Failed to get {0} information", execKind);
     return tileOp.getCount() * executorPerTile.getCount();
 }
 
@@ -452,18 +480,29 @@ int64_t vpux::config::getTotalNumOfEngines(mlir::Operation* op, config::Executor
     return getTotalNumOfEngines(op->getParentOfType<mlir::ModuleOp>(), execKind);
 }
 
-int64_t vpux::config::getNumOfTiles(mlir::Operation* op) {
-    auto moduleOp = op->getParentOfType<mlir::ModuleOp>();
+int64_t vpux::config::getNumOfTiles(mlir::ModuleOp moduleOp) {
     auto tileOp = config::getTileExecutor(moduleOp);
+    VPUX_THROW_UNLESS(tileOp != nullptr, "Expected tileOp executor in order to query number of tiles.");
     return tileOp.getCount();
+}
+
+int64_t vpux::config::getNumOfTiles(mlir::Operation* op) {
+    VPUX_THROW_UNLESS(op != nullptr, "Cannot query number of tiles for null operation");
+
+    if (auto moduleOp = mlir::dyn_cast<mlir::ModuleOp>(op)) {
+        return getNumOfTiles(moduleOp);
+    }
+
+    auto moduleOp = op->getParentOfType<mlir::ModuleOp>();
+    return getNumOfTiles(moduleOp);
 }
 
 config::ResourcesOp config::addTileExecutor(mlir::ModuleOp mainModule, size_t count) {
     VPUX_THROW_UNLESS(count > 0, "Trying to set zero count of tile resource kind.");
 
     auto builder = mlir::OpBuilder::atBlockBegin(mainModule.getBody());
-    return builder.create<config::ResourcesOp>(appendLoc(mainModule.getLoc(), "tile_resources"),
-                                               stringifyEnum(config::ExecutorKind::NCE), count);
+    return config::ResourcesOp::create(builder, appendLoc(mainModule.getLoc(), "tile_resources"),
+                                       stringifyEnum(config::ExecutorKind::NCE), count);
 }
 
 bool config::hasTileExecutor(mlir::ModuleOp mainModule) {
@@ -488,7 +527,7 @@ static constexpr auto GLOBAL_RESOURCE_NAME = "global";
 
 config::ResourcesOp config::addGlobalResource(mlir::ModuleOp moduleOp) {
     auto builder = mlir::OpBuilder::atBlockBegin(moduleOp.getBody());
-    return builder.create<config::ResourcesOp>(appendLoc(moduleOp.getLoc(), "global_resources"), GLOBAL_RESOURCE_NAME);
+    return config::ResourcesOp::create(builder, appendLoc(moduleOp.getLoc(), "global_resources"), GLOBAL_RESOURCE_NAME);
 }
 
 bool config::hasGlobalResource(mlir::ModuleOp moduleOp) {

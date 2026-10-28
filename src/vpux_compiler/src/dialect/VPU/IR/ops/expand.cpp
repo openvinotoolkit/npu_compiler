@@ -81,8 +81,8 @@ mlir::LogicalResult vpux::VPU::ExpandOp::reifyResultShapes(mlir::OpBuilder& buil
         }
 
         auto inputDimValue = getValueOrCreateConstantIndexOp(builder, loc, inputDim);
-        auto padValue = builder.create<mlir::arith::ConstantIndexOp>(loc, pad);
-        shapes.push_back(builder.create<mlir::arith::AddIOp>(loc, inputDimValue, padValue).getResult());
+        auto padValue = mlir::arith::ConstantIndexOp::create(builder, loc, pad);
+        shapes.push_back(mlir::arith::AddIOp::create(builder, loc, inputDimValue, padValue).getResult());
     }
 
     reifiedReturnShapes.emplace_back(std::move(shapes));

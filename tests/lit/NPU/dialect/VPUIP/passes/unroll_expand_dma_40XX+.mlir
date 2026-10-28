@@ -357,9 +357,9 @@ func.func @UnrollExpandDMAWithInOutStridesOnExpandAxis() -> memref<1x16x40x40x!q
 
 // -----
 
-!qElemType = !quant.uniform<!QuantileType.quantile<ui4:si8, {0.000000e+00,1.000000e+00,2.000000e+00,3.000000e+00,4.000000e+00,5.000000e+00,6.000000e+00,7.000000e+00,-8.000000e+00,-7.000000e+00,-6.000000e+00,-5.000000e+00,-4.000000e+00,-3.000000e+00,-2.000000e+00,-1.000000e+00}>:f16:0, {4.343750e+00,3.625000e+00,-5.031250e+00,-1.375000e+00,-3.484375,4.156250e+00,-2.687500e+00,3.656250e+00,2.765625,-3.062500e+00,-1.640625,-6.281250e+00,-9.625000e+00,-1.7265625,7.937500e+00,5.906250e+00}>
+!qElemType = !quant.uniform<!quant.quantile<ui4:si8, {0.000000e+00,1.000000e+00,2.000000e+00,3.000000e+00,4.000000e+00,5.000000e+00,6.000000e+00,7.000000e+00,-8.000000e+00,-7.000000e+00,-6.000000e+00,-5.000000e+00,-4.000000e+00,-3.000000e+00,-2.000000e+00,-1.000000e+00}>:f16:0, {4.343750e+00,3.625000e+00,-5.031250e+00,-1.375000e+00,-3.484375,4.156250e+00,-2.687500e+00,3.656250e+00,2.765625,-3.062500e+00,-1.640625,-6.281250e+00,-9.625000e+00,-1.7265625,7.937500e+00,5.906250e+00}>
 
-// CHECK: [[QQ:!.+]] = !quant.uniform<!QuantileType.quantile<ui4:si8,
+// CHECK: [[QQ:!.+]] = !quant.uniform<!quant.quantile<ui4:si8,
 // CHECK: @UnrollSubbyteExpandDMA
 func.func @UnrollSubbyteExpandDMA() -> memref<16x1x1x32x!qElemType, @DDR> {
     %bar0 = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
@@ -396,7 +396,7 @@ func.func @UnrollSubbyteExpandDMA() -> memref<16x1x1x32x!qElemType, @DDR> {
 // -----
 
 #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
-!qElemType = !quant.uniform<!QuantileType.quantile<ui4:f16, {-1.000000e+00,-0.69619280099868774,-0.52507305145263672,-0.39491748809814453,-0.28444138169288635,-0.18477343022823334,-0.091050036251544952,0.000000e+00,0.07958029955625534,0.16093020141124725,0.24611230194568634,0.33791524171829224,0.44070982933044434,0.56261700391769409,0.72295683622360229,1.000000e+00}>:f16, 0.07874348958333334>
+!qElemType = !quant.uniform<!quant.quantile<ui4:f16, {-1.000000e+00,-0.69619280099868774,-0.52507305145263672,-0.39491748809814453,-0.28444138169288635,-0.18477343022823334,-0.091050036251544952,0.000000e+00,0.07958029955625534,0.16093020141124725,0.24611230194568634,0.33791524171829224,0.44070982933044434,0.56261700391769409,0.72295683622360229,1.000000e+00}>:f16, 0.07874348958333334>
 
 !OutputDistributed = !VPUIP.DistributedBuffer<
     128x1x1x32x!qElemType, #NCHW, @CMX_NN, {
@@ -409,7 +409,7 @@ func.func @UnrollSubbyteExpandDMA() -> memref<16x1x1x32x!qElemType, @DDR> {
     memory_offsets = [[0, 0, 0, 0], [64, 0, 0, 0]]
 }>
 
-// CHECK: [[QQ:!.+]] = !quant.uniform<!QuantileType.quantile<ui4:f16,
+// CHECK: [[QQ:!.+]] = !quant.uniform<!quant.quantile<ui4:f16,
 // CHECK: @UnrollSubbyteExpandDMAMultiTile
 func.func @UnrollSubbyteExpandDMAMultiTile() -> !OutputDistributed {
     %bar0 = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier

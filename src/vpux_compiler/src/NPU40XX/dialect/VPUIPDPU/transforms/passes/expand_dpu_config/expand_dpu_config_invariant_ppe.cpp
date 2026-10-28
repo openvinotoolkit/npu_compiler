@@ -279,39 +279,39 @@ mlir::LogicalResult buildFpPPEConfig(mlir::OpBuilder& builder, const mlir::Locat
         // PPEFpBiasAdd
         auto biasStaticAttr = getF32FloatAttrOrNull(builder, config.biasAdd.biasStatic);
         if (biasStaticAttr) {
-            builder.create<VPUIPDPU::PPEFpBiasAddOp>(loc, nullptr, biasStaticAttr);
+            VPUIPDPU::PPEFpBiasAddOp::create(builder, loc, nullptr, biasStaticAttr);
         } else {
             if (!weightsTable) {
                 log.error("Expected weights_table operand in PPE FP pipeline");
                 return mlir::failure();
             }
-            builder.create<VPUIPDPU::PPEFpBiasAddOp>(loc, weightsTable, nullptr);
+            VPUIPDPU::PPEFpBiasAddOp::create(builder, loc, weightsTable, nullptr);
         }
 
         // PPEFpScaleMult
         auto preluAlphaAttr = getF32FloatAttrOrNull(builder, config.scaleMult.preluAlpha);
         auto scaleStaticAttr = getF32FloatAttrOrNull(builder, config.scaleMult.scaleStatic);
         if (scaleStaticAttr) {
-            builder.create<VPUIPDPU::PPEFpScalePreluMultOp>(loc, nullptr, scaleStaticAttr, preluAlphaAttr);
+            VPUIPDPU::PPEFpScalePreluMultOp::create(builder, loc, nullptr, scaleStaticAttr, preluAlphaAttr);
         } else {
             if (!weightsTable) {
                 log.error("Expected weights_table operand in PPE FP pipeline");
                 return mlir::failure();
             }
-            builder.create<VPUIPDPU::PPEFpScalePreluMultOp>(loc, weightsTable, nullptr, preluAlphaAttr);
+            VPUIPDPU::PPEFpScalePreluMultOp::create(builder, loc, weightsTable, nullptr, preluAlphaAttr);
         }
     }
 
     // PPEFpAddMultBypass
-    builder.create<VPUIPDPU::PPEFpAddMultBypassOp>(loc, config.addMultBypass.bypassMode);
+    VPUIPDPU::PPEFpAddMultBypassOp::create(builder, loc, config.addMultBypass.bypassMode);
 
     // PPEFpConvert
     auto clampModeAttr = getEnumAttrOrNull<VPUIPDPU::PPEFpConvClampModeAttr>(builder, config.convert.clampMode);
     auto ftzModeAttr = getEnumAttrOrNull<VPUIPDPU::PPEFpConvFTZModeAttr>(builder, config.convert.ftzMode);
     auto bf16RoundModeAttr =
             getEnumAttrOrNull<VPUIPDPU::PPEFpConvBf16RoundModeAttr>(builder, config.convert.bf16RoundMode);
-    builder.create<VPUIPDPU::PPEFpConvertOp>(loc, config.convert.convertMode, clampModeAttr, ftzModeAttr,
-                                             bf16RoundModeAttr);
+    VPUIPDPU::PPEFpConvertOp::create(builder, loc, config.convert.convertMode, clampModeAttr, ftzModeAttr,
+                                     bf16RoundModeAttr);
 
     return mlir::success();
 }
@@ -321,57 +321,57 @@ mlir::LogicalResult buildIntPPEConfig(mlir::OpBuilder& builder, const mlir::Loca
     // PPEIntBiasAdd
     auto biasStaticAttr = getI64IntegerAttrOrNull(builder, config.biasAdd.biasStatic);
     if (biasStaticAttr) {
-        builder.create<VPUIPDPU::PPEIntBiasAddOp>(loc, nullptr, biasStaticAttr);
+        VPUIPDPU::PPEIntBiasAddOp::create(builder, loc, nullptr, biasStaticAttr);
     } else {
         if (!weightsTable) {
             log.error("Expected weights_table operand in PPE INT pipeline");
             return mlir::failure();
         }
-        builder.create<VPUIPDPU::PPEIntBiasAddOp>(loc, weightsTable, nullptr);
+        VPUIPDPU::PPEIntBiasAddOp::create(builder, loc, weightsTable, nullptr);
     }
 
     // PPEIntScaleMult
     auto scaleStaticAttr = getI64IntegerAttrOrNull(builder, config.scaleMult.scaleStatic);
     if (scaleStaticAttr) {
-        builder.create<VPUIPDPU::PPEIntScaleMultOp>(loc, nullptr, scaleStaticAttr);
+        VPUIPDPU::PPEIntScaleMultOp::create(builder, loc, nullptr, scaleStaticAttr);
     } else {
         if (!weightsTable) {
             log.error("Expected weights_table operand in PPE INT pipeline");
             return mlir::failure();
         }
-        builder.create<VPUIPDPU::PPEIntScaleMultOp>(loc, weightsTable, nullptr);
+        VPUIPDPU::PPEIntScaleMultOp::create(builder, loc, weightsTable, nullptr);
     }
 
     // PPEIntScaleShift
     auto shiftStaticAttr = getI64IntegerAttrOrNull(builder, config.scaleShift.shiftStatic);
     if (shiftStaticAttr) {
-        builder.create<VPUIPDPU::PPEIntScaleShiftOp>(loc, nullptr, shiftStaticAttr);
+        VPUIPDPU::PPEIntScaleShiftOp::create(builder, loc, nullptr, shiftStaticAttr);
     } else {
         if (!weightsTable) {
             log.error("Expected weights_table operand in PPE INT pipeline");
             return mlir::failure();
         }
-        builder.create<VPUIPDPU::PPEIntScaleShiftOp>(loc, weightsTable, nullptr);
+        VPUIPDPU::PPEIntScaleShiftOp::create(builder, loc, weightsTable, nullptr);
     }
 
     // PPEIntPreluMult
-    builder.create<VPUIPDPU::PPEIntPreluMultOp>(loc, config.preluMult.preluMultStatic);
+    VPUIPDPU::PPEIntPreluMultOp::create(builder, loc, config.preluMult.preluMultStatic);
 
     // PPEIntPreluShift
-    builder.create<VPUIPDPU::PPEIntPreluShiftOp>(loc, config.preluShift.preluShiftStatic);
+    VPUIPDPU::PPEIntPreluShiftOp::create(builder, loc, config.preluShift.preluShiftStatic);
 
     // PPEIntRound
-    builder.create<VPUIPDPU::PPEIntRoundOp>(loc, config.round.roundMode);
+    VPUIPDPU::PPEIntRoundOp::create(builder, loc, config.round.roundMode);
 
     // PPEIntZeroPointOffset
-    builder.create<VPUIPDPU::PPEIntZeroPointOffsetOp>(loc, config.zeroPointOffset.zeroPointStatic);
+    VPUIPDPU::PPEIntZeroPointOffsetOp::create(builder, loc, config.zeroPointOffset.zeroPointStatic);
 
     // PPEIntClamp
     auto clampLowAttr = getI64IntegerAttrOrNull(builder, config.clamp.clampLow);
-    builder.create<VPUIPDPU::PPEIntClampOp>(loc, clampLowAttr, config.clamp.clampHigh);
+    VPUIPDPU::PPEIntClampOp::create(builder, loc, clampLowAttr, config.clamp.clampHigh);
 
     // PPEIntConvert
-    builder.create<VPUIPDPU::PPEIntConvertOp>(loc, config.convert.convertMode);
+    VPUIPDPU::PPEIntConvertOp::create(builder, loc, config.convert.convertMode);
 
     return mlir::success();
 }

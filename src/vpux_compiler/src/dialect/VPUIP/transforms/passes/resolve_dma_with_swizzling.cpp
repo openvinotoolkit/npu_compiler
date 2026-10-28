@@ -160,9 +160,10 @@ void ResolveDMAWithSwizzlingPass::safeRunOnFunc() {
         builder.setInsertionPoint(inputOp);
         if (auto inputBuff = dmaOp.getInput().getDefiningOp<VPURT::DeclareBufferOp>()) {
             // Create new source flat buffer with aligned size
-            auto newInputBuff = builder.create<VPURT::DeclareBufferOp>(
-                    appendLoc(inputBuff->getLoc(), "flat_buffer_alloc"), newInputBuffType, inputBuff.getSectionAttr(),
-                    inputBuff.getSectionIndexAttr(), inputBuff.getByteOffsetAttr(), inputBuff.getSwizzlingKeyAttr());
+            auto newInputBuff = VPURT::DeclareBufferOp::create(
+                    builder, appendLoc(inputBuff->getLoc(), "flat_buffer_alloc"), newInputBuffType,
+                    inputBuff.getSectionAttr(), inputBuff.getSectionIndexAttr(), inputBuff.getByteOffsetAttr(),
+                    inputBuff.getSwizzlingKeyAttr());
             _log.nest().trace("Create new source flat buffer allocation of shape - '{0}', op - '{1}'",
                               ShapeRef(newShape), newInputBuff->getLoc());
             newInputOp = newInputBuff.getOperation();
@@ -178,15 +179,16 @@ void ResolveDMAWithSwizzlingPass::safeRunOnFunc() {
 
         // Create new destination flat buffer
         builder.setInsertionPoint(outputBuff);
-        auto newOutputBuff = builder.create<VPURT::DeclareBufferOp>(
-                appendLoc(outputBuff->getLoc(), "flat_buffer_alloc"), newOutputBuffType, outputBuff.getSectionAttr(),
-                outputBuff.getSectionIndexAttr(), outputBuff.getByteOffsetAttr(), outputBuff.getSwizzlingKeyAttr());
+        auto newOutputBuff = VPURT::DeclareBufferOp::create(
+                builder, appendLoc(outputBuff->getLoc(), "flat_buffer_alloc"), newOutputBuffType,
+                outputBuff.getSectionAttr(), outputBuff.getSectionIndexAttr(), outputBuff.getByteOffsetAttr(),
+                outputBuff.getSwizzlingKeyAttr());
         _log.nest().trace("Create new destination flat buffer allocation of shape - '{0}', op - '{1}'",
                           ShapeRef(newShape), newOutputBuff->getLoc());
 
         builder.setInsertionPoint(dmaOp);
-        auto newDmaOp = builder.create<VPUIP::NNDMAOp>(
-                appendLoc(dmaOp->getLoc(), "flat_buffer_dma"), newInputOp->getResult(0),
+        auto newDmaOp = VPUIP::NNDMAOp::create(
+                builder, appendLoc(dmaOp->getLoc(), "flat_buffer_dma"), newInputOp->getResult(0),
                 /*dynamic_sequence_length_buff=*/nullptr, newOutputBuff, dmaOp.getPortAttr(), dmaOp.getIsOutOfOrder(),
                 dmaOp.getIsCritical(), dmaOp.getSpillIdAttr(), dmaOp.getCompressCandidate(), /*dmaHwpId=*/nullptr,
                 /*profilingMetadata=*/nullptr, dmaOp.getSplitCandidateAttr(), /*profiling_buffer_mgmt=*/false,

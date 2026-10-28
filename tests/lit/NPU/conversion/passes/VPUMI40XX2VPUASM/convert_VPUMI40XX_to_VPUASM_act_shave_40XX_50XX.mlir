@@ -21,7 +21,7 @@ module @VPU.SW {
   func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"}
 }
 
-func.func nested @act_shave() {
+func.func @act_shave() {
   %2 = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x1x1x1000xf16, [@CMX_NN, 0]>
   %3 = VPURT.DeclareBuffer <CMX_NN> [0] <2000> -> memref<1x1x1x1000xf16, [@CMX_NN, 0]>
   %4 = VPUMI40XX.DeclareKernelText kernel_path("activation_hswish") -> !VPURegMapped.Index<0:0:0>
@@ -108,7 +108,7 @@ module @VPU.SW {
   func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"}
 }
 
-func.func nested @act_shave() {
+func.func @act_shave() {
   %2 = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x1x1x1000xf16, [@CMX_NN, 0]>
   %3 = VPURT.DeclareBuffer <CMX_NN> [0] <2000> -> memref<1x1x1x1000xf16, [@CMX_NN, 0]>
   %4 = VPUMI40XX.DeclareKernelText kernel_path("activation_hswish") -> !VPURegMapped.Index<0:0:0>
@@ -209,7 +209,7 @@ module @VPU.SW {
   func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"}
 }
 
-func.func nested @act_shave() {
+func.func @act_shave() {
   %2 = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x1x1x1000xf16, [@CMX_NN, 0]>
   %3 = VPURT.DeclareBuffer <CMX_NN> [0] <2000> -> memref<1x1x1x1000xf16, [@CMX_NN, 0]>
   %4 = VPUMI40XX.DeclareKernelText kernel_path("activation_hswish") -> !VPURegMapped.Index<0:0:0>
@@ -386,7 +386,7 @@ module @VPU.SW {
   func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"}
 }
 
-func.func nested @act_shave_only_list_index_1() {
+func.func @act_shave_only_list_index_1() {
   %2 = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x1x1x1000xf16, [@CMX_NN, 0]>
   %3 = VPURT.DeclareBuffer <CMX_NN> [0] <2000> -> memref<1x1x1x1000xf16, [@CMX_NN, 0]>
   %4 = VPUMI40XX.DeclareKernelText kernel_path("activation_hswish") -> !VPURegMapped.Index<0:1:0>
@@ -451,7 +451,7 @@ module @VPU.SW {
   func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"}
 }
 
-func.func nested @unit_dim_stride_norm() {
+func.func @unit_dim_stride_norm() {
   // Input: stride_H inherited from parent (1x1x1x16384); compact stride_H = 8192 elems.
   %in  = VPURT.DeclareBuffer <CMX_NN> [0] <0>     -> memref<1x1x1x8192xf16, {order = #NHWC, strides = [16384, 1, 16384, 1]}, [@CMX_NN, 0]>
   %out = VPURT.DeclareBuffer <CMX_NN> [0] <16384>  -> memref<1x1x1x8192xf16, {order = #NHWC, strides = [8192,  1,  8192, 1]}, [@CMX_NN, 0]>
@@ -512,7 +512,7 @@ module @VPU.SW {
   func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"}
 }
 
-func.func nested @stride_aware_kernel_no_norm() {
+func.func @stride_aware_kernel_no_norm() {
   // Input: stride_H inherited from parent (1x1x1x16384); compact stride_H = 8192 elems.
   %in  = VPURT.DeclareBuffer <CMX_NN> [0] <0>     -> memref<1x1x1x8192xf16, {order = #NHWC, strides = [16384, 1, 16384, 1]}, [@CMX_NN, 0]>
   %out = VPURT.DeclareBuffer <CMX_NN> [0] <16384>  -> memref<1x1x1x8192xf16, {order = #NHWC, strides = [8192,  1,  8192, 1]}, [@CMX_NN, 0]>

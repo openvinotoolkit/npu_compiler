@@ -16,7 +16,7 @@
 #include "intel_npu/utils/zero/zero_result.hpp"
 #include "intel_npu/utils/zero/zero_utils.hpp"
 #include "intel_npu/utils/zero/zero_wrappers.hpp"
-#include "npu_interpreter_runtime/npu_vm_runtime.hpp"
+#include "vm_runtime/npu_vm_runtime.hpp"
 
 #include <openvino/openvino.hpp>
 #include <openvino/opsets/opset6.hpp>
@@ -64,6 +64,18 @@ struct npu_vm_runtime_fntbl {
     using npu_vm_runtime_predict_output_shape2_t = npu_vm_runtime_result_t(
             npu_vm_runtime_handle_t hRuntime, npu_vm_runtime_predict_output_shape_params_t2* pParams);
 
+    using npu_vm_runtime_create2_t = npu_vm_runtime_result_t(const npu_vm_runtime_blob_desc_t* desc,
+                                                             const npu_vm_runtime_config_desc_t* pConfig,
+                                                             npu_vm_runtime_handle_t* phRuntime,
+                                                             npu_vm_runtime_properties_t* pProperties);
+    using npu_vm_runtime_create_execution_context2_t = npu_vm_runtime_result_t(
+            npu_vm_runtime_handle_t hRuntime, npu_vm_runtime_create_execution_context_params_t* pParams,
+            npu_vm_runtime_execution_context_handle_t* phExecutionHandle);
+    using npu_vm_runtime_execute2_t = npu_vm_runtime_result_t(npu_vm_runtime_handle_t hRuntime,
+                                                              npu_vm_runtime_execute_params2_t* pParams);
+    using npu_vm_runtime_host_sync_t = npu_vm_runtime_result_t(npu_vm_runtime_handle_t hRuntime,
+                                                               npu_vm_runtime_execute_params2_t* pParams);
+
     std::function<npu_vm_runtime_get_api_version_t> npuVMRuntimeGetAPIVersion = nullptr;
     std::function<npu_vm_runtime_create_t> npuVMRuntimeCreate = nullptr;
     std::function<npu_vm_runtime_destroy_t> npuVMRuntimeDestroy = nullptr;
@@ -78,8 +90,12 @@ struct npu_vm_runtime_fntbl {
     std::function<npu_vm_runtime_set_mem_ref_t> npuVMRuntimeSetMemRef = nullptr;
     std::function<npu_vm_runtime_parse_mem_ref_t> npuVMRuntimeParseMemRef = nullptr;
     std::function<npu_vm_runtime_predict_output_shape2_t> npuVMRuntimePredictOutputShape2 = nullptr;
+    std::function<npu_vm_runtime_create2_t> npuVMRuntimeCreate2 = nullptr;
+    std::function<npu_vm_runtime_create_execution_context2_t> npuVMRuntimeCreateExecutionContext2 = nullptr;
+    std::function<npu_vm_runtime_execute2_t> npuVMRuntimeExecute2 = nullptr;
+    std::function<npu_vm_runtime_host_sync_t> npuVMRuntimeHostSync = nullptr;
 
-    void init(std::shared_ptr<void> lib) {
+    void init(std::shared_ptr<void> lib, const std::string&) {
         npuVMRuntimeGetAPIVersion = reinterpret_cast<npu_vm_runtime_get_api_version_t*>(
                 ov::util::get_symbol(lib, "npuVMRuntimeGetAPIVersion"));
         npuVMRuntimeCreate =
@@ -110,6 +126,15 @@ struct npu_vm_runtime_fntbl {
                 reinterpret_cast<npu_vm_runtime_parse_mem_ref_t*>(ov::util::get_symbol(lib, "npuVMRuntimeParseMemRef"));
         npuVMRuntimePredictOutputShape2 = reinterpret_cast<npu_vm_runtime_predict_output_shape2_t*>(
                 ov::util::get_symbol(lib, "npuVMRuntimePredictOutputShape2"));
+
+        npuVMRuntimeCreate2 =
+                reinterpret_cast<npu_vm_runtime_create2_t*>(ov::util::get_symbol(lib, "npuVMRuntimeCreate2"));
+        npuVMRuntimeCreateExecutionContext2 = reinterpret_cast<npu_vm_runtime_create_execution_context2_t*>(
+                ov::util::get_symbol(lib, "npuVMRuntimeCreateExecutionContext2"));
+        npuVMRuntimeExecute2 =
+                reinterpret_cast<npu_vm_runtime_execute2_t*>(ov::util::get_symbol(lib, "npuVMRuntimeExecute2"));
+        npuVMRuntimeHostSync =
+                reinterpret_cast<npu_vm_runtime_execute2_t*>(ov::util::get_symbol(lib, "npuVMRuntimeHostSync"));
     }
 };
 
@@ -238,7 +263,7 @@ protected:
 #else
             lib = ov::util::load_shared_object(libpath.c_str());
 #endif
-            fntbl.init(lib);
+            fntbl.init(lib, libName);
 
             ov::Core core;
             const auto deviceNames =
@@ -389,6 +414,7 @@ protected:
                                const npu_vm_runtime_properties_t& props,
                                std::shared_ptr<intel_npu::CommandQueue>& commandQueue,
                                ze_graph_dditable_ext_t*& graphDdiTableExt,
+                               ze_command_queue_npu_dditable_ext_t*& commandQueueDdiTableExt,
                                std::vector<std::shared_ptr<intel_npu::CommandList>>& commandLists,
                                std::vector<ze_command_list_handle_t>& commandListHandles,
                                std::shared_ptr<intel_npu::Fence>& fence) {
@@ -399,12 +425,19 @@ protected:
                 nullptr,                           // owner_tag
                 true,                              // shared_common_queue
         };
+
         commandQueue = std::make_shared<intel_npu::CommandQueue>(initStruct, commandQueueDesc);
 
         graphDdiTableExt = nullptr;
         checkStatus("zeDriverGetExtensionFunctionAddress",
                     intel_npu::zeDriverGetExtensionFunctionAddress(initStruct->getDriver(), ZE_GRAPH_EXT_NAME,
                                                                    reinterpret_cast<void**>(&graphDdiTableExt)));
+
+        commandQueueDdiTableExt = nullptr;
+        checkStatus(
+                "zeDriverGetExtensionFunctionAddress",
+                intel_npu::zeDriverGetExtensionFunctionAddress(initStruct->getDriver(), ZE_COMMAND_QUEUE_NPU_EXT_NAME,
+                                                               reinterpret_cast<void**>(&commandQueueDdiTableExt)));
 
         commandLists.reserve(props.numOfSubGraphs);
         for (size_t i = 0; i < props.numOfSubGraphs; ++i) {
@@ -451,6 +484,34 @@ protected:
         }
     }
 
+    // Creates a runtime handle from the compiled blob. Uses ASSERT to abort on failure so callers
+    // receive a valid, non-null handle.
+    void createRuntimeHandle_v2(npu_vm_runtime_handle_t& handle, npu_vm_runtime_properties_t& props) {
+        const std::string content = blob.str();
+        npu_vm_runtime_blob_desc_t blobDesc;
+        blobDesc.pInput = reinterpret_cast<const uint8_t*>(content.data());
+        blobDesc.inputSize = content.size();
+        ASSERT_EQ(fntbl.npuVMRuntimeCreate2(&blobDesc, nullptr, &handle, &props), NPU_VM_RUNTIME_RESULT_SUCCESS);
+        ASSERT_NE(handle, nullptr);
+    }
+
+    // Builds execution parameters from the provided ZE handles and memref arg arrays.
+    static npu_vm_runtime_execute_params2_t buildExecParams_v2(
+            std::vector<npu_vm_runtime_mem_ref_handle_t>& inputArgs,
+            std::vector<npu_vm_runtime_mem_ref_handle_t>& outputArgs,
+            const std::shared_ptr<intel_npu::CommandQueue>& commandQueue, npu_vm_runtime_config_desc_t* pConfig,
+            npu_vm_runtime_execution_context_handle_t executionContext) {
+        npu_vm_runtime_execute_params2_t execParams;
+        execParams.numOfInputs = static_cast<uint32_t>(inputArgs.size());
+        execParams.pInputs = inputArgs.data();
+        execParams.numOfOutputs = static_cast<uint32_t>(outputArgs.size());
+        execParams.pOutputs = outputArgs.data();
+        execParams.commandQueue = commandQueue->handle();
+        execParams.pConfig = pConfig;
+        execParams.executionContext = executionContext;
+        return execParams;
+    }
+
     std::stringstream blob;
     std::shared_ptr<void> lib;
     npu_vm_runtime_fntbl fntbl;
@@ -460,6 +521,9 @@ TEST_P(NPUVMRuntimeCAPITest, GetAPIVersion_Success) {
     npu_vm_runtime_version_t version;
     auto result = fntbl.npuVMRuntimeGetAPIVersion(&version);
     EXPECT_EQ(result, NPU_VM_RUNTIME_RESULT_SUCCESS);
+
+    std::string libName;
+    std::tie(std::ignore, std::ignore, libName, std::ignore) = this->GetParam();
     EXPECT_EQ(version, NPU_VM_RUNTIME_VERSION_CURRENT);
 }
 
@@ -578,10 +642,11 @@ TEST_P(NPUVMRuntimeCAPITest, GetMetadata_ExactValuesForBytecodeBlob) {
 
 TEST_P(NPUVMRuntimeCAPITest, ExecuteCompiledModel) {
     std::string libName;
-    std::tie(std::ignore, std::ignore, libName, std::ignore) = this->GetParam();
-    // E#214461: Skip interpreter runtime execute path until kernel submission is stabilized.
-    if (libName == "openvino_intel_npu_vm_runtime") {
-        GTEST_SKIP() << "ExecuteCompiledModel is temporarily disabled for interpreter runtime";
+    std::string modelPath;
+    std::tie(std::ignore, modelPath, libName, std::ignore) = this->GetParam();
+
+    if (modelPath == "bytecode.blob") {
+        GTEST_SKIP() << "Test applies only to bytecode.blob";
     }
 
     npu_vm_runtime_handle_t handle = nullptr;
@@ -598,19 +663,21 @@ TEST_P(NPUVMRuntimeCAPITest, ExecuteCompiledModel) {
 
     std::shared_ptr<intel_npu::CommandQueue> commandQueue;
     ze_graph_dditable_ext_t* graphDdiTableExt = nullptr;
+    ze_command_queue_npu_dditable_ext_t* commandQueueDdiTableExt = nullptr;
     std::vector<std::shared_ptr<intel_npu::CommandList>> commandLists;
     std::vector<ze_command_list_handle_t> commandListHandles;
     std::shared_ptr<intel_npu::Fence> fence;
-    setupZEInfrastructure(initStruct, props, commandQueue, graphDdiTableExt, commandLists, commandListHandles, fence);
+    setupZEInfrastructure(initStruct, props, commandQueue, graphDdiTableExt, commandQueueDdiTableExt, commandLists,
+                          commandListHandles, fence);
+
+    npu_vm_runtime_execution_context_handle_t executionContextHandle = nullptr;
+    ASSERT_EQ(fntbl.npuVMRuntimeCreateExecutionContext(handle, &executionContextHandle), NPU_VM_RUNTIME_RESULT_SUCCESS);
+    ASSERT_NE(executionContextHandle, nullptr);
 
     auto execParams = buildExecParams(initStruct, inputArgs, outputArgs, commandListHandles, commandQueue, fence,
-                                      graphDdiTableExt);
+                                      graphDdiTableExt, executionContextHandle);
     EXPECT_EQ(fntbl.npuVMRuntimeExecute(handle, &execParams), NPU_VM_RUNTIME_RESULT_SUCCESS);
-    // FIXME: E#211607 once kernel submission is implemented,
-    // we can enable synchronization for interpreter runtime as well
-    if (libName != "openvino_intel_npu_vm_runtime") {
-        fence->hostSynchronize();
-    }
+    fence->hostSynchronize();
 
     // TODO: dump output to check accuracy once more models are supported
     EXPECT_EQ(fntbl.npuVMRuntimeDestroy(handle), NPU_VM_RUNTIME_RESULT_SUCCESS);
@@ -622,9 +689,10 @@ TEST_P(NPUVMRuntimeCAPITest, UpdateMutableCommandList) {
     std::string libName;
     std::tie(std::ignore, std::ignore, libName, std::ignore) = this->GetParam();
     // E#211625: Skip update mutable command list support for interpreter runtime is not implemented
-    if (libName == "npu_interpreter_runtime") {
+    if (libName == "openvino_intel_npu_vm_runtime") {
         GTEST_SKIP() << "UpdateMutableCommandList is temporarily disabled for interpreter runtime";
     }
+
     npu_vm_runtime_handle_t handle = nullptr;
     npu_vm_runtime_properties_t props;
     ASSERT_NO_FATAL_FAILURE(createRuntimeHandle(handle, props));
@@ -643,10 +711,12 @@ TEST_P(NPUVMRuntimeCAPITest, UpdateMutableCommandList) {
 
     std::shared_ptr<intel_npu::CommandQueue> commandQueue;
     ze_graph_dditable_ext_t* graphDdiTableExt = nullptr;
+    ze_command_queue_npu_dditable_ext_t* commandQueueDdiTableExt = nullptr;
     std::vector<std::shared_ptr<intel_npu::CommandList>> commandLists;
     std::vector<ze_command_list_handle_t> commandListHandles;
     std::shared_ptr<intel_npu::Fence> fence;
-    setupZEInfrastructure(initStruct, props, commandQueue, graphDdiTableExt, commandLists, commandListHandles, fence);
+    setupZEInfrastructure(initStruct, props, commandQueue, graphDdiTableExt, commandQueueDdiTableExt, commandLists,
+                          commandListHandles, fence);
 
     auto execParams = buildExecParams(initStruct, inputArgs, outputArgs, commandListHandles, commandQueue, fence,
                                       graphDdiTableExt, executionContextHandle);
@@ -876,26 +946,264 @@ TEST_P(NPUVMRuntimeCAPITest, DISABLED_PredictShape2) {
     destroyMemRefs(outputArgs);
 }
 
+TEST_P(NPUVMRuntimeCAPITest, GetMetadata_ExactValuesForBytecodeBlob_v2) {
+    std::string modelPath;
+    std::string libName;
+    std::tie(std::ignore, modelPath, libName, std::ignore) = this->GetParam();
+    if (modelPath != "bytecode.blob") {
+        GTEST_SKIP() << "Test applies only to bytecode.blob";
+    }
+
+    npu_vm_runtime_version_t version;
+    auto result = fntbl.npuVMRuntimeGetAPIVersion(&version);
+    EXPECT_EQ(result, NPU_VM_RUNTIME_RESULT_SUCCESS);
+
+    if (NPU_VM_RUNTIME_MAJOR_VERSION(version) < 2) {
+        GTEST_SKIP() << "GetMetadata_ExactValuesForBytecodeBlob_v2 requires NPU VM Runtime v2.0 or later";
+    }
+
+    npu_vm_runtime_handle_t handle = nullptr;
+    npu_vm_runtime_properties_t props;
+    ASSERT_NO_FATAL_FAILURE(createRuntimeHandle_v2(handle, props));
+
+    // serialization.mlir metadata section defines 1 input + 1 output = 2 graph args
+    ASSERT_EQ(props.numOfGraphArgs, 2u);
+
+    struct ExpectedArg {
+        const char* name;
+        ze_graph_argument_type_t type;
+        uint32_t dimsCount;
+        uint32_t dims[ZE_MAX_GRAPH_ARGUMENT_DIMENSIONS_SIZE];
+    };
+
+    const ExpectedArg expected[] = {
+            {"Another example", ZE_GRAPH_ARGUMENT_TYPE_INPUT, 3, {42, 100, 50}},
+            {"arithmetic", ZE_GRAPH_ARGUMENT_TYPE_OUTPUT, 3, {42, 100, 50}},
+    };
+
+    for (uint32_t i = 0; i < props.numOfGraphArgs; i++) {
+        ze_graph_argument_properties_3_t argProps{};
+        ze_graph_argument_metadata_t argMeta{};
+        int64_t upperBound[ZE_MAX_GRAPH_ARGUMENT_DIMENSIONS_SIZE]{};
+
+        ASSERT_EQ(fntbl.npuVMRuntimeGetMetadata(handle, i, &argProps, &argMeta, upperBound),
+                  NPU_VM_RUNTIME_RESULT_SUCCESS);
+
+        EXPECT_STREQ(argProps.name, expected[i].name) << "Arg " << i << " name mismatch";
+        EXPECT_EQ(argProps.type, expected[i].type) << "Arg " << i << " type mismatch";
+        EXPECT_EQ(argProps.networkPrecision, ZE_GRAPH_ARGUMENT_PRECISION_FP32)
+                << "Arg " << i << " networkPrecision mismatch";
+        EXPECT_EQ(argProps.devicePrecision, ZE_GRAPH_ARGUMENT_PRECISION_FP32)
+                << "Arg " << i << " devicePrecision mismatch";
+        EXPECT_EQ(argProps.dims_count, expected[i].dimsCount) << "Arg " << i << " dims_count mismatch";
+        for (uint32_t d = 0; d < expected[i].dimsCount; d++) {
+            EXPECT_EQ(argProps.dims[d], expected[i].dims[d]) << "Arg " << i << " dim[" << d << "] mismatch";
+        }
+
+        EXPECT_EQ(argMeta.type, expected[i].type) << "Arg " << i << " metadata type mismatch";
+        EXPECT_STREQ(argMeta.friendly_name, expected[i].name) << "Arg " << i << " friendly_name mismatch";
+    }
+
+    EXPECT_EQ(fntbl.npuVMRuntimeDestroy(handle), NPU_VM_RUNTIME_RESULT_SUCCESS);
+}
+
+TEST_P(NPUVMRuntimeCAPITest, ExecuteCompiledModel_v2) {
+    std::string libName;
+    std::string modelPath;
+    std::tie(std::ignore, modelPath, libName, std::ignore) = this->GetParam();
+
+    if (modelPath == "bytecode.blob") {
+        GTEST_SKIP() << "Test applies only to bytecode.blob";
+    }
+    npu_vm_runtime_version_t version;
+    auto result = fntbl.npuVMRuntimeGetAPIVersion(&version);
+    EXPECT_EQ(result, NPU_VM_RUNTIME_RESULT_SUCCESS);
+
+    if (NPU_VM_RUNTIME_MAJOR_VERSION(version) < 2) {
+        GTEST_SKIP() << "ExecuteCompiledModel_v2 requires NPU VM Runtime v2.0 or later";
+    }
+
+    npu_vm_runtime_handle_t handle = nullptr;
+    npu_vm_runtime_properties_t props;
+    ASSERT_NO_FATAL_FAILURE(createRuntimeHandle_v2(handle, props));
+
+    auto initStruct = std::make_shared<intel_npu::ZeroInitStructsHolder>();
+    std::vector<ZeroMemRef> inputs, outputs;
+    ASSERT_NO_FATAL_FAILURE(prepareZeroMemRefs(handle, props, initStruct, inputs, outputs));
+
+    std::vector<npu_vm_runtime_mem_ref_handle_t> inputArgs, outputArgs;
+    extractHandles(inputs, inputArgs);
+    extractHandles(outputs, outputArgs);
+
+    std::shared_ptr<intel_npu::CommandQueue> commandQueue;
+    ze_graph_dditable_ext_t* graphDdiTableExt = nullptr;
+    ze_command_queue_npu_dditable_ext_t* commandQueueDdiTableExt = nullptr;
+    std::vector<std::shared_ptr<intel_npu::CommandList>> commandLists;
+    std::vector<ze_command_list_handle_t> commandListHandles;
+    std::shared_ptr<intel_npu::Fence> fence;
+    setupZEInfrastructure(initStruct, props, commandQueue, graphDdiTableExt, commandQueueDdiTableExt, commandLists,
+                          commandListHandles, fence);
+
+    npu_vm_runtime_execution_context_handle_t executionContextHandle = nullptr;
+    npu_vm_runtime_create_execution_context_params_t createContextParams;
+    createContextParams.commandQueue = nullptr;
+    createContextParams.ctx = initStruct->getContext();
+    createContextParams.device = initStruct->getDevice();
+    createContextParams.graphDdiTableExt = graphDdiTableExt;
+    createContextParams.commandQueueDdiTableExt = commandQueueDdiTableExt;
+    ASSERT_EQ(fntbl.npuVMRuntimeCreateExecutionContext2(handle, &createContextParams, &executionContextHandle),
+              NPU_VM_RUNTIME_RESULT_SUCCESS);
+    ASSERT_NE(executionContextHandle, nullptr);
+
+    auto execParams =
+            buildExecParams_v2(inputArgs, outputArgs, commandQueue, /*pConfig*/ nullptr, executionContextHandle);
+    EXPECT_EQ(fntbl.npuVMRuntimeExecute2(handle, &execParams), NPU_VM_RUNTIME_RESULT_SUCCESS);
+    EXPECT_EQ(fntbl.npuVMRuntimeHostSync(handle, &execParams), NPU_VM_RUNTIME_RESULT_SUCCESS);
+
+    // TODO: dump output to check accuracy once more models are supported
+    EXPECT_EQ(fntbl.npuVMRuntimeDestroy(handle), NPU_VM_RUNTIME_RESULT_SUCCESS);
+    destroyMemRefs(inputArgs);
+    destroyMemRefs(outputArgs);
+}
+
+TEST_P(NPUVMRuntimeCAPITest, ExecuteCompiledModelWithSharedCmdQueue_v2) {
+    std::string libName;
+    std::string modelPath;
+    std::tie(std::ignore, modelPath, libName, std::ignore) = this->GetParam();
+
+    if (modelPath == "bytecode.blob") {
+        GTEST_SKIP() << "Test applies only to bytecode.blob";
+    }
+    npu_vm_runtime_version_t version;
+    auto result = fntbl.npuVMRuntimeGetAPIVersion(&version);
+    EXPECT_EQ(result, NPU_VM_RUNTIME_RESULT_SUCCESS);
+
+    if (NPU_VM_RUNTIME_MAJOR_VERSION(version) < 2) {
+        GTEST_SKIP() << "ExecuteCompiledModel_v2 requires NPU VM Runtime v2.0 or later";
+    }
+
+    npu_vm_runtime_handle_t handle = nullptr;
+    npu_vm_runtime_properties_t props;
+    ASSERT_NO_FATAL_FAILURE(createRuntimeHandle_v2(handle, props));
+
+    auto initStruct = std::make_shared<intel_npu::ZeroInitStructsHolder>();
+    std::vector<ZeroMemRef> inputs, outputs;
+    ASSERT_NO_FATAL_FAILURE(prepareZeroMemRefs(handle, props, initStruct, inputs, outputs));
+
+    std::vector<npu_vm_runtime_mem_ref_handle_t> inputArgs, outputArgs;
+    extractHandles(inputs, inputArgs);
+    extractHandles(outputs, outputArgs);
+
+    std::shared_ptr<intel_npu::CommandQueue> commandQueue;
+    ze_graph_dditable_ext_t* graphDdiTableExt = nullptr;
+    ze_command_queue_npu_dditable_ext_t* commandQueueDdiTableExt = nullptr;
+    std::vector<std::shared_ptr<intel_npu::CommandList>> commandLists;
+    std::vector<ze_command_list_handle_t> commandListHandles;
+    std::shared_ptr<intel_npu::Fence> fence;
+    setupZEInfrastructure(initStruct, props, commandQueue, graphDdiTableExt, commandQueueDdiTableExt, commandLists,
+                          commandListHandles, fence);
+
+    npu_vm_runtime_execution_context_handle_t executionContextHandle = nullptr;
+    npu_vm_runtime_create_execution_context_params_t createContextParams;
+    createContextParams.commandQueue = commandQueue->handle();
+
+    createContextParams.ctx = initStruct->getContext();
+    createContextParams.device = initStruct->getDevice();
+    createContextParams.graphDdiTableExt = graphDdiTableExt;
+    createContextParams.commandQueueDdiTableExt = commandQueueDdiTableExt;
+    ASSERT_EQ(fntbl.npuVMRuntimeCreateExecutionContext2(handle, &createContextParams, &executionContextHandle),
+              NPU_VM_RUNTIME_RESULT_SUCCESS);
+    ASSERT_NE(executionContextHandle, nullptr);
+
+    auto execParams =
+            buildExecParams_v2(inputArgs, outputArgs, commandQueue, /*pConfig*/ nullptr, executionContextHandle);
+    EXPECT_EQ(fntbl.npuVMRuntimeExecute2(handle, &execParams), NPU_VM_RUNTIME_RESULT_SUCCESS);
+    EXPECT_EQ(fntbl.npuVMRuntimeHostSync(handle, &execParams), NPU_VM_RUNTIME_RESULT_SUCCESS);
+
+    // TODO: dump output to check accuracy once more models are supported
+    EXPECT_EQ(fntbl.npuVMRuntimeDestroy(handle), NPU_VM_RUNTIME_RESULT_SUCCESS);
+    destroyMemRefs(inputArgs);
+    destroyMemRefs(outputArgs);
+}
+
+TEST_P(NPUVMRuntimeCAPITest, ExecuteCompiledModelWithCmdQueueConfig_v2) {
+    std::string libName;
+    std::string modelPath;
+    std::tie(std::ignore, modelPath, libName, std::ignore) = this->GetParam();
+
+    if (modelPath == "bytecode.blob") {
+        GTEST_SKIP() << "Test applies only to bytecode.blob";
+    }
+    npu_vm_runtime_version_t version;
+    auto result = fntbl.npuVMRuntimeGetAPIVersion(&version);
+    EXPECT_EQ(result, NPU_VM_RUNTIME_RESULT_SUCCESS);
+
+    if (NPU_VM_RUNTIME_MAJOR_VERSION(version) < 2) {
+        GTEST_SKIP() << "ExecuteCompiledModel_v2 requires NPU VM Runtime v2.0 or later";
+    }
+
+    npu_vm_runtime_handle_t handle = nullptr;
+    npu_vm_runtime_properties_t props;
+    ASSERT_NO_FATAL_FAILURE(createRuntimeHandle_v2(handle, props));
+
+    auto initStruct = std::make_shared<intel_npu::ZeroInitStructsHolder>();
+    std::vector<ZeroMemRef> inputs, outputs;
+    ASSERT_NO_FATAL_FAILURE(prepareZeroMemRefs(handle, props, initStruct, inputs, outputs));
+
+    std::vector<npu_vm_runtime_mem_ref_handle_t> inputArgs, outputArgs;
+    extractHandles(inputs, inputArgs);
+    extractHandles(outputs, outputArgs);
+
+    std::shared_ptr<intel_npu::CommandQueue> commandQueue;
+    ze_graph_dditable_ext_t* graphDdiTableExt = nullptr;
+    ze_command_queue_npu_dditable_ext_t* commandQueueDdiTableExt = nullptr;
+    std::vector<std::shared_ptr<intel_npu::CommandList>> commandLists;
+    std::vector<ze_command_list_handle_t> commandListHandles;
+    std::shared_ptr<intel_npu::Fence> fence;
+    setupZEInfrastructure(initStruct, props, commandQueue, graphDdiTableExt, commandQueueDdiTableExt, commandLists,
+                          commandListHandles, fence);
+
+    npu_vm_runtime_execution_context_handle_t executionContextHandle = nullptr;
+    npu_vm_runtime_create_execution_context_params_t createContextParams;
+    createContextParams.commandQueue = nullptr;
+    createContextParams.ctx = initStruct->getContext();
+    createContextParams.device = initStruct->getDevice();
+    createContextParams.graphDdiTableExt = graphDdiTableExt;
+    createContextParams.commandQueueDdiTableExt = commandQueueDdiTableExt;
+
+    npu_vm_runtime_config_desc_t configDesc[2];
+    configDesc[0].type = NPU_VM_RUNTIME_CONFIG_TYPE_QUEUE_PRIORITY;
+    configDesc[0].value = ZE_COMMAND_QUEUE_PRIORITY_PRIORITY_LOW;
+    configDesc[0].pNext = &configDesc[1];
+    configDesc[1].type = NPU_VM_RUNTIME_CONFIG_TYPE_WORKLOAD_TYPE;
+    configDesc[1].type = ZE_WORKLOAD_TYPE_BACKGROUND;
+    configDesc[1].pNext = nullptr;
+    ASSERT_EQ(fntbl.npuVMRuntimeCreateExecutionContext2(handle, &createContextParams, &executionContextHandle),
+              NPU_VM_RUNTIME_RESULT_SUCCESS);
+    ASSERT_NE(executionContextHandle, nullptr);
+
+    auto execParams = buildExecParams_v2(inputArgs, outputArgs, commandQueue, &configDesc[0], executionContextHandle);
+    EXPECT_EQ(fntbl.npuVMRuntimeExecute2(handle, &execParams), NPU_VM_RUNTIME_RESULT_SUCCESS);
+    EXPECT_EQ(fntbl.npuVMRuntimeHostSync(handle, &execParams), NPU_VM_RUNTIME_RESULT_SUCCESS);
+
+    npu_vm_runtime_config_desc_t configDesc2{};
+    configDesc2.type = NPU_VM_RUNTIME_CONFIG_TYPE_QUEUE_PRIORITY;
+    configDesc2.value = ZE_COMMAND_QUEUE_PRIORITY_NORMAL;
+    execParams.pConfig = &configDesc2;
+    EXPECT_EQ(fntbl.npuVMRuntimeExecute2(handle, &execParams), NPU_VM_RUNTIME_RESULT_SUCCESS);
+    EXPECT_EQ(fntbl.npuVMRuntimeHostSync(handle, &execParams), NPU_VM_RUNTIME_RESULT_SUCCESS);
+    // TODO: dump output to check accuracy once more models are supported
+    EXPECT_EQ(fntbl.npuVMRuntimeDestroy(handle), NPU_VM_RUNTIME_RESULT_SUCCESS);
+    destroyMemRefs(inputArgs);
+    destroyMemRefs(outputArgs);
+}
+
 const std::vector<std::string> devices = {"NPU.4000", "NPU.5010"};
 
-const std::vector<std::string> mlirModels = {
+const std::vector<std::string> interpreterModels = {
         // E#214461: Temporarily disabled because IR is unavailable in CI environment.
         // "CustomNet_canonical_strides_1x1_no_fork.xml",
-        "MaxPool",
-};
-
-const std::vector<std::string> libNames = {"openvino_intel_npu_mlir_runtime"};
-
-const std::vector<ov::AnyMap> configsHostCompileDefault = {
-        {{"NPU_COMPILER_TYPE", "PLUGIN"}, {"NPU_COMPILATION_MODE", "HostCompile"}}};
-
-INSTANTIATE_TEST_SUITE_P(smoke_BehaviorTest_mlir_runtime, NPUVMRuntimeCAPITest,
-                         ::testing::Combine(::testing::ValuesIn(devices), ::testing::ValuesIn(mlirModels),
-                                            ::testing::ValuesIn(libNames),
-                                            ::testing::ValuesIn(configsHostCompileDefault)),
-                         NPUVMRuntimeCAPITest::getTestCaseName);
-
-const std::vector<std::string> interpreterModels = {"bytecode.blob"};
+        "bytecode.blob", "MaxPool"};
 
 const std::vector<std::string> interpreterLibNames = {"openvino_intel_npu_vm_runtime"};
 

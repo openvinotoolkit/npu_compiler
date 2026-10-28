@@ -54,7 +54,7 @@ void ApplySwizzlingPass::safeRunOnFunc() {
                                       .get();
         mlir::OpBuilder builder(constOp);
         auto newConstOp =
-                builder.create<vpux::Const::DeclareOp>(constOp.getLoc(), constType, std::move(newContentAttr));
+                vpux::Const::DeclareOp::create(builder, constOp.getLoc(), constType, std::move(newContentAttr));
         constOp.replaceAllUsesWith(newConstOp.getOutput());
         constOp.erase();
     });

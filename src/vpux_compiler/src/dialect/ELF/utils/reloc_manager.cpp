@@ -69,8 +69,8 @@ ELF::CreateRelocationSectionOp getRelocationSection(ELF::ElfSectionInterface tar
                     "Reloc Section for JIT symbols must have VPU_SHF_JIT Flag");
 
     auto flags = ELF::SectionFlagsAttrAttr::get(builder.getContext(), relaSectionFlags);
-    auto newRelocSection = builder.create<ELF::CreateRelocationSectionOp>(symbolTable.getLoc(), nameAttr,
-                                                                          targetSectionRef, symTabRef, flags);
+    auto newRelocSection = ELF::CreateRelocationSectionOp::create(builder, symbolTable.getLoc(), nameAttr,
+                                                                  targetSectionRef, symTabRef, flags);
 
     relocMap[key] = newRelocSection;
 
@@ -87,7 +87,7 @@ void createRelocation(mlir::Operation* op, ELF::CreateRelocationSectionOp relocS
         offset += baseBinarySizeOp.getMemoryOffset().value_or(0);
     }
 
-    relocBuilder.create<ELF::RelocOp>(relocSection.getLoc(), offset, symbol, relocType, addend, description);
+    ELF::RelocOp::create(relocBuilder, relocSection.getLoc(), offset, symbol, relocType, addend, description);
 }
 
 }  // namespace
@@ -112,8 +112,8 @@ void ELF::RelocManager::createRelocations(mlir::Operation* op, ELF::SymbolOp sou
     auto targetOp = mlir::dyn_cast<VPURegMapped::NPURegDescriptorOpInterface>(op);
     if (sourceSym.getValue().has_value() && targetOp) {
         auto relocFunc = relocationMap.find(relocType);
-        VPUX_THROW_UNLESS(relocFunc != relocationMap.end(), "Relocation type {0} not known!",
-                          stringifyRelocationType(relocType));
+        VPUX_THROW_WHEN(relocFunc == relocationMap.end(), "Relocation type {0} not known!",
+                        stringifyRelocationType(relocType));
 
         // reloc offset at this point is expressed only inside of the operation specific descriptor
         auto descriptor = targetOp.getDescriptorStorage();
@@ -129,8 +129,8 @@ void ELF::RelocManager::createRelocations(mlir::Operation* op, ELF::SymbolOp sou
     if (sourceSym.getValue().has_value() && kernelParamsOp) {
         auto& kernelParams = kernelParamsOp.getProperties().kernel_params;
         auto relocFunc = relocationMap.find(relocType);
-        VPUX_THROW_UNLESS(relocFunc != relocationMap.end(), "Relocation type {0} not known!",
-                          stringifyRelocationType(relocType));
+        VPUX_THROW_WHEN(relocFunc == relocationMap.end(), "Relocation type {0} not known!",
+                        stringifyRelocationType(relocType));
         VPUX_THROW_UNLESS(offset < kernelParams.size(), "Offset is outside of params!");
         relocFunc->second(reinterpret_cast<void*>(kernelParams.begin() + offset), sourceSym.getValue().value(), addend);
         return;

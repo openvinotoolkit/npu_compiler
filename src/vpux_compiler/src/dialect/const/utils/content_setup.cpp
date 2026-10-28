@@ -111,6 +111,11 @@ SpecializedContentSetup<T> SpecializedContentSetup<T>::add(double bias) {
     return addTransformation(Const::AddAttr::get(getFPAttr(getContext(), bias)));
 }
 template <typename T>
+SpecializedContentSetup<T> SpecializedContentSetup<T>::clamp(double lowerBound, double upperBound) {
+    return addTransformation(
+            Const::ClampAttr::get(getFPAttr(getContext(), lowerBound), getFPAttr(getContext(), upperBound)));
+}
+template <typename T>
 SpecializedContentSetup<T> SpecializedContentSetup<T>::reshape(vpux::ShapeRef newShape) {
     return addTransformation(Const::ReshapeAttr::get(getIntArrayAttr(getContext(), newShape)));
 }

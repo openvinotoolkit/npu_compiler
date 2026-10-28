@@ -14,25 +14,23 @@ GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(TransposeLayerTest);
 
 class TransposeLayerTestCommon : public TransposeLayerTest, virtual public VpuOv2LayerTest {};
 class TransposeLayerTest_NPU3720 : public TransposeLayerTestCommon {};
-class TransposeLayerTest_NPU4000 : public TransposeLayerTestCommon {};
 
 TEST_P(TransposeLayerTest_NPU3720, HW) {
     setDefaultHardwareMode();
     run(Platform::NPU3720);
 }
 
-TEST_P(TransposeLayerTest_NPU4000, SW) {
+TEST_P(TransposeLayerTestCommon, NPU4000_SW) {
     setReferenceSoftwareMode();
     run(Platform::NPU4000);
 }
 
-class TransposeLayerTest_NPU5010 : public TransposeLayerTestCommon {};
-TEST_P(TransposeLayerTest_NPU5010, SW) {
+TEST_P(TransposeLayerTestCommon, NPU5010_SW) {
     setReferenceSoftwareMode();
     run(Platform::NPU5010);
 }
-class TransposeLayerTest_NPU5020 : public TransposeLayerTestCommon {};
-TEST_P(TransposeLayerTest_NPU5020, SW) {
+
+TEST_P(TransposeLayerTestCommon, NPU5020_SW) {
     setReferenceSoftwareMode();
     run(Platform::NPU5020);
 }
@@ -40,10 +38,7 @@ TEST_P(TransposeLayerTest_NPU5020, SW) {
 }  // namespace test
 }  // namespace ov
 
-using ov::test::TransposeLayerTest_NPU3720;
-using ov::test::TransposeLayerTest_NPU4000;
-using ov::test::TransposeLayerTest_NPU5010;
-using ov::test::TransposeLayerTest_NPU5020;
+using namespace ov::test;
 
 namespace {
 
@@ -169,10 +164,6 @@ const auto paramsMemPerm =
                          testing::ValuesIn(ov::test::static_shapes_to_test_representation(inShapesMemPerm)),
                          testing::Values(test_utils::TARGET_DEVICE));
 
-INSTANTIATE_TEST_SUITE_P(smoke_precommit_Transpose, TransposeLayerTest_NPU4000, paramsMemPerm,
-                         TransposeLayerTest_NPU4000::getTestCaseName);
-INSTANTIATE_TEST_SUITE_P(smoke_precommit_Transpose, TransposeLayerTest_NPU5010, paramsMemPerm,
-                         TransposeLayerTest_NPU5010::getTestCaseName);
-INSTANTIATE_TEST_SUITE_P(smoke_precommit_Transpose, TransposeLayerTest_NPU5020, paramsMemPerm,
-                         TransposeLayerTest_NPU5020::getTestCaseName);
+INSTANTIATE_TEST_SUITE_P(smoke_precommit_Transpose, TransposeLayerTestCommon, paramsMemPerm,
+                         TransposeLayerTestCommon::getTestCaseName);
 }  // namespace

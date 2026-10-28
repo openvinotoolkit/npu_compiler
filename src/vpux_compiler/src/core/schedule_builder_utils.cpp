@@ -38,9 +38,11 @@ VPURT::TaskQueueType getQueueType(mlir::async::ExecuteOp execOp) {
 }
 
 AllocationType getAllocationType(mlir::async::ExecuteOp execOp, bool hasValidDep) {
-    // skip memory movement ops
     if (VPUIP::isDmaDDR2CMX(execOp)) {
         return AllocationType::DATA_IN;
+    }
+    if (VPUIP::isDmaCMX2CMX(execOp)) {
+        return AllocationType::DATA_UPDATE;
     }
 
     if (hasValidDep && VPUIP::isDmaCMX2DDR(execOp)) {
@@ -182,7 +184,7 @@ OpAllocationInfo createAllocInfo(size_t opIdx, AsyncDepsInfo& depsInfo, AliasesI
 
 llvm::DenseMap<size_t, ComputeRegionVec> createInnerLoopsFromIterations(
         ArrayRef<LoopBody> loop, llvm::DenseSet<size_t>& allLoopOperations, LoopType loopType, AsyncDepsInfo& depsInfo,
-        [[maybe_unused]] llvm::DenseSet<size_t>& nonDmaOps, Logger log) {
+        [[maybe_unused]] llvm::DenseSet<size_t>& nonDmaOps, AliasesInfo& aliasInfo, Logger log) {
     // Precompute global deps for each iteration to avoid recomputing inside matching loop
     SmallVector<std::set<size_t>> cachedGlobalDeps(loop.size());
 
@@ -194,7 +196,7 @@ llvm::DenseMap<size_t, ComputeRegionVec> createInnerLoopsFromIterations(
         }
         std::set<size_t> loopGlobalDeps;
         for (const auto& op : loop[iterIdx]) {
-            for (const auto& dep : depsInfo.getOpDeps(op.opIdx)) {
+            for (const auto& dep : depsInfo.getOpDepsUnordered(op.opIdx)) {
                 if (loopBodyOpsIdxs.count(dep) == 0) {
                     loopGlobalDeps.insert(dep);
                 }
@@ -210,7 +212,7 @@ llvm::DenseMap<size_t, ComputeRegionVec> createInnerLoopsFromIterations(
             const auto execOp = depsInfo.getExecuteOpAtIndex(op.opIdx);
             const auto deps = depsInfo.getOpDeps(op.opIdx);
             const auto allocationType = getAllocationType(execOp, hasNonDmaDependency(deps, nonDmaOps));
-            if (allocationType == AllocationType::DATA_IN) {
+            if (allocationType == AllocationType::DATA_IN || allocationType == AllocationType::DATA_UPDATE) {
                 continue;
             }
             for (const auto& con : depsInfo.getConsumerOps(op.opIdx)) {
@@ -262,7 +264,7 @@ llvm::DenseMap<size_t, ComputeRegionVec> createInnerLoopsFromIterations(
     for (size_t i = 0; i < loop.size(); ++i) {
         cachedComputeAllocs[i].reserve(loop[i].size());
         for (const auto& op : loop[i]) {
-            if (op.allocationType == AllocationType::COMPUTE) {
+            if (op.allocationType == AllocationType::COMPUTE || op.allocationType == AllocationType::DATA_UPDATE) {
                 cachedComputeAllocs[i].push_back(op);
             }
         }
@@ -283,6 +285,10 @@ llvm::DenseMap<size_t, ComputeRegionVec> createInnerLoopsFromIterations(
             continue;
         }
         const auto& computeAllocVec = getComputeAlloc(currentIdx);
+        if (computeAllocVec.empty()) {
+            log.trace("skip currentIdx {0} without compute operations", currentIdx);
+            continue;
+        }
 
         // Topology of current iteration compute ops does not depend on otherIdx,
         // so cache it once per currentIdx and reuse in the nested comparison loop.
@@ -387,8 +393,68 @@ llvm::DenseMap<size_t, ComputeRegionVec> createInnerLoopsFromIterations(
         // Create compute region
         const auto iterations = matchingIterations.size();
         log.nest().debug("Created sub-loop with iterations = {0}", iterations);
+
+        // For VF loops: detect loop-produced buffers that are consumed by ops outside this region.
+        // These are externally live: they must stay resident past the end of the loop so the outer
+        // scheduler can hand them to downstream ops. Pre-populating sharedExternalBuffers here lets
+        // the VF classifier's explicitExternal path promote them to PERSISTENT_CANDIDATE correctly,
+        // instead of leaving them as TEMPORARY (which would cause use-after-free at runtime or
+        // spurious infeasibility from incorrect temporaryPeakBytes accounting).
+        ValueOrderedSet regionExternallyLiveBuffers;
+        if (loopType == LoopType::VF) {
+            // Build a per-region op index set (not the global allLoopOperations which spans all regions).
+            llvm::DenseSet<size_t> thisRegionOpSet;
+            for (const auto& iteration : mergedIterations) {
+                for (const auto& info : iteration) {
+                    thisRegionOpSet.insert(info.opIdx);
+                }
+            }
+            // Fast-lookup set of root buffer values produced anywhere in this region.
+            llvm::DenseSet<mlir::Value> loopOutBufferSet;
+            for (const auto& iteration : mergedIterations) {
+                for (const auto& info : iteration) {
+                    // A buffer with no producer inside this loop is treated as an external input.
+                    // We do not classify such buffers here; we only track values produced by this
+                    // loop and then consumed outside it, because those are the ones whose lifetime
+                    // must be extended beyond the region boundary.
+                    for (auto outBuf : info.outBuffers) {
+                        loopOutBufferSet.insert(outBuf);
+                    }
+                }
+            }
+            // Walk every op's consumer list. A consumer outside thisRegionOpSet is external.
+            // Intersect its CMX inBuffers with loopOutBufferSet to find exactly which
+            // region-produced buffers it needs — those are externally live. This keeps loop outputs
+            // that are consumed after the region boundary from being mistaken for purely temporary
+            // buffers, so the VF classifier's explicitExternal path can classify them as persistent
+            // and avoid incorrect lifetime / peak-byte accounting.
+            for (const auto& iteration : mergedIterations) {
+                for (const auto& info : iteration) {
+                    for (auto conIdx : depsInfo.getConsumerOps(info.opIdx)) {
+                        if (thisRegionOpSet.count(conIdx)) {
+                            continue;  // region-internal consumer
+                        }
+                        const auto consumerExecOp = depsInfo.getExecuteOpAtIndex(conIdx);
+                        auto [conInBufs, unusedOut] = getOperationBuffers(consumerExecOp, aliasInfo);
+                        for (auto conInBuf : conInBufs) {
+                            if (loopOutBufferSet.count(conInBuf)) {
+                                regionExternallyLiveBuffers.insert(conInBuf);
+                                log.trace("VF externally live buffer detected (loopOp={0}, externalConsumer={1}, "
+                                          "buf={2})",
+                                          info.opIdx, conIdx, conInBuf);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         auto schedulingLoop = makeSchedulingLoopFromIterations(std::move(mergedIterations), loopType);
-        computeRegions[insertionPoint].emplace_back(std::move(schedulingLoop), std::move(globalDeps));
+        ComputeRegion region(std::move(schedulingLoop), std::move(globalDeps));
+        for (auto buf : regionExternallyLiveBuffers) {
+            region.externalBuffers.insert(buf);
+        }
+        computeRegions[insertionPoint].push_back(std::move(region));
     }  // end current iteration loop
 
     return computeRegions;
@@ -398,7 +464,7 @@ llvm::DenseMap<size_t, ComputeRegionVec> createInnerLoopsFromIterations(
     Improves determinism and keeps data-move ops aligned with the compute op’s operand order,
     which can simplify later allocation and scheduling logic.
  */
-void sortDataOpsAroundComputeOp(LoopBody& allocInfos, size_t computeOpPosition) {
+void sortDataOpsAroundComputeOp(LoopBody& allocInfos, size_t computeOpPosition, AsyncDepsInfo& depsInfo) {
     // Sort data in allocations
     // 1. lookup based on compute op
     llvm::DenseMap<mlir::Value, size_t> position;
@@ -423,10 +489,27 @@ void sortDataOpsAroundComputeOp(LoopBody& allocInfos, size_t computeOpPosition) 
         }
         return best;
     };
-    // stable_sort keeps the original relative order when no compute buffer matches
+
+    // Propagate the compute operand position through DATA_IN chains. This keeps an upstream DMA immediately before
+    // the downstream DMA that consumes its CMX output (for example, indices DMA -> GatherDMA), while preserving the
+    // compute operand order for independent chains.
+    llvm::DenseMap<size_t, size_t> dataInOrder;
+    for (const auto& allocInfo : ArrayRef(allocInfos).take_front(computeOpPosition)) {
+        dataInOrder[allocInfo.opIdx] = getOrderKey(allocInfo, /*useInputs=*/false);
+    }
+    for (const auto& allocInfo : llvm::reverse(ArrayRef(allocInfos).take_front(computeOpPosition))) {
+        for (const auto consumerIdx : depsInfo.getConsumerOps(allocInfo.opIdx)) {
+            const auto consumerOrder = dataInOrder.find(consumerIdx);
+            if (consumerOrder != dataInOrder.end()) {
+                dataInOrder[allocInfo.opIdx] = std::min(dataInOrder[allocInfo.opIdx], consumerOrder->second);
+            }
+        }
+    }
+
+    // stable_sort keeps the dependency order inside each DATA_IN chain.
     std::stable_sort(allocInfos.begin(), allocInfos.begin() + computeOpPosition,
                      [&](const OpAllocationInfo& a, const OpAllocationInfo& b) {
-                         return getOrderKey(a, /*useInputs=*/false) < getOrderKey(b, /*useInputs=*/false);
+                         return dataInOrder[a.opIdx] < dataInOrder[b.opIdx];
                      });
 
     // Sort data out allocations
@@ -464,33 +547,37 @@ SmallVector<LoopBody> createTiledOpDepsConsDescriptor(llvm::DenseMap<size_t, Sma
 
         if (loopType == LoopType::VF) {
             // If op is CMX2CMX DMA treat is as compute loop op
-            auto handleCmxToCmxDmaOpAsCompute =
-                    [&depsInfo, &nonDmaOps](llvm::DenseSet<size_t>& processed, SmallVector<size_t>& computeIndices,
-                                            llvm::DenseSet<size_t>& computeOps, size_t candidateOpIdx) {
-                        if (processed.count(candidateOpIdx)) {
-                            return;
-                        }
-                        processed.insert(candidateOpIdx);
+            // TODO E#230500 For now to avoid changing the VF loop behavior,
+            // DATA_UPDATE is handled as compute op.
+            // A proper solution would be classify the ops by allocation type and queue type
+            auto handleCmxToCmxDmaOpAsCompute = [&depsInfo, &nonDmaOps](llvm::DenseSet<size_t>& processed,
+                                                                        SmallVector<size_t>& computeIndices,
+                                                                        llvm::DenseSet<size_t>& computeOps,
+                                                                        size_t candidateOpIdx) {
+                if (processed.count(candidateOpIdx)) {
+                    return;
+                }
+                processed.insert(candidateOpIdx);
 
-                        const auto execOp = depsInfo.getExecuteOpAtIndex(candidateOpIdx);
-                        if (!VPUIP::isDmaCMX2CMX(execOp)) {
-                            return;
-                        }
-                        const auto deps = depsInfo.getOpDeps(candidateOpIdx);
-                        const auto allocationType = getAllocationType(execOp, hasNonDmaDependency(deps, nonDmaOps));
-                        if (allocationType == AllocationType::COMPUTE) {
-                            computeIndices.push_back(candidateOpIdx);
-                            // Since CMX2CMX DMAs within the loop are treated as compute ops, include them in the
-                            // compute ops list to ensure they are included when looking for DATA_IN and DATA_OUT ops
-                            computeOps.insert(candidateOpIdx);
-                        }
-                    };
+                const auto execOp = depsInfo.getExecuteOpAtIndex(candidateOpIdx);
+                if (!VPUIP::isDmaCMX2CMX(execOp)) {
+                    return;
+                }
+                const auto deps = depsInfo.getOpDeps(candidateOpIdx);
+                const auto allocationType = getAllocationType(execOp, hasNonDmaDependency(deps, nonDmaOps));
+                if (allocationType == AllocationType::COMPUTE || allocationType == AllocationType::DATA_UPDATE) {
+                    computeIndices.push_back(candidateOpIdx);
+                    // Since CMX2CMX DMAs within the loop are treated as compute ops, include them in the
+                    // compute ops list to ensure they are included when looking for DATA_IN and DATA_OUT ops
+                    computeOps.insert(candidateOpIdx);
+                }
+            };
 
             // Iterate over compute op dependencies and consumers and find
             // CMX2CMX DMAs. Since they will not be treated as DATA_IN and DATA_OUT ops handle
-            // such data transfers as loop compute ops.
+            // such data transfers as VF loop compute ops.
             for (const auto opIdx : loopOps[i]) {
-                for (auto depIdx : depsInfo.getOpDeps(opIdx)) {
+                for (auto depIdx : depsInfo.getOpDepsUnordered(opIdx)) {
                     handleCmxToCmxDmaOpAsCompute(processed, computeIndices, computeOps, depIdx);
                 }
 
@@ -505,22 +592,31 @@ SmallVector<LoopBody> createTiledOpDepsConsDescriptor(llvm::DenseMap<size_t, Sma
 
         for (const auto& opIdx : computeIndices) {
             LoopBody currentOperation;
-            for (auto depIdx : depsInfo.getOpDeps(opIdx)) {
-                if (processed.count(depIdx)) {
-                    continue;
+            const auto collectDataInDependencies = [&](auto&& collectDataInDependencies, size_t candidateIdx) -> void {
+                if (processed.count(candidateIdx)) {
+                    return;
                 }
 
-                processed.insert(depIdx);
-
-                const auto execOp = depsInfo.getExecuteOpAtIndex(depIdx);
-                const auto deps = depsInfo.getOpDeps(depIdx);
+                const auto execOp = depsInfo.getExecuteOpAtIndex(candidateIdx);
+                const auto deps = depsInfo.getOpDeps(candidateIdx);
                 const auto allocationType = getAllocationType(execOp, hasNonDmaDependency(deps, computeOps));
-
-                if (allocationType != AllocationType::DATA_IN) {
-                    // only include data in ops
-                    continue;
+                // Propagate input dependencies through DMA dependency chain.
+                // Currently DATA_IN and DATA_UPDATE are supposed to be DMA ops
+                // After E#230500, should change to queueType check (DMA) and allocation direction (DATA_IN and
+                // DATA_UPDATE)
+                if (allocationType != AllocationType::DATA_IN && allocationType != AllocationType::DATA_UPDATE) {
+                    return;
                 }
-                currentOperation.push_back(createAllocInfo(depIdx, depsInfo, aliasInfo, log));
+
+                for (const auto depIdx : deps) {
+                    collectDataInDependencies(collectDataInDependencies, depIdx);
+                }
+                processed.insert(candidateIdx);
+                currentOperation.push_back(createAllocInfo(candidateIdx, depsInfo, aliasInfo, log));
+            };
+
+            for (const auto depIdx : depsInfo.getOpDeps(opIdx)) {
+                collectDataInDependencies(collectDataInDependencies, depIdx);
             }
 
             currentOperation.push_back(createAllocInfo(opIdx, depsInfo, aliasInfo, log));
@@ -563,12 +659,30 @@ SmallVector<LoopBody> createTiledOpDepsConsDescriptor(llvm::DenseMap<size_t, Sma
                 currentOperation.push_back(createAllocInfo(conIdx, depsInfo, aliasInfo, log));
             }
 
-            sortDataOpsAroundComputeOp(currentOperation, computeOpPosition);
+            sortDataOpsAroundComputeOp(currentOperation, computeOpPosition, depsInfo);
             for (auto& op : currentOperation) {
                 currentIteration.push_back(std::move(op));
             }
         }
         loop.push_back(std::move(currentIteration));
+    }
+
+    // Mark DATA_IN ops that have dependencies on other ops in the same iteration
+    // to ensure that the DATA_IN ops with inner-loop dependencies are scheduled inside of predefined loop.
+    // Otherwise scheduling the DMA ops outside of the loop breaks pipelining.
+    for (auto& iterationBody : loop) {
+        llvm::DenseSet<size_t> iterationOps;
+        for (const auto& op : iterationBody) {
+            iterationOps.insert(op.opIdx);
+        }
+        for (auto& op : iterationBody) {
+            if (op.allocationType != AllocationType::DATA_IN) {
+                continue;
+            }
+            op.hasInnerLoopDependency = llvm::any_of(depsInfo.getOpDeps(op.opIdx), [&](size_t dependency) {
+                return iterationOps.contains(dependency);
+            });
+        }
     }
 
     // Count how many iterations each op appears in
@@ -727,8 +841,8 @@ ComputeRegionVec vpux::getComputeRegionsFromAsyncExec(AliasesInfo& aliasInfo, As
                     createTiledOpDepsConsDescriptor(loopOps, loopType, aliasInfo, depsInfo, nonDmaOps, log);
 
             // Merge per-iteration LoopBody entries into schedulable loops
-            llvm::DenseMap<size_t, ComputeRegionVec> thisOpInsertionPoints =
-                    createInnerLoopsFromIterations(loop, allLoopOperations, loopType, depsInfo, nonDmaOps, log);
+            llvm::DenseMap<size_t, ComputeRegionVec> thisOpInsertionPoints = createInnerLoopsFromIterations(
+                    loop, allLoopOperations, loopType, depsInfo, nonDmaOps, aliasInfo, log);
 
             for (auto& [insertionPoint, regions] : thisOpInsertionPoints) {
                 auto& dest = insertionPoints[insertionPoint];
@@ -737,6 +851,7 @@ ComputeRegionVec vpux::getComputeRegionsFromAsyncExec(AliasesInfo& aliasInfo, As
             }
         }
     }  // end process tiled regions loop
+    log.debug("Loop compute regions created: {0}", computeRegionVec.size());
 
     for (size_t opIdx = 0; opIdx < depsInfo.getExecOpCount(); ++opIdx) {
         // handle non-loop operations. Insert them into computeRegionVec as trivial region with 1 iteration

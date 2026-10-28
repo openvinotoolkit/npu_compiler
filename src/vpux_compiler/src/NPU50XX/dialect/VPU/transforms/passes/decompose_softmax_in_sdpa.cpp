@@ -9,14 +9,16 @@
 #include "vpux/compiler/dialect/VPU/IR/ops/data_movement.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/dpu.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/eltwise.hpp"
+#include "vpux/compiler/dialect/VPU/interfaces/strategies.hpp"
 #include "vpux/compiler/dialect/VPU/utils/auto_padding_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/const_utils.hpp"
-#include "vpux/compiler/dialect/VPU/utils/mpe_engine_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/ppe_version_config.hpp"
 #include "vpux/compiler/dialect/VPU/utils/sprlut_generator.hpp"
+#include "vpux/compiler/dialect/config/IR/utils.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 #include "vpux/compiler/utils/sdpa_heuristics.hpp"
 #include "vpux/compiler/utils/walk_utils.hpp"
+#include "vpux/utils/core/numeric.hpp"
 
 #include <llvm/ADT/STLExtras.h>
 #include <llvm/ADT/SmallVector.h>
@@ -27,6 +29,7 @@
 #include <mlir/Support/LLVM.h>
 #include <mlir/Support/LogicalResult.h>
 
+#include <algorithm>
 #include <cassert>
 #include <memory>
 
@@ -93,6 +96,11 @@ private:
 //           (1/rescaler)
 
 bool DecomposeSoftmax::isBeneficialAndFeasible(VPU::SoftMaxOp origOp) const {
+    if (origOp->hasAttr("SkipNormalization")) {
+        _log.debug("decompose failed '{0}' at '{1}', skip normalization attribute already present", origOp->getName(),
+                   origOp->getLoc());
+        return false;
+    }
     const auto ctx = this->getContext();
     const auto output = origOp.getOutput();
     if (!output.hasOneUse()) {
@@ -217,10 +225,10 @@ mlir::Value DecomposeSoftmax::constructUpStream(VPU::SoftMaxOp origOp, mlir::Pat
     const auto input = origOp.getInput();
     const auto outputType = origOp.getOutput().getType();
 
-    auto expStabilizedOp = rewriter.create<VPU::SoftMaxOp>(
-            appendLoc(origOp->getLoc(), "_exp_stabilized"), outputType, input, /*max=*/mlir::Value{},
-            origOp.getAxisIndAttr(), origOp.getPadSizeAttr(), origOp.getDstElemTypeAttr(), origOp.getMaskAwareAttr(),
-            origOp.getMultiClusterStrategyAttr());
+    auto expStabilizedOp = VPU::SoftMaxOp::create(rewriter, appendLoc(origOp->getLoc(), "_exp_stabilized"), outputType,
+                                                  input, /*max=*/mlir::Value{}, origOp.getAxisIndAttr(),
+                                                  origOp.getPadSizeAttr(), origOp.getDstElemTypeAttr(),
+                                                  origOp.getMaskAwareAttr(), origOp.getMultiClusterStrategyAttr());
     expStabilizedOp->setAttr("SkipNormalization", rewriter.getUnitAttr());
 
     return expStabilizedOp.getOutput();
@@ -295,17 +303,17 @@ VPU::NCEConvolutionOp DecomposeSoftmax::constructRightBranch(VPU::SoftMaxOp orig
                                 origPpe.getClampHigh(), origPpe.getScale(), origPpe.getPreluAlpha(), origPpe.getBias(),
                                 origPpe.getAdder(), origPpe.getIn1Mult(), origPpe.getIn2Mult(), _sprLUTAttr);
 
-    auto reduceSumOp = rewriter.create<VPU::NCEReduceOp>(
-            appendLoc(origOp->getLoc(), "_reduce_sum"), reduceSumOutType, expOutput,
+    auto reduceSumOp = VPU::NCEReduceOp::create(
+            rewriter, appendLoc(origOp->getLoc(), "_reduce_sum"), reduceSumOutType, expOutput,
             vpux::getIntArrayAttr(ctx, SmallVector<int64_t>({origOp.getAxisIndAttr().getValue().getSExtValue()})),
             reducePpeAttr, nullptr, VPU::ReduceTypeAttr::get(ctx, VPU::ReduceType::SUM), nullptr, nullptr,
             mlir::dyn_cast_or_null<mlir::ArrayAttr>(userOp->getAttr("input_padding")));
 
     rewriter.setInsertionPointAfter(userOp);
 
-    auto expandOp = rewriter.create<VPU::ExpandOp>(appendLoc(origOp->getLoc(), "_expandOp"), reduceSumOp->getResult(0),
-                                                   getIntArrayAttr(ctx, SmallVector<int64_t>{0, 0, 0, 0}),
-                                                   getIntArrayAttr(ctx, SmallVector<int64_t>{0, paddingLength, 0, 0}));
+    auto expandOp = VPU::ExpandOp::create(rewriter, appendLoc(origOp->getLoc(), "_expandOp"), reduceSumOp->getResult(0),
+                                          getIntArrayAttr(ctx, SmallVector<int64_t>{0, 0, 0, 0}),
+                                          getIntArrayAttr(ctx, SmallVector<int64_t>{0, paddingLength, 0, 0}));
 
     // convolutionOp with dummy weights for broadcasting reduceSumOp's output
     const auto dummyWeightsShape = Shape({1, 1, 1, 1});
@@ -321,13 +329,14 @@ VPU::NCEConvolutionOp DecomposeSoftmax::constructRightBranch(VPU::SoftMaxOp orig
                                                  .padWithZero(cstPadBegin, cstPadEnd)
                                                  .reorder(DimsOrder::NHWC)
                                                  .get();
-    auto dummyWeights =
-            rewriter.create<Const::DeclareOp>(appendLoc(origOp->getLoc(), "dummy_weights"),
-                                              dummyWeightsContentAttr.getType(), std::move(dummyWeightsContentAttr))
-                    .getOutput();
+    auto dummyWeights = Const::DeclareOp::create(rewriter, appendLoc(origOp->getLoc(), "dummy_weights"),
+                                                 dummyWeightsContentAttr.getType(), std::move(dummyWeightsContentAttr))
+                                .getOutput();
 
     const auto arch = config::getArch(origOp);
-    const auto useNewWtFormat = VPU::MPEEngineConfig::useNewWeightTableFormat(userOp, /*isCompressConv=*/false);
+    const auto useNewWtFormat = VPU::getVPUStrategyFactory(userOp->getContext())
+                                        ->useNewWeightTableFormat(userOp,
+                                                                  /*isCompressConv=*/false);
     const auto ppeConverter = VPU::NCESparsity::getPPEConverterCb(arch, useNewWtFormat);
     const auto biasConverter = VPU::NCESparsity::getBiasConverterCb(arch, useNewWtFormat);
 
@@ -363,8 +372,8 @@ VPU::NCEConvolutionOp DecomposeSoftmax::constructRightBranch(VPU::SoftMaxOp orig
                                            : nullptr;
     const auto broadcastedInverseOutputType = newUserOutputType.changeElemType(f16Type);
 
-    return rewriter.create<VPU::NCEConvolutionOp>(
-            appendLoc(origOp->getLoc(), "_conv_tileOp"), broadcastedInverseOutputType,
+    return VPU::NCEConvolutionOp::create(
+            rewriter, appendLoc(origOp->getLoc(), "_conv_tileOp"), broadcastedInverseOutputType,
             /*reduceXyMax*/ nullptr, /*reduceXyMin*/ nullptr,
             /*reduceGlobalMinMax*/ nullptr, expandOp.getOutput(), dummyWeights, legacyWeightsTable,
             /*weight_table_scale=*/wtScale,
@@ -373,6 +382,7 @@ VPU::NCEConvolutionOp DecomposeSoftmax::constructRightBranch(VPU::SoftMaxOp orig
             /*mpeEngineAttr=*/nullptr, /*rawFilterShape=*/mlir::ValueRange{},
             parseIntArrayAttr<int64_t>(rawFilterShape),
             /*multi_cluster_strategyAttr=*/nullptr, outputPaddingAttr, inputPaddingAttr,
+            /*s2dd2s_config*/ nullptr,
             /*axes_value=*/nullptr);
 }
 
@@ -389,8 +399,8 @@ vpux::VPU::NCEEltwiseOp DecomposeSoftmax::constructDownStream(VPU::SoftMaxOp ori
     auto newMultiplyOpPpeAttr = scaleAdapter->updateScale(origPpeAttr, descaler);
     newMultiplyOpPpeAttr = clampAdapter->updateClamps(newMultiplyOpPpeAttr, userOpPpeAttr);
 
-    return rewriter.create<VPU::NCEEltwiseOp>(
-            appendLoc(origOp->getLoc(), "_eltwiseOp"), userOutputType, /*reduce_xy_max=*/nullptr,
+    return VPU::NCEEltwiseOp::create(
+            rewriter, appendLoc(origOp->getLoc(), "_eltwiseOp"), userOutputType, /*reduce_xy_max=*/nullptr,
             /*reduce_xy_min=*/nullptr, /*reduce_tensor_min_max=*/nullptr, leftBrnach, rightBrnach,
             /*weight_table_scale=*/nullptr, /*weight_table_bias=*/nullptr,
             VPU::EltwiseTypeAttr::get(ctx, VPU::EltwiseType::MULTIPLY), newMultiplyOpPpeAttr, nullptr,

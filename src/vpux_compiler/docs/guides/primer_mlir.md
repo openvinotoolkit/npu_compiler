@@ -1369,7 +1369,7 @@ namespace vpux::IE {
 namespace {
 
 // Conversion rewriter for the IE::GettingStarted operation
-// Similar to `mlir::OpPatternRewriter`, an equivalent for matching interfaces exists: `OpInterfaceConversionPattern`
+// Similar to `mlir::OpRewritePattern`, an equivalent for matching interfaces exists: `OpInterfaceConversionPattern`
 class GettingStartedOpConversionRewriter final : public mlir::OpConversionPattern<IE::GettingStartedOp> {
 public:
     GettingStartedOpConversionRewriter(mlir::MLIRContext* ctx): mlir::OpConversionPattern<IE::GettingStartedOp>(ctx) {

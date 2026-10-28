@@ -16,6 +16,12 @@ def Bytecode_GeneralRegisterOp : Bytecode_Op<"general_register", []> {
 
     let description = [{
         This operation represents a general register, which is identified by a register number.
+        A general register is an allocated slot of the function's call frame, covering both the
+        value registers and the parameter registers:
+
+        ```
+        general_registers = virtual_value_registers + virtual_parameter_registers
+        ```
 
         Example:
         ```mlir
@@ -36,23 +42,30 @@ def Bytecode_GeneralRegisterOp : Bytecode_Op<"general_register", []> {
     }];
 }
 
-def Bytecode_VirtualGeneralRegisterOp : Bytecode_Op<"virtual_general_register", []> {
-    let summary = "Virtual general register operation";
+def Bytecode_VirtualValueRegisterOp : Bytecode_Op<"virtual_value_register", []> {
+    let summary = "Virtual value register operation";
 
     let description = [{
-        This operation represents a virtual general register.
+        This operation represents a virtual value register.
 
         Example:
         ```mlir
-        bytecode.virtual_general_register  // Represents one virtual general register of a function's invocation
+        bytecode.virtual_value_register  // Represents one virtual value register of a function's invocation
         ```
 
-        In the call frame of a function, the register space of general and parameter registers are shared,
-        and the general registers are located at the beginning of the register space (e.g. a function with three general registers
-        and two parameter registers would have the general registers assigned numbers 0, 1, and 2).
-        The distinction between the general and parameter registers is important for the calling convention,
+        In the call frame of a function, the register space of value and parameter registers is shared,
+        and the value registers are located at the beginning of the register space (e.g. a function with three value registers
+        and two parameter registers would have the value registers assigned numbers 0, 1, and 2).
+        The distinction between the value and parameter registers is important for the calling convention,
         as parameter registers are used to pass arguments to functions.
-        The register allocator will replace the virtual general registers with the actual general registers.
+        The register allocator will replace the virtual value registers with the actual general registers.
+
+        Note that the number of virtual value registers is *not* the number of allocated general
+        registers, which is why this operation is not named `virtual_general_register`:
+
+        ```
+        general_registers = virtual_value_registers + virtual_parameter_registers
+        ```
     }];
 
     let results = (outs
@@ -80,10 +93,10 @@ def Bytecode_VirtualParameterRegisterOp : Bytecode_Op<"virtual_parameter_registe
         bytecode.virtual_parameter_register 0  // Represents the first virtual parameter register of a function's invocation
         ```
 
-        In the call frame of a function, the register space of general and parameter registers are shared,
-        and the parameter registers are located at the end of the register space (e.g. a function with three general registers
+        In the call frame of a function, the register space of value and parameter registers is shared,
+        and the parameter registers are located at the end of the register space (e.g. a function with three value registers
         and two parameter registers would have the parameter registers assigned numbers 3 and 4).
-        The distinction between the general and parameter registers is important for the calling convention,
+        The distinction between the value and parameter registers is important for the calling convention,
         as parameter registers are used to pass arguments to functions.
         The register allocator will replace the virtual parameter registers with the actual general registers.
     }];
@@ -184,11 +197,11 @@ def Bytecode_ImmRegisterOp : Bytecode_Op<"imm_register", []> {
 
     let description = [{
         Intermediate op: materialize a 64-bit immediate value as a virtual register.
-        Lowered to (VirtualGeneralRegisterOp + SetImmOp) by DeduplicateAndLowerImmRegisterOps
+        Lowered to (VirtualValueRegisterOp + SetImmOp) by DeduplicateAndLowerImmRegisterOps
         before register allocation. That pass deduplicates same-value source uses: entry-block
         materializations are reused across all successor blocks; within non-entry blocks,
-        same-value source uses share a single VGR. A fresh (VGR + SetImmOp) is always created
-        for each destination use, ensuring shared VGRs are never overwritten.
+        same-value source uses share a single VVR. A fresh (VVR + SetImmOp) is always created
+        for each destination use, ensuring shared VVRs are never overwritten.
 
         Example:
         ```mlir

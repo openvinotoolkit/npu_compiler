@@ -161,8 +161,8 @@ SmallVector<NCEClusterTaskOp> getTargetNCEOps(mlir::OperandRange outputItiBuffs)
     SmallVector<NCEClusterTaskOp> neighbourNceOps = {};
     for (auto outputIti : outputItiBuffs) {
         const auto neighbourItiOp = getProducerNCEOp(outputIti);
-        VPUX_THROW_UNLESS(neighbourItiOp != nullptr,
-                          "Could not find NCEClusterTaskOp producer for output_ITI buff: {0}", outputIti);
+        VPUX_THROW_WHEN(neighbourItiOp == nullptr, "Could not find NCEClusterTaskOp producer for output_ITI buff: {0}",
+                        outputIti);
 
         neighbourNceOps.push_back(neighbourItiOp);
     }
@@ -175,8 +175,8 @@ VPURT::DeclareBufferOp createBuffer(mlir::MLIRContext* ctx, ITIBufferType output
                                     ArrayRef<OutwardHaloRegionAttr> outwardHaloRegions, Logger log) {
     auto outNdType = mlir::cast<vpux::NDTypeInterface>(outputType);
     auto bufferOp = bufferOutput.getDefiningOp<VPURT::DeclareBufferOp>();
-    VPUX_THROW_UNLESS(bufferOp != nullptr, "Defining op of buffer {0} is not a DeclareBufferOp: {1}", bufferOutput,
-                      bufferOp);
+    VPUX_THROW_WHEN(bufferOp == nullptr, "Defining op of buffer {0} is not a DeclareBufferOp: {1}", bufferOutput,
+                    bufferOp);
 
     log.trace("Attempting to replace buffer '{0}'", bufferOp);
     auto newItiType = ITIBufferType::get(ctx, outNdType.getShape().raw(), outNdType.getElementType(),
@@ -184,9 +184,9 @@ VPURT::DeclareBufferOp createBuffer(mlir::MLIRContext* ctx, ITIBufferType output
                                          outputType.getIduSegmentation(), inwardHaloRegions, outwardHaloRegions);
 
     mlir::OpBuilder builder(bufferOp);
-    auto newBufferOp = builder.create<VPURT::DeclareBufferOp>(
-            bufferOp.getLoc(), newItiType, bufferOp.getSectionAttr(), bufferOp.getSectionIndexAttr(),
-            bufferOp.getByteOffsetAttr(), bufferOp.getSwizzlingKeyAttr());
+    auto newBufferOp = VPURT::DeclareBufferOp::create(builder, bufferOp.getLoc(), newItiType, bufferOp.getSectionAttr(),
+                                                      bufferOp.getSectionIndexAttr(), bufferOp.getByteOffsetAttr(),
+                                                      bufferOp.getSwizzlingKeyAttr());
 
     log.trace("Replaced with buffer '{0}'", newBufferOp);
 
@@ -207,7 +207,7 @@ void updateNceOps(NCEClusterTaskOp nceOp, DenseMap<NCEClusterTaskOp, NceOpOutput
     auto outSparsityMap = newOutputs[nceOp]._outSparsityMap;
 
     auto taskOp = nceOp->getParentOfType<VPURT::TaskOp>();
-    VPUX_THROW_UNLESS(taskOp != nullptr, "Can't get VPURT task operation");
+    VPUX_THROW_WHEN(taskOp == nullptr, "Can't get VPURT task operation");
 
     mlir::OpBuilder builder(taskOp);
 
@@ -275,7 +275,7 @@ void SegmentHalosPass::safeRunOnFunc() {
     auto ctx = module.getContext();
 
     auto tileOp = config::getTileExecutor(module);
-    VPUX_THROW_UNLESS(tileOp != nullptr, "Failed to get NCE executor information");
+    VPUX_THROW_WHEN(tileOp == nullptr, "Failed to get NCE executor information");
 
     if (tileOp.getCount() == 1) {
         return;

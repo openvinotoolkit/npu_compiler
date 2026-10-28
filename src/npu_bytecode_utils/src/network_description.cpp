@@ -96,7 +96,7 @@ ov::element::Type parsePrecision(const BytecodeReader& reader, size_t typeIndex)
     constexpr uint8_t fp64Bitwidth = 64;
 
     auto typeEntry = reader.getDataSectionEntry(SectionType::TypeSection, typeIndex);
-    NPU_VM_THROW_UNLESS(!typeEntry.empty(), "Type entry at index {} is not found", typeIndex);
+    NPU_VM_THROW_WHEN(typeEntry.empty(), "Type entry at index {} is not found", typeIndex);
 
     TypeCode typeCode = TypeCode::OPAQUE;
     NPU_VM_THROW_UNLESS(parseValueFrom(typeEntry, typeCode), "Failed to parse type code for type index {}", typeIndex);
@@ -174,7 +174,7 @@ ov::element::Type parsePrecision(const BytecodeReader& reader, size_t typeIndex)
 
 ov::PartialShape parseShape(const BytecodeReader& reader, size_t shapeIndex) {
     auto shapeEntry = reader.getDataSectionEntry(SectionType::ConstantSection, shapeIndex);
-    NPU_VM_THROW_UNLESS(!shapeEntry.empty(), "Shape entry at index {} is not found", shapeIndex);
+    NPU_VM_THROW_WHEN(shapeEntry.empty(), "Shape entry at index {} is not found", shapeIndex);
 
     NPU_VM_THROW_UNLESS(shapeEntry.size() % sizeof(int64_t) == 0,
                         "Shape entry at index {} has invalid size {}, expected multiple of {}", shapeIndex,

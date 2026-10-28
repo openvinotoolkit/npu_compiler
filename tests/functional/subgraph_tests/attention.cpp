@@ -129,8 +129,8 @@ public:
         // Validate SCALE_Q and SCALE_K are mutually exclusive (both control scale position)
         const bool hasScaleQ = hasOption(params.options, AttentionOption::SCALE_Q);
         const bool hasScaleK = hasOption(params.options, AttentionOption::SCALE_K);
-        VPUX_THROW_UNLESS(!(hasScaleQ && hasScaleK),
-                          "SCALE_Q and SCALE_K are mutually exclusive (both control scale position)");
+        VPUX_THROW_WHEN(hasScaleQ && hasScaleK,
+                        "SCALE_Q and SCALE_K are mutually exclusive (both control scale position)");
 
         // Ensure Q, K, V all have the same rank
         VPUX_THROW_UNLESS(params.inputQ.size() == params.inputK.size() && params.inputK.size() == params.inputV.size(),

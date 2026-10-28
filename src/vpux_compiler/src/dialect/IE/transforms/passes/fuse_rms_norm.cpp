@@ -239,8 +239,9 @@ mlir::FailureOr<float> getEpsilon(mlir::Operation* op) {
             return mlir::failure();
         }
 
-        // Check that "else" (Input3) is NOT a constant - it should be 'x' (ReduceMean output)
-        if (!selectOp.getInput3().getDefiningOp<IE::ReduceMeanOp>()) {
+        // Check that "else" (Input3) is NOT a constant - it should be 'x' (Reduce output)
+        if (!selectOp.getInput3().getDefiningOp<IE::ReduceMeanOp>() &&
+            !selectOp.getInput3().getDefiningOp<IE::ReduceSumOp>()) {
             return mlir::failure();
         }
 
@@ -300,6 +301,17 @@ mlir::FailureOr<float> getMultiplyScale(mlir::Operation* op) {
     return mlir::failure();
 }
 
+// Map epsilon-handling op to RMS epsilon mode.
+IE::EpsMode getEpsModeFromOp(mlir::Operation* op) {
+    if (mlir::isa<IE::ClampOp, IE::MaximumOp>(op)) {
+        return IE::EpsMode::MAX;
+    }
+    if (mlir::isa<IE::SelectOp>(op)) {
+        return IE::EpsMode::CONDITIONAL_EPS;
+    }
+    return IE::EpsMode::ADD;
+}
+
 // Create gamma from pre-scaled values
 mlir::Value createGamma(mlir::OpBuilder& builder, mlir::Operation* op, int64_t size, ArrayRef<float> values) {
     const auto dataStorageType = mlir::RankedTensorType::get({size}, mlir::Float32Type::get(op->getContext()));
@@ -320,18 +332,50 @@ void isReduceSumPattern(mlir::Operation* maybePowerOp, IE::ReduceSumOp reduceSum
     if (powerOp == nullptr) {
         return;
     }
-    if (reduceSumOp == nullptr || !reduceSumOp->hasOneUse()) {
+    if (reduceSumOp == nullptr) {
+        return;
+    }
+    int numUsers = 0;
+    bool hasEqual = false;
+    bool hasSelect = false;
+    for (auto user : reduceSumOp->getUsers()) {
+        if (++numUsers > 2) {
+            break;
+        }
+        if (mlir::isa<IE::EqualOp>(user)) {
+            hasEqual = true;
+        } else if (mlir::isa<IE::SelectOp>(user)) {
+            hasSelect = true;
+        }
+    }
+    if (numUsers != 1 && numUsers != 2) {
+        return;
+    }
+    // 2 users allowed only for Equal + Select pattern
+    if (numUsers == 2 && (!hasEqual || !hasSelect)) {
         return;
     }
 
     auto powerInput = powerOp->getOperand(0);
     auto powerInputShape = getShape(powerInput);
     auto epsilon = std::numeric_limits<type::float16>::smallest_mixed_precision_eps;
+    auto epsMode = IE::EpsMode::ADD;
     mlir::Operation* divideOp = nullptr;
     float multiplyScale = 1.0f;
 
+    // Find the relevant user of ReduceSum (prefer SelectOp over EqualOp in 2-user case)
+    auto findReduceSumUser = [](IE::ReduceSumOp reduceOp) -> mlir::Operation* {
+        for (auto user : reduceOp->getUsers()) {
+            if (mlir::isa<IE::SelectOp>(user)) {
+                return user;
+            }
+        }
+        return *reduceOp->getUsers().begin();
+    };
+    auto reduceSumUser = findReduceSumUser(reduceSumOp);
+
     // Support both Sqrt->Divide and Power(-0.5) patterns
-    divideOp = getSqrtAndDivideOps(*reduceSumOp->getUsers().begin());
+    divideOp = getSqrtAndDivideOps(reduceSumUser);
 
     // Try getSqrtAndDivideOps again after epsilon operation
     auto tryGetSqrtAndDivideOps = [&divideOp](mlir::Operation* op) -> bool {
@@ -366,7 +410,7 @@ void isReduceSumPattern(mlir::Operation* maybePowerOp, IE::ReduceSumOp reduceSum
     };
 
     if (divideOp == nullptr) {
-        auto preventDivByZeroOp = *reduceSumOp->getUsers().begin();
+        auto preventDivByZeroOp = reduceSumUser;
         if (!preventDivByZeroOp->hasOneUse()) {
             return;
         }
@@ -375,6 +419,7 @@ void isReduceSumPattern(mlir::Operation* maybePowerOp, IE::ReduceSumOp reduceSum
             return;
         }
         epsilon = epsilonResult.value();
+        epsMode = getEpsModeFromOp(preventDivByZeroOp);
 
         auto multiplyScaleResult = getMultiplyScale(preventDivByZeroOp);
         if (mlir::succeeded(multiplyScaleResult)) {
@@ -389,8 +434,8 @@ void isReduceSumPattern(mlir::Operation* maybePowerOp, IE::ReduceSumOp reduceSum
     if (divideOp == nullptr) {
         return;
     }
-    auto skipFqIfPresent = [](mlir::Operation* op) -> mlir::Operation* {
-        if (!mlir::isa_and_nonnull<IE::FakeQuantizeOp>(op)) {
+    auto skipDequantOpIfPresent = [](mlir::Operation* op) -> mlir::Operation* {
+        if (!mlir::isa_and_nonnull<IE::FakeQuantizeOp>(op) && !mlir::isa_and_nonnull<IE::DynamicDequantizeOp>(op)) {
             return op;
         }
         if (!op->hasOneUse()) {
@@ -418,6 +463,7 @@ void isReduceSumPattern(mlir::Operation* maybePowerOp, IE::ReduceSumOp reduceSum
     int64_t reduceSize = reduceSizeResult.value();
     float gammaScale = sqrtf(reduceSize * multiplyScale);
     const auto epsilonAttr = getFPAttr(&ctx, epsilon / reduceSize);
+    auto epsModeAttr = IE::EpsModeAttr::get(&ctx, epsMode);
 
     mlir::Operation* opBeforeScale = divideOp;
     if (auto realDivideOp = mlir::dyn_cast_or_null<IE::DivideOp>(divideOp)) {
@@ -456,7 +502,7 @@ void isReduceSumPattern(mlir::Operation* maybePowerOp, IE::ReduceSumOp reduceSum
 
     auto scaleMultiplyOp =
             opBeforeScale->hasOneUse()
-                    ? mlir::dyn_cast_or_null<IE::MultiplyOp>(skipFqIfPresent(*opBeforeScale->getUsers().begin()))
+                    ? mlir::dyn_cast_or_null<IE::MultiplyOp>(skipDequantOpIfPresent(*opBeforeScale->getUsers().begin()))
                     : nullptr;
 
     // Process the pattern of "DivideOp + AffineReshapOp"
@@ -469,15 +515,16 @@ void isReduceSumPattern(mlir::Operation* maybePowerOp, IE::ReduceSumOp reduceSum
         const SmallVector<int64_t> newInShape = {1, 1, reduceSumOutputShape[Dim(reduceSumOutputShape.size() - 1)],
                                                  reduceSize};
 
-        auto inReshapeOp = builder.create<IE::ReshapeOp>(appendLoc(powerOp->getLoc(), "in_reshape"),
-                                                         powerOp->getOperand(0), getIntArrayAttr(&ctx, newInShape));
+        auto inReshapeOp = IE::ReshapeOp::create(builder, appendLoc(powerOp->getLoc(), "in_reshape"),
+                                                 powerOp->getOperand(0), getIntArrayAttr(&ctx, newInShape));
 
         // Create RMSOp
-        auto rmsOp = builder.create<IE::RMSOp>(appendLoc(powerOp->getLoc(), "rms"), inReshapeOp, gamma, epsilonAttr);
+        auto rmsOp = IE::RMSOp::create(builder, appendLoc(powerOp->getLoc(), "rms"), inReshapeOp, gamma, epsilonAttr,
+                                       epsModeAttr);
 
         // Reshape Output
-        auto outReshapeOp = builder.create<IE::ReshapeOp>(appendLoc(powerOp->getLoc(), "out_reshape"),
-                                                          rmsOp->getResult(0), getIntArrayAttr(&ctx, powerInputShape));
+        auto outReshapeOp = IE::ReshapeOp::create(builder, appendLoc(powerOp->getLoc(), "out_reshape"),
+                                                  rmsOp->getResult(0), getIntArrayAttr(&ctx, powerInputShape));
 
         opBeforeScale->replaceAllUsesWith(outReshapeOp);
 
@@ -513,8 +560,8 @@ void isReduceSumPattern(mlir::Operation* maybePowerOp, IE::ReduceSumOp reduceSum
                                               : createGamma(builder, replaceOp, reduceSize, gammaScale);
 
     // Create RMSOp
-    auto rmsOp =
-            builder.create<IE::RMSOp>(appendLoc(powerOp->getLoc(), "rms"), powerOp->getOperand(0), gamma, epsilonAttr);
+    auto rmsOp = IE::RMSOp::create(builder, appendLoc(powerOp->getLoc(), "rms"), powerOp->getOperand(0), gamma,
+                                   epsilonAttr, epsModeAttr);
 
     replaceOp->replaceAllUsesWith(rmsOp);
 }
@@ -557,16 +604,17 @@ bool isValidReciprocalDivideOp(mlir::Operation* op) {
 }
 
 IE::RMSOp createRMSOp(mlir::OpBuilder& builder, mlir::Operation* headOp, mlir::Value gamma, int64_t layerSize,
-                      mlir::FloatAttr epsilonAttr, bool conditionalEps = false) {
+                      mlir::FloatAttr epsilonAttr, IE::EpsMode epsMode = IE::EpsMode::ADD) {
     auto gammaRank = mlir::cast<vpux::NDTypeInterface>(gamma.getType()).getRank();
     if (gammaRank != 1) {
-        auto reshapeOp = builder.create<IE::ReshapeOp>(
-                gamma.getLoc(), gamma, getIntArrayAttr(headOp->getContext(), SmallVector<int64_t>({layerSize})));
+        auto reshapeOp =
+                IE::ReshapeOp::create(builder, gamma.getLoc(), gamma,
+                                      getIntArrayAttr(headOp->getContext(), SmallVector<int64_t>({layerSize})));
         gamma = reshapeOp;
     }
-    auto conditionalEpsAttr = mlir::BoolAttr::get(headOp->getContext(), conditionalEps);
-    auto rmsOp = builder.create<IE::RMSOp>(appendLoc(headOp->getLoc(), "rms"), headOp->getOperand(0), gamma,
-                                           epsilonAttr, conditionalEpsAttr);
+    auto epsModeAttr = IE::EpsModeAttr::get(headOp->getContext(), epsMode);
+    auto rmsOp = IE::RMSOp::create(builder, appendLoc(headOp->getLoc(), "rms"), headOp->getOperand(0), gamma,
+                                   epsilonAttr, epsModeAttr);
 
     return rmsOp;
 }
@@ -686,15 +734,13 @@ void FuseRMSNormPass::safeRunOnFunc() {
         auto firstReduceMeanUser = findPreventDivByZeroOp(reduceMeanOp);
         mlir::Operation* divideOp = getSqrtAndDivideOps(firstReduceMeanUser);
         auto epsilon = std::numeric_limits<type::float16>::smallest_mixed_precision_eps;
-        bool isConditionalEpsPattern = false;
+        auto epsMode = getEpsModeFromOp(firstReduceMeanUser);
 
         if (divideOp == nullptr) {
             auto preventDivByZeroOp = firstReduceMeanUser;
             if (!preventDivByZeroOp->hasOneUse()) {
                 return;
             }
-            // Check if this is a Select pattern (conditional epsilon)
-            isConditionalEpsPattern = mlir::isa<IE::SelectOp>(preventDivByZeroOp);
             auto epsilonResult = getEpsilon(preventDivByZeroOp);
             if (mlir::failed(epsilonResult)) {
                 return;
@@ -736,7 +782,7 @@ void FuseRMSNormPass::safeRunOnFunc() {
             // Create default gamma
             auto gamma = createGamma(builder, divideOp, reduceSize, 1.0f);
 
-            auto rmsOp = createRMSOp(builder, headOp, gamma, layerSize, epsilonAttr, isConditionalEpsPattern);
+            auto rmsOp = createRMSOp(builder, headOp, gamma, layerSize, epsilonAttr, epsMode);
 
             divideOp->replaceAllUsesWith(rmsOp);
             return;
@@ -823,13 +869,13 @@ void FuseRMSNormPass::safeRunOnFunc() {
                         gammaConstOp.transformContentAttr().broadcast(Dim(gammaDims.size() - 1), inputWidth).get();
                 auto newGammaType = mlir::RankedTensorType::get(
                         newGammaShape, mlir::cast<mlir::ShapedType>(gamma.getType()).getElementType());
-                gamma = builder.create<Const::DeclareOp>(appendLoc(headOp->getLoc(), "gamma_broadcast"), newGammaType,
-                                                         broadcastedContentAttr);
+                gamma = Const::DeclareOp::create(builder, appendLoc(headOp->getLoc(), "gamma_broadcast"), newGammaType,
+                                                 broadcastedContentAttr);
             }
         }
 
         _log.trace("RMS pattern matched");
-        auto rmsOp = createRMSOp(builder, headOp, gamma, layerSize, epsilonAttr, isConditionalEpsPattern);
+        auto rmsOp = createRMSOp(builder, headOp, gamma, layerSize, epsilonAttr, epsMode);
         if (needCreateGamma) {
             // Replacing all uses is safe: multiplyOp1 computes x/rms(x), which is
             // identical to the RMS op output with a unit gamma, regardless of how

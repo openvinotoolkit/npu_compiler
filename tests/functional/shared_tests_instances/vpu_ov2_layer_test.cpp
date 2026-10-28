@@ -466,7 +466,7 @@ std::vector<std::vector<ov::Shape>> cartesianProduct(const std::vector<std::vect
     const auto hasEmptyShapeVectors = std::any_of(inputs.begin(), inputs.end(), [](const auto& shapes) {
         return shapes.empty();
     });
-    VPUX_THROW_UNLESS(!hasEmptyShapeVectors, "Cartesian product received an empty vector of shapes");
+    VPUX_THROW_WHEN(hasEmptyShapeVectors, "Cartesian product received an empty vector of shapes");
 
     auto indices = std::vector<int>(inputs.size(), 0);
     auto bounds = std::vector<int>(inputs.size(), 0);

@@ -100,7 +100,7 @@ public:
         ctx.appendDialectRegistry(registry);
         ctx.loadDialect<Const::ConstDialect, mlir::func::FuncDialect, VPU::VPUDialect, mlir::tensor::TensorDialect>();
         builder = std::make_unique<mlir::OpBuilder>(&ctx);
-        module = builder->create<mlir::ModuleOp>(builder->getUnknownLoc());
+        module = mlir::ModuleOp::create(*builder, builder->getUnknownLoc());
     }
 
     MLIR_VPUTypeInferenceTest(const MLIR_VPUTypeInferenceTest&) = delete;
@@ -113,15 +113,15 @@ public:
         SmallVector<mlir::Value> dynValues;
         for (auto dim : typeInfo.shape | indexed) {
             if (dim.value() == mlir::ShapedType::kDynamic) {
-                auto dyn = moduleBuilder.create<mlir::arith::ConstantOp>(moduleBuilder.getUnknownLoc(),
-                                                                         moduleBuilder.getIndexType(),
-                                                                         moduleBuilder.getIndexAttr(dim.index()));
+                auto dyn = mlir::arith::ConstantOp::create(moduleBuilder, moduleBuilder.getUnknownLoc(),
+                                                           moduleBuilder.getIndexType(),
+                                                           moduleBuilder.getIndexAttr(dim.index()));
                 dynValues.push_back(dyn);
             }
         }
-        return moduleBuilder.create<mlir::tensor::EmptyOp>(moduleBuilder.getUnknownLoc(), typeInfo.shape,
-                                                           getElemType(typeInfo.elemType), dynValues,
-                                                           getTensorAttr(&ctx, typeInfo.order, nullptr));
+        return mlir::tensor::EmptyOp::create(moduleBuilder, moduleBuilder.getUnknownLoc(), typeInfo.shape,
+                                             getElemType(typeInfo.elemType), dynValues,
+                                             getTensorAttr(&ctx, typeInfo.order, nullptr));
     }
 
     mlir::Type getElemType(ElemType elemType) {

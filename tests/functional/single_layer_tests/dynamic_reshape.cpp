@@ -50,6 +50,7 @@ TEST_P(DynamicReshapeLayerTest, NPU5010_HW) {
     setDefaultHardwareMode();
     run(Platform::NPU5010);
 }
+
 TEST_P(DynamicReshapeLayerTest, NPU5020_HW) {
     setDefaultHardwareMode();
     run(Platform::NPU5020);

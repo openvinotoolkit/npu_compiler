@@ -5,6 +5,7 @@
 
 #include "vpux/compiler/NPU40XX/dialect/NPUReg40XX/utils.hpp"
 #include <mlir/IR/BuiltinAttributes.h>
+#include "vpux/compiler/NPU40XX/dialect/NPUReg40XX/descriptors.hpp"
 #include "vpux/compiler/dialect/VPUIP/utils/sw_utils.hpp"
 #include "vpux/compiler/dialect/VPUMI40XX/utils.hpp"
 
@@ -57,4 +58,10 @@ npu40xx::nn_public::VpuActWLType vpux::NPUReg40XX::getActWLType(mlir::SymbolRefA
 
     auto cacheTaskType = vpux::VPU::symbolizeActShaveTaskType(taskType.getLeafReference().strref());
     return taskTypeActWLTypeMap.at(cacheTaskType.value());
+}
+
+vpux::VPUMI40XX::TaskDescriptorConstraintsPassArgs vpux::NPUReg40XX::getTaskDescriptorConstraintsArgs() {
+    using namespace Descriptors;
+    return {DpuInvariantRegister{}.size(), DpuVariantRegister{}.size(), VpuActKernelInvocation{}.size(),
+            VpuActKernelRange{}.size(),    DMARegister{}.size(),        VpuMediaTask{}.size()};
 }

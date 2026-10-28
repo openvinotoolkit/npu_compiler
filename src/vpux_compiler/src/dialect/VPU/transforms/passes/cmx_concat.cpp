@@ -381,7 +381,7 @@ void InputConcatPattern::insertCopyAfterConcat() {
 
     auto newConcatType = getNewConcatType();
     _concat.getOutput().setType(newConcatType);
-    auto copyOp = builder.create<VPU::CopyOp>(_concat.getLoc(), concatType, _concat->getResult(0), memSpace);
+    auto copyOp = VPU::CopyOp::create(builder, _concat.getLoc(), concatType, _concat->getResult(0), memSpace);
     _concat->getResult(0).replaceAllUsesExcept(copyOp->getResult(0), llvm::SmallPtrSet<mlir::Operation*, 1>{copyOp});
 
     _log.trace("Insert copy after '{0}' at '{1}'", _concat->getName(), _concat->getLoc());
@@ -484,8 +484,8 @@ void InputConcatPattern::rewrite() {
             if (concatInPatternMode != copyPatternMode) {
                 _log.trace("Inserting DistributedCast at '{0}'", inputPart.getCopyOp()->getLoc());
                 mlir::OpBuilder builder(_concat);
-                auto distributedCastOp = builder.create<VPU::DistributedCastOp>(_concat->getLoc(), newConcatInputType,
-                                                                                nceProducerOutput);
+                auto distributedCastOp = VPU::DistributedCastOp::create(builder, _concat->getLoc(), newConcatInputType,
+                                                                        nceProducerOutput);
                 _concat.setOperand(operandIdx, distributedCastOp.getOutput());
             } else {
                 _concat.setOperand(operandIdx, nceProducerOutput);
@@ -515,7 +515,7 @@ void InputConcatPattern::rewrite() {
         if (multiclusterIt == _inputParts.end()) {
             _log.trace("Insert Copy from DDR to CMX for constant input '{0}'", inputPart.concatOperand);
             const auto newConcatInput =
-                    builder.create<VPU::CopyOp>(_concat.getLoc(), inputPart.concatOperand, memSpace).getOutput();
+                    VPU::CopyOp::create(builder, _concat.getLoc(), inputPart.concatOperand, memSpace).getOutput();
             _concat.setOperand(operandIdx, newConcatInput);
             continue;
         }
@@ -528,7 +528,7 @@ void InputConcatPattern::rewrite() {
 
         _log.trace("Insert Cluster tiling Copy from DDR to CMX for constant input '{0}'", inputPart.concatOperand);
         const auto newConcatInputOp =
-                builder.create<VPU::CopyOp>(_concat.getLoc(), newType, inputPart.concatOperand, memSpace);
+                VPU::CopyOp::create(builder, _concat.getLoc(), newType, inputPart.concatOperand, memSpace);
 
         _concat.setOperand(operandIdx, newConcatInputOp->getResult(0));
     }
@@ -806,9 +806,9 @@ bool InputConcatPattern::insertNCEOperation() {
                             ? mlir::cast<mlir::ArrayAttr>(nceOp->getAttr(VPU::OUTPUT_PADDING_ATTR_NAME))
                             : nullptr;
 
-            auto avgPoolOp = builder.create<VPU::NCEAveragePoolOp>(
-                    loc, newOperandType, newOperands[0], /*weight_table_scale=*/nullptr, /*weight_table_bias=*/nullptr,
-                    kernelSizeAttr, stridesAttr, padAttr, ppeAttr, /*mpeEngine=*/nullptr,
+            auto avgPoolOp = VPU::NCEAveragePoolOp::create(
+                    builder, loc, newOperandType, newOperands[0], /*weight_table_scale=*/nullptr,
+                    /*weight_table_bias=*/nullptr, kernelSizeAttr, stridesAttr, padAttr, ppeAttr, /*mpeEngine=*/nullptr,
                     /*multi_cluster_strategyAttr=*/nullptr, parentOutputPaddingAttr, parentOutputPaddingAttr);
 
             if (auto mpeEngineInterface = mlir::dyn_cast<IE::MPEEngineInfoOpInterface>(avgPoolOp.getOperation())) {
@@ -830,7 +830,7 @@ bool InputConcatPattern::insertNCEOperation() {
         newAvgPoolOp = createPoolFunc(builder, appendLoc(nceOp->getLoc(), "inserted_AVG_Pooling"), nceOp->getResult(0));
 
         if (!copyOutOp->hasOneUse()) {
-            newCopyOp = builder.create<VPU::CopyOp>(copyOutOp->getLoc(), newAvgPoolOp->getResult(0), copyMemSpace);
+            newCopyOp = VPU::CopyOp::create(builder, copyOutOp->getLoc(), newAvgPoolOp->getResult(0), copyMemSpace);
         }
 
         if (!copyOutOp->hasOneUse()) {
@@ -1275,8 +1275,8 @@ void OutputConcatPattern::replaceSliceCopy() {
             builder.setInsertionPoint(origSliceOp);
             _log.trace("Creating VPU.Slice '{0}' at '{1}'", origSliceOp->getName(), origSliceOp->getLoc());
             auto newSliceOp =
-                    builder.create<VPU::SliceOp>(origSliceOp->getLoc(), origSliceOp->getOperand(0),
-                                                 origSliceOp.getStaticOffsetsAttr(), origSliceOp.getStaticSizesAttr());
+                    VPU::SliceOp::create(builder, origSliceOp->getLoc(), origSliceOp->getOperand(0),
+                                         origSliceOp.getStaticOffsetsAttr(), origSliceOp.getStaticSizesAttr());
             origSliceOp.replaceAllUsesWith(newSliceOp.getResult());
         }
 

@@ -26,7 +26,7 @@ func.func @checkDimensionLimit(%arg0: memref<1x32x16384x16xf16, {order = #NHWC},
                 -> !async.value<memref<1x64x14x16384xf16, {order = #NHWC}, @CMX_NN>>
                     attributes {VPUIP.executor = @DPU, VPUIP.num_units = 1 : i64, "async-deps-index" = 0 : i64} {
         // expected-error@+1 {{Op dimensions exceed VPU_DIMENSION_LIMIT: [1, 32, 16384, 16]}}
-        %0 = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
+        %0 = VPUIP.NCEClusterTask <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>,
                 kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
                 kernel_size = [1, 1],
                 kernel_strides = [1, 1],
@@ -76,7 +76,7 @@ func.func @checkOutputDimensionLimit(%arg0: memref<1x32x8190x16xf16, {order = #N
                 -> !async.value<memref<1x64x14x8194xf16, {order = #NHWC}, @CMX_NN>>
                     attributes {VPUIP.executor = @DPU, VPUIP.num_units = 1 : i64, "async-deps-index" = 0 : i64} {
         // expected-error@+1 {{Op dimensions exceed VPU_DIMENSION_LIMIT: [1, 64, 14, 8194]}}
-        %0 = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
+        %0 = VPUIP.NCEClusterTask <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>,
                 kernel_padding = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 0 : i64, bottom = 0 : i64>,
                 kernel_size = [1, 1],
                 kernel_strides = [1, 1],
@@ -114,8 +114,7 @@ func.func @EltwiseDifferentInputsDeclareBuffersExceedCMX() -> memref<1x16x224x10
     %output  = VPURT.DeclareBuffer <CMX_NN> [0] <1433600> -> memref<1x16x224x100xf16, #NHWC, [@CMX_NN, 0]>
 
     // expected-error@+1 {{does not fit into CMX}}
-    %out = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>}
-            <{task_type = #VPUIP.nce_task_type<ELTWISE>}>
+    %out = VPUIP.NCEClusterTask <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>, task_type = #VPUIP.nce_task_type<ELTWISE>}>
         input(%input : memref<1x16x224x100xf16, #NHWC, [@CMX_NN, 0]>)
         weights(%weights : memref<1x16x224x100xf16, #NHWC, [@CMX_NN, 0]>)
         parent_input(%input : memref<1x16x224x100xf16, #NHWC, [@CMX_NN, 0]>)

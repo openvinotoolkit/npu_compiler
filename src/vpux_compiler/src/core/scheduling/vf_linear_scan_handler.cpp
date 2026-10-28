@@ -58,7 +58,7 @@ AddressType VFRegionLinearScanHandler::getAlignment(mlir::Value val) const {
 
 AddressType VFRegionLinearScanHandler::getAddress(mlir::Value val) const {
     const auto it = _valOffsets.find(val);
-    VPUX_THROW_UNLESS(it != _valOffsets.end(), "Value '{0}' was not allocated", val);
+    VPUX_THROW_WHEN(it == _valOffsets.end(), "Value '{0}' was not allocated", val);
 
     return it->second;
 }

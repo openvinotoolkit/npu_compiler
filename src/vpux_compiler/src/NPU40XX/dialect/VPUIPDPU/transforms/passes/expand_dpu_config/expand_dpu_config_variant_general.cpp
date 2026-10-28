@@ -10,7 +10,7 @@ namespace vpux::VPUIPDPU::arch40xx::General {
 mlir::LogicalResult buildGeneralForceInvRead(mlir::OpBuilder& builder, const mlir::Location& loc,
                                              std::optional<bool> forceInvRead) {
     if (forceInvRead.value_or(false)) {
-        builder.create<VPUIPDPU::ForceInvReadOp>(loc);
+        VPUIPDPU::ForceInvReadOp::create(builder, loc);
     }
 
     return mlir::success();

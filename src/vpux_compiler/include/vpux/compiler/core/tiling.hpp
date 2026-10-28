@@ -15,6 +15,8 @@
 #include <llvm/Support/raw_ostream.h>
 #include <mlir/IR/BuiltinAttributes.h>
 
+#include <utility>
+
 namespace vpux::IE {
 enum class InterpolateMode : uint64_t;
 enum class InterpolateCoordMode : uint64_t;
@@ -131,6 +133,14 @@ inline StringRef getTilingModeStr(TilingMode mode) {
 // TileInfo
 //
 
+struct TileCoordinate final {
+    SmallVector<std::pair<Dim, int64_t>, 2> values;
+
+    bool operator==(const TileCoordinate& other) const {
+        return values == other.values;
+    }
+};
+
 struct TileInfo final {
     Shape shape;
     Shape offsets;
@@ -178,6 +188,8 @@ struct TileInfo final {
 
 // Operation output tiles information
 using OutputTiling = SmallVector<TileInfo>;
+
+SmallVector<TileCoordinate> getTileCoordinates(ArrayRef<TileInfo> tiles);
 
 bool requiresDimsGroups5D(mlir::Operation* op);
 
@@ -677,4 +689,10 @@ SmallVector<int64_t> divideChannelForSEPDWConv(mlir::Operation* op, int64_t chan
  * Transfer tiling information from source to destination
  */
 void transferTilingInfo(vpux::TileInfo& dst, const vpux::TileInfo& src, SmallVector<vpux::Dim> dimsToTransfer);
+
+/*
+ * Correct the tiling to meet op's tiling requirements, the new tile will include the original tile and stored in the
+ * same TileInfo object
+ */
+void correctTilingInfo(vpux::TileInfo& tiling, mlir::Operation* op);
 }  // namespace vpux

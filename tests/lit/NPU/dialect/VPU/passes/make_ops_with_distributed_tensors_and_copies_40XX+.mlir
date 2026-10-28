@@ -8992,3 +8992,28 @@ func.func @PReluBroadcastSlopeSOKOnlyN(%arg0: tensor<2x4x2x3xf16>) -> tensor<2x4
     // CHECK:        return [[OUTPUT_N]] : tensor<2x4x2x3xf16>
 }
 }
+
+// -----
+
+module @executors {
+config.Resources 6 of @NCE at 1.700000e+03 MHz
+
+// CHECK-LABEL: @TopKDmaToDistributedOpClustering
+// CHECK-SAME:      [[INPUT:%.+]]: tensor<1x1x1x24000xf16>
+func.func @TopKDmaToDistributedOpClustering(%input: tensor<1x1x1x24000xf16>) -> (tensor<1x1x1x300xf16>, tensor<1x1x1x300xsi32>) {
+    %aux = VPU.Empty : tensor<1x1x1x1049600xui8>
+    %output_values, %output_indices = VPU.TopKDma(%input, %aux) {
+        axis = 3 : i64, index_element_type = si32, k_value = 300 : i64,
+        mode = #IE.topk_mode<MAX>, multiClusterStrategy = #VPU.multi_cluster_strategy<Clustering>,
+        sort = #IE.topk_sort_type<SORT_VALUES>
+    } : tensor<1x1x1x24000xf16>, tensor<1x1x1x1049600xui8> -> tensor<1x1x1x300xf16>, tensor<1x1x1x300xsi32>
+
+    return %output_values, %output_indices : tensor<1x1x1x300xf16>, tensor<1x1x1x300xsi32>
+
+    // CHECK:      [[AUX_CMX:%.+]] = VPU.Empty : !VPU.DistributedTensor<1x1x1x1049600xui8, #NCHW, @CMX_NN, {mode = "DUPLICATED", num_clusters = 6 : i64
+    // CHECK:      [[OUTPUT_VALUES:%.+]], [[OUTPUT_INDICES:%.+]] = VPU.TopKDma([[INPUT]], [[AUX_CMX]])
+    // CHECK-SAME:     tensor<1x1x1x24000xf16>, !VPU.DistributedTensor<1x1x1x1049600xui8, #NCHW, @CMX_NN
+    // CHECK-SAME:     -> tensor<1x1x1x300xf16>, tensor<1x1x1x300xsi32>
+    // CHECK:      return [[OUTPUT_VALUES]], [[OUTPUT_INDICES]] : tensor<1x1x1x300xf16>, tensor<1x1x1x300xsi32>
+}
+}

@@ -72,12 +72,11 @@ DenseMap<mlir::Attribute, NCEClusterTaskOp> getTargetNCEOpForEachOutwardHalo(VPU
             return llvm::find(inwardHaloRegions, firstInwardHalo) != inwardHaloRegions.end();
         });
 
-        VPUX_THROW_UNLESS(outputIti != outputItiBuffs.end(),
-                          "Outward halo is not associated with any output iti buffer");
+        VPUX_THROW_WHEN(outputIti == outputItiBuffs.end(), "Outward halo is not associated with any output iti buffer");
 
         const auto neighbourItiOp = getProducerNCEOp(*outputIti);
-        VPUX_THROW_UNLESS(neighbourItiOp != nullptr,
-                          "Could not find NCEClusterTaskOp producer for output_ITI buff: {0}", *outputIti);
+        VPUX_THROW_WHEN(neighbourItiOp == nullptr, "Could not find NCEClusterTaskOp producer for output_ITI buff: {0}",
+                        *outputIti);
 
         outwardHaloDstNCEOpMap.insert(std::make_pair(mlir::cast<mlir::Attribute>(outwardHalo), neighbourItiOp));
     }
@@ -112,8 +111,8 @@ void computeHaloRegion(NCEClusterTaskOp nceOp, DPUTaskOp dpuTaskOp,
     int64_t srcSparseMapOffset = 0;
     if (nceOp.getOutputSparsityMapBuff() != nullptr) {
         auto outputSMBuffer = nceOp.getOutputSparsityMapBuff().getDefiningOp<VPURT::DeclareBufferOp>();
-        VPUX_THROW_UNLESS(outputSMBuffer != nullptr, "Defining op of src sparsity map is not a DeclareBufferOp: {0}",
-                          nceOp.getOutputSparsityMapBuff());
+        VPUX_THROW_WHEN(outputSMBuffer == nullptr, "Defining op of src sparsity map is not a DeclareBufferOp: {0}",
+                        nceOp.getOutputSparsityMapBuff());
 
         srcSparseMapOffset = outputSMBuffer.getByteOffset();
     }
@@ -124,8 +123,8 @@ void computeHaloRegion(NCEClusterTaskOp nceOp, DPUTaskOp dpuTaskOp,
         auto dstNCEOp = outwardHaloDstNCEOpMap[mlir::cast<mlir::Attribute>(outwardHalo)];
         auto dstItiValue = dstNCEOp.getOutputBuff();
         auto dstItiBuffer = dstItiValue.getDefiningOp<VPURT::DeclareBufferOp>();
-        VPUX_THROW_UNLESS(dstItiBuffer != nullptr, "Defining op of dst NCE op is not a DeclareBufferOp: {0}",
-                          dstItiValue);
+        VPUX_THROW_WHEN(dstItiBuffer == nullptr, "Defining op of dst NCE op is not a DeclareBufferOp: {0}",
+                        dstItiValue);
 
         const auto outwardHaloShape = parseIntArrayAttr<int64_t>(outwardHalo.getShape());
         const auto outwardHaloOffset = parseIntArrayAttr<int64_t>(outwardHalo.getOffset());
@@ -169,12 +168,11 @@ void computeHaloRegion(NCEClusterTaskOp nceOp, DPUTaskOp dpuTaskOp,
         int64_t sparsityOffset = 0;
         if (dstNCEOp.getOutputSparsityMapBuff() != nullptr) {
             auto dstOutSMBuffer = dstNCEOp.getOutputSparsityMapBuff().getDefiningOp<VPURT::DeclareBufferOp>();
-            VPUX_THROW_UNLESS(dstOutSMBuffer != nullptr,
-                              "Defining op of dst sparsity map is not a DeclareBufferOp: {0}",
-                              dstNCEOp.getOutputSparsityMapBuff());
+            VPUX_THROW_WHEN(dstOutSMBuffer == nullptr, "Defining op of dst sparsity map is not a DeclareBufferOp: {0}",
+                            dstNCEOp.getOutputSparsityMapBuff());
 
-            VPUX_THROW_UNLESS(
-                    nceOp.getOutputSparsityMapBuff() != nullptr,
+            VPUX_THROW_WHEN(
+                    nceOp.getOutputSparsityMapBuff() == nullptr,
                     "Target NCEOp has sparse output, but halo producer NCEOp does not, target: {0}, producer {1}",
                     dstNCEOp, nceOp);
 
@@ -220,8 +218,8 @@ void computeHaloRegion(NCEClusterTaskOp nceOp, DPUTaskOp dpuTaskOp,
         haloRegions.push_back(dpuHaloRegion);
     }
 
-    auto newDpuTask = builder.create<DPUTaskOp>(
-            nceOp.getLoc(), dpuTaskOp.getOutStart(), dpuTaskOp.getOutEnd(), dpuTaskOp.getInStartAttr(),
+    auto newDpuTask = DPUTaskOp::create(
+            builder, nceOp.getLoc(), dpuTaskOp.getOutStart(), dpuTaskOp.getOutEnd(), dpuTaskOp.getInStartAttr(),
             dpuTaskOp.getInEndAttr(), dpuTaskOp.getPad(), dpuTaskOp.getMpeMode(), dpuTaskOp.getClusterIdAttr(),
             builder.getArrayAttr(haloRegions), dpuTaskOp.getWorkloadIdAttr(), /*variant_primitive_id=*/nullptr,
             dpuTaskOp.getIsDummy(), dpuTaskOp.getWeightTableOffsetAttr());
@@ -251,7 +249,7 @@ void ComputeHaloRegionForDPUTaskOpPass::safeRunOnFunc() {
     auto module = func->getParentOfType<mlir::ModuleOp>();
 
     auto tileOp = config::getTileExecutor(module);
-    VPUX_THROW_UNLESS(tileOp != nullptr, "Failed to get NCE executor information");
+    VPUX_THROW_WHEN(tileOp == nullptr, "Failed to get NCE executor information");
 
     const auto tileCount = tileOp.getCount();
     if (tileCount == 1) {

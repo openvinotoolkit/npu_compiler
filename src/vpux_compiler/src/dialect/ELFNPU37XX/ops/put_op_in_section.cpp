@@ -17,8 +17,8 @@ void vpux::ELFNPU37XX::PutOpInSectionOp::serialize(elf::writer::BinaryDataSectio
 
     auto binaryIface = llvm::dyn_cast_or_null<vpux::ELFNPU37XX::BinaryOpInterface>(inputArgDefOp);
 
-    VPUX_THROW_UNLESS(binaryIface != nullptr,
-                      "PutOpInSectionOp::serialize(): inputArg is expected to define elf::BinaryOpInterface");
+    VPUX_THROW_WHEN(binaryIface == nullptr,
+                    "PutOpInSectionOp::serialize(): inputArg is expected to define elf::BinaryOpInterface");
 
     binaryIface.serialize(binDataSection);
 }
@@ -34,8 +34,8 @@ size_t vpux::ELFNPU37XX::PutOpInSectionOp::getBinarySize() {
 
     auto binaryIface = llvm::dyn_cast_or_null<vpux::ELFNPU37XX::BinaryOpInterface>(inputArgDefOp);
 
-    VPUX_THROW_UNLESS(binaryIface != nullptr,
-                      "PutOpInSectionOp::getBinarySize(): inputArg is expected to define elf::BinaryOpInterface");
+    VPUX_THROW_WHEN(binaryIface == nullptr,
+                    "PutOpInSectionOp::getBinarySize(): inputArg is expected to define elf::BinaryOpInterface");
 
     return binaryIface.getBinarySize();
 }
@@ -45,8 +45,8 @@ vpux::VPURT::BufferSection vpux::ELFNPU37XX::PutOpInSectionOp::getMemorySpace() 
 
     vpux::ELFNPU37XX::BinaryOpInterface binaryOp =
             mlir::dyn_cast<vpux::ELFNPU37XX::BinaryOpInterface>(op.getDefiningOp());
-    VPUX_THROW_UNLESS(binaryOp != nullptr,
-                      "PutOpInSectionOp::getMemorySpace(): inputArg is expected to define elf::BinaryOpInterface");
+    VPUX_THROW_WHEN(binaryOp == nullptr,
+                    "PutOpInSectionOp::getMemorySpace(): inputArg is expected to define elf::BinaryOpInterface");
 
     return binaryOp.getMemorySpace();
 }

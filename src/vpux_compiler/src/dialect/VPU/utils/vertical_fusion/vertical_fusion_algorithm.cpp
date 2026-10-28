@@ -12,6 +12,7 @@
 #include "vpux/compiler/dialect/VPU/utils/tiling_pass_config_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/vertical_fusion/v2/vertical_fusion_scheduling_factory.hpp"
 #include "vpux/compiler/dialect/VPU/utils/vertical_fusion/v2/vertical_fusion_utils.hpp"
+#include "vpux/compiler/dialect/VPU/utils/vertical_fusion/v2/vf_cost_strategy_factory.hpp"
 #include "vpux/compiler/dialect/VPU/utils/vertical_fusion/v2/vf_merge_configuration.hpp"
 #include "vpux/compiler/dialect/VPU/utils/vertical_fusion/vertical_fusion_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/vertical_fusion/vf_axis_increment.hpp"
@@ -29,7 +30,7 @@ std::optional<int64_t> findOptimalTilingStrategyInRange(
         const std::shared_ptr<IVFScheduling<VFCase::VFConfigType>>& scheduling, const Dim dim, int64_t minNTiles,
         int64_t& maxNTiles, std::unique_ptr<IVFAxisIncrement>& axisIncrement, ArrayRef<int64_t> origTilingArray,
         TilingOperationStorage::UPtr& minStorage, TilingOperationStorage::UPtr& maxStorage, VFConfig& config,
-        Logger log) {
+        bool enableOutputTileAdjustmentForSW, Logger log) {
     auto returnFailure = [&minStorage]() -> std::optional<int64_t> {
         minStorage.reset();
         return std::nullopt;
@@ -63,8 +64,8 @@ std::optional<int64_t> findOptimalTilingStrategyInRange(
         tilingArray[dim.ind()] = currentNTiles;
 
         auto opStorage = std::make_unique<TilingOperationStorage>();
-        auto validStrategy =
-                getMinimalValidTilingStrategyFromRange(config, tilingArray, tilingMaxStrategy, dim, opStorage, log);
+        auto validStrategy = getMinimalValidTilingStrategyFromRange(config, tilingArray, tilingMaxStrategy, dim,
+                                                                    opStorage, enableOutputTileAdjustmentForSW, log);
         if (mlir::failed(validStrategy)) {
             return returnFailure();
         }
@@ -93,9 +94,10 @@ std::optional<int64_t> findOptimalTilingStrategyInRange(
 }  // namespace
 
 std::deque<std::shared_ptr<IVFScheduling<VFCase::VFConfigType>>> getSchedulingScenarios(VFCase::VFConfigType& config,
-                                                                                        Logger log) {
+                                                                                        Logger log,
+                                                                                        VFMergeCostMode costMode) {
     std::deque<std::shared_ptr<IVFScheduling<VFCase::VFConfigType>>> vfChecks;
-    VFSchedulingFactory vfFactory(true);
+    VFSchedulingFactory vfFactory(true, VFCostStrategyFactory::create(costMode));
 
     auto minimalCheck = vfFactory.createVFScenario(VFScenario::MINIMAL, log);
 
@@ -119,7 +121,7 @@ std::optional<int64_t> getOptimalTilingStrategy(const std::shared_ptr<IVFSchedul
                                                 const Dim dim, const VFSplit& split, const int64_t minTiles,
                                                 int64_t& maxTiles, TilingOperationStorage::UPtr& minStorage,
                                                 TilingOperationStorage::UPtr& maxStorage, VFCase::VFConfigType& config,
-                                                Logger log) {
+                                                bool enableOutputTileAdjustmentForSW, Logger log) {
     if (minTiles > maxTiles || maxTiles == 1) {
         return std::nullopt;
     }
@@ -134,7 +136,8 @@ std::optional<int64_t> getOptimalTilingStrategy(const std::shared_ptr<IVFSchedul
     if (minTiles == maxTiles) {
         if (minStorage == nullptr) {
             minStorage = std::make_unique<TilingOperationStorage>();
-            auto tilingRegions = calculateTilingRegions(config, tilingArray, log, minStorage);
+            auto tilingRegions =
+                    calculateTilingRegions(config, tilingArray, log, minStorage, enableOutputTileAdjustmentForSW);
 
             if (mlir::failed(tilingRegions)) {
                 minStorage.reset();
@@ -153,8 +156,8 @@ std::optional<int64_t> getOptimalTilingStrategy(const std::shared_ptr<IVFSchedul
 
     if (minStorage == nullptr) {
         minStorage = std::make_unique<TilingOperationStorage>();
-        auto getValidStrategy =
-                getMinimalValidTilingStrategyFromRange(config, tilingArray, tilingMaxStrategy, dim, minStorage, log);
+        auto getValidStrategy = getMinimalValidTilingStrategyFromRange(
+                config, tilingArray, tilingMaxStrategy, dim, minStorage, enableOutputTileAdjustmentForSW, log);
 
         if (mlir::failed(getValidStrategy)) {
             minStorage.reset();
@@ -183,21 +186,22 @@ std::optional<int64_t> getOptimalTilingStrategy(const std::shared_ptr<IVFSchedul
             auto tilingCbrtMaxStrategy = tilingMaxStrategy;
             tilingCbrtMaxStrategy[dim.ind()] = cbrtMaxTile.value();
             getValidStrategy = getMaximalValidTilingStrategyFromRange(config, tilingArray, tilingCbrtMaxStrategy, dim,
-                                                                      maxStorage, log);
+                                                                      maxStorage, enableOutputTileAdjustmentForSW, log);
 
             auto useCbrtMaxTileStrategy = mlir::succeeded(getValidStrategy) && scheduling->validate(config, maxStorage);
             if (useCbrtMaxTileStrategy) {
                 maxNTiles = getValidStrategy.value()[dim.ind()];
                 result = findOptimalTilingStrategyInRange(scheduling, dim, minNTiles, maxNTiles, axisIncrement,
-                                                          tilingArray, minStorage, maxStorage, config, log);
+                                                          tilingArray, minStorage, maxStorage, config,
+                                                          enableOutputTileAdjustmentForSW, log);
                 maxStorage.reset();
                 return result;
             }
             maxStorage.reset();
         }
 
-        getValidStrategy =
-                getMaximalValidTilingStrategyFromRange(config, tilingArray, tilingMaxStrategy, dim, maxStorage, log);
+        getValidStrategy = getMaximalValidTilingStrategyFromRange(config, tilingArray, tilingMaxStrategy, dim,
+                                                                  maxStorage, enableOutputTileAdjustmentForSW, log);
         if (mlir::failed(getValidStrategy)) {
             maxStorage.reset();
             return std::nullopt;
@@ -211,14 +215,14 @@ std::optional<int64_t> getOptimalTilingStrategy(const std::shared_ptr<IVFSchedul
         return std::nullopt;
     }
     return findOptimalTilingStrategyInRange(scheduling, dim, minNTiles, maxNTiles, axisIncrement, tilingArray,
-                                            minStorage, maxStorage, config, log);
+                                            minStorage, maxStorage, config, enableOutputTileAdjustmentForSW, log);
 }
 }  // namespace
 
 VPU::VF::v2::VFCase getVFCaseWithTiling(
         VPU::VF::v2::VFConfig& config, Dim dim, const VPU::VF::v2::VFSplit& split,
         const std::function<int64_t(Dim, const VFSplit&)>& minNumCalc,
-        const std::function<int64_t(Dim, const VFSplit&)>& maxNumCalc, Logger log,
+        const std::function<int64_t(Dim, const VFSplit&)>& maxNumCalc, bool enableOutputTileAdjustmentForSW, Logger log,
         const std::deque<std::shared_ptr<IVFScheduling<VFCase::VFConfigType>>>& vfSchedulingChecks) {
     auto minTiles = minNumCalc(dim, split);
     auto maxTiles = maxNumCalc(dim, split);
@@ -233,7 +237,7 @@ VPU::VF::v2::VFCase getVFCaseWithTiling(
         auto currentCheck = schedulingChecks.front();
         schedulingChecks.pop_front();
         auto numTiles = getOptimalTilingStrategy(currentCheck, dim, split, minTiles, maxTiles, minStorage, maxStorage,
-                                                 mergedCase.getConfig(), log);
+                                                 mergedCase.getConfig(), enableOutputTileAdjustmentForSW, log);
 
         if (numTiles.has_value()) {
             mergedCase.setTilingNumber(dim, numTiles.value());
@@ -258,13 +262,14 @@ VPU::VF::v2::VFCase getVFCaseWithTiling(
 std::optional<VFCase> findBestVFCaseFromSplits(VFConfig& config, ArrayRef<VFSplit> splits,
                                                const std::function<int64_t(Dim, const VFSplit&)>& minNumCalc,
                                                const std::function<int64_t(Dim, const VFSplit&)>& maxNumCalc,
-                                               const std::unique_ptr<VPU::LayerVPUNNCost>& costFunction, Logger log,
-                                               mlir::MLIRContext* ctx, const SplitFilterFn& splitFilter) {
+                                               const std::unique_ptr<VPU::LayerVPUNNCost>& costFunction,
+                                               bool enableOutputTileAdjustmentForSW, Logger log, mlir::MLIRContext* ctx,
+                                               const SplitFilterFn& splitFilter, VFMergeCostMode costMode) {
     if (splits.empty()) {
         return std::nullopt;
     }
 
-    auto vfSchedulingChecks = getSchedulingScenarios(config, log);
+    auto vfSchedulingChecks = getSchedulingScenarios(config, log, costMode);
 
     std::vector<std::optional<VFCase>> vfCases(splits.size(), std::nullopt);
     std::vector<StrategyCost> vfCosts(splits.size(), std::numeric_limits<StrategyCost>::max());
@@ -280,8 +285,8 @@ std::optional<VFCase> findBestVFCaseFromSplits(VFConfig& config, ArrayRef<VFSpli
             return;
         }
 
-        auto vfCase =
-                getVFCaseWithTiling(config, dim, splits[splitIndex], minNumCalc, maxNumCalc, log, vfSchedulingChecks);
+        auto vfCase = getVFCaseWithTiling(config, dim, splits[splitIndex], minNumCalc, maxNumCalc,
+                                          enableOutputTileAdjustmentForSW, log, vfSchedulingChecks);
         if (!vfCase.isInitialized()) {
             return;
         }
@@ -297,8 +302,8 @@ std::optional<VFCase> findBestVFCaseFromSplits(VFConfig& config, ArrayRef<VFSpli
                     auto newSplit = splits[splitIndex];
                     newSplit[dim] = parseIntArrayAttr<int64_t>(vfCase.getTiling())[dim.ind()];
                     newSplit[otherDim] = std::nullopt;
-                    vfCase = getVFCaseWithTiling(config, otherDim, newSplit, minNumCalc, maxNumCalc, log,
-                                                 vfSchedulingChecks);
+                    vfCase = getVFCaseWithTiling(config, otherDim, newSplit, minNumCalc, maxNumCalc,
+                                                 enableOutputTileAdjustmentForSW, log, vfSchedulingChecks);
                     if (!vfCase.isInitialized()) {
                         return;
                     }
@@ -306,7 +311,7 @@ std::optional<VFCase> findBestVFCaseFromSplits(VFConfig& config, ArrayRef<VFSpli
             }
         }
 
-        vfCosts[splitIndex] = vfCase.getCost(costFunction, log.nest());
+        vfCosts[splitIndex] = vfCase.getCost(costFunction, enableOutputTileAdjustmentForSW, log.nest());
         vfCases[splitIndex] = std::move(vfCase);
     });
 
@@ -319,12 +324,13 @@ std::optional<VFCase> findBestVFCaseFromSplits(VFConfig& config, ArrayRef<VFSpli
 }
 
 bool isVFMergeProfitable(VFCase& mergedCase, StrategyCost prevCost, StrategyCost currentCost,
-                         const std::unique_ptr<VPU::LayerVPUNNCost>& costFunction, Logger log) {
+                         const std::unique_ptr<VPU::LayerVPUNNCost>& costFunction, bool enableOutputTileAdjustmentForSW,
+                         Logger log) {
     if (!mergedCase.isInitialized()) {
         return false;
     }
 
-    auto mergedVFCost = mergedCase.getCost(costFunction, log);
+    auto mergedVFCost = mergedCase.getCost(costFunction, enableOutputTileAdjustmentForSW, log);
 
     if (mergedVFCost > VPUNN::Cycles::cost_adder(prevCost, currentCost)) {
         log.trace("VF merge not profitable: mergedVFCost ({0}) > prevCost ({1}) + currentCost ({2})", mergedVFCost,
@@ -460,8 +466,23 @@ VPU::VF::v2::VFSplit getVFSplitForSCF(VF::v2::VFConfig& config, DimArrRef allowe
     return getVFSplit(outputType, lastOp, allowedDims, config);
 }
 
+int64_t getMinTilingNumber(Dim dim, const VF::v2::VFConfig& config) {
+    const auto getDimValue = [&dim](auto* oper) -> int64_t {
+        return oper->hasAttr(tilingStrategy) ? Shape(parseIntArrayAttr<int64_t>(
+                                                       mlir::cast<mlir::ArrayAttr>(oper->getAttr(tilingStrategy))))[dim]
+                                             : 1;
+    };
+
+    int64_t minTiles = 1;
+    for (auto* oper : config.getVFOperations()) {
+        minTiles = std::max(minTiles, getDimValue(oper));
+    }
+    return minTiles;
+}
+
 VPU::VF::v2::VFCase computeVFSCFCase(vpux::NDTypeInterface outputType, const VPU::VF::v2::VFSplit& vfSplit,
-                                     VPU::VF::v2::VFConfig& config, mlir::Operation* rootOp, Logger log) {
+                                     VPU::VF::v2::VFConfig& config, mlir::Operation* rootOp, VFMergeCostMode costMode,
+                                     Logger log) {
     VPU::VF::v2::VFCase emptyVFCase(config, {});
     if (vfSplit.empty()) {
         return emptyVFCase;
@@ -477,15 +498,7 @@ VPU::VF::v2::VFCase computeVFSCFCase(vpux::NDTypeInterface outputType, const VPU
             return VPU::MIN_REQUIRED_TILES;
         }
 
-        const auto getDimValue = [&dim](auto* oper) -> int64_t {
-            return oper->hasAttr(tilingStrategy) ? Shape(parseIntArrayAttr<int64_t>(mlir::cast<mlir::ArrayAttr>(
-                                                           oper->getAttr(tilingStrategy))))[dim]
-                                                 : 1;
-        };
-
-        std::set<int64_t> minTilesSet;
-        llvm::copy(config.getVFOperations() | transformed(getDimValue), std::inserter(minTilesSet, minTilesSet.end()));
-        return *minTilesSet.rbegin();
+        return getMinTilingNumber(dim, config);
     };
 
     const auto getMaxTiles = [&](auto dim, const VPU::VF::v2::VFSplit& split) -> int64_t {
@@ -501,8 +514,10 @@ VPU::VF::v2::VFCase computeVFSCFCase(vpux::NDTypeInterface outputType, const VPU
         return maxTiles;
     };
 
-    return VPU::VF::v2::getVFCaseWithTiling(config, optDim.value(), vfSplit, getMinTiles, getMaxTiles, log,
-                                            VPU::VF::v2::getSchedulingScenarios(config, log));
+    const auto needAdjustSWOutputTile = costMode == VFMergeCostMode::POWER;
+    return VPU::VF::v2::getVFCaseWithTiling(config, optDim.value(), vfSplit, getMinTiles, getMaxTiles,
+                                            needAdjustSWOutputTile, log,
+                                            VPU::VF::v2::getSchedulingScenarios(config, log, costMode));
 }
 
 bool isViewLikeOpVFCompatible(mlir::Operation* op) {
@@ -590,7 +605,10 @@ bool hasSpill(mlir::Operation* parentOp, mlir::Operation* currentOp, mlir::Value
 }  // namespace
 
 StrategyCost extractBaselineCost(mlir::Operation* operation, ShapeRef tilingDims,
-                                 const std::unique_ptr<VPU::LayerVPUNNCost>& costFunction, Logger log) {
+                                 const std::unique_ptr<VPU::LayerVPUNNCost>& costFunction, Logger log,
+                                 const std::shared_ptr<const VFCostStrategy>& costStrategy) {
+    VPUX_THROW_WHEN(costStrategy == nullptr, "VF cost strategy is not initialized");
+    VPUX_THROW_WHEN(costFunction == nullptr, "VF cost function is not initialized");
     auto vfSplit = getVFTilingSplit(tilingDims);
 
     OutputTiling tiles;
@@ -616,8 +634,6 @@ StrategyCost extractBaselineCost(mlir::Operation* operation, ShapeRef tilingDims
     }
 
     const auto costParameters = fillInCostParam(operation, tiles, {}, true);
-    auto cost = costFunction->getStrategyCost(operation, costParameters);
-    log.trace("Original VF {0} has strategy cost {1}", operation->getLoc(), cost);
 
     SmallVector<mlir::Value> operands = {operation->getOperand(0)};
     auto eltwiseLikeOp = false;
@@ -709,8 +725,24 @@ StrategyCost extractBaselineCost(mlir::Operation* operation, ShapeRef tilingDims
         return getTileTypes(operation, tileInfo, strategy);
     };
 
-    SmallVector<StrategyCost> perTileSpillReadCost(costParameters._tiling.size());
-    SmallVector<StrategyCost> perTileSpillWriteCost(costParameters._tiling.size());
+    const auto costTiles = costParameters._tiling.empty() ? OutputTiling({TileInfo(getShape(operation->getResult(0)))})
+                                                          : costParameters._tiling;
+    const auto getTypesForAllTiles = [&](const auto& getType) {
+        if (VPU::isPureViewOp(operation)) {
+            return SmallVector<NDTypeInterface>{};
+        }
+        return to_small_vector(llvm::map_range(costTiles, getType));
+    };
+
+    const auto perTileCostCount = std::max<size_t>(1, costParameters._tiling.size());
+    VFBaselineCostContext baselineCostContext(operation, costParameters, *costFunction);
+    baselineCostContext.tileAxes.reserve(costTiles.size());
+    llvm::transform(costTiles, std::back_inserter(baselineCostContext.tileAxes), [](const auto& tileInfo) {
+        return std::optional<ShapeRef>(tileInfo.axis);
+    });
+    baselineCostContext.spillReadWriteCanBeOverlapped = spillReadWriteCanBeOverlapped;
+    baselineCostContext.multiDimTilingWithChannelTiling = multiDimTilingWithChannelTiling;
+    baselineCostContext.spillWriteTypes.reserve(perTileCostCount);
 
     if (spilling || hasSpilledParents) {
         auto isOperandNotTiled = [&](auto operandIdx) {
@@ -743,26 +775,11 @@ StrategyCost extractBaselineCost(mlir::Operation* operation, ShapeRef tilingDims
                 return getOpTypes(tileInfo)[operandValue.index()];
             };
 
-            auto spillReadCostForCurOperand = costFunction->getSpillingReadCostsForAllTiles(
-                    operation, costParameters, nullptr,
-                    [&](mlir::Value item) {
-                        return item == operand;
-                    },
-                    getOperandType);
+            auto spillReadTypesForCurOperand = getTypesForAllTiles(getOperandType);
 
-            if (!spillReadWriteCanBeOverlapped) {
-                if (operandValue.index() == 0 && isOperandNotTiled(operandValue.index())) {
-                    cost += spillReadCostForCurOperand.front();
-                } else {
-                    cost += std::accumulate(spillReadCostForCurOperand.begin(), spillReadCostForCurOperand.end(),
-                                            static_cast<StrategyCost>(0));
-                }
-            } else {
-                llvm::transform(irange(spillReadCostForCurOperand.size()), perTileSpillReadCost.begin(),
-                                [&](size_t index) {
-                                    return spillReadCostForCurOperand[index] + perTileSpillReadCost[index];
-                                });
-            }
+            baselineCostContext.spillReadTypes.push_back(std::move(spillReadTypesForCurOperand));
+            baselineCostContext.untiledOperands.push_back(operandValue.index() == 0 &&
+                                                          isOperandNotTiled(operandValue.index()));
         }
     }
 
@@ -772,30 +789,11 @@ StrategyCost extractBaselineCost(mlir::Operation* operation, ShapeRef tilingDims
             VPUX_THROW_WHEN(types.empty(), "Cannot get types for {0}", *operation);
             return types.back();
         };
-        if (!spillReadWriteCanBeOverlapped) {
-            cost += costFunction->getSpillingWriteCost(operation, costParameters, getOutputType);
-        } else {
-            perTileSpillWriteCost =
-                    costFunction->getSpillingWriteCostsForAllTiles(operation, costParameters, getOutputType);
-        }
+        baselineCostContext.spillWriteTypes = getTypesForAllTiles(getOutputType);
     }
-    if (spillReadWriteCanBeOverlapped) {
-        if (multiDimTilingWithChannelTiling) {
-            cost += perTileSpillReadCost.front() + perTileSpillWriteCost.back();
-        } else {
-            for (auto tileInd : irange(perTileSpillReadCost.size())) {
-                if (tileInd == 0) {
-                    cost += perTileSpillReadCost[tileInd];
-                } else {
-                    cost += std::max(perTileSpillReadCost[tileInd], perTileSpillWriteCost[tileInd - 1]);
-                }
-            }
-            // Add the spilling write cost for the last tile's output
-            if (!perTileSpillWriteCost.empty()) {
-                cost += perTileSpillWriteCost.back();
-            }
-        }
-    }
+    const auto calculateBaselineCost = [&]() {
+        return costStrategy->calculateBaselineCost(baselineCostContext);
+    };
 
     if (!spilling && eltwiseLikeOp) {
         SmallVector<mlir::OpResult> parentValues;
@@ -811,25 +809,25 @@ StrategyCost extractBaselineCost(mlir::Operation* operation, ShapeRef tilingDims
 
         llvm::for_each(operands, getOutsideParents);
         if (parentValues.size() <= 1) {
-            return cost;
+            return calculateBaselineCost();
         }
         // check long term spill
 
         auto producerLeft = parentValues.front();
         auto producerRight = parentValues.back();
         if (!producerLeft || !producerRight) {
-            return cost;
+            return calculateBaselineCost();
         }
 
         auto parentLeft = producerLeft.getOwner();
         auto parentRight = producerRight.getOwner();
         if (parentLeft == nullptr || parentRight == nullptr) {
-            return cost;
+            return calculateBaselineCost();
         }
 
         // Parents must be in the same block for ordering comparison
         if (parentLeft->getBlock() != parentRight->getBlock()) {
-            return cost;
+            return calculateBaselineCost();
         }
 
         const auto& [earliestParent, earliestResult, closestParent, closestResult] = [&]() {
@@ -894,10 +892,8 @@ StrategyCost extractBaselineCost(mlir::Operation* operation, ShapeRef tilingDims
                 auto getSecondOperandType = [&](const TileInfo& tileInfo) -> vpux::NDTypeInterface {
                     return getOpTypes(tileInfo)[1];
                 };
-                const auto longSpillingCost = costFunction->getSpillingReadCost(operation, costParameters,
-                                                                                operands.back(), getSecondOperandType);
-
-                cost += longSpillingCost;
+                baselineCostContext.spillReadTypes.push_back(getTypesForAllTiles(getSecondOperandType));
+                baselineCostContext.untiledOperands.push_back(false);
             }
         } else if (!isParentOperation && vfConfigOpt.has_value() &&
                    cmxSizeExceedForEltwiseOpWithSwOpUser(*vfConfigOpt, parentValues, log)) {
@@ -906,14 +902,13 @@ StrategyCost extractBaselineCost(mlir::Operation* operation, ShapeRef tilingDims
             auto getSecondOperandType = [&](const TileInfo& tileInfo) -> vpux::NDTypeInterface {
                 return getOpTypes(tileInfo)[1];
             };
-            auto inSpillingCost =
-                    costFunction->getSpillingReadCost(operation, costParameters, operands.back(), getSecondOperandType);
-            log.trace("Original VF {0} has shared input spill cost {1}", operation->getLoc(), inSpillingCost);
-            cost += inSpillingCost;
+            baselineCostContext.spillReadTypes.push_back(getTypesForAllTiles(getSecondOperandType));
+            baselineCostContext.untiledOperands.push_back(false);
+            log.trace("Original VF {0} has shared input spill", operation->getLoc());
         }
     }
 
-    return cost;
+    return calculateBaselineCost();
 }
 
 std::optional<VPU::MultiClusterStrategy> findCompatibleMCStrategyForVF(

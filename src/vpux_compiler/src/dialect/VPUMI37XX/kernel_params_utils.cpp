@@ -167,8 +167,8 @@ SmallVector<uint8_t> KernelParamsSerializer::createKernelParams(VPUIP::SwKernelO
                 auto ioType = blockId < insSize ? swKernelOp.getInputs()[blockId].getType()
                                                 : swKernelOp.getOutputBuffs()[blockId - insSize].getType();
                 auto ioNdTypeIf = mlir::cast<vpux::NDTypeInterface>(ioType);
-                VPUX_THROW_UNLESS(blockArgNdTypeIf != nullptr || ioNdTypeIf != nullptr,
-                                  "createKernelParams: sw kernel I/O does not implement NDTypeInterface");
+                VPUX_THROW_WHEN(blockArgNdTypeIf == nullptr && ioNdTypeIf == nullptr,
+                                "createKernelParams: sw kernel I/O does not implement NDTypeInterface");
                 VPUX_THROW_UNLESS(vpux::areTypesCompatible(blockArgType, ioType,
                                                            vpux::IE::TypeComparisonMode::STRICT_EQUAL, true, true),
                                   "createKernelParams: types of sw kernel I/O do not match");

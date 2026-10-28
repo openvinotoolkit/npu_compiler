@@ -440,12 +440,12 @@ struct MLIR_VPU_WeightsSeparationUtils_Obfuscation : MLIR_UnitBase {
 
     static mlir::Operation* createSlice(mlir::OpBuilder& builder, mlir::Location loc, mlir::Value input,
                                         ArrayRef<int64_t> offsets, ArrayRef<int64_t> sizes) {
-        return builder.create<IE::SliceOp>(loc, input, offsets, sizes);
+        return IE::SliceOp::create(builder, loc, input, offsets, sizes);
     }
 
     static mlir::Operation* createConcat(mlir::OpBuilder& builder, mlir::Location loc, ArrayRef<mlir::Value> inputs,
                                          int64_t axis) {
-        return builder.create<IE::ConcatOp>(loc, inputs, axis);
+        return IE::ConcatOp::create(builder, loc, inputs, axis);
     }
 };
 

@@ -14,7 +14,7 @@ mlir::FailureOr<SymbolizationResult> ActShaveRtRewriter::symbolize(VPUMI40XX::Ac
     auto result = op.getResult();
     auto symName = findSym(result).getRootReference();
 
-    auto newOp = rewriter.create<VPUASM::ActShaveRtOp>(op.getLoc(), symName, op.getKernelPathAttr());
+    auto newOp = VPUASM::ActShaveRtOp::create(rewriter, op.getLoc(), symName, op.getKernelPathAttr());
 
     rewriter.eraseOp(op);
 

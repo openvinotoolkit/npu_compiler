@@ -11,7 +11,12 @@
 
 #include <cassert>
 
+using vpux::SmallVector;
 using namespace vpux::config;
+
+SmallVector<NPUConstraints::RoPEConfig> vpux::config::getDefaultLegalRoPEConfigs() {
+    return {{32, 128}, {1, 128}, {40, 128}, {8, 256}, {1, 256}, {4, 256}, {1, 64}, {64, 64}, {16, 128}, {2, 128}};
+}
 
 void vpux::config::setNPUConstraints(mlir::MLIRContext* context, const NPUConstraints& constraint) {
     auto& registeredInterface = getCache<ConfigCache, ConfigDialect>(context);

@@ -117,7 +117,7 @@ mlir::Value tryCreateConst(Const::DeclareOp cstOp, SmallVector<VPURT::TaskOp> ta
     auto fusedContentAttr = newContentAttr.transform().fuse(contentType, contentsToFuse).get();
 
     mlir::OpBuilder builder(cstOp);
-    auto newCstOp = builder.create<Const::DeclareOp>(cstOp->getLoc(), newInType, std::move(fusedContentAttr));
+    auto newCstOp = Const::DeclareOp::create(builder, cstOp->getLoc(), newInType, std::move(fusedContentAttr));
     log.trace("Created input constants");
     return newCstOp;
 }
@@ -138,8 +138,8 @@ mlir::Value createBufferDeclaration(SmallVector<VPURT::TaskOp> tasks, vpux::Logg
 
     std::string locSuffix = isInput ? "src" : "dst";
     mlir::OpBuilder builder(bufOp);
-    auto newBuff = builder.create<VPURT::DeclareBufferOp>(
-            appendLoc(bufOp->getLoc(), "strided_buffer_alloc_{0}", locSuffix), newType, bufOp.getSectionAttr(),
+    auto newBuff = VPURT::DeclareBufferOp::create(
+            builder, appendLoc(bufOp->getLoc(), "strided_buffer_alloc_{0}", locSuffix), newType, bufOp.getSectionAttr(),
             bufOp.getSectionIndexAttr(), bufOp.getByteOffsetAttr(), bufOp.getSwizzlingKeyAttr());
     log.trace("Created {0} buffer", locSuffix);
     return newBuff;
@@ -226,8 +226,8 @@ void vpux::VPUIP::handleDmaFusion(mlir::func::FuncOp funcOp, vpux::Logger log,
 
         auto dmaOp = mlir::dyn_cast<VPUIP::NNDMAOp>(fusionCandidates.front().getInnerTaskOp());
         mlir::OpBuilder builder(dmaOp);
-        auto newDmaOp = builder.create<VPUIP::NNDMAOp>(
-                appendLoc(dmaOp->getLoc(), "fused_dma_{0}", dmaLocSuffix), newSrc,
+        auto newDmaOp = VPUIP::NNDMAOp::create(
+                builder, appendLoc(dmaOp->getLoc(), "fused_dma_{0}", dmaLocSuffix), newSrc,
                 /*dynamic_sequence_length_buff=*/nullptr, newDst, getIntAttr(dmaOp->getContext(), newPort),
                 dmaOp.getIsOutOfOrder(), dmaOp.getIsCritical(), dmaOp.getSpillIdAttr(), dmaOp.getCompressCandidate(),
                 /*dmaHwpId=*/nullptr, /*profilingMetadata=*/nullptr, /*splitCandidate=*/dmaOp.getSplitCandidateAttr(),

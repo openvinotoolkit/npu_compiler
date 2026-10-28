@@ -54,15 +54,15 @@ mlir::Type getAuxiliaryBufferType(mlir::Value inBoxCoords, mlir::FloatAttr softN
 }  // namespace
 
 void VPU::NonMaxSuppressionOp::build(mlir::OpBuilder& odsBuilder, mlir::OperationState& odsState,
-                                     mlir::Value inBoxCoords, mlir::Value inBoxScores,
-                                     IE::BoxEncodingTypeAttr boxEncoding, mlir::UnitAttr sortResultDescending,
-                                     mlir::IntegerAttr maxOutputBoxesPerClassValue, mlir::FloatAttr iouThresholdValue,
-                                     mlir::FloatAttr scoreThresholdValue, mlir::FloatAttr softNmsSigmaValue,
+                                     mlir::Value inBoxCoords, mlir::Value inBoxScores, mlir::Value iouThreshold,
+                                     mlir::Value scoreThreshold, IE::BoxEncodingTypeAttr boxEncoding,
+                                     mlir::UnitAttr sortResultDescending, mlir::IntegerAttr maxOutputBoxesPerClassValue,
+                                     mlir::FloatAttr softNmsSigmaValue,
                                      VPU::BoundsRepresentationAttr boundsRepresentation) {
     const auto auxBuffType = getAuxiliaryBufferType(inBoxCoords, softNmsSigmaValue);
     auto auxBuffer = VPU::createEmptyAuxiliaryBuffer(odsBuilder, odsState.location, auxBuffType);
-    build(odsBuilder, odsState, inBoxCoords, inBoxScores, auxBuffer, boxEncoding, sortResultDescending,
-          maxOutputBoxesPerClassValue, iouThresholdValue, scoreThresholdValue, softNmsSigmaValue, boundsRepresentation);
+    build(odsBuilder, odsState, inBoxCoords, inBoxScores, iouThreshold, scoreThreshold, auxBuffer, boxEncoding,
+          sortResultDescending, maxOutputBoxesPerClassValue, softNmsSigmaValue, boundsRepresentation);
 }
 
 mlir::LogicalResult VPU::NonMaxSuppressionOp::inferReturnTypes(mlir::MLIRContext* ctx,
@@ -78,8 +78,8 @@ mlir::LogicalResult VPU::NonMaxSuppressionOp::inferReturnTypes(mlir::MLIRContext
         return mlir::failure();
     }
 
-    VPUX_THROW_UNLESS(nms.getMaxOutputBoxesPerClassValueAttr() != nullptr,
-                      "VPU::NonMaxSuppression: max_output_boxes_per_class_value attribute is required");
+    VPUX_THROW_WHEN(nms.getMaxOutputBoxesPerClassValueAttr() == nullptr,
+                    "VPU::NonMaxSuppression: max_output_boxes_per_class_value attribute is required");
     const int64_t maxOutputBoxesPerClass = nms.getMaxOutputBoxesPerClassValueAttr().getValue().getSExtValue();
     const auto inScoresType = mlir::cast<vpux::NDTypeInterface>(nms.getInBoxScores().getType());
     const auto inScoresShapeInfo = ShapeInfo::fromNDType(inScoresType);

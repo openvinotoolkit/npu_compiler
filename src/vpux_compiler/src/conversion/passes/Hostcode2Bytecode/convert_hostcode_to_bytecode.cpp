@@ -20,6 +20,7 @@
 #include "vpux/compiler/dialect/bytecode/IR/ops/section.hpp"
 #include "vpux/compiler/dialect/bytecode/IR/types.hpp"
 #include "vpux/compiler/dialect/bytecode/utils/builders.hpp"
+#include "vpux/compiler/dialect/bytecode/utils/section_builder.hpp"
 #include "vpux/compiler/dialect/bytecode/utils/serialization.hpp"
 #include "vpux/compiler/dialect/config/IR/attributes.hpp"
 #include "vpux/compiler/dialect/core/IR/dialect.hpp"
@@ -32,6 +33,7 @@
 #include "vpux/utils/logger/logger.hpp"
 
 #include <llvm/Support/Debug.h>
+#include <llvm/Support/raw_ostream.h>
 #include <mlir/Dialect/Arith/IR/Arith.h>
 #include <mlir/Dialect/Async/IR/Async.h>
 #include <mlir/Dialect/ControlFlow/IR/ControlFlow.h>
@@ -46,6 +48,7 @@
 #include <mlir/IR/MLIRContext.h>
 #include <mlir/IR/Operation.h>
 #include <mlir/IR/PatternMatch.h>
+#include <mlir/IR/SymbolTable.h>
 #include <mlir/IR/Value.h>
 #include <mlir/IR/ValueRange.h>
 #include <mlir/Interfaces/CastInterfaces.h>
@@ -115,8 +118,8 @@ public:
 public:
     mlir::LogicalResult matchAndRewrite(mlir::arith::AddIOp origOp, OpAdaptor adaptor,
                                         mlir::ConversionPatternRewriter& rewriter) const final {
-        auto dstRegOp = rewriter.create<bytecode::VirtualGeneralRegisterOp>(origOp.getLoc());
-        rewriter.create<bytecode::AddI64Op>(origOp.getLoc(), dstRegOp.getResult(), adaptor.getLhs(), adaptor.getRhs());
+        auto dstRegOp = bytecode::VirtualValueRegisterOp::create(rewriter, origOp.getLoc());
+        bytecode::AddI64Op::create(rewriter, origOp.getLoc(), dstRegOp.getResult(), adaptor.getLhs(), adaptor.getRhs());
         rewriter.replaceOp(origOp, dstRegOp.getResult());
         return mlir::success();
     }
@@ -134,8 +137,8 @@ public:
 public:
     mlir::LogicalResult matchAndRewrite(mlir::arith::MulIOp origOp, OpAdaptor adaptor,
                                         mlir::ConversionPatternRewriter& rewriter) const final {
-        auto dstRegOp = rewriter.create<bytecode::VirtualGeneralRegisterOp>(origOp.getLoc());
-        rewriter.create<bytecode::MulI64Op>(origOp.getLoc(), dstRegOp.getResult(), adaptor.getLhs(), adaptor.getRhs());
+        auto dstRegOp = bytecode::VirtualValueRegisterOp::create(rewriter, origOp.getLoc());
+        bytecode::MulI64Op::create(rewriter, origOp.getLoc(), dstRegOp.getResult(), adaptor.getLhs(), adaptor.getRhs());
         rewriter.replaceOp(origOp, dstRegOp.getResult());
         return mlir::success();
     }
@@ -153,8 +156,8 @@ public:
 public:
     mlir::LogicalResult matchAndRewrite(mlir::arith::MinSIOp origOp, OpAdaptor adaptor,
                                         mlir::ConversionPatternRewriter& rewriter) const final {
-        auto dstRegOp = rewriter.create<bytecode::VirtualGeneralRegisterOp>(origOp.getLoc());
-        rewriter.create<bytecode::MinI64Op>(origOp.getLoc(), dstRegOp.getResult(), adaptor.getLhs(), adaptor.getRhs());
+        auto dstRegOp = bytecode::VirtualValueRegisterOp::create(rewriter, origOp.getLoc());
+        bytecode::MinI64Op::create(rewriter, origOp.getLoc(), dstRegOp.getResult(), adaptor.getLhs(), adaptor.getRhs());
         rewriter.replaceOp(origOp, dstRegOp.getResult());
         return mlir::success();
     }
@@ -172,8 +175,8 @@ public:
 public:
     mlir::LogicalResult matchAndRewrite(mlir::arith::MaxSIOp origOp, OpAdaptor adaptor,
                                         mlir::ConversionPatternRewriter& rewriter) const final {
-        auto dstRegOp = rewriter.create<bytecode::VirtualGeneralRegisterOp>(origOp.getLoc());
-        rewriter.create<bytecode::MaxI64Op>(origOp.getLoc(), dstRegOp.getResult(), adaptor.getLhs(), adaptor.getRhs());
+        auto dstRegOp = bytecode::VirtualValueRegisterOp::create(rewriter, origOp.getLoc());
+        bytecode::MaxI64Op::create(rewriter, origOp.getLoc(), dstRegOp.getResult(), adaptor.getLhs(), adaptor.getRhs());
         rewriter.replaceOp(origOp, dstRegOp.getResult());
         return mlir::success();
     }
@@ -227,9 +230,9 @@ public:
         default:
             return rewriter.notifyMatchFailure(origOp, "unsupported cmpi predicate");
         }
-        auto dstRegOp = rewriter.create<bytecode::VirtualGeneralRegisterOp>(origOp.getLoc());
-        rewriter.create<bytecode::CmpI64Op>(origOp.getLoc(), dstRegOp.getResult(), adaptor.getLhs(), adaptor.getRhs(),
-                                            rewriter.getI16IntegerAttr(flag));
+        auto dstRegOp = bytecode::VirtualValueRegisterOp::create(rewriter, origOp.getLoc());
+        bytecode::CmpI64Op::create(rewriter, origOp.getLoc(), dstRegOp.getResult(), adaptor.getLhs(), adaptor.getRhs(),
+                                   rewriter.getI16IntegerAttr(flag));
         rewriter.replaceOp(origOp, dstRegOp.getResult());
         return mlir::success();
     }
@@ -247,9 +250,9 @@ public:
 public:
     mlir::LogicalResult matchAndRewrite(mlir::arith::SelectOp origOp, OpAdaptor adaptor,
                                         mlir::ConversionPatternRewriter& rewriter) const final {
-        auto dstRegOp = rewriter.create<bytecode::VirtualGeneralRegisterOp>(origOp.getLoc());
-        rewriter.create<bytecode::SelectOp>(origOp.getLoc(), dstRegOp.getResult(), adaptor.getCondition(),
-                                            adaptor.getTrueValue(), adaptor.getFalseValue());
+        auto dstRegOp = bytecode::VirtualValueRegisterOp::create(rewriter, origOp.getLoc());
+        bytecode::SelectOp::create(rewriter, origOp.getLoc(), dstRegOp.getResult(), adaptor.getCondition(),
+                                   adaptor.getTrueValue(), adaptor.getFalseValue());
         rewriter.replaceOp(origOp, dstRegOp.getResult());
         return mlir::success();
     }
@@ -291,8 +294,8 @@ public:
         if (!origOp.getType().isF64()) {
             return rewriter.notifyMatchFailure(origOp, "unsupported float type: only f64 is supported");
         }
-        auto dstRegOp = rewriter.create<bytecode::VirtualGeneralRegisterOp>(origOp.getLoc());
-        rewriter.create<bytecode::AddF64Op>(origOp.getLoc(), dstRegOp.getResult(), adaptor.getLhs(), adaptor.getRhs());
+        auto dstRegOp = bytecode::VirtualValueRegisterOp::create(rewriter, origOp.getLoc());
+        bytecode::AddF64Op::create(rewriter, origOp.getLoc(), dstRegOp.getResult(), adaptor.getLhs(), adaptor.getRhs());
         rewriter.replaceOp(origOp, dstRegOp.getResult());
         return mlir::success();
     }
@@ -313,8 +316,8 @@ public:
         if (!origOp.getType().isF64()) {
             return rewriter.notifyMatchFailure(origOp, "unsupported float type: only f64 is supported");
         }
-        auto dstRegOp = rewriter.create<bytecode::VirtualGeneralRegisterOp>(origOp.getLoc());
-        rewriter.create<bytecode::SubF64Op>(origOp.getLoc(), dstRegOp.getResult(), adaptor.getLhs(), adaptor.getRhs());
+        auto dstRegOp = bytecode::VirtualValueRegisterOp::create(rewriter, origOp.getLoc());
+        bytecode::SubF64Op::create(rewriter, origOp.getLoc(), dstRegOp.getResult(), adaptor.getLhs(), adaptor.getRhs());
         rewriter.replaceOp(origOp, dstRegOp.getResult());
         return mlir::success();
     }
@@ -335,8 +338,8 @@ public:
         if (!origOp.getType().isF64()) {
             return rewriter.notifyMatchFailure(origOp, "unsupported float type: only f64 is supported");
         }
-        auto dstRegOp = rewriter.create<bytecode::VirtualGeneralRegisterOp>(origOp.getLoc());
-        rewriter.create<bytecode::MulF64Op>(origOp.getLoc(), dstRegOp.getResult(), adaptor.getLhs(), adaptor.getRhs());
+        auto dstRegOp = bytecode::VirtualValueRegisterOp::create(rewriter, origOp.getLoc());
+        bytecode::MulF64Op::create(rewriter, origOp.getLoc(), dstRegOp.getResult(), adaptor.getLhs(), adaptor.getRhs());
         rewriter.replaceOp(origOp, dstRegOp.getResult());
         return mlir::success();
     }
@@ -357,8 +360,8 @@ public:
         if (!origOp.getType().isF64()) {
             return rewriter.notifyMatchFailure(origOp, "unsupported float type: only f64 is supported");
         }
-        auto dstRegOp = rewriter.create<bytecode::VirtualGeneralRegisterOp>(origOp.getLoc());
-        rewriter.create<bytecode::DivF64Op>(origOp.getLoc(), dstRegOp.getResult(), adaptor.getLhs(), adaptor.getRhs());
+        auto dstRegOp = bytecode::VirtualValueRegisterOp::create(rewriter, origOp.getLoc());
+        bytecode::DivF64Op::create(rewriter, origOp.getLoc(), dstRegOp.getResult(), adaptor.getLhs(), adaptor.getRhs());
         rewriter.replaceOp(origOp, dstRegOp.getResult());
         return mlir::success();
     }
@@ -379,8 +382,8 @@ public:
         if (!origOp.getType().isF64()) {
             return rewriter.notifyMatchFailure(origOp, "unsupported float type: only f64 is supported");
         }
-        auto dstRegOp = rewriter.create<bytecode::VirtualGeneralRegisterOp>(origOp.getLoc());
-        rewriter.create<bytecode::RemF64Op>(origOp.getLoc(), dstRegOp.getResult(), adaptor.getLhs(), adaptor.getRhs());
+        auto dstRegOp = bytecode::VirtualValueRegisterOp::create(rewriter, origOp.getLoc());
+        bytecode::RemF64Op::create(rewriter, origOp.getLoc(), dstRegOp.getResult(), adaptor.getLhs(), adaptor.getRhs());
         rewriter.replaceOp(origOp, dstRegOp.getResult());
         return mlir::success();
     }
@@ -401,8 +404,8 @@ public:
         if (!origOp.getType().isF64()) {
             return rewriter.notifyMatchFailure(origOp, "unsupported float type: only f64 is supported");
         }
-        auto dstRegOp = rewriter.create<bytecode::VirtualGeneralRegisterOp>(origOp.getLoc());
-        rewriter.create<bytecode::MaxF64Op>(origOp.getLoc(), dstRegOp.getResult(), adaptor.getLhs(), adaptor.getRhs());
+        auto dstRegOp = bytecode::VirtualValueRegisterOp::create(rewriter, origOp.getLoc());
+        bytecode::MaxF64Op::create(rewriter, origOp.getLoc(), dstRegOp.getResult(), adaptor.getLhs(), adaptor.getRhs());
         rewriter.replaceOp(origOp, dstRegOp.getResult());
         return mlir::success();
     }
@@ -423,8 +426,8 @@ public:
         if (!origOp.getType().isF64()) {
             return rewriter.notifyMatchFailure(origOp, "unsupported float type: only f64 is supported");
         }
-        auto dstRegOp = rewriter.create<bytecode::VirtualGeneralRegisterOp>(origOp.getLoc());
-        rewriter.create<bytecode::MinF64Op>(origOp.getLoc(), dstRegOp.getResult(), adaptor.getLhs(), adaptor.getRhs());
+        auto dstRegOp = bytecode::VirtualValueRegisterOp::create(rewriter, origOp.getLoc());
+        bytecode::MinF64Op::create(rewriter, origOp.getLoc(), dstRegOp.getResult(), adaptor.getLhs(), adaptor.getRhs());
         rewriter.replaceOp(origOp, dstRegOp.getResult());
         return mlir::success();
     }
@@ -445,8 +448,8 @@ public:
         if (!origOp.getType().isF64()) {
             return rewriter.notifyMatchFailure(origOp, "unsupported float type: only f64 is supported");
         }
-        auto dstRegOp = rewriter.create<bytecode::VirtualGeneralRegisterOp>(origOp.getLoc());
-        rewriter.create<bytecode::AbsF64Op>(origOp.getLoc(), dstRegOp.getResult(), adaptor.getOperand());
+        auto dstRegOp = bytecode::VirtualValueRegisterOp::create(rewriter, origOp.getLoc());
+        bytecode::AbsF64Op::create(rewriter, origOp.getLoc(), dstRegOp.getResult(), adaptor.getOperand());
         rewriter.replaceOp(origOp, dstRegOp.getResult());
         return mlir::success();
     }
@@ -467,8 +470,8 @@ public:
         if (!origOp.getType().isF64()) {
             return rewriter.notifyMatchFailure(origOp, "unsupported float type: only f64 is supported");
         }
-        auto dstRegOp = rewriter.create<bytecode::VirtualGeneralRegisterOp>(origOp.getLoc());
-        rewriter.create<bytecode::NegF64Op>(origOp.getLoc(), dstRegOp.getResult(), adaptor.getOperand());
+        auto dstRegOp = bytecode::VirtualValueRegisterOp::create(rewriter, origOp.getLoc());
+        bytecode::NegF64Op::create(rewriter, origOp.getLoc(), dstRegOp.getResult(), adaptor.getOperand());
         rewriter.replaceOp(origOp, dstRegOp.getResult());
         return mlir::success();
     }
@@ -489,8 +492,8 @@ public:
         if (!origOp.getType().isF64()) {
             return rewriter.notifyMatchFailure(origOp, "unsupported float type: only f64 is supported");
         }
-        auto dstRegOp = rewriter.create<bytecode::VirtualGeneralRegisterOp>(origOp.getLoc());
-        rewriter.create<bytecode::CeilF64Op>(origOp.getLoc(), dstRegOp.getResult(), adaptor.getOperand());
+        auto dstRegOp = bytecode::VirtualValueRegisterOp::create(rewriter, origOp.getLoc());
+        bytecode::CeilF64Op::create(rewriter, origOp.getLoc(), dstRegOp.getResult(), adaptor.getOperand());
         rewriter.replaceOp(origOp, dstRegOp.getResult());
         return mlir::success();
     }
@@ -511,8 +514,8 @@ public:
         if (!origOp.getType().isF64()) {
             return rewriter.notifyMatchFailure(origOp, "unsupported float type: only f64 is supported");
         }
-        auto dstRegOp = rewriter.create<bytecode::VirtualGeneralRegisterOp>(origOp.getLoc());
-        rewriter.create<bytecode::FloorF64Op>(origOp.getLoc(), dstRegOp.getResult(), adaptor.getOperand());
+        auto dstRegOp = bytecode::VirtualValueRegisterOp::create(rewriter, origOp.getLoc());
+        bytecode::FloorF64Op::create(rewriter, origOp.getLoc(), dstRegOp.getResult(), adaptor.getOperand());
         rewriter.replaceOp(origOp, dstRegOp.getResult());
         return mlir::success();
     }
@@ -533,9 +536,9 @@ public:
         if (!origOp.getType().isF64()) {
             return rewriter.notifyMatchFailure(origOp, "unsupported float type: only f64 is supported");
         }
-        auto dstRegOp = rewriter.create<bytecode::VirtualGeneralRegisterOp>(origOp.getLoc());
-        rewriter.create<bytecode::RoundF64Op>(
-                origOp.getLoc(), dstRegOp.getResult(), adaptor.getOperand(),
+        auto dstRegOp = bytecode::VirtualValueRegisterOp::create(rewriter, origOp.getLoc());
+        bytecode::RoundF64Op::create(
+                rewriter, origOp.getLoc(), dstRegOp.getResult(), adaptor.getOperand(),
                 rewriter.getI16IntegerAttr(static_cast<int16_t>(intel_npu::vm::RoundingMode::RNE)));
         rewriter.replaceOp(origOp, dstRegOp.getResult());
         return mlir::success();
@@ -557,9 +560,9 @@ public:
         if (!origOp.getType().isF64()) {
             return rewriter.notifyMatchFailure(origOp, "unsupported float type: only f64 is supported");
         }
-        auto dstRegOp = rewriter.create<bytecode::VirtualGeneralRegisterOp>(origOp.getLoc());
-        rewriter.create<bytecode::RoundF64Op>(
-                origOp.getLoc(), dstRegOp.getResult(), adaptor.getOperand(),
+        auto dstRegOp = bytecode::VirtualValueRegisterOp::create(rewriter, origOp.getLoc());
+        bytecode::RoundF64Op::create(
+                rewriter, origOp.getLoc(), dstRegOp.getResult(), adaptor.getOperand(),
                 rewriter.getI16IntegerAttr(static_cast<int16_t>(intel_npu::vm::RoundingMode::RNA)));
         rewriter.replaceOp(origOp, dstRegOp.getResult());
         return mlir::success();
@@ -581,9 +584,9 @@ public:
         if (!origOp.getType().isF64()) {
             return rewriter.notifyMatchFailure(origOp, "unsupported float type: only f64 is supported");
         }
-        auto dstRegOp = rewriter.create<bytecode::VirtualGeneralRegisterOp>(origOp.getLoc());
-        rewriter.create<bytecode::RoundF64Op>(
-                origOp.getLoc(), dstRegOp.getResult(), adaptor.getOperand(),
+        auto dstRegOp = bytecode::VirtualValueRegisterOp::create(rewriter, origOp.getLoc());
+        bytecode::RoundF64Op::create(
+                rewriter, origOp.getLoc(), dstRegOp.getResult(), adaptor.getOperand(),
                 rewriter.getI16IntegerAttr(static_cast<int16_t>(intel_npu::vm::RoundingMode::RTZ)));
         rewriter.replaceOp(origOp, dstRegOp.getResult());
         return mlir::success();
@@ -602,8 +605,8 @@ public:
 public:
     mlir::LogicalResult matchAndRewrite(mlir::arith::SubIOp origOp, OpAdaptor adaptor,
                                         mlir::ConversionPatternRewriter& rewriter) const final {
-        auto dstRegOp = rewriter.create<bytecode::VirtualGeneralRegisterOp>(origOp.getLoc());
-        rewriter.create<bytecode::SubI64Op>(origOp.getLoc(), dstRegOp.getResult(), adaptor.getLhs(), adaptor.getRhs());
+        auto dstRegOp = bytecode::VirtualValueRegisterOp::create(rewriter, origOp.getLoc());
+        bytecode::SubI64Op::create(rewriter, origOp.getLoc(), dstRegOp.getResult(), adaptor.getLhs(), adaptor.getRhs());
         rewriter.replaceOp(origOp, dstRegOp.getResult());
         return mlir::success();
     }
@@ -621,8 +624,8 @@ public:
 public:
     mlir::LogicalResult matchAndRewrite(mlir::arith::DivSIOp origOp, OpAdaptor adaptor,
                                         mlir::ConversionPatternRewriter& rewriter) const final {
-        auto dstRegOp = rewriter.create<bytecode::VirtualGeneralRegisterOp>(origOp.getLoc());
-        rewriter.create<bytecode::DivI64Op>(origOp.getLoc(), dstRegOp.getResult(), adaptor.getLhs(), adaptor.getRhs());
+        auto dstRegOp = bytecode::VirtualValueRegisterOp::create(rewriter, origOp.getLoc());
+        bytecode::DivI64Op::create(rewriter, origOp.getLoc(), dstRegOp.getResult(), adaptor.getLhs(), adaptor.getRhs());
         rewriter.replaceOp(origOp, dstRegOp.getResult());
         return mlir::success();
     }
@@ -640,8 +643,8 @@ public:
 public:
     mlir::LogicalResult matchAndRewrite(mlir::arith::DivUIOp origOp, OpAdaptor adaptor,
                                         mlir::ConversionPatternRewriter& rewriter) const final {
-        auto dstRegOp = rewriter.create<bytecode::VirtualGeneralRegisterOp>(origOp.getLoc());
-        rewriter.create<bytecode::DivU64Op>(origOp.getLoc(), dstRegOp.getResult(), adaptor.getLhs(), adaptor.getRhs());
+        auto dstRegOp = bytecode::VirtualValueRegisterOp::create(rewriter, origOp.getLoc());
+        bytecode::DivU64Op::create(rewriter, origOp.getLoc(), dstRegOp.getResult(), adaptor.getLhs(), adaptor.getRhs());
         rewriter.replaceOp(origOp, dstRegOp.getResult());
         return mlir::success();
     }
@@ -659,8 +662,8 @@ public:
 public:
     mlir::LogicalResult matchAndRewrite(mlir::arith::MinUIOp origOp, OpAdaptor adaptor,
                                         mlir::ConversionPatternRewriter& rewriter) const final {
-        auto dstRegOp = rewriter.create<bytecode::VirtualGeneralRegisterOp>(origOp.getLoc());
-        rewriter.create<bytecode::MinU64Op>(origOp.getLoc(), dstRegOp.getResult(), adaptor.getLhs(), adaptor.getRhs());
+        auto dstRegOp = bytecode::VirtualValueRegisterOp::create(rewriter, origOp.getLoc());
+        bytecode::MinU64Op::create(rewriter, origOp.getLoc(), dstRegOp.getResult(), adaptor.getLhs(), adaptor.getRhs());
         rewriter.replaceOp(origOp, dstRegOp.getResult());
         return mlir::success();
     }
@@ -678,8 +681,8 @@ public:
 public:
     mlir::LogicalResult matchAndRewrite(mlir::arith::MaxUIOp origOp, OpAdaptor adaptor,
                                         mlir::ConversionPatternRewriter& rewriter) const final {
-        auto dstRegOp = rewriter.create<bytecode::VirtualGeneralRegisterOp>(origOp.getLoc());
-        rewriter.create<bytecode::MaxU64Op>(origOp.getLoc(), dstRegOp.getResult(), adaptor.getLhs(), adaptor.getRhs());
+        auto dstRegOp = bytecode::VirtualValueRegisterOp::create(rewriter, origOp.getLoc());
+        bytecode::MaxU64Op::create(rewriter, origOp.getLoc(), dstRegOp.getResult(), adaptor.getLhs(), adaptor.getRhs());
         rewriter.replaceOp(origOp, dstRegOp.getResult());
         return mlir::success();
     }
@@ -697,8 +700,8 @@ public:
 public:
     mlir::LogicalResult matchAndRewrite(mlir::arith::RemUIOp origOp, OpAdaptor adaptor,
                                         mlir::ConversionPatternRewriter& rewriter) const final {
-        auto dstRegOp = rewriter.create<bytecode::VirtualGeneralRegisterOp>(origOp.getLoc());
-        rewriter.create<bytecode::RemU64Op>(origOp.getLoc(), dstRegOp.getResult(), adaptor.getLhs(), adaptor.getRhs());
+        auto dstRegOp = bytecode::VirtualValueRegisterOp::create(rewriter, origOp.getLoc());
+        bytecode::RemU64Op::create(rewriter, origOp.getLoc(), dstRegOp.getResult(), adaptor.getLhs(), adaptor.getRhs());
         rewriter.replaceOp(origOp, dstRegOp.getResult());
         return mlir::success();
     }
@@ -720,10 +723,10 @@ public:
             return rewriter.notifyMatchFailure(origOp, "overflow result of arith.addui_extended is used; "
                                                        "only the sum result is supported");
         }
-        auto sumRegOp = rewriter.create<bytecode::VirtualGeneralRegisterOp>(origOp.getLoc());
-        rewriter.create<bytecode::AddU64Op>(origOp.getLoc(), sumRegOp.getResult(), adaptor.getLhs(), adaptor.getRhs());
+        auto sumRegOp = bytecode::VirtualValueRegisterOp::create(rewriter, origOp.getLoc());
+        bytecode::AddU64Op::create(rewriter, origOp.getLoc(), sumRegOp.getResult(), adaptor.getLhs(), adaptor.getRhs());
         // The overflow result is unused; provide a dead register to satisfy the conversion framework.
-        auto overflowRegOp = rewriter.create<bytecode::VirtualGeneralRegisterOp>(origOp.getLoc());
+        auto overflowRegOp = bytecode::VirtualValueRegisterOp::create(rewriter, origOp.getLoc());
         rewriter.replaceOp(origOp, {sumRegOp.getResult(), overflowRegOp.getResult()});
         return mlir::success();
     }
@@ -745,10 +748,10 @@ public:
             return rewriter.notifyMatchFailure(origOp, "high result of arith.mului_extended is used; "
                                                        "only the low result is supported");
         }
-        auto lowRegOp = rewriter.create<bytecode::VirtualGeneralRegisterOp>(origOp.getLoc());
-        rewriter.create<bytecode::MulU64Op>(origOp.getLoc(), lowRegOp.getResult(), adaptor.getLhs(), adaptor.getRhs());
+        auto lowRegOp = bytecode::VirtualValueRegisterOp::create(rewriter, origOp.getLoc());
+        bytecode::MulU64Op::create(rewriter, origOp.getLoc(), lowRegOp.getResult(), adaptor.getLhs(), adaptor.getRhs());
         // The high result is unused; provide a dead register to satisfy the conversion framework.
-        auto highRegOp = rewriter.create<bytecode::VirtualGeneralRegisterOp>(origOp.getLoc());
+        auto highRegOp = bytecode::VirtualValueRegisterOp::create(rewriter, origOp.getLoc());
         rewriter.replaceOp(origOp, {lowRegOp.getResult(), highRegOp.getResult()});
         return mlir::success();
     }
@@ -766,8 +769,8 @@ public:
 public:
     mlir::LogicalResult matchAndRewrite(mlir::arith::RemSIOp origOp, OpAdaptor adaptor,
                                         mlir::ConversionPatternRewriter& rewriter) const final {
-        auto dstRegOp = rewriter.create<bytecode::VirtualGeneralRegisterOp>(origOp.getLoc());
-        rewriter.create<bytecode::RemI64Op>(origOp.getLoc(), dstRegOp.getResult(), adaptor.getLhs(), adaptor.getRhs());
+        auto dstRegOp = bytecode::VirtualValueRegisterOp::create(rewriter, origOp.getLoc());
+        bytecode::RemI64Op::create(rewriter, origOp.getLoc(), dstRegOp.getResult(), adaptor.getLhs(), adaptor.getRhs());
         rewriter.replaceOp(origOp, dstRegOp.getResult());
         return mlir::success();
     }
@@ -785,8 +788,8 @@ public:
 public:
     mlir::LogicalResult matchAndRewrite(mlir::math::AbsIOp origOp, OpAdaptor adaptor,
                                         mlir::ConversionPatternRewriter& rewriter) const final {
-        auto dstRegOp = rewriter.create<bytecode::VirtualGeneralRegisterOp>(origOp.getLoc());
-        rewriter.create<bytecode::AbsI64Op>(origOp.getLoc(), dstRegOp.getResult(), adaptor.getOperand());
+        auto dstRegOp = bytecode::VirtualValueRegisterOp::create(rewriter, origOp.getLoc());
+        bytecode::AbsI64Op::create(rewriter, origOp.getLoc(), dstRegOp.getResult(), adaptor.getOperand());
         rewriter.replaceOp(origOp, dstRegOp.getResult());
         return mlir::success();
     }
@@ -804,8 +807,8 @@ public:
 public:
     mlir::LogicalResult matchAndRewrite(mlir::arith::AndIOp origOp, OpAdaptor adaptor,
                                         mlir::ConversionPatternRewriter& rewriter) const final {
-        auto dstRegOp = rewriter.create<bytecode::VirtualGeneralRegisterOp>(origOp.getLoc());
-        rewriter.create<bytecode::And64Op>(origOp.getLoc(), dstRegOp.getResult(), adaptor.getLhs(), adaptor.getRhs());
+        auto dstRegOp = bytecode::VirtualValueRegisterOp::create(rewriter, origOp.getLoc());
+        bytecode::And64Op::create(rewriter, origOp.getLoc(), dstRegOp.getResult(), adaptor.getLhs(), adaptor.getRhs());
         rewriter.replaceOp(origOp, dstRegOp.getResult());
         return mlir::success();
     }
@@ -834,8 +837,8 @@ public:
             return mlir::failure();
         }
 
-        auto dstRegOp = rewriter.create<bytecode::VirtualGeneralRegisterOp>(origOp.getLoc());
-        rewriter.create<bytecode::Not64Op>(origOp.getLoc(), dstRegOp.getResult(), src);
+        auto dstRegOp = bytecode::VirtualValueRegisterOp::create(rewriter, origOp.getLoc());
+        bytecode::Not64Op::create(rewriter, origOp.getLoc(), dstRegOp.getResult(), src);
         rewriter.replaceOp(origOp, dstRegOp.getResult());
         return mlir::success();
     }
@@ -859,8 +862,8 @@ public:
             return mlir::failure();
         }
 
-        auto dstRegOp = rewriter.create<bytecode::VirtualGeneralRegisterOp>(origOp.getLoc());
-        rewriter.create<bytecode::Xor64Op>(origOp.getLoc(), dstRegOp.getResult(), adaptor.getLhs(), adaptor.getRhs());
+        auto dstRegOp = bytecode::VirtualValueRegisterOp::create(rewriter, origOp.getLoc());
+        bytecode::Xor64Op::create(rewriter, origOp.getLoc(), dstRegOp.getResult(), adaptor.getLhs(), adaptor.getRhs());
         rewriter.replaceOp(origOp, dstRegOp.getResult());
         return mlir::success();
     }
@@ -878,8 +881,8 @@ public:
 public:
     mlir::LogicalResult matchAndRewrite(mlir::arith::OrIOp origOp, OpAdaptor adaptor,
                                         mlir::ConversionPatternRewriter& rewriter) const final {
-        auto dstRegOp = rewriter.create<bytecode::VirtualGeneralRegisterOp>(origOp.getLoc());
-        rewriter.create<bytecode::Or64Op>(origOp.getLoc(), dstRegOp.getResult(), adaptor.getLhs(), adaptor.getRhs());
+        auto dstRegOp = bytecode::VirtualValueRegisterOp::create(rewriter, origOp.getLoc());
+        bytecode::Or64Op::create(rewriter, origOp.getLoc(), dstRegOp.getResult(), adaptor.getLhs(), adaptor.getRhs());
         rewriter.replaceOp(origOp, dstRegOp.getResult());
         return mlir::success();
     }
@@ -897,8 +900,8 @@ public:
 public:
     mlir::LogicalResult matchAndRewrite(mlir::arith::ShLIOp origOp, OpAdaptor adaptor,
                                         mlir::ConversionPatternRewriter& rewriter) const final {
-        auto dstRegOp = rewriter.create<bytecode::VirtualGeneralRegisterOp>(origOp.getLoc());
-        rewriter.create<bytecode::Sll64Op>(origOp.getLoc(), dstRegOp.getResult(), adaptor.getLhs(), adaptor.getRhs());
+        auto dstRegOp = bytecode::VirtualValueRegisterOp::create(rewriter, origOp.getLoc());
+        bytecode::Sll64Op::create(rewriter, origOp.getLoc(), dstRegOp.getResult(), adaptor.getLhs(), adaptor.getRhs());
         rewriter.replaceOp(origOp, dstRegOp.getResult());
         return mlir::success();
     }
@@ -916,8 +919,8 @@ public:
 public:
     mlir::LogicalResult matchAndRewrite(mlir::arith::ShRUIOp origOp, OpAdaptor adaptor,
                                         mlir::ConversionPatternRewriter& rewriter) const final {
-        auto dstRegOp = rewriter.create<bytecode::VirtualGeneralRegisterOp>(origOp.getLoc());
-        rewriter.create<bytecode::Srl64Op>(origOp.getLoc(), dstRegOp.getResult(), adaptor.getLhs(), adaptor.getRhs());
+        auto dstRegOp = bytecode::VirtualValueRegisterOp::create(rewriter, origOp.getLoc());
+        bytecode::Srl64Op::create(rewriter, origOp.getLoc(), dstRegOp.getResult(), adaptor.getLhs(), adaptor.getRhs());
         rewriter.replaceOp(origOp, dstRegOp.getResult());
         return mlir::success();
     }
@@ -935,8 +938,8 @@ public:
 public:
     mlir::LogicalResult matchAndRewrite(mlir::arith::ShRSIOp origOp, OpAdaptor adaptor,
                                         mlir::ConversionPatternRewriter& rewriter) const final {
-        auto dstRegOp = rewriter.create<bytecode::VirtualGeneralRegisterOp>(origOp.getLoc());
-        rewriter.create<bytecode::Sra64Op>(origOp.getLoc(), dstRegOp.getResult(), adaptor.getLhs(), adaptor.getRhs());
+        auto dstRegOp = bytecode::VirtualValueRegisterOp::create(rewriter, origOp.getLoc());
+        bytecode::Sra64Op::create(rewriter, origOp.getLoc(), dstRegOp.getResult(), adaptor.getLhs(), adaptor.getRhs());
         rewriter.replaceOp(origOp, dstRegOp.getResult());
         return mlir::success();
     }
@@ -961,8 +964,8 @@ public:
             // Sign-extending i1 must map 0 -> 0 and 1 -> -1 (all ones).
             // Computing `0 - val` achieves this: 0 - 0 = 0, 0 - 1 = -1.
             auto zeroReg = bytecode::materializeI64ImmediateRegister(rewriter, loc, 0);
-            auto dstRegOp = rewriter.create<bytecode::VirtualGeneralRegisterOp>(loc);
-            rewriter.create<bytecode::SubI64Op>(loc, dstRegOp.getResult(), zeroReg, adaptor.getIn());
+            auto dstRegOp = bytecode::VirtualValueRegisterOp::create(rewriter, loc);
+            bytecode::SubI64Op::create(rewriter, loc, dstRegOp.getResult(), zeroReg, adaptor.getIn());
             rewriter.replaceOp(origOp, dstRegOp.getResult());
             return mlir::success();
         }
@@ -988,19 +991,19 @@ public:
         const auto loc = origOp.getLoc();
         const auto srcWidth = mlir::cast<mlir::IntegerType>(origOp.getIn().getType()).getWidth();
         const auto dstWidth = mlir::cast<mlir::IntegerType>(origOp.getType()).getWidth();
-        auto dstRegOp = rewriter.create<bytecode::VirtualGeneralRegisterOp>(loc);
+        auto dstRegOp = bytecode::VirtualValueRegisterOp::create(rewriter, loc);
         if (srcWidth == 16 && dstWidth == 8) {
-            rewriter.create<bytecode::ConvertI16ToI8Op>(loc, dstRegOp.getResult(), adaptor.getIn());
+            bytecode::ConvertI16ToI8Op::create(rewriter, loc, dstRegOp.getResult(), adaptor.getIn());
         } else if (srcWidth == 32 && dstWidth == 8) {
-            rewriter.create<bytecode::ConvertI32ToI8Op>(loc, dstRegOp.getResult(), adaptor.getIn());
+            bytecode::ConvertI32ToI8Op::create(rewriter, loc, dstRegOp.getResult(), adaptor.getIn());
         } else if (srcWidth == 32 && dstWidth == 16) {
-            rewriter.create<bytecode::ConvertI32ToI16Op>(loc, dstRegOp.getResult(), adaptor.getIn());
+            bytecode::ConvertI32ToI16Op::create(rewriter, loc, dstRegOp.getResult(), adaptor.getIn());
         } else if (srcWidth == 64 && dstWidth == 8) {
-            rewriter.create<bytecode::ConvertI64ToI8Op>(loc, dstRegOp.getResult(), adaptor.getIn());
+            bytecode::ConvertI64ToI8Op::create(rewriter, loc, dstRegOp.getResult(), adaptor.getIn());
         } else if (srcWidth == 64 && dstWidth == 16) {
-            rewriter.create<bytecode::ConvertI64ToI16Op>(loc, dstRegOp.getResult(), adaptor.getIn());
+            bytecode::ConvertI64ToI16Op::create(rewriter, loc, dstRegOp.getResult(), adaptor.getIn());
         } else if (srcWidth == 64 && dstWidth == 32) {
-            rewriter.create<bytecode::ConvertI64ToI32Op>(loc, dstRegOp.getResult(), adaptor.getIn());
+            bytecode::ConvertI64ToI32Op::create(rewriter, loc, dstRegOp.getResult(), adaptor.getIn());
         } else {
             return rewriter.notifyMatchFailure(origOp, "unsupported trunci width combination");
         }
@@ -1024,23 +1027,23 @@ public:
         const auto loc = origOp.getLoc();
         const auto srcWidth = mlir::cast<mlir::IntegerType>(origOp.getIn().getType()).getWidth();
         const auto dstWidth = mlir::cast<mlir::FloatType>(origOp.getType()).getWidth();
-        auto dstRegOp = rewriter.create<bytecode::VirtualGeneralRegisterOp>(loc);
+        auto dstRegOp = bytecode::VirtualValueRegisterOp::create(rewriter, loc);
         if (srcWidth == 8 && dstWidth == 32) {
-            rewriter.create<bytecode::ConvertI8ToF32Op>(loc, dstRegOp.getResult(), adaptor.getIn());
+            bytecode::ConvertI8ToF32Op::create(rewriter, loc, dstRegOp.getResult(), adaptor.getIn());
         } else if (srcWidth == 8 && dstWidth == 64) {
-            rewriter.create<bytecode::ConvertI8ToF64Op>(loc, dstRegOp.getResult(), adaptor.getIn());
+            bytecode::ConvertI8ToF64Op::create(rewriter, loc, dstRegOp.getResult(), adaptor.getIn());
         } else if (srcWidth == 16 && dstWidth == 32) {
-            rewriter.create<bytecode::ConvertI16ToF32Op>(loc, dstRegOp.getResult(), adaptor.getIn());
+            bytecode::ConvertI16ToF32Op::create(rewriter, loc, dstRegOp.getResult(), adaptor.getIn());
         } else if (srcWidth == 16 && dstWidth == 64) {
-            rewriter.create<bytecode::ConvertI16ToF64Op>(loc, dstRegOp.getResult(), adaptor.getIn());
+            bytecode::ConvertI16ToF64Op::create(rewriter, loc, dstRegOp.getResult(), adaptor.getIn());
         } else if (srcWidth == 32 && dstWidth == 32) {
-            rewriter.create<bytecode::ConvertI32ToF32Op>(loc, dstRegOp.getResult(), adaptor.getIn());
+            bytecode::ConvertI32ToF32Op::create(rewriter, loc, dstRegOp.getResult(), adaptor.getIn());
         } else if (srcWidth == 32 && dstWidth == 64) {
-            rewriter.create<bytecode::ConvertI32ToF64Op>(loc, dstRegOp.getResult(), adaptor.getIn());
+            bytecode::ConvertI32ToF64Op::create(rewriter, loc, dstRegOp.getResult(), adaptor.getIn());
         } else if (srcWidth == 64 && dstWidth == 32) {
-            rewriter.create<bytecode::ConvertI64ToF32Op>(loc, dstRegOp.getResult(), adaptor.getIn());
+            bytecode::ConvertI64ToF32Op::create(rewriter, loc, dstRegOp.getResult(), adaptor.getIn());
         } else if (srcWidth == 64 && dstWidth == 64) {
-            rewriter.create<bytecode::ConvertI64ToF64Op>(loc, dstRegOp.getResult(), adaptor.getIn());
+            bytecode::ConvertI64ToF64Op::create(rewriter, loc, dstRegOp.getResult(), adaptor.getIn());
         } else {
             return rewriter.notifyMatchFailure(origOp, "unsupported sitofp width combination");
         }
@@ -1064,23 +1067,23 @@ public:
         const auto loc = origOp.getLoc();
         const auto srcWidth = mlir::cast<mlir::FloatType>(origOp.getIn().getType()).getWidth();
         const auto dstWidth = mlir::cast<mlir::IntegerType>(origOp.getType()).getWidth();
-        auto dstRegOp = rewriter.create<bytecode::VirtualGeneralRegisterOp>(loc);
+        auto dstRegOp = bytecode::VirtualValueRegisterOp::create(rewriter, loc);
         if (srcWidth == 32 && dstWidth == 8) {
-            rewriter.create<bytecode::ConvertF32ToI8Op>(loc, dstRegOp.getResult(), adaptor.getIn());
+            bytecode::ConvertF32ToI8Op::create(rewriter, loc, dstRegOp.getResult(), adaptor.getIn());
         } else if (srcWidth == 32 && dstWidth == 16) {
-            rewriter.create<bytecode::ConvertF32ToI16Op>(loc, dstRegOp.getResult(), adaptor.getIn());
+            bytecode::ConvertF32ToI16Op::create(rewriter, loc, dstRegOp.getResult(), adaptor.getIn());
         } else if (srcWidth == 32 && dstWidth == 32) {
-            rewriter.create<bytecode::ConvertF32ToI32Op>(loc, dstRegOp.getResult(), adaptor.getIn());
+            bytecode::ConvertF32ToI32Op::create(rewriter, loc, dstRegOp.getResult(), adaptor.getIn());
         } else if (srcWidth == 32 && dstWidth == 64) {
-            rewriter.create<bytecode::ConvertF32ToI64Op>(loc, dstRegOp.getResult(), adaptor.getIn());
+            bytecode::ConvertF32ToI64Op::create(rewriter, loc, dstRegOp.getResult(), adaptor.getIn());
         } else if (srcWidth == 64 && dstWidth == 8) {
-            rewriter.create<bytecode::ConvertF64ToI8Op>(loc, dstRegOp.getResult(), adaptor.getIn());
+            bytecode::ConvertF64ToI8Op::create(rewriter, loc, dstRegOp.getResult(), adaptor.getIn());
         } else if (srcWidth == 64 && dstWidth == 16) {
-            rewriter.create<bytecode::ConvertF64ToI16Op>(loc, dstRegOp.getResult(), adaptor.getIn());
+            bytecode::ConvertF64ToI16Op::create(rewriter, loc, dstRegOp.getResult(), adaptor.getIn());
         } else if (srcWidth == 64 && dstWidth == 32) {
-            rewriter.create<bytecode::ConvertF64ToI32Op>(loc, dstRegOp.getResult(), adaptor.getIn());
+            bytecode::ConvertF64ToI32Op::create(rewriter, loc, dstRegOp.getResult(), adaptor.getIn());
         } else if (srcWidth == 64 && dstWidth == 64) {
-            rewriter.create<bytecode::ConvertF64ToI64Op>(loc, dstRegOp.getResult(), adaptor.getIn());
+            bytecode::ConvertF64ToI64Op::create(rewriter, loc, dstRegOp.getResult(), adaptor.getIn());
         } else {
             return rewriter.notifyMatchFailure(origOp, "unsupported fptosi width combination");
         }
@@ -1106,8 +1109,8 @@ public:
                                                "unsupported extf width combination: only f32->f64 is supported");
         }
         const auto loc = origOp.getLoc();
-        auto dstRegOp = rewriter.create<bytecode::VirtualGeneralRegisterOp>(loc);
-        rewriter.create<bytecode::ConvertF32ToF64Op>(loc, dstRegOp.getResult(), adaptor.getIn());
+        auto dstRegOp = bytecode::VirtualValueRegisterOp::create(rewriter, loc);
+        bytecode::ConvertF32ToF64Op::create(rewriter, loc, dstRegOp.getResult(), adaptor.getIn());
         rewriter.replaceOp(origOp, dstRegOp.getResult());
         return mlir::success();
     }
@@ -1130,8 +1133,8 @@ public:
                                                "unsupported truncf width combination: only f64->f32 is supported");
         }
         const auto loc = origOp.getLoc();
-        auto dstRegOp = rewriter.create<bytecode::VirtualGeneralRegisterOp>(loc);
-        rewriter.create<bytecode::ConvertF64ToF32Op>(loc, dstRegOp.getResult(), adaptor.getIn());
+        auto dstRegOp = bytecode::VirtualValueRegisterOp::create(rewriter, loc);
+        bytecode::ConvertF64ToF32Op::create(rewriter, loc, dstRegOp.getResult(), adaptor.getIn());
         rewriter.replaceOp(origOp, dstRegOp.getResult());
         return mlir::success();
     }
@@ -1161,14 +1164,14 @@ public:
         const size_t numResults = origOp.getNumResults();
         SmallVector<mlir::Value> destRegs;
         for (size_t i = 0; i < numResults; ++i) {
-            auto destReg = rewriter.create<bytecode::VirtualGeneralRegisterOp>(origOp.getLoc());
+            auto destReg = bytecode::VirtualValueRegisterOp::create(rewriter, origOp.getLoc());
             destRegs.push_back(destReg.getResult());
         }
 
         // `M` arguments are emitted in source order and mapped by the VM to callee parameter
         // registers `G + i`, where `G = num_general_registers - M` for the callee frame
-        rewriter.create<bytecode::CallOp>(origOp.getLoc(), funcIndexRegister, mlir::ValueRange(destRegs),
-                                          adaptor.getOperands());
+        bytecode::CallOp::create(rewriter, origOp.getLoc(), funcIndexRegister, mlir::ValueRange(destRegs),
+                                 adaptor.getOperands());
 
         rewriter.replaceOp(origOp, destRegs);
 
@@ -1237,9 +1240,9 @@ public:
             return rewriter.notifyMatchFailure(origOp, "memref.alloc with non-zero offset is not supported");
         }
         _log.trace("Lower memref.alloc of type {0} to bytecode.ext.buffer.create", origOp.getType());
-        auto destinationRegister = rewriter.create<bytecode::VirtualGeneralRegisterOp>(origOp.getLoc()).getResult();
-        rewriter.create<bytecode::ExtBufferCreateOp>(origOp.getLoc(), destinationRegister, origOp.getType(),
-                                                     adaptor.getDynamicSizes());
+        auto destinationRegister = bytecode::VirtualValueRegisterOp::create(rewriter, origOp.getLoc()).getResult();
+        bytecode::ExtBufferCreateOp::create(rewriter, origOp.getLoc(), destinationRegister, origOp.getType(),
+                                            adaptor.getDynamicSizes());
         rewriter.replaceOp(origOp, destinationRegister);
         return mlir::success();
     }
@@ -1288,9 +1291,9 @@ public:
         auto offsetRegisters = zipRegisters(origOp.getStaticOffsets(), adaptor.getOffsets());
         auto sizeRegisters = zipRegisters(origOp.getStaticSizes(), adaptor.getSizes());
         auto strideRegisters = zipRegisters(origOp.getStaticStrides(), adaptor.getStrides());
-        auto destinationRegister = rewriter.create<bytecode::VirtualGeneralRegisterOp>(loc).getResult();
-        rewriter.create<bytecode::BufferSubviewOp>(loc, destinationRegister, adaptor.getSource(), offsetRegisters,
-                                                   sizeRegisters, strideRegisters);
+        auto destinationRegister = bytecode::VirtualValueRegisterOp::create(rewriter, loc).getResult();
+        bytecode::BufferSubviewOp::create(rewriter, loc, destinationRegister, adaptor.getSource(), offsetRegisters,
+                                          sizeRegisters, strideRegisters);
         rewriter.replaceOp(origOp, destinationRegister);
         return mlir::success();
     }
@@ -1373,11 +1376,11 @@ public:
         if (!strideRegisters.has_value()) {
             return rewriter.notifyMatchFailure(origOp, "dynamic stride count mismatch in memref.reinterpret_cast");
         }
-        auto destinationRegister = rewriter.create<bytecode::VirtualGeneralRegisterOp>(loc).getResult();
+        auto destinationRegister = bytecode::VirtualValueRegisterOp::create(rewriter, loc).getResult();
         auto elemType = origOp.getResult().getType().getElementType();
         auto byteOffsetRegister = bytecode::materializeI64ImmediateRegister(rewriter, loc, 0);
-        rewriter.create<bytecode::ExtBufferViewOp>(loc, destinationRegister, adaptor.getSource(), byteOffsetRegister,
-                                                   mlir::TypeAttr::get(elemType), *sizeRegisters, *strideRegisters);
+        bytecode::ExtBufferViewOp::create(rewriter, loc, destinationRegister, adaptor.getSource(), byteOffsetRegister,
+                                          mlir::TypeAttr::get(elemType), *sizeRegisters, *strideRegisters);
         rewriter.replaceOp(origOp, destinationRegister);
         return mlir::success();
     }
@@ -1426,16 +1429,16 @@ public:
         if (rank > 0) {
             strideRegisters[rank - 1] = bytecode::materializeI64ImmediateRegister(rewriter, loc, 1);
             for (int64_t i = rank - 2; i >= 0; --i) {
-                auto dstReg = rewriter.create<bytecode::VirtualGeneralRegisterOp>(loc).getResult();
-                rewriter.create<bytecode::MulI64Op>(loc, dstReg, sizeRegisters[i + 1], strideRegisters[i + 1]);
+                auto dstReg = bytecode::VirtualValueRegisterOp::create(rewriter, loc).getResult();
+                bytecode::MulI64Op::create(rewriter, loc, dstReg, sizeRegisters[i + 1], strideRegisters[i + 1]);
                 strideRegisters[i] = dstReg;
             }
         }
 
-        auto destinationRegister = rewriter.create<bytecode::VirtualGeneralRegisterOp>(loc).getResult();
-        rewriter.create<bytecode::ExtBufferViewOp>(loc, destinationRegister, adaptor.getSource(),
-                                                   adaptor.getByteShift(), mlir::TypeAttr::get(elemType), sizeRegisters,
-                                                   strideRegisters);
+        auto destinationRegister = bytecode::VirtualValueRegisterOp::create(rewriter, loc).getResult();
+        bytecode::ExtBufferViewOp::create(rewriter, loc, destinationRegister, adaptor.getSource(),
+                                          adaptor.getByteShift(), mlir::TypeAttr::get(elemType), sizeRegisters,
+                                          strideRegisters);
         rewriter.replaceOp(origOp, destinationRegister);
         return mlir::success();
     }
@@ -1457,8 +1460,8 @@ public:
         // any memref.dim that survives the fold (dynamic source dim or dynamic index) reads the runtime
         // buffer descriptor through bytecode.buffer.get_dim.
         const auto loc = origOp.getLoc();
-        auto destinationRegister = rewriter.create<bytecode::VirtualGeneralRegisterOp>(loc).getResult();
-        rewriter.create<bytecode::BufferGetDimOp>(loc, destinationRegister, adaptor.getSource(), adaptor.getIndex());
+        auto destinationRegister = bytecode::VirtualValueRegisterOp::create(rewriter, loc).getResult();
+        bytecode::BufferGetDimOp::create(rewriter, loc, destinationRegister, adaptor.getSource(), adaptor.getIndex());
         rewriter.replaceOp(origOp, destinationRegister);
         return mlir::success();
     }
@@ -1483,8 +1486,8 @@ public:
             return rewriter.notifyMatchFailure(origOp,
                                                "memref.store value type is not convertible to a bytecode register");
         }
-        rewriter.create<bytecode::BufferStoreOp>(origOp.getLoc(), adaptor.getMemref(), adaptor.getValue(),
-                                                 adaptor.getIndices());
+        bytecode::BufferStoreOp::create(rewriter, origOp.getLoc(), adaptor.getMemref(), adaptor.getValue(),
+                                        adaptor.getIndices());
         rewriter.eraseOp(origOp);
         return mlir::success();
     }
@@ -1503,8 +1506,8 @@ public:
     mlir::LogicalResult matchAndRewrite(mlir::memref::LoadOp origOp, OpAdaptor adaptor,
                                         mlir::ConversionPatternRewriter& rewriter) const final {
         const auto loc = origOp.getLoc();
-        auto destinationRegister = rewriter.create<bytecode::VirtualGeneralRegisterOp>(loc).getResult();
-        rewriter.create<bytecode::BufferLoadOp>(loc, destinationRegister, adaptor.getMemref(), adaptor.getIndices());
+        auto destinationRegister = bytecode::VirtualValueRegisterOp::create(rewriter, loc).getResult();
+        bytecode::BufferLoadOp::create(rewriter, loc, destinationRegister, adaptor.getMemref(), adaptor.getIndices());
         rewriter.replaceOp(origOp, destinationRegister);
         return mlir::success();
     }
@@ -1513,14 +1516,135 @@ private:
     Logger _log;
 };
 
+class MemRefGetGlobalRewriter final : public mlir::OpConversionPattern<mlir::memref::GetGlobalOp> {
+public:
+    MemRefGetGlobalRewriter(mlir::TypeConverter& typeConverter, mlir::MLIRContext* ctx,
+                            bytecode::SectionBuilder& sections, const Logger& log)
+            : mlir::OpConversionPattern<mlir::memref::GetGlobalOp>(typeConverter, ctx), _sections(sections), _log(log) {
+    }
+
+public:
+    mlir::LogicalResult matchAndRewrite(mlir::memref::GetGlobalOp origOp, OpAdaptor,
+                                        mlir::ConversionPatternRewriter& rewriter) const final {
+        auto globalOp =
+                mlir::SymbolTable::lookupNearestSymbolFrom<mlir::memref::GlobalOp>(origOp, origOp.getNameAttr());
+        if (!globalOp) {
+            return rewriter.notifyMatchFailure(origOp, "referenced memref.global was not found");
+        }
+        const auto denseValue = globalOp.getConstantInitValue();
+        if (!denseValue || !globalOp.getConstant()) {
+            return rewriter.notifyMatchFailure(origOp, "only initialized constant memref.globals are supported");
+        }
+
+        const auto memrefType = origOp.getType();
+        if (!memrefType.hasStaticShape()) {
+            return rewriter.notifyMatchFailure(origOp, "constant global buffer must have a static shape");
+        }
+        const auto [strides, offset] = memrefType.getStridesAndOffset();
+        if (offset != 0 || llvm::any_of(strides, [](int64_t stride) {
+                return mlir::ShapedType::isDynamic(stride) || stride < 0;
+            })) {
+            return rewriter.notifyMatchFailure(origOp,
+                                               "constant global buffer must have zero offset and static strides");
+        }
+        int64_t expectedStride = 1;
+        for (auto dim = memrefType.getRank(); dim-- > 0;) {
+            const auto extent = memrefType.getShape()[dim];
+            if (extent <= 0) {
+                return rewriter.notifyMatchFailure(origOp,
+                                                   "constant global buffer must have strictly positive extents");
+            }
+            if (strides[dim] != expectedStride ||
+                (expectedStride != 0 && extent > std::numeric_limits<int64_t>::max() / expectedStride)) {
+                return rewriter.notifyMatchFailure(origOp, "constant global buffer must have a contiguous layout");
+            }
+            expectedStride *= extent;
+        }
+
+        std::string cacheKey;
+        llvm::raw_string_ostream cacheKeyStream(cacheKey);
+        denseValue.print(cacheKeyStream);
+        cacheKeyStream.flush();
+        const auto loc = origOp.getLoc();
+        const auto constantName = _sections.addConstant(cacheKey, "host_constant", loc, denseValue);
+        const auto elementTypeName = _sections.addType(memrefType.getElementType(), loc);
+        auto* ctx = rewriter.getContext();
+        const auto constantRef = mlir::SymbolRefAttr::get(ctx, bytecode::CONSTANT_SECTION_NAME,
+                                                          {mlir::FlatSymbolRefAttr::get(ctx, constantName)});
+        const auto elementTypeRef = mlir::SymbolRefAttr::get(ctx, bytecode::TYPE_SECTION_NAME,
+                                                             {mlir::FlatSymbolRefAttr::get(ctx, elementTypeName)});
+
+        SmallVector<mlir::Value> shapeRegisters;
+        SmallVector<mlir::Value> strideRegisters;
+        for (const auto extent : memrefType.getShape()) {
+            shapeRegisters.push_back(bytecode::materializeI64ImmediateRegister(rewriter, loc, extent));
+        }
+        for (const auto stride : strides) {
+            strideRegisters.push_back(bytecode::materializeI64ImmediateRegister(rewriter, loc, stride));
+        }
+        auto destinationRegister = bytecode::VirtualValueRegisterOp::create(rewriter, loc).getResult();
+        bytecode::BufferFromConstOp::create(rewriter, loc, destinationRegister, constantRef, elementTypeRef,
+                                            shapeRegisters, strideRegisters);
+        rewriter.replaceOp(origOp, destinationRegister);
+        return mlir::success();
+    }
+
+private:
+    bytecode::SectionBuilder& _sections;
+    Logger _log;
+};
+
+class MemRefCopyRewriter final : public mlir::OpConversionPattern<mlir::memref::CopyOp> {
+public:
+    MemRefCopyRewriter(mlir::TypeConverter& typeConverter, mlir::MLIRContext* ctx, const Logger& log)
+            : mlir::OpConversionPattern<mlir::memref::CopyOp>(typeConverter, ctx), _log(log) {
+    }
+
+public:
+    mlir::LogicalResult matchAndRewrite(mlir::memref::CopyOp origOp, OpAdaptor adaptor,
+                                        mlir::ConversionPatternRewriter& rewriter) const final {
+        const auto sourceType = mlir::dyn_cast<mlir::MemRefType>(origOp.getSource().getType());
+        if (!sourceType) {
+            return rewriter.notifyMatchFailure(origOp, "only ranked memref.copy can use bytecode.buffer.copy");
+        }
+        if (sourceType != origOp.getTarget().getType()) {
+            return rewriter.notifyMatchFailure(origOp,
+                                               "only memref.copy with identical source and target types is supported");
+        }
+        if (!sourceType.getLayout().isIdentity()) {
+            const auto [strides, offset] = sourceType.getStridesAndOffset();
+            if (offset != 0) {
+                return rewriter.notifyMatchFailure(
+                        origOp, "memref.copy with a non-zero offset cannot use bytecode.buffer.copy");
+            }
+            int64_t expectedStride = 1;
+            for (auto dim = sourceType.getRank(); dim-- > 0;) {
+                const auto extent = sourceType.getShape()[dim];
+                const auto stride = strides[dim];
+                if (extent <= 0 || (extent > 1 && (mlir::ShapedType::isDynamic(stride) || stride != expectedStride)) ||
+                    (extent > 1 && expectedStride > std::numeric_limits<int64_t>::max() / extent)) {
+                    return rewriter.notifyMatchFailure(origOp, "memref.copy requires a contiguous, zero-offset layout");
+                }
+                expectedStride *= extent;
+            }
+        }
+        bytecode::BufferCopyOp::create(rewriter, origOp.getLoc(), adaptor.getTarget(), adaptor.getSource());
+        rewriter.eraseOp(origOp);
+        return mlir::success();
+    }
+
+private:
+    Logger _log;
+};
+
 struct CommandListCreationState {
-    bytecode::VirtualGeneralRegisterOp dstCmdListReg;
+    bytecode::VirtualValueRegisterOp dstCmdListReg;
     bytecode::CmdListExecOp lastCmdListExecOp;
 
-    void setLastRegister(bytecode::VirtualGeneralRegisterOp reg) {
+    void setLastRegister(bytecode::VirtualValueRegisterOp reg) {
         dstCmdListReg = reg;
     }
-    bytecode::VirtualGeneralRegisterOp getLastRegister() const {
+    bytecode::VirtualValueRegisterOp getLastRegister() const {
         return dstCmdListReg;
     }
 
@@ -1553,8 +1677,8 @@ public:
     mlir::LogicalResult matchAndRewrite(mlir::async::CreateGroupOp origOp, OpAdaptor,
                                         mlir::ConversionPatternRewriter& rewriter) const final {
         if (origOp->hasAttr("no_reset_cmdlist") == false) {
-            auto dstRegOp = rewriter.create<bytecode::VirtualGeneralRegisterOp>(origOp.getLoc());
-            rewriter.create<bytecode::CmdListCreateOp>(origOp.getLoc(), dstRegOp.getResult());
+            auto dstRegOp = bytecode::VirtualValueRegisterOp::create(rewriter, origOp.getLoc());
+            bytecode::CmdListCreateOp::create(rewriter, origOp.getLoc(), dstRegOp.getResult());
             rewriter.replaceOp(origOp, dstRegOp.getResult());
 
             _cmdListCreationState.setLastRegister(dstRegOp);
@@ -1598,11 +1722,11 @@ public:
             // add create a CmdListAddBarrierOp when CmdListAddBarrierOp is implemented
             // For now, our target model does not require barrier addition
         } else if (!isBoolAttrTrue("noop")) {
-            rewriter.create<bytecode::CmdListCloseOp>(appendLoc(origOp.getLoc(), "_close"), adaptor.getOperand());
+            bytecode::CmdListCloseOp::create(rewriter, appendLoc(origOp.getLoc(), "_close"), adaptor.getOperand());
             uint64_t hostSyncFlag = 0;
             auto cmdListExecOp =
-                    rewriter.create<bytecode::CmdListExecOp>(appendLoc(origOp.getLoc(), "_exec"), adaptor.getOperand(),
-                                                             rewriter.getI16IntegerAttr(hostSyncFlag));
+                    bytecode::CmdListExecOp::create(rewriter, appendLoc(origOp.getLoc(), "_exec"), adaptor.getOperand(),
+                                                    rewriter.getI16IntegerAttr(hostSyncFlag));
             _cmdListCreationState.setLastCmdListExecOp(cmdListExecOp);
         }
         rewriter.eraseOp(origOp);
@@ -1685,9 +1809,8 @@ public:
             if (auto remapped = rewriter.getRemappedValue(val)) {
                 return remapped;
             }
-            return rewriter
-                    .create<mlir::UnrealizedConversionCastOp>(loc, bytecode::RegisterType::get(rewriter.getContext()),
-                                                              val)
+            return mlir::UnrealizedConversionCastOp::create(rewriter, loc,
+                                                            bytecode::RegisterType::get(rewriter.getContext()), val)
                     .getResult(0);
         };
 
@@ -1702,9 +1825,9 @@ public:
         auto kernelSectionRef = mlir::SymbolRefAttr::get(rewriter.getContext(), bytecode::KERNEL_SECTION_NAME,
                                                          {mlir::FlatSymbolRefAttr::get(callee.getLeafReference())});
 
-        auto dstRegOp = rewriter.create<bytecode::VirtualGeneralRegisterOp>(loc);
-        rewriter.create<bytecode::KernelCreateOp>(loc, dstRegOp.getResult(), kernelSectionRef, convertedInputs,
-                                                  convertedOutputs);
+        auto dstRegOp = bytecode::VirtualValueRegisterOp::create(rewriter, loc);
+        bytecode::KernelCreateOp::create(rewriter, loc, dstRegOp.getResult(), kernelSectionRef, convertedInputs,
+                                         convertedOutputs);
 
         const size_t numBodyResults = origOp.getBodyResults().size();
         auto yieldOp = mlir::dyn_cast<mlir::async::YieldOp>(bodyBlock->getTerminator());
@@ -1738,8 +1861,8 @@ public:
         if (!stringSection) {
             // create a string section here
             mlir::OpBuilder sectionBuilder(kernelSection);
-            stringSection = sectionBuilder.create<bytecode::StringSectionOp>(sectionBuilder.getUnknownLoc(),
-                                                                             bytecode::STRING_SECTION_NAME);
+            stringSection = bytecode::StringSectionOp::create(sectionBuilder, sectionBuilder.getUnknownLoc(),
+                                                              bytecode::STRING_SECTION_NAME);
             stringSection.getContent().emplaceBlock();
         } else {
             for (auto stringOp : stringSection.getContent().getOps<bytecode::StringOp>()) {
@@ -1754,7 +1877,7 @@ public:
             // adding kernel name to string section
             auto stringBuilder = mlir::OpBuilder::atBlockEnd(&stringSection.getContent().getBlocks().front());
             auto kernelNameAttr = mlir::StringAttr::get(stringBuilder.getContext(), kernelName);
-            stringBuilder.create<bytecode::StringOp>(stringBuilder.getUnknownLoc(), kernelNameAttr, kernelNameAttr);
+            bytecode::StringOp::create(stringBuilder, stringBuilder.getUnknownLoc(), kernelNameAttr, kernelNameAttr);
         }
 
         return mlir::success();
@@ -1803,8 +1926,8 @@ public:
                             "remove uses of the result before Hostcode2Bytecode conversion");
         }
 
-        rewriter.create<bytecode::CmdListAddKernelOp>(origOp.getLoc(), adaptor.getGroup(), adaptor.getOperand(),
-                                                      mlir::ValueRange{}, mlir::ValueRange{});
+        bytecode::CmdListAddKernelOp::create(rewriter, origOp.getLoc(), adaptor.getGroup(), adaptor.getOperand(),
+                                             mlir::ValueRange{}, mlir::ValueRange{});
         rewriter.eraseOp(origOp);
         return mlir::success();
     }
@@ -1915,13 +2038,13 @@ ParallelCopyInfo checkForParallelCopy(mlir::func::FuncOp funcOp) {
             unsigned edge = 0;
             for (auto* successor : branchOp->getSuccessors()) {
                 auto successorOperands = branchOp.getSuccessorOperands(edge);
-                auto tempVGRFlagVec = detectParallelCopyForEdge(successor, successorOperands.getForwardedOperands());
+                auto tempVVRFlagVec = detectParallelCopyForEdge(successor, successorOperands.getForwardedOperands());
                 // Only store if at least one operand needs a temp register
-                if (llvm::any_of(tempVGRFlagVec, [](bool needsTempVGR) {
-                        return needsTempVGR;
+                if (llvm::any_of(tempVVRFlagVec, [](bool needsTempVVR) {
+                        return needsTempVVR;
                     })) {
                     auto key = std::make_pair(branchOp.getOperation(), edge);
-                    info.mapEdgeOperandsToTempReg.insert({key, std::move(tempVGRFlagVec)});
+                    info.mapEdgeOperandsToTempReg.insert({key, std::move(tempVVRFlagVec)});
                 }
                 edge++;
             }
@@ -1930,7 +2053,7 @@ ParallelCopyInfo checkForParallelCopy(mlir::func::FuncOp funcOp) {
     return info;
 }
 
-// Emit bytecode.set ops to copy each adapted operand into the canonical VGR for the
+// Emit bytecode.set ops to copy each adapted operand into the canonical VVR for the
 // corresponding destination block argument. Called before every jump that passes values
 // to a non-entry block.
 //
@@ -1951,27 +2074,26 @@ void emitBlockArgSetupWithTemporaries(mlir::ConversionPatternRewriter& rewriter,
 
     // Phase 1: snapshot all parallel copy sources before any SetOp runs, freezing their values
     // before Phase 2 begins clobbering canonical registers.
-    llvm::SmallVector<mlir::Value> tempVGRVec(numOperands);
-    for (auto&& [requiresTmpReg, operand, tempVGR] : llvm::zip(operandRequiresTemp, adaptedOperands, tempVGRVec)) {
+    llvm::SmallVector<mlir::Value> tempVVRVec(numOperands);
+    for (auto&& [requiresTmpReg, operand, tempVVR] : llvm::zip(operandRequiresTemp, adaptedOperands, tempVVRVec)) {
         if (!requiresTmpReg) {
             continue;
         }
         VPUX_THROW_UNLESS(operand.getType() == regType, "Branch operand must have RegisterType after type conversion");
-        auto regOp = rewriter.create<bytecode::VirtualGeneralRegisterOp>(loc);
-        rewriter.create<bytecode::SetOp>(loc, regOp.getResult(), operand);
-        tempVGR = regOp.getResult();
+        auto regOp = bytecode::VirtualValueRegisterOp::create(rewriter, loc);
+        bytecode::SetOp::create(rewriter, loc, regOp.getResult(), operand);
+        tempVVR = regOp.getResult();
     }
 
     // Phase 2: write canonical registers in order, substituting the Phase-1 snapshot for any
     // parallel copy source.
-    for (auto&& [requiresTmpReg, blockArg, operand, tempVGR] :
-         llvm::zip(operandRequiresTemp, destBlock->getArguments(), adaptedOperands, tempVGRVec)) {
+    for (auto&& [requiresTmpReg, blockArg, operand, tempVVR] :
+         llvm::zip(operandRequiresTemp, destBlock->getArguments(), adaptedOperands, tempVVRVec)) {
         const auto it = argToReg.find(blockArg);
-        VPUX_THROW_UNLESS(it != argToReg.end(),
-                          "No canonical register found for block argument during branch lowering");
-        const auto src = requiresTmpReg ? tempVGR : operand;
+        VPUX_THROW_WHEN(it == argToReg.end(), "No canonical register found for block argument during branch lowering");
+        const auto src = requiresTmpReg ? tempVVR : operand;
         VPUX_THROW_UNLESS(src.getType() == regType, "Branch operand must have RegisterType after type conversion");
-        rewriter.create<bytecode::SetOp>(loc, it->second, src);
+        bytecode::SetOp::create(rewriter, loc, it->second, src);
     }
 }
 
@@ -2078,12 +2200,12 @@ public:
         // Fill ^false_setup: copy false-edge args then jump to falseDest.
         rewriter.setInsertionPointToEnd(falseSetupBlock);
         emitBlockArgSetupWithTemporaries(rewriter, loc, falseDest, falseOps, _argToReg, falseTempFlags);
-        rewriter.create<bytecode::JmpOp>(loc, falseDest);
+        bytecode::JmpOp::create(rewriter, loc, falseDest);
 
         // Fill ^true_setup: copy true-edge args then jump to trueDest.
         rewriter.setInsertionPointToEnd(trueSetupBlock);
         emitBlockArgSetupWithTemporaries(rewriter, loc, trueDest, trueOps, _argToReg, trueTempFlags);
-        rewriter.create<bytecode::JmpOp>(loc, trueDest);
+        bytecode::JmpOp::create(rewriter, loc, trueDest);
 
         return mlir::success();
     }
@@ -2137,8 +2259,8 @@ public:
         const size_t numCases = caseValues.size();
 
         const auto compRegIt = _switchCompRegs.find(switchOp.getOperation());
-        VPUX_THROW_UNLESS(compRegIt != _switchCompRegs.end(),
-                          "No pre-allocated comparison register found for cf.switch op");
+        VPUX_THROW_WHEN(compRegIt == _switchCompRegs.end(),
+                        "No pre-allocated comparison register found for cf.switch op");
         const auto compReg = compRegIt->second;
 
         auto* currentBlock = switchOp->getBlock();
@@ -2168,17 +2290,18 @@ public:
         // Emit set_imm + je for one check; falseDest is always the next physical block.
         const auto emitCheck = [&](mlir::Block* inBlock, size_t caseIdx, mlir::Block* fallthroughBlock) {
             rewriter.setInsertionPointToEnd(inBlock);
-            rewriter.create<bytecode::SetImmOp>(
-                    loc, compReg, rewriter.getI64IntegerAttr(bytecode::apIntToI64ImmediateBits(caseValues[caseIdx])));
-            rewriter.create<bytecode::JEOp>(loc, condReg, compReg, caseSetupBlocks[caseIdx], fallthroughBlock);
+            bytecode::SetImmOp::create(
+                    rewriter, loc, compReg,
+                    rewriter.getI64IntegerAttr(bytecode::apIntToI64ImmediateBits(caseValues[caseIdx])));
+            bytecode::JEOp::create(rewriter, loc, condReg, compReg, caseSetupBlocks[caseIdx], fallthroughBlock);
         };
 
         // Fill currentBlock (case 0); fallthroughDest = checkBlocks[0] or defSetupBlock if N==1.
         rewriter.setInsertionPoint(switchOp);
         {
             auto* fallthroughBlock = checkBlocks.empty() ? defSetupBlock : checkBlocks[0];
-            rewriter.create<bytecode::SetImmOp>(
-                    loc, compReg, rewriter.getI64IntegerAttr(bytecode::apIntToI64ImmediateBits(caseValues[0])));
+            bytecode::SetImmOp::create(rewriter, loc, compReg,
+                                       rewriter.getI64IntegerAttr(bytecode::apIntToI64ImmediateBits(caseValues[0])));
             rewriter.replaceOpWithNewOp<bytecode::JEOp>(switchOp, condReg, compReg, caseSetupBlocks[0],
                                                         fallthroughBlock);
         }
@@ -2192,7 +2315,7 @@ public:
         // Fill def_setup block.
         rewriter.setInsertionPointToEnd(defSetupBlock);
         emitBlockArgSetupWithTemporaries(rewriter, loc, defaultDest, defaultOps, _argToReg, defaultTempFlags);
-        rewriter.create<bytecode::JmpOp>(loc, defaultDest);
+        bytecode::JmpOp::create(rewriter, loc, defaultDest);
 
         // Fill case-setup blocks: each is only reached when its JE fires.
         for (size_t i = 0; i < numCases; ++i) {
@@ -2206,7 +2329,7 @@ public:
 
             rewriter.setInsertionPointToEnd(caseSetupBlocks[i]);
             emitBlockArgSetupWithTemporaries(rewriter, loc, caseDests[i], caseOps[i], _argToReg, caseTempFlags);
-            rewriter.create<bytecode::JmpOp>(loc, caseDests[i]);
+            bytecode::JmpOp::create(rewriter, loc, caseDests[i]);
         }
 
         return mlir::success();
@@ -2261,8 +2384,8 @@ void preprocessingAsyncOps(mlir::func::FuncOp funcOp) {
         auto& entryBlock = funcOp.getBody().front();
         builder.setInsertionPointToStart(&entryBlock);
         auto constAttr = builder.getIntegerAttr(builder.getIndexType(), 1);
-        auto groupSize = builder.create<mlir::arith::ConstantOp>(builder.getUnknownLoc(), constAttr);
-        auto group = builder.create<mlir::async::CreateGroupOp>(builder.getUnknownLoc(), groupSize);
+        auto groupSize = mlir::arith::ConstantOp::create(builder, builder.getUnknownLoc(), constAttr);
+        auto group = mlir::async::CreateGroupOp::create(builder, builder.getUnknownLoc(), groupSize);
 
         // add a await all op before every func.return in the function. Returns may live in
         // blocks other than the entry block when the function contains control flow, and every
@@ -2271,10 +2394,10 @@ void preprocessingAsyncOps(mlir::func::FuncOp funcOp) {
         funcOp.walk([&](mlir::func::ReturnOp op) {
             returnOps.push_back(op);
         });
-        VPUX_THROW_UNLESS(!returnOps.empty(), "No func.return found in function {0}", funcOp.getSymName());
+        VPUX_THROW_WHEN(returnOps.empty(), "No func.return found in function {0}", funcOp.getSymName());
         for (auto retOp : returnOps) {
             builder.setInsertionPoint(retOp);
-            builder.create<mlir::async::AwaitAllOp>(retOp.getLoc(), group);
+            mlir::async::AwaitAllOp::create(builder, retOp.getLoc(), group);
         }
     }
 }
@@ -2311,10 +2434,11 @@ private:
         }
 
         auto funcSection = prepareFuncSection(moduleOp);
+        bytecode::SectionBuilder sections(moduleOp, funcSection);
         for (auto funcOp : hostCompileFunctions) {
             CommandListCreationState cmdListCreationState;
             preprocessingAsyncOps(funcOp);
-            if (mlir::failed(convertFuncToBytecode(funcOp, funcSection, cmdListCreationState))) {
+            if (mlir::failed(convertFuncToBytecode(funcOp, funcSection, sections, cmdListCreationState))) {
                 _log.error("Failed to convert function {0} to bytecode", funcOp.getName());
                 signalPassFailure();
                 return;
@@ -2331,13 +2455,13 @@ private:
         mlir::OpBuilder builder(funcOp.getContext());
         builder.setInsertionPointToStart(&entryBlock);
 
-        // Canonical VGRs for non-entry block arguments.
+        // Canonical VVRs for non-entry block arguments.
         for (auto& block : body) {
             if (&block == &entryBlock) {
                 continue;
             }
             for (auto arg : block.getArguments()) {
-                auto regOp = builder.create<bytecode::VirtualGeneralRegisterOp>(funcOp.getLoc());
+                auto regOp = bytecode::VirtualValueRegisterOp::create(builder, funcOp.getLoc());
                 result.argToReg[arg] = regOp.getResult();
             }
         }
@@ -2350,17 +2474,17 @@ private:
         });
         if (hasCondBr) {
             result.condBrOneReg =
-                    builder.create<bytecode::ImmRegisterOp>(funcOp.getLoc(), builder.getI64IntegerAttr(1)).getResult();
+                    bytecode::ImmRegisterOp::create(builder, funcOp.getLoc(), builder.getI64IntegerAttr(1)).getResult();
         }
 
-        // One comparison VGR per cf.switch op with at least one case (reused for all case value
-        // comparisons in that switch). Zero-case switches jump directly to default and need no VGR.
+        // One comparison VVR per cf.switch op with at least one case (reused for all case value
+        // comparisons in that switch). Zero-case switches jump directly to default and need no VVR.
         body.walk([&](mlir::cf::SwitchOp switchOp) {
             const auto caseValuesAttr = switchOp.getCaseValues();
             if (!caseValuesAttr || caseValuesAttr->empty()) {
                 return;
             }
-            auto compReg = builder.create<bytecode::VirtualGeneralRegisterOp>(funcOp.getLoc());
+            auto compReg = bytecode::VirtualValueRegisterOp::create(builder, funcOp.getLoc());
             result.switchCompRegs[switchOp.getOperation()] = compReg.getResult();
         });
 
@@ -2380,6 +2504,7 @@ private:
     // Convert a function to bytecode operations and store the new bytecode function in the provided function section
     // The original function is erased after conversion
     mlir::LogicalResult convertFuncToBytecode(mlir::func::FuncOp funcOp, bytecode::FuncSectionOp funcSection,
+                                              bytecode::SectionBuilder& sections,
                                               CommandListCreationState& cmdListCreationState) {
         mlir::TypeConverter typeConverter;
         typeConverter.addConversion([](mlir::IntegerType type) -> mlir::Type {
@@ -2413,19 +2538,19 @@ private:
             }
             if (auto blockArg = mlir::dyn_cast<mlir::BlockArgument>(inputs.front())) {
                 // Only function parameters (entry block args) map to VirtualParameterRegisterOp.
-                // Non-entry block args are handled by the canonical VGR assigned in preallocateRegisters.
+                // Non-entry block args are handled by the canonical VVR assigned in preallocateRegisters.
                 auto* region = blockArg.getOwner()->getParent();
                 if (blockArg.getOwner() == &region->front()) {
-                    return builder.create<bytecode::VirtualParameterRegisterOp>(loc, blockArg.getArgNumber());
+                    return bytecode::VirtualParameterRegisterOp::create(builder, loc, blockArg.getArgNumber());
                 }
             }
-            return builder.create<mlir::UnrealizedConversionCastOp>(loc, resultType, inputs).getResult(0);
+            return mlir::UnrealizedConversionCastOp::create(builder, loc, resultType, inputs).getResult(0);
         };
         typeConverter.addTargetMaterialization(materialize);
         typeConverter.addSourceMaterialization(materialize);
 
-        // Pre-pass: allocate canonical VGRs for non-entry block arguments, one shared const-1
-        // register for all cf.cond_br comparisons, and one comparison VGR per cf.switch op —
+        // Pre-pass: allocate canonical VVRs for non-entry block arguments, one shared const-1
+        // register for all cf.cond_br comparisons, and one comparison VVR per cf.switch op —
         // all placed at the entry block so the register allocator finds them in its single-block scan.
         const auto preAllocRegs = preallocateRegisters(funcOp);
 
@@ -2452,6 +2577,8 @@ private:
         target.addIllegalOp<mlir::memref::DimOp>();
         target.addIllegalOp<mlir::memref::StoreOp>();
         target.addIllegalOp<mlir::memref::LoadOp>();
+        target.addIllegalOp<mlir::memref::CopyOp>();
+        target.addIllegalOp<mlir::memref::GetGlobalOp>();
         target.addLegalDialect<bytecode::BytecodeDialect>();
 
         mlir::RewritePatternSet patterns(ctx);
@@ -2511,6 +2638,8 @@ private:
         patterns.add<MemRefDimRewriter>(typeConverter, ctx, _log);
         patterns.add<MemRefStoreRewriter>(typeConverter, ctx, _log);
         patterns.add<MemRefLoadRewriter>(typeConverter, ctx, _log);
+        patterns.add<MemRefGetGlobalRewriter>(typeConverter, ctx, sections, _log);
+        patterns.add<MemRefCopyRewriter>(typeConverter, ctx, _log);
         patterns.add<AsyncCreateGroupRewriter>(typeConverter, ctx, cmdListCreationState, _log);
         patterns.add<AsyncAddToGroupRewriter>(typeConverter, ctx, _log);
         patterns.add<AsyncAwaitRewriter>(typeConverter, ctx, _log);
@@ -2526,7 +2655,7 @@ private:
             return errorAt(funcOp, "Failed to apply conversion patterns");
         }
 
-        // Post-pass: replace all uses of non-entry block arguments with their canonical VGRs.
+        // Post-pass: replace all uses of non-entry block arguments with their canonical VVRs.
         // The type materializer may have produced unrealized_cast(blockArg → Register) ops during
         // conversion; after replaceAllUsesWith those become Register→Register identity casts.
         // Remove them so the resulting bytecode is clean.
@@ -2564,6 +2693,10 @@ private:
         bytecodeFuncOp.getBody().takeBody(funcOp.getBody());
 
         for (auto arg : bytecodeFuncOp.getBody().getArguments() | reversed) {
+            if (!arg.use_empty()) {
+                return errorAt(funcOp, "Cannot erase entry block argument {0}; it is still used by '{1}'",
+                               arg.getArgNumber(), arg.use_begin()->getOwner()->getName());
+            }
             bytecodeFuncOp.getBody().eraseArgument(arg.getArgNumber());
         }
         funcOp->erase();

@@ -51,8 +51,7 @@ void SplitExceedingBarrierSlotCountPass::safeRunOnFunc() {
     const auto availableSlots = vpux::VPUIP::getAvailableSlots(func, maxAvailableSlots);
     // verify each task individually satisfies variant count
     func->walk([&](VPURT::TaskOp taskOp) {
-        VPUX_THROW_UNLESS(!vpux::VPUIP::hasDistributedOperand(taskOp), "Task op should not be distributed: '{0}'",
-                          taskOp);
+        VPUX_THROW_WHEN(vpux::VPUIP::hasDistributedOperand(taskOp), "Task op should not be distributed: '{0}'", taskOp);
         VPUX_THROW_UNLESS(barrierInfo.getNumOfSlotsUsed(taskOp) <= availableSlots,
                           "Task '{0}' uses too many barrier slots '{1}', available slots are '{2}' for producers "
                           "or consumers",

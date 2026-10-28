@@ -12,23 +12,23 @@ bytecode.type_section @type_section {
 
 bytecode.func_section @function_section {
     bytecode.ext.func @create () -> () {
-        %dst = bytecode.virtual_general_register
-        %s0 = bytecode.virtual_general_register
-        %s1 = bytecode.virtual_general_register
-        %st0 = bytecode.virtual_general_register
-        %st1 = bytecode.virtual_general_register
+        %dst = bytecode.virtual_value_register
+        %s0 = bytecode.virtual_value_register
+        %s1 = bytecode.virtual_value_register
+        %st0 = bytecode.virtual_value_register
+        %st1 = bytecode.virtual_value_register
         bytecode.buffer.create %dst, @type_section::@i64_type shape(%s0, %s1) strides(%st0, %st1)
         bytecode.ret
     }
     bytecode.ext.func @subview (i64) -> () {
-        %dst = bytecode.virtual_general_register
+        %dst = bytecode.virtual_value_register
         %src = bytecode.virtual_parameter_register 0
-        %o0 = bytecode.virtual_general_register
-        %o1 = bytecode.virtual_general_register
-        %sz0 = bytecode.virtual_general_register
-        %sz1 = bytecode.virtual_general_register
-        %st0 = bytecode.virtual_general_register
-        %st1 = bytecode.virtual_general_register
+        %o0 = bytecode.virtual_value_register
+        %o1 = bytecode.virtual_value_register
+        %sz0 = bytecode.virtual_value_register
+        %sz1 = bytecode.virtual_value_register
+        %st0 = bytecode.virtual_value_register
+        %st1 = bytecode.virtual_value_register
         bytecode.buffer.get_dim %sz0, %src, %o0
         bytecode.buffer.subview %dst, %src offsets(%o0, %o1) sizes(%sz0, %sz1) strides(%st0, %st1)
         bytecode.ret
@@ -36,39 +36,52 @@ bytecode.func_section @function_section {
     bytecode.ext.func @store (i64, i64) -> () {
         %buf = bytecode.virtual_parameter_register 0
         %val = bytecode.virtual_parameter_register 1
-        %i0 = bytecode.virtual_general_register
-        %i1 = bytecode.virtual_general_register
+        %i0 = bytecode.virtual_value_register
+        %i1 = bytecode.virtual_value_register
         bytecode.buffer.store %buf, %val indices(%i0, %i1)
         bytecode.ret
     }
     bytecode.ext.func @load (i64) -> () {
-        %dst = bytecode.virtual_general_register
+        %dst = bytecode.virtual_value_register
         %src = bytecode.virtual_parameter_register 0
-        %i0 = bytecode.virtual_general_register
-        %i1 = bytecode.virtual_general_register
+        %i0 = bytecode.virtual_value_register
+        %i1 = bytecode.virtual_value_register
         bytecode.buffer.load %dst, %src indices(%i0, %i1)
+        bytecode.ret
+    }
+    bytecode.ext.func @from_const () -> () {
+        %const_buf = bytecode.virtual_value_register
+        %copy_buf = bytecode.virtual_value_register
+        %size = bytecode.virtual_value_register
+        %stride = bytecode.virtual_value_register
+        bytecode.buffer.from_const %const_buf, @constant_section::@shape, @type_section::@i64_type shape(%size) strides(%stride)
+        bytecode.buffer.copy %copy_buf, %const_buf
         bytecode.ret
     }
 }
 
+bytecode.constant_section @constant_section {
+    bytecode.constant @shape dense<[1, 16, 1440, 2560]> : tensor<4xi64>
+}
+
 // CHECK-LABEL: bytecode.ext.func @create
-// CHECK:         [[DST:%.+]] = bytecode.virtual_general_register
-// CHECK:         [[S0:%.+]] = bytecode.virtual_general_register
-// CHECK:         [[S1:%.+]] = bytecode.virtual_general_register
-// CHECK:         [[ST0:%.+]] = bytecode.virtual_general_register
-// CHECK:         [[ST1:%.+]] = bytecode.virtual_general_register
+// CHECK:         [[DST:%.+]] = bytecode.virtual_value_register
+// CHECK:         [[S0:%.+]] = bytecode.virtual_value_register
+// CHECK:         [[S1:%.+]] = bytecode.virtual_value_register
+// CHECK:         [[ST0:%.+]] = bytecode.virtual_value_register
+// CHECK:         [[ST1:%.+]] = bytecode.virtual_value_register
 // CHECK:         bytecode.buffer.create [[DST]], @type_section::@i64_type shape([[S0]], [[S1]]) strides([[ST0]], [[ST1]])
 // CHECK:         bytecode.ret
 
 // CHECK-LABEL: bytecode.ext.func @subview
-// CHECK:         [[DST:%.+]] = bytecode.virtual_general_register
+// CHECK:         [[DST:%.+]] = bytecode.virtual_value_register
 // CHECK:         [[SRC:%.+]] = bytecode.virtual_parameter_register 0
-// CHECK:         [[O0:%.+]] = bytecode.virtual_general_register
-// CHECK:         [[O1:%.+]] = bytecode.virtual_general_register
-// CHECK:         [[SZ0:%.+]] = bytecode.virtual_general_register
-// CHECK:         [[SZ1:%.+]] = bytecode.virtual_general_register
-// CHECK:         [[ST0:%.+]] = bytecode.virtual_general_register
-// CHECK:         [[ST1:%.+]] = bytecode.virtual_general_register
+// CHECK:         [[O0:%.+]] = bytecode.virtual_value_register
+// CHECK:         [[O1:%.+]] = bytecode.virtual_value_register
+// CHECK:         [[SZ0:%.+]] = bytecode.virtual_value_register
+// CHECK:         [[SZ1:%.+]] = bytecode.virtual_value_register
+// CHECK:         [[ST0:%.+]] = bytecode.virtual_value_register
+// CHECK:         [[ST1:%.+]] = bytecode.virtual_value_register
 // CHECK:         bytecode.buffer.get_dim [[SZ0]], [[SRC]], [[O0]]
 // CHECK:         bytecode.buffer.subview [[DST]], [[SRC]] offsets([[O0]], [[O1]]) sizes([[SZ0]], [[SZ1]]) strides([[ST0]], [[ST1]])
 // CHECK:         bytecode.ret
@@ -76,15 +89,24 @@ bytecode.func_section @function_section {
 // CHECK-LABEL: bytecode.ext.func @store
 // CHECK:         [[BUF:%.+]] = bytecode.virtual_parameter_register 0
 // CHECK:         [[VAL:%.+]] = bytecode.virtual_parameter_register 1
-// CHECK:         [[I0:%.+]] = bytecode.virtual_general_register
-// CHECK:         [[I1:%.+]] = bytecode.virtual_general_register
+// CHECK:         [[I0:%.+]] = bytecode.virtual_value_register
+// CHECK:         [[I1:%.+]] = bytecode.virtual_value_register
 // CHECK:         bytecode.buffer.store [[BUF]], [[VAL]] indices([[I0]], [[I1]])
 // CHECK:         bytecode.ret
 
 // CHECK-LABEL: bytecode.ext.func @load
-// CHECK:         [[DST:%.+]] = bytecode.virtual_general_register
+// CHECK:         [[DST:%.+]] = bytecode.virtual_value_register
 // CHECK:         [[SRC:%.+]] = bytecode.virtual_parameter_register 0
-// CHECK:         [[I0:%.+]] = bytecode.virtual_general_register
-// CHECK:         [[I1:%.+]] = bytecode.virtual_general_register
+// CHECK:         [[I0:%.+]] = bytecode.virtual_value_register
+// CHECK:         [[I1:%.+]] = bytecode.virtual_value_register
 // CHECK:         bytecode.buffer.load [[DST]], [[SRC]] indices([[I0]], [[I1]])
+// CHECK:         bytecode.ret
+
+// CHECK-LABEL: bytecode.ext.func @from_const
+// CHECK:         [[CONST_BUF:%.+]] = bytecode.virtual_value_register
+// CHECK:         [[COPY_BUF:%.+]] = bytecode.virtual_value_register
+// CHECK:         [[SIZE:%.+]] = bytecode.virtual_value_register
+// CHECK:         [[STRIDE:%.+]] = bytecode.virtual_value_register
+// CHECK:         bytecode.buffer.from_const [[CONST_BUF]], @constant_section::@shape, @type_section::@i64_type shape([[SIZE]]) strides([[STRIDE]])
+// CHECK:         bytecode.buffer.copy [[COPY_BUF]], [[CONST_BUF]]
 // CHECK:         bytecode.ret

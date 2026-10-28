@@ -206,8 +206,9 @@ void groupExecOps(VPUMI40XX::MappedInferenceOp mpi, const VPURegMapped::TaskType
                 // should be after the maxVariant It can also be before maxVariant, or before firstInvariant, or
                 // anywhere in-between
                 groupBuilder.setInsertionPointAfter(maxSecondary.getOperation());
-                auto group = groupBuilder.create<VPURegMapped::ExecutionGroupOp>(
-                        maxPrimary.getLoc(), mlir::TypeRange({minPrimary.getIndexType(), minSecondary.getIndexType()}),
+                auto group = VPURegMapped::ExecutionGroupOp::create(
+                        groupBuilder, maxPrimary.getLoc(),
+                        mlir::TypeRange({minPrimary.getIndexType(), minSecondary.getIndexType()}),
                         mlir::TypeRange({maxPrimary.getIndexType(), maxSecondary.getIndexType()}), previosGroup,
                         waitBarrs, updateBarrs, primary);
 
@@ -216,8 +217,9 @@ void groupExecOps(VPUMI40XX::MappedInferenceOp mpi, const VPURegMapped::TaskType
                 // add the terminator
                 mlir::Block* block = &group.getTasks().emplaceBlock();
                 auto terminatorBuilder = mlir::OpBuilder::atBlockEnd(block);
-                terminatorBuilder.create<VPURegMapped::GroupYieldOp>(
-                        group.getLoc(), mlir::ValueRange({minPrimary.getResult(), minSecondary.getResult()}),
+                VPURegMapped::GroupYieldOp::create(
+                        terminatorBuilder, group.getLoc(),
+                        mlir::ValueRange({minPrimary.getResult(), minSecondary.getResult()}),
                         mlir::ValueRange({maxPrimary.getResult(), maxSecondary.getResult()}));
 
                 // need to travel now to the next elem in chain before we move all ops into the new container

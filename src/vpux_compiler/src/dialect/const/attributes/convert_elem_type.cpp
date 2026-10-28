@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-#include "vpux/compiler/core/types/quantile_float/types.hpp"
+#include "vpux/compiler/core/types/quantile_types/types.hpp"
 #include "vpux/compiler/dialect/const/attributes/content.hpp"
 #include "vpux/compiler/dialect/const/utils/transformations.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
@@ -123,7 +123,7 @@ Const::Content vpux::Const::ConvertElemTypeAttr::transform(vpux::Const::Content&
         return convertQuantizedToQuantizedWithZeroPoint(input, qTypeIn, qTypeOut, outNDType);
     }
 
-    if (mlir::isa<mlir::quant::QuantizedType, vpux::type::QuantileType>(inElementType)) {
+    if (mlir::isa<mlir::quant::QuantizedType, mlir::quant::QuantileType>(inElementType)) {
         // TODO: Support dequantization transformation
         VPUX_THROW("Unsupported conversion: {0} -> {1}", inElementType, outElementType);
     }

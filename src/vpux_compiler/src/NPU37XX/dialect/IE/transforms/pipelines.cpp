@@ -5,6 +5,7 @@
 
 #include "vpux/compiler/NPU37XX/dialect/IE/transforms/passes.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
+#include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
 #include "vpux/compiler/dialect/core/transforms/passes.hpp"
 #include "vpux/compiler/locverif/passes.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
@@ -17,6 +18,9 @@ using namespace vpux;
 
 void vpux::IE::arch37xx::buildInitialLowPrecisionTransformationsPipeline(
         mlir::OpPassManager& pm, const IE::LowPrecisionTransformOptions& options, Logger log) {
+    if (options.enableGroupQuantCorrection) {
+        pm.addPass(IE::createUseGroupQuantCorrectionPass(log));
+    }
     pm.addPass(IE::createReshapeMatMulInputsPass(options.enableGroupedMatMul, log));
     pm.addPass(IE::createConvertScalarToTensorPass(log));
     pm.addPass(IE::createQDQOptimizationAggressivePass(options.fuseFQAndMulWithNonConstInput, log));
@@ -29,7 +33,6 @@ void vpux::IE::arch37xx::buildInitialLowPrecisionTransformationsPipeline(
     pm.addPass(IE::createAdjustFakeQdqParamsPass(log));
     pm.addPass(IE::createFuseQuantizationMultiplyPass(options.fuseFQAndMulWithNonConstInput, log));
 
-    pm.addPass(IE::createConvertDynamicDequantizeToFakeQuantizePass(log));
     pm.addPass(IE::createHandleU16FakeQuantizePass(log));
 }
 
@@ -54,6 +57,10 @@ void vpux::IE::arch37xx::buildLowPrecisionPipeline(mlir::OpPassManager& pm, cons
     pm.addPass(IE::createSplitFakeQuantPass(log));
 
     pm.addPass(mlir::createCanonicalizerPass());  // Note: folds constants before convert-to-dequantize
+
+    pm.addPass(IE::createConvertDQRawDataTypeToQuantizedPass(log));
+    pm.addPass(IE::createConvertConstantDynamicDequantizeToDequantizePass(log));
+
     pm.addPass(IE::createConvertToQuantizedOpsPass(log));
     pm.addPass(mlir::createCanonicalizerPass(grc));
     pm.addPass(IE::createPropagateAndFuseQuantizeDequantizePass(log));
@@ -150,6 +157,28 @@ void vpux::IE::arch37xx::buildDefaultHWPipeline(mlir::OpPassManager& pm, const I
     pm.addPass(locverif::createStartLocationVerifierPass(log, options.locationsVerificationMode));
     pm.addPass(IE::createForbidFourBitOutputsPass(log));
 
+    /*
+      Memory reservation for CMX has to happen as early as possible, before any use of getTotalCMXSize. It is required
+      because memory reservation decreases usable CMX size which can result in different tiling decisions. If different
+      passes see different effective CMX size different failures which can be hard to diagnose can happen. Examples of
+      such failures include:
+      - Fail during compilation if additional memory was reserved after tiling but before scheduling since tiles
+      selected by tiling pipeline won't fit CMX anymore
+      - Memory corruption if additional memory is reserved after scheduler since additional memory will overlap
+      addresses allocated by the scheduler Currently there is no validation if memory is not reserved before the first
+      call to getTotalCMXSize.
+    */
+    pm.addPass(VPU::createReserveProfilingMemPass(
+            options.enableProfiling ? options.enableDMAProfiling.getValue() : "false", log));
+
+    /*
+      Call this pass after all other memory reservation has already been done. This pass checks if there is 1KiB
+      of reserved memory at the end of CMX and extends it if some is missing. So to not waste CMX memory make sure
+      as much as possible is allocated in that 1KiB region. Exception to this rule is memory reserved for SW kernel IO
+      for such memory make sure to reserve it after this pass to allow data prefetching.
+    */
+    pm.addPass(VPU::createSWKernelDataPrefetchReserveMemPass(log));
+
     IE::buildOutliningPipeline(pm, options, log);
 
     // No passes should be run before this pipeline, with very few exceptions.
@@ -188,7 +217,6 @@ void vpux::IE::arch37xx::buildDefaultHWPipeline(mlir::OpPassManager& pm, const I
     pm.addPass(mlir::createCanonicalizerPass(grc));
     IE::buildScaleShiftProcessingPipeline(pm, log);
 
-    pm.addPass(IE::createConvertConstantDynamicDequantizeToDequantizePass(log));
     IE::arch37xx::buildLowPrecisionPipeline(pm, IE::LowPrecisionOptions(options), log);
     pm.addPass(IE::createConvertShapeTo4DPass(isOptionEnabled(options.forceConvertGatherTo4D),
                                               /*enableShapeVerification=*/true, log));
@@ -234,6 +262,11 @@ void vpux::IE::arch37xx::buildDefaultHWPipeline(mlir::OpPassManager& pm, const I
 void vpux::IE::arch37xx::buildReferenceSWPipeline(mlir::OpPassManager& pm,
                                                   const IE::arch37xx::DefaultHWOptions& options, Logger log) {
     const auto grc = getDefaultGreedyRewriteConfig();
+
+    // Create DMA/DPU HWP scratch buffer
+    pm.addPass(VPU::createReserveProfilingMemPass("false", log));
+    pm.addPass(VPU::createSWKernelDataPrefetchReserveMemPass(log));
+
     // No passes should be run before this pipeline, with very few exceptions.
     IE::buildPostImportPipeline(pm, log);
 
@@ -249,6 +282,7 @@ void vpux::IE::arch37xx::buildReferenceSWPipeline(mlir::OpPassManager& pm,
     pm.addPass(mlir::createCSEPass());
     pm.addPass(IE::createUniquifySimilarOpsPass(log));
     pm.addPass(IE::createMergeParallelFullyConnectedPass(log));
+    pm.addPass(IE::createConvertDynamicDequantizeToFakeQuantizePass(log));
     pm.addPass(IE::createUnrollGroupQuantizePass(log));
     pm.addPass(IE::createUnrollFullyConnectedPass(log));
     pm.addPass(IE::createConvertMatMulToConvPass(log));
@@ -268,6 +302,10 @@ void vpux::IE::arch37xx::buildReferenceSWPipeline(mlir::OpPassManager& pm,
 
     pm.addPass(IE::createSplitFakeQuantPass(log));
     pm.addPass(mlir::createCanonicalizerPass(grc));
+
+    pm.addPass(IE::createConvertDQRawDataTypeToQuantizedPass(log));
+    pm.addPass(IE::createConvertConstantDynamicDequantizeToDequantizePass(log));
+
     pm.addPass(IE::createDequantizeConstPass(options.runtimeDequantizationLimit,
                                              isOptionEnabled(options.enableRuntimeDequant), log));
     pm.addPass(IE::createMergeFakeQuantPass(log));

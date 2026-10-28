@@ -12,6 +12,8 @@
 !qElemType1 = !quant.uniform<i8<-127:127>:f16, 0.0031488373523622048>
 !qElemType2 = !quant.uniform<u8:f16, 0.0078431372549019607:128>
 !qElemType3 = !quant.uniform<u8:f16, 0.015686274509803921:128>
+!qElemType4 = !quant.uniform<u8:f16, 0.0078431372549019607:128>
+!qElemType5 = !quant.uniform<u8:f16, 0.015686274509803921:128>
 
 // CHECK-LABEL: @GroupConvolutionToSingleConvolution
 module @GroupConvolutionToSingleConvolution {
@@ -55,8 +57,7 @@ module @GroupConvolutionToSingleConvolution {
         return %2 : tensor<1x96x128x256xf16>
 
         // CHECK-DAG:       [[CST:%.+]] = const.Declare tensor<96x96x3x3x!qElemType, {order = #NHWC}> = dense<> : tensor<0xf80>, [#const.Concat<
-        // CHECK-SAME:          #const.CastElemType<!qElemType1>, #const.ConvertElemType<!qElemType>, #const.Reorder<#NHWC>]
-
+        // CHECK-SAME:          #const.CastElemType<!qElemType3>, #const.ConvertElemType<!qElemType>, #const.Reorder<#NHWC>]
         // CHECK:           [[PERMUTE_CAST0:%.+]] = IE.PermuteQuantize([[ARG0]])
         // CHECK-SAME:          {dstElemType = f16, dst_order = #NHWC, mem_perm = #NHWC, pads_begin = [0, 0, 0, 0], pads_end = [0, 0, 0, 0]}
         // CHECK-SAME:          : tensor<1x96x128x256xf16> -> tensor<1x96x128x256xf16, {order = #NHWC}>
@@ -64,14 +65,13 @@ module @GroupConvolutionToSingleConvolution {
         // CHECK:           [[AVGPOOL:%.+]] = IE.AvgPool([[PERMUTE_CAST0]]) {
         // CHECK-SAME:          exclude_pads, kernel_size = [1, 1], pads_begin = [0, 0], pads_end = [0, 0],
         // CHECK-SAME:          rounding_type = #IE.rounding_type<FLOOR>, strides = [1, 1]}
-        // CHECK-SAME:          : tensor<1x96x128x256xf16, {order = #NHWC}> -> tensor<1x96x128x256x!qElemType2, {order = #NHWC}>
+        // CHECK-SAME:          : tensor<1x96x128x256xf16, {order = #NHWC}> -> tensor<1x96x128x256x!qElemType4, {order = #NHWC}>
 
-        // CHECK:           [[QUANTIZE_CAST:%.+]] = IE.QuantizeCast([[AVGPOOL]]) {dstElemType = !qElemType3}
-        // CHECK-SAME:        : tensor<1x96x128x256x!qElemType2, {order = #NHWC}> -> tensor<1x96x128x256x!qElemType3, {order = #NHWC}>
+        // CHECK:           [[QUANTIZE_CAST:%.+]] = IE.QuantizeCast([[AVGPOOL]]) {dstElemType = !qElemType5} : tensor<1x96x128x256x!qElemType4, {order = #NHWC}> -> tensor<1x96x128x256x!qElemType5, {order = #NHWC}>
 
         // CHECK:           [[CONV:%.+]] = IE.Convolution([[QUANTIZE_CAST]], [[CST]]) {
         // CHECK-SAME:          dilations = [1, 1], pads_begin = [1, 1], pads_end = [1, 1], strides = [1, 1]}
-        // CHECK-SAME:        : tensor<1x96x128x256x!qElemType3, {order = #NHWC}>, tensor<96x96x3x3x!qElemType, {order = #NHWC}>
+        // CHECK-SAME:       : tensor<1x96x128x256x!qElemType5, {order = #NHWC}>, tensor<96x96x3x3x!qElemType, {order = #NHWC}>
         // CHECK-SAME:        -> tensor<1x96x128x256xf16>
         // CHECK:        return [[CONV]] : tensor<1x96x128x256xf16>
     }

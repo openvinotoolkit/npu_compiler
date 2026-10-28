@@ -49,7 +49,7 @@ void AddBootstrapBarriersPass::safeRunOnFunc() {
             continue;
         }
 
-        auto bootsTrapTask = builder.create<VPUMI40XX::BootstrapOp>(op.getLoc(), trivialIndexType, op->getResult(0));
+        auto bootsTrapTask = VPUMI40XX::BootstrapOp::create(builder, op.getLoc(), trivialIndexType, op->getResult(0));
         if (bootstrapID == 0) {
             first = bootsTrapTask;
         }

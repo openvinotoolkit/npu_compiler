@@ -190,7 +190,7 @@ Const::Content transformImpl(mlir::quant::QuantizedType qElemType, mlir::Type ou
 
 Const::Content vpux::Const::QuantizeAttr::transform(vpux::Const::Content& input) const {
     const auto qElemType = mlir::dyn_cast<mlir::quant::QuantizedType>(getTargetType());
-    VPUX_THROW_UNLESS(qElemType != nullptr, "Got non quantized type '{0}' in 'QuantizeAttr'");
+    VPUX_THROW_WHEN(qElemType == nullptr, "Got non quantized type '{0}' in 'QuantizeAttr'");
     const auto storageType = qElemType.getStorageType();
     mlir::Type outType = inferOutputType(input.getType());
     auto ctx = getContext();

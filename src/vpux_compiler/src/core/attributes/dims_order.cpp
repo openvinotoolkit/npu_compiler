@@ -96,7 +96,7 @@ void vpux::DimsOrder::validateCode(StorageType code) {
         --dimInd;
 
         // Check if dimension was used more than once.
-        VPUX_THROW_UNLESS(!dimUsed[dimInd], "Dimension {0} was used twice in DimsOrder code {1}", dimInd, code);
+        VPUX_THROW_WHEN(dimUsed[dimInd], "Dimension {0} was used twice in DimsOrder code {1}", dimInd, code);
 
         dimUsed[dimInd] = true;
     }
@@ -172,8 +172,8 @@ void vpux::DimsOrder::validatePermutation(DimArrRef perm) {
                           "Dim {0} is out of DimsOrder permutation range {1}", d, perm);
 
         // Check if dimension was used more than once.
-        VPUX_THROW_UNLESS(!dimUsed[static_cast<size_t>(d.ind())], "Dim {0} was used twice in DimsOrder permutation {1}",
-                          d, perm);
+        VPUX_THROW_WHEN(dimUsed[static_cast<size_t>(d.ind())], "Dim {0} was used twice in DimsOrder permutation {1}", d,
+                        perm);
 
         dimUsed[static_cast<size_t>(d.ind())] = true;
     }
@@ -289,7 +289,7 @@ mlir::AffineMap vpux::DimsOrder::toAffineMap(mlir::MLIRContext* ctx) const {
 
 DimsOrder vpux::DimsOrder::fromValue(mlir::Value val) {
     const auto type = mlir::dyn_cast<vpux::NDTypeInterface>(val.getType());
-    VPUX_THROW_UNLESS(type != nullptr, "Value '{0}' has non vpux::NDTypeInterface '{1}'", val, val.getType());
+    VPUX_THROW_WHEN(type == nullptr, "Value '{0}' has non vpux::NDTypeInterface '{1}'", val, val.getType());
     return type.getDimsOrder();
 }
 
@@ -317,7 +317,7 @@ bool vpux::DimsOrder::isCompatibleLayout(mlir::MemRefType type) const {
 
 bool vpux::DimsOrder::isCompatibleLayout(mlir::Value val) const {
     const auto type = mlir::dyn_cast<mlir::MemRefType>(val.getType());
-    VPUX_THROW_UNLESS(type != nullptr, "Can't get DimsOrder from Type '{0}'", val.getType());
+    VPUX_THROW_WHEN(type == nullptr, "Can't get DimsOrder from Type '{0}'", val.getType());
     return isCompatibleLayout(type);
 }
 

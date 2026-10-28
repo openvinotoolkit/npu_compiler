@@ -61,10 +61,16 @@ namespace {
 
 class ConvertToPermuteCast final : public mlir::OpRewritePattern<IE::PermuteQuantizeOp> {
 public:
-    using mlir::OpRewritePattern<IE::PermuteQuantizeOp>::OpRewritePattern;
+    ConvertToPermuteCast(mlir::MLIRContext* ctx)
+            : mlir::OpRewritePattern<IE::PermuteQuantizeOp>(ctx), _log(Logger::global()) {
+        this->setDebugName("ConvertToPermuteCast");
+    }
 
 public:
     mlir::LogicalResult matchAndRewrite(IE::PermuteQuantizeOp origOp, mlir::PatternRewriter& rewriter) const final;
+
+private:
+    Logger _log;
 };
 
 mlir::LogicalResult ConvertToPermuteCast::matchAndRewrite(IE::PermuteQuantizeOp origOp,

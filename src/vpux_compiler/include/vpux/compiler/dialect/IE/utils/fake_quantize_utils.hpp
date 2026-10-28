@@ -5,7 +5,7 @@
 
 #pragma once
 
-#include "vpux/compiler/core/types/quantile_float/types.hpp"
+#include "vpux/compiler/core/types/quantile_types/types.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/data_movement.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/data_type.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/eltwise.hpp"
@@ -135,7 +135,7 @@ private:
     [[nodiscard]] mlir::LogicalResult initializeStructure(IE::ConvertOp& convertOp, mlir::Operation* opUser);
     [[nodiscard]] mlir::LogicalResult initializeStructure(Const::DeclareOp& declareOp, mlir::Operation* opUser);
 
-    mlir::LogicalResult checkAndSet(mlir::Value& out, mlir::Value value, bool allowConstant) const;
+    mlir::LogicalResult checkAndSet(mlir::Value& out, mlir::Value value, bool allowConstant, bool isScalePath) const;
 
     vpux::NDTypeInterface getInputType() const;
 
@@ -200,12 +200,12 @@ std::set<int64_t> findAxes(IE::FakeQuantizeOp origOp);
 std::set<int64_t> findAxes(IE::DynamicDequantizeOp origOp);
 
 template <typename AnyOp>
-type::QuantileType tryParsingNF4(AnyOp) {
+mlir::quant::QuantileType tryParsingNF4(AnyOp) {
     return nullptr;
 }
 
 template <>
-type::QuantileType tryParsingNF4(Const::DeclareOp constOp);
+mlir::quant::QuantileType tryParsingNF4(Const::DeclareOp constOp);
 
 }  // namespace IE
 }  // namespace vpux

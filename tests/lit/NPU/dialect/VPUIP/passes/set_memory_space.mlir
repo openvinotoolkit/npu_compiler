@@ -12,6 +12,12 @@ module @VPU.SW {
     }
 }
 
+net.NetworkInfo entryPoint : @MultipleAllocs inputsInfo :  {
+    DataInfo "input" : tensor<1x1000xf16>
+} outputsInfo :  {
+    DataInfo "output" : tensor<1x1000xf16>
+}
+
 // CHECK: func.func @MultipleAllocs([[ARG0:%[^:]+]]: memref<1x1000xf16, @DDR>, [[ARG1:%[^:]+]]: memref<1x1000xf16, @DDR>) -> memref<1x1000xf16, @DDR>
 func.func @MultipleAllocs(%arg0: memref<1x1000xf16>, %arg1: memref<1x1000xf16>) -> memref<1x1000xf16> {
     %0 = memref.alloc() : memref<1x1000xf16>
@@ -58,6 +64,12 @@ module @VPU.SW {
     }
 }
 
+net.NetworkInfo entryPoint : @ReshapeInGraph inputsInfo :  {
+    DataInfo "input" : tensor<1x512x1x1xf32>
+} outputsInfo :  {
+    DataInfo "output" : tensor<1x512x1x1xf32>
+}
+
 // CHECK: func.func @ReshapeInGraph([[ARG0:%[^:]+]]: memref<1x512x1x1xf32, @DDR>, [[ARG1:%[^:]+]]: memref<1x512x1x1xf32, @DDR>) -> memref<1x512x1x1xf32, @DDR>
 func.func @ReshapeInGraph(%arg0: memref<1x512x1x1xf32>, %arg1: memref<1x512x1x1xf32>) -> memref<1x512x1x1xf32> {
     %0 = VPUIP.GenericReshape inputs(%arg0 : memref<1x512x1x1xf32>) -> memref<1x512xf32>
@@ -88,6 +100,12 @@ module @VPU.SW {
     func.func nested @builtin_relu(%input : memref<*xf16>, %output : memref<*xf16>) attributes {
         VPU.kernel_code = "activation_relu.cpp", VPU.kernel_entry = "activation_relu", VPU.task_type = @COMPUTE
     }
+}
+
+net.NetworkInfo entryPoint : @Async inputsInfo :  {
+    DataInfo "input" : tensor<1x1000xf16>
+} outputsInfo :  {
+    DataInfo "output" : tensor<1x1000xf16>
 }
 
 // CHECK: func.func @Async([[ARG0:%[^:]+]]: memref<1x1000xf16, @DDR>, [[ARG1:%[^:]+]]: memref<1x1000xf16, @DDR>) -> memref<1x1000xf16, @DDR>
@@ -141,6 +159,12 @@ func.func @Async(%arg0: memref<1x1000xf16>, %arg1: memref<1x1000xf16>) -> memref
     sparsity_map=memref<1x1000xi1>
 >
 
+net.NetworkInfo entryPoint : @GroupOp inputsInfo :  {
+    DataInfo "input" : tensor<1x1000xf16>
+} outputsInfo :  {
+    DataInfo "output" : tensor<1x1000xf16>
+}
+
 // CHECK-LABEL: func.func @GroupOp
 // CHECK-SAME:  ([[ARG0:%.+]]: !VPUIP.SparseBuffer<data=memref<1x1000xf16, @DDR>, sparsity_map=memref<1x1000xi1, @DDR>>)
 // CHECK-SAME:      -> !VPUIP.SparseBuffer<data=memref<1x1000xf16, @DDR>, sparsity_map=memref<1x1000xi1, @DDR>>
@@ -166,6 +190,12 @@ func.func @GroupOp(%arg0: !SparseType) -> !SparseType {
     data=memref<1x1000xf16>,
     sparsity_map=memref<1x1000xi1>
 >
+
+net.NetworkInfo entryPoint : @GroupOpAllInputsNoneMemSpace inputsInfo :  {
+    DataInfo "input" : tensor<1x1000xf16>
+} outputsInfo :  {
+    DataInfo "output" : tensor<1x1000xf16>
+}
 
 // CHECK-LABEL: func.func @GroupOpAllInputsNoneMemSpace
 // CHECK-SAME:  ([[ARG0:%.+]]: !VPUIP.SparseBuffer<data=memref<1x1000xf16, @DDR>, sparsity_map=memref<1x1000xi1, @DDR>>)

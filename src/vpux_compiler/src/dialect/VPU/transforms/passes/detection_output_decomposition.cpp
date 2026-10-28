@@ -45,7 +45,7 @@ int64_t getNumPriors(VPU::DetectionOutputOp origOp) {
 
 mlir::Value createReshape(mlir::PatternRewriter& rewriter, mlir::Value tensor, ArrayRef<int64_t> newShape) {
     const auto newShapeAttr = getIntArrayAttr(rewriter.getContext(), newShape);
-    auto reshape = rewriter.create<VPU::ReshapeOp>(tensor.getLoc(), tensor, newShapeAttr);
+    auto reshape = VPU::ReshapeOp::create(rewriter, tensor.getLoc(), tensor, newShapeAttr);
     return reshape.getOutput();
 }
 
@@ -137,7 +137,7 @@ mlir::Value transposeClassPredictions(mlir::PatternRewriter& rewriter, mlir::Val
     const auto permutationMap =
             mlir::AffineMapAttr::get(DimsOrder::NCWH.toAffineMap(ctx));  // [Batch, 1, Priors, Classes]
 
-    return rewriter.create<VPU::MemPermuteOp>(tensor.getLoc(), tensor, defaultOrder, permutationMap);
+    return VPU::MemPermuteOp::create(rewriter, tensor.getLoc(), tensor, defaultOrder, permutationMap);
 }
 
 mlir::Value transposeBoxes(mlir::PatternRewriter& rewriter, mlir::Value boxes4D) {
@@ -149,7 +149,7 @@ mlir::Value transposeBoxes(mlir::PatternRewriter& rewriter, mlir::Value boxes4D)
     const auto permutationMap =
             mlir::AffineMapAttr::get(DimsOrder::NHCW.toAffineMap(ctx));  // [Batch, Priors, Classes, 4 or 5]
 
-    return rewriter.create<VPU::MemPermuteOp>(boxes4D.getLoc(), boxes4D, defaultOrder, permutationMap);
+    return VPU::MemPermuteOp::create(rewriter, boxes4D.getLoc(), boxes4D, defaultOrder, permutationMap);
 }
 
 mlir::Value cutOnWidth(mlir::PatternRewriter& rewriter, mlir::Value tensor, int64_t width) {
@@ -157,7 +157,7 @@ mlir::Value cutOnWidth(mlir::PatternRewriter& rewriter, mlir::Value tensor, int6
     slicedShape.back() = width;
     const auto offsets = Shape(slicedShape.size());
 
-    auto sliceOp = rewriter.create<VPU::SliceOp>(tensor.getLoc(), tensor, offsets, slicedShape);
+    auto sliceOp = VPU::SliceOp::create(rewriter, tensor.getLoc(), tensor, offsets, slicedShape);
     return sliceOp.getResult();
 }
 
@@ -195,7 +195,7 @@ mlir::LogicalResult DetectionOutputDecomposition::matchAndRewrite(VPU::Detection
         const auto inputWidth = origOp.getAttr().getInputWidth().getInt();
         const auto inputHeight = origOp.getAttr().getInputHeight().getInt();
         priors4D =
-                rewriter.create<VPU::DetectionOutputNormalizeOp>(origOp->getLoc(), priors4D, inputWidth, inputHeight);
+                VPU::DetectionOutputNormalizeOp::create(rewriter, origOp->getLoc(), priors4D, inputWidth, inputHeight);
     }
 
     const auto boxLogits = reshapeLogitsTo4D(rewriter, origOp.getInBoxLogits(), numPriors);
@@ -203,8 +203,8 @@ mlir::LogicalResult DetectionOutputDecomposition::matchAndRewrite(VPU::Detection
 
     const auto codeType = origOp.getAttr().getCodeType().getValue();
     const auto clipBeforeNms = origOp.getAttr().getClipBeforeNms().getValue();
-    auto decodeBoxes = rewriter.create<VPU::DetectionOutputDecodeBoxesOp>(
-            appendLoc(loc, "decodeBoxes"), boxLogitsTransposed, priors4D, codeType, clipBeforeNms);
+    auto decodeBoxes = VPU::DetectionOutputDecodeBoxesOp::create(
+            rewriter, appendLoc(loc, "decodeBoxes"), boxLogitsTransposed, priors4D, codeType, clipBeforeNms);
 
     const auto classPredictions = reshapeClassPredictionsTo4D(rewriter, origOp.getInClassPreds(), numPriors);
     const auto transposedClassPredictions = transposeClassPredictions(rewriter, classPredictions);
@@ -219,8 +219,8 @@ mlir::LogicalResult DetectionOutputDecomposition::matchAndRewrite(VPU::Detection
     }();
     const auto detectionsPerClassAttr = getIntAttr(rewriter, detectionsPerClass);
 
-    auto sort = rewriter.create<VPU::DetectionOutputSortOp>(appendLoc(loc, "sort"), transposedClassPredictions,
-                                                            confidenceThreshold, detectionsPerClassAttr);
+    auto sort = VPU::DetectionOutputSortOp::create(rewriter, appendLoc(loc, "sort"), transposedClassPredictions,
+                                                   confidenceThreshold, detectionsPerClassAttr);
 
     auto confidenceSlice = cutOnWidth(rewriter, sort.getOutConfidence(), detectionsPerClass);
     auto indicesSlice = cutOnWidth(rewriter, sort.getOutIndices(), detectionsPerClass);
@@ -232,9 +232,9 @@ mlir::LogicalResult DetectionOutputDecomposition::matchAndRewrite(VPU::Detection
 
     const auto nmsThreshold = origOp.getAttr().getNmsThreshold();
     const auto backgroundId = origOp.getAttr().getBackgroundLabelId();
-    auto nmsCaffe = rewriter.create<VPU::DetectionOutputNmsCaffeOp>(
-            appendLoc(loc, "nmsCaffe"), confidenceSlice, decodeBoxes.getOutDecodedBoxes(), indicesSlice, reshapedSizes,
-            detectionsPerClassAttr, nmsThreshold, backgroundId);
+    auto nmsCaffe = VPU::DetectionOutputNmsCaffeOp::create(
+            rewriter, appendLoc(loc, "nmsCaffe"), confidenceSlice, decodeBoxes.getOutDecodedBoxes(), indicesSlice,
+            reshapedSizes, detectionsPerClassAttr, nmsThreshold, backgroundId);
 
     const auto keepTopKValue = mlir::cast<mlir::IntegerAttr>(origOp.getAttr().getKeepTopK()[0]).getInt();
     const auto keepTopK = getIntAttr(rewriter.getContext(), keepTopKValue);

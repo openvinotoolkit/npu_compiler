@@ -172,8 +172,8 @@ TEST_F(MLIR_ITIUnrollTest, getPerClusterOutputHaloBuffers_SOH) {
     const auto expectedStrides = ndType.getStrides();
 
     mlir::OpBuilder builder(&ctx);
-    auto clusterOperand = builder.create<VPURT::DeclareBufferOp>(mlir::UnknownLoc::get(&ctx), distributedBufferType,
-                                                                 VPURT::BufferSection::CMX_NN, /*byte_offset=*/0);
+    auto clusterOperand = VPURT::DeclareBufferOp::create(builder, mlir::UnknownLoc::get(&ctx), distributedBufferType,
+                                                         VPURT::BufferSection::CMX_NN, /*byte_offset=*/0);
     VPUX_SCOPE_EXIT {
         clusterOperand->erase();
     };
@@ -339,8 +339,8 @@ TEST_F(MLIR_ITIUnrollTest, getPerClusterOutputHaloBuffers_SOK) {
     const auto expectedStrides = ndType.getStrides();
 
     mlir::OpBuilder builder(&ctx);
-    auto clusterOperand = builder.create<VPURT::DeclareBufferOp>(mlir::UnknownLoc::get(&ctx), distributedBufferType,
-                                                                 VPURT::BufferSection::CMX_NN, /*byte_offset=*/0);
+    auto clusterOperand = VPURT::DeclareBufferOp::create(builder, mlir::UnknownLoc::get(&ctx), distributedBufferType,
+                                                         VPURT::BufferSection::CMX_NN, /*byte_offset=*/0);
     VPUX_SCOPE_EXIT {
         clusterOperand->erase();
     };
@@ -536,8 +536,8 @@ TEST_F(MLIR_ITIUnrollTest, getPerClusterOutputHaloBuffers_HKSwitch) {
     const auto expectedStrides = ndType.getStrides();
 
     mlir::OpBuilder builder(&ctx);
-    auto clusterOperand = builder.create<VPURT::DeclareBufferOp>(mlir::UnknownLoc::get(&ctx), distributedBufferType,
-                                                                 VPURT::BufferSection::CMX_NN, /*byte_offset=*/0);
+    auto clusterOperand = VPURT::DeclareBufferOp::create(builder, mlir::UnknownLoc::get(&ctx), distributedBufferType,
+                                                         VPURT::BufferSection::CMX_NN, /*byte_offset=*/0);
     VPUX_SCOPE_EXIT {
         clusterOperand->erase();
     };
@@ -751,8 +751,8 @@ TEST_F(MLIR_ITIUnrollTest, getPerClusterOutputHaloBuffers_KHSwitch) {
     const auto expectedStrides = ndType.getStrides();
 
     mlir::OpBuilder builder(&ctx);
-    auto clusterOperand = builder.create<VPURT::DeclareBufferOp>(mlir::UnknownLoc::get(&ctx), distributedBufferType,
-                                                                 VPURT::BufferSection::CMX_NN, /*byte_offset=*/0);
+    auto clusterOperand = VPURT::DeclareBufferOp::create(builder, mlir::UnknownLoc::get(&ctx), distributedBufferType,
+                                                         VPURT::BufferSection::CMX_NN, /*byte_offset=*/0);
     VPUX_SCOPE_EXIT {
         clusterOperand->erase();
     };

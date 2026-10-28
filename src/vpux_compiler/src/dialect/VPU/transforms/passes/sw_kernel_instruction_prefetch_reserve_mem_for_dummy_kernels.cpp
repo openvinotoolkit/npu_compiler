@@ -37,22 +37,8 @@ private:
     void safeRunOnModule() final;
 };
 
-bool checkSWKernelOp(mlir::ModuleOp& module) {
-    bool hasSWKernelOp = false;
-    module->walk([&](VPU::SWOpInterface) {
-        hasSWKernelOp = true;
-        return;
-    });
-
-    return hasSWKernelOp;
-}
-
 void SWKernelInstructionPrefetchReserveMemForDummyKernels::safeRunOnModule() {
     auto module = getOperation();
-    auto hasSWKernelOp = checkSWKernelOp(module);
-    if (!hasSWKernelOp) {
-        return;
-    }
 
     auto* ctx = module->getContext();
     auto memSpaceAttr = mlir::SymbolRefAttr::get(ctx, stringifyEnum(VPU::MemoryKind::CMX_NN));

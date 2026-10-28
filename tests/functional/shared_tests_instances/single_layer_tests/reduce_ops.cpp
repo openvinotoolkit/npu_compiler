@@ -129,6 +129,7 @@ TEST_P(ReduceLayerTest_ChannelAxis_HW_FP16, NPU5010) {
     VpuOv2LayerTest::setDefaultHardwareMode();
     VpuOv2LayerTest::run(Platform::NPU5010);
 }
+
 TEST_P(ReduceLayerTest_ChannelAxis_HW_FP16, NPU5020) {
     VpuOv2LayerTest::setDefaultHardwareMode();
     VpuOv2LayerTest::run(Platform::NPU5020);
@@ -181,6 +182,7 @@ TEST_P(ReduceLayerTest_SCFTiling_HW_FP16, NPU5010) {
     VpuOv2LayerTest::setDefaultHardwareMode();
     VpuOv2LayerTest::run(Platform::NPU5010);
 }
+
 TEST_P(ReduceLayerTest_SW_FP16, NPU5020) {
     VpuOv2LayerTest::setReferenceSoftwareMode();
     VpuOv2LayerTest::run(Platform::NPU5020);
@@ -229,6 +231,7 @@ TEST_P(ShaveCodeGenReduceLayerTest_FP32, NPU5010) {
     VpuOv2LayerTest::setReferenceSoftwareMode();
     VpuOv2LayerTest::run(Platform::NPU5010);
 }
+
 TEST_P(ReduceLayerTest_FP32, NPU5020_HW) {
     VpuOv2LayerTest::setDefaultHardwareMode();
     VpuOv2LayerTest::run(Platform::NPU5020);
@@ -255,6 +258,7 @@ TEST_P(ReduceLayerTest_FP32, NPU5010_SW) {
     VpuOv2LayerTest::setReferenceSoftwareMode();
     VpuOv2LayerTest::run(Platform::NPU5010);
 }
+
 TEST_P(ReduceLayerTest_FP32, NPU5020_SW) {
     VpuOv2LayerTest::setReferenceSoftwareMode();
     VpuOv2LayerTest::run(Platform::NPU5020);

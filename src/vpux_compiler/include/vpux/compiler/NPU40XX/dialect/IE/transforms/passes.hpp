@@ -57,6 +57,10 @@ struct DefaultHWOptions : public IE::DefaultHWOptionsDialectBase, virtual vpux::
     BoolOption enableNCEEltwiseMultiply{*this, "enable-nce-eltwise-multiply",
                                         llvm::cl::desc("Enable NCE Eltwise for Multiply with [1,C,1,1] shape"),
                                         llvm::cl::init(false)};
+
+    BoolOption enableGroupQuantCorrection{*this, "enable-group-quant-correction",
+                                          llvm::cl::desc("Enable GroupQuantCorrection operation"),
+                                          llvm::cl::init(true)};
 };
 
 //

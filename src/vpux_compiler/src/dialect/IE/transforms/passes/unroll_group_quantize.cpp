@@ -8,6 +8,7 @@
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
 #include "vpux/compiler/dialect/IE/utils/dynamic_dequantize_utils.hpp"
 #include "vpux/compiler/dialect/IE/utils/fake_quantize_utils.hpp"
+#include "vpux/compiler/dialect/IE/utils/token_length_regime_utils.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 
 namespace vpux::IE {
@@ -80,7 +81,7 @@ SmallVector<mlir::Value> GenericUnrollBase<ConcreteOp>::splitValue(const mlir::V
         SmallVector<int64_t> offsets(valShape.size(), 0);
         offsets[axis] = idx;
         const auto offsetsAttr = getIntArrayAttr(rewriter.getContext(), offsets);
-        auto slice = rewriter.create<IE::SliceOp>(loc, val, offsetsAttr, staticSizesAttr);
+        auto slice = IE::SliceOp::create(rewriter, loc, val, offsetsAttr, staticSizesAttr);
 
         inputChunks.push_back(slice.getResult());
     }
@@ -126,7 +127,7 @@ mlir::LogicalResult GenericUnrollBase<ConcreteOp>::matchAndRewrite(ConcreteOp or
     }
 
     const auto fqChunks = splitInputs(origOp, axis, rewriter);
-    auto concatOp = rewriter.create<IE::ConcatOp>(takeOpLoc(origOp, "output_concat"), fqChunks, axis);
+    auto concatOp = IE::ConcatOp::create(rewriter, takeOpLoc(origOp, "output_concat"), fqChunks, axis);
     rewriter.replaceOp(origOp, concatOp.getResult());
     return mlir::success();
 }
@@ -158,8 +159,8 @@ SmallVector<mlir::Value> UnrollFakeQuantize::splitInputs(IE::FakeQuantizeOp fqOp
     const auto groups = data.size();
     for (const auto& idx : irange(groups)) {
         const auto loc = appendLoc(fqOp.getLoc(), "slice_{0}", idx);
-        auto reducedFq = rewriter.create<IE::FakeQuantizeOp>(
-                loc, data[idx], getValue(inLow, idx), getValue(inHigh, idx), getValue(outLow, idx),
+        auto reducedFq = IE::FakeQuantizeOp::create(
+                rewriter, loc, data[idx], getValue(inLow, idx), getValue(inHigh, idx), getValue(outLow, idx),
                 getValue(outHigh, idx), fqOp.getLevelsAttr(), fqOp.getLowFpTypeAttr(), fqOp.getAutoBroadcast());
         fqResults.push_back(reducedFq.getResult());
     }
@@ -196,11 +197,15 @@ SmallVector<mlir::Value> UnrollDynamicDequantize::splitInputs(IE::DynamicDequant
     const auto groups = input.size();
     for (const auto& idx : irange(groups)) {
         const auto loc = appendLoc(origOp.getLoc(), "slice_{0}", idx);
-        auto reduceDequantize = rewriter.create<IE::DynamicDequantizeOp>(
-                loc, getValue(input, idx), getValue(scale, idx), hasZeroPoint ? getValue(zeroPoint, idx) : nullptr,
-                origOp.getDstElemType());
+        auto reduceDequantize = IE::DynamicDequantizeOp::create(
+                rewriter, loc, getValue(input, idx), getValue(scale, idx),
+                hasZeroPoint ? getValue(zeroPoint, idx) : nullptr, origOp.getDstElemType());
         if (origOp->hasAttr(IE::SYNTHETIC_DYN_DEQUANT_ATTR)) {
             reduceDequantize->setAttr(IE::SYNTHETIC_DYN_DEQUANT_ATTR, origOp->getAttr(IE::SYNTHETIC_DYN_DEQUANT_ATTR));
+        }
+        if (origOp->hasAttr(IE::WEIGHTS_IMPORT_DYN_DEQUANT_ATTR)) {
+            reduceDequantize->setAttr(IE::WEIGHTS_IMPORT_DYN_DEQUANT_ATTR,
+                                      origOp->getAttr(IE::WEIGHTS_IMPORT_DYN_DEQUANT_ATTR));
         }
         deQuantizeResults.push_back(reduceDequantize.getResult());
     }
@@ -216,8 +221,11 @@ bool isValidFullyConnectedOp(IE::FullyConnectedOp fcOp) {
         return false;
     }
 
+    // Unroll group quantization in the data-bound decode regime:
+    // 1. KV cache model, token length = 1
+    // 2. speculative decoding KV cache model, token length between 1 ~ 16
     auto outShape = getShape(fcOp.getOutput());
-    return outShape.size() == 2 && outShape[Dim(0)] == 1;
+    return outShape.size() == 2 && IE::isDataBoundTokenDim(outShape);
 }
 
 bool isValidAffineReshape(IE::AffineReshapeOp reshape) {
@@ -231,7 +239,7 @@ bool isValidAffineReshape(IE::AffineReshapeOp reshape) {
 }
 
 bool UnrollDynamicDequantize::isBeneficialForUnroll(IE::DynamicDequantizeOp origOp) const {
-    // Benefit when: KV cache model, the first dim is one.
+    // Benefit when: KV cache model, the first dim is within the decode token length limit.
     // For prefill mode, it's more performant to keep the op unrolled.
     if (!origOp->hasOneUse()) {
         return false;

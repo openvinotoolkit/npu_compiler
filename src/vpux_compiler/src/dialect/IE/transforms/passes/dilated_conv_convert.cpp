@@ -139,12 +139,11 @@ mlir::Value createDilatedConvOp(mlir::PatternRewriter& rewriter, IE::Convolution
 mlir::Value createDilatedConvOp(mlir::PatternRewriter& rewriter, IE::GroupConvolutionOp groupConvOp, mlir::Value input,
                                 mlir::ArrayAttr padsBeginAttr, mlir::ArrayAttr padsEndAttr,
                                 mlir::ArrayAttr dilationsAttr) {
-    return rewriter
-            .create<IE::GroupConvolutionOp>(groupConvOp.getLoc(), input, groupConvOp.getFilter(), groupConvOp.getBias(),
-                                            groupConvOp.getStridesAttr(), padsBeginAttr, padsEndAttr, dilationsAttr,
-                                            groupConvOp.getGroupsAttr(), groupConvOp.getPostOpAttr(),
-                                            groupConvOp.getClampAttr(), groupConvOp.getOutputPaddingAttr(),
-                                            groupConvOp.getInputPaddingAttr())
+    return IE::GroupConvolutionOp::create(rewriter, groupConvOp.getLoc(), input, groupConvOp.getFilter(),
+                                          groupConvOp.getBias(), groupConvOp.getStridesAttr(), padsBeginAttr,
+                                          padsEndAttr, dilationsAttr, groupConvOp.getGroupsAttr(),
+                                          groupConvOp.getPostOpAttr(), groupConvOp.getClampAttr(),
+                                          groupConvOp.getOutputPaddingAttr(), groupConvOp.getInputPaddingAttr())
             .getResult();
 }
 
@@ -164,14 +163,20 @@ mlir::LogicalResult DilatedConvConverter<ConvType>::matchAndRewrite(ConvType con
     }
 
     auto potentialFQOp = convOp.getInput().template getDefiningOp<IE::FakeQuantizeOp>();
+    auto potentialDynDeqOp = convOp.getInput().template getDefiningOp<IE::DynamicDequantizeOp>();
     if (potentialFQOp != nullptr && !potentialFQOp.getResult().hasOneUse()) {
         _log.trace("Pattern mismatched: FakeQuantize Op should only have one user");
         return mlir::failure();
     }
+    if (potentialDynDeqOp != nullptr && !potentialDynDeqOp.getResult().hasOneUse()) {
+        _log.trace("Pattern mismatched: DynamicDequantize Op should only have one user");
+        return mlir::failure();
+    }
 
-    auto spaceToBatchOp = (potentialFQOp == nullptr)
-                                  ? convOp.getInput().template getDefiningOp<IE::SpaceToBatch>()
-                                  : potentialFQOp.getInput().template getDefiningOp<IE::SpaceToBatch>();
+    mlir::Operation* quantOp = potentialFQOp ? potentialFQOp.getOperation()
+                                             : (potentialDynDeqOp ? potentialDynDeqOp.getOperation() : nullptr);
+    auto spaceToBatchOp = (quantOp == nullptr) ? convOp.getInput().template getDefiningOp<IE::SpaceToBatch>()
+                                               : quantOp->getOperand(0).template getDefiningOp<IE::SpaceToBatch>();
     if (spaceToBatchOp == nullptr || !spaceToBatchOp.getResult().hasOneUse()) {
         _log.trace("Pattern mismatched: There is no SpaceToBatch Op or with multi user");
         return mlir::failure();
@@ -205,6 +210,10 @@ mlir::LogicalResult DilatedConvConverter<ConvType>::matchAndRewrite(ConvType con
         potentialFQOp.setOperand(0, newInput);
         inferReturnTypes(potentialFQOp, vpux::InferShapedTypeMode::ALL);
         newInput = potentialFQOp.getResult();
+    } else if (potentialDynDeqOp != nullptr) {
+        potentialDynDeqOp.setOperand(0, newInput);
+        inferReturnTypes(potentialDynDeqOp, vpux::InferShapedTypeMode::ALL);
+        newInput = potentialDynDeqOp.getResult();
     }
 
     const auto newPadsBeginAttr = getIntArrayAttr(spaceToBatchOp.getContext(), newPadsBegin);

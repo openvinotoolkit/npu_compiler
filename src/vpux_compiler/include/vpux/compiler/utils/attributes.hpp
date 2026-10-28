@@ -116,7 +116,7 @@ mlir::ArrayAttr getFPArrayOfArray(mlir::MLIRContext* ctx, Range&& arrayOfArray) 
 template <typename T>
 T parseIntAttr(mlir::Attribute attr) {
     const auto intAttr = mlir::dyn_cast_or_null<mlir::IntegerAttr>(attr);
-    VPUX_THROW_UNLESS(intAttr != nullptr, "Got non Integer Attribute '{0}'", attr);
+    VPUX_THROW_WHEN(intAttr == nullptr, "Got non Integer Attribute '{0}'", attr);
     if (intAttr.getType().isUnsignedInteger()) {
         return checked_cast<T>(intAttr.getUInt());
     }
@@ -132,7 +132,7 @@ template <typename T>
 SmallVector<T> parseIntArrayAttr(mlir::ArrayAttr arr) {
     return to_small_vector(arr.getValue() | transformed([](mlir::Attribute attr) {
                                const auto intAttr = mlir::dyn_cast_or_null<mlir::IntegerAttr>(attr);
-                               VPUX_THROW_UNLESS(intAttr != nullptr, "Got non Integer Attribute '{0}' in Array", attr);
+                               VPUX_THROW_WHEN(intAttr == nullptr, "Got non Integer Attribute '{0}' in Array", attr);
 
                                if (intAttr.getType().isUnsignedInteger()) {
                                    return checked_cast<T>(intAttr.getUInt());
@@ -146,7 +146,7 @@ template <typename T>
 SmallVector<T> parseFPArrayAttr(mlir::ArrayAttr arr) {
     return to_small_vector(arr.getValue() | transformed([](mlir::Attribute attr) {
                                const auto fpAttr = mlir::dyn_cast_or_null<mlir::FloatAttr>(attr);
-                               VPUX_THROW_UNLESS(fpAttr != nullptr, "Got non fpAttr Attribute '{0}' in Array", attr);
+                               VPUX_THROW_WHEN(fpAttr == nullptr, "Got non fpAttr Attribute '{0}' in Array", attr);
 
                                return checked_cast<T>(fpAttr.getValueAsDouble());
                            }));
@@ -160,8 +160,8 @@ template <typename T>
 SmallVector<T> parseCustomAttrArray(mlir::ArrayAttr arr) {
     return to_small_vector(arr.getValue() | transformed([](mlir::Attribute attr) {
                                const auto customAttr = mlir::dyn_cast_or_null<T>(attr);
-                               VPUX_THROW_UNLESS(customAttr != nullptr, "Got non-required Attribute '{0}' in Array",
-                                                 attr);
+                               VPUX_THROW_WHEN(customAttr == nullptr, "Got non-required Attribute '{0}' in Array",
+                                               attr);
                                return customAttr;
                            }));
 }
@@ -177,7 +177,7 @@ SmallVector<SmallVector<T>> parseIntArrayOfArrayAttr(mlir::ArrayAttr arr) {
 
     for (const auto attr : arr) {
         const auto arrAttr = mlir::dyn_cast_or_null<mlir::ArrayAttr>(attr);
-        VPUX_THROW_UNLESS(arrAttr != nullptr, "Got non Array Attribute '{0}' in Array", attr);
+        VPUX_THROW_WHEN(arrAttr == nullptr, "Got non Array Attribute '{0}' in Array", attr);
 
         arrayOfArray.push_back(parseIntArrayAttr<T>(arrAttr));
     }
@@ -192,7 +192,7 @@ SmallVector<SmallVector<T>> parseFPArrayOfArrayAttr(mlir::ArrayAttr arr) {
 
     for (const auto attr : arr) {
         const auto arrAttr = mlir::dyn_cast_or_null<mlir::ArrayAttr>(attr);
-        VPUX_THROW_UNLESS(arrAttr != nullptr, "Got non Array Attribute '{0}' in Array", attr);
+        VPUX_THROW_WHEN(arrAttr == nullptr, "Got non Array Attribute '{0}' in Array", attr);
 
         arrayOfArray.push_back(parseFPArrayAttr<T>(arrAttr));
     }

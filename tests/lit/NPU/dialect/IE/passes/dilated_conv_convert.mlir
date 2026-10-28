@@ -110,6 +110,50 @@ func.func @DilatedGroupConvConvertWithQuantized(%arg0: tensor<1x1344x33x33xf32>)
 // -----
 //
 
+// CHECK-LABEL: func.func @DilatedGroupConvConvertWithDynamicDequantize
+// CHECK-SAME:    ([[INPUT_DATA:%.+]]: tensor<1x1344x33x33xsi8>)
+func.func @DilatedGroupConvConvertWithDynamicDequantize(%arg0: tensor<1x1344x33x33xsi8>) -> tensor<1x1344x33x33xf32> {
+    %scale = const.Declare tensor<1x1344x1x1xf32> = dense<1.000000e+00> : tensor<1x1344x1x1xf32>
+    %cst_1 = const.Declare tensor<1344x1x3x3xf32> = dense<0.100000e+00> : tensor<1344x1x3x3xf32>
+
+    %0 = IE.SpaceToBatch(%arg0) {
+            block_shape_value = [1, 1, 2, 2],
+            operandSegmentSizes = array<i32: 1, 0, 0, 0>,
+            pads_begin_value = [0, 0, 2, 2],
+            pads_end_value = [0, 0, 3, 3]
+        } : tensor<1x1344x33x33xsi8> -> tensor<4x1344x19x19xsi8>
+    %1 = IE.DynamicDequantize(%0, %scale) {dstElemType = f32} : tensor<4x1344x19x19xsi8>, tensor<1x1344x1x1xf32> -> tensor<4x1344x19x19xf32>
+    %2 = IE.GroupConvolution(%1, %cst_1) {
+            dilations = [1, 1], groups = 1344 : i64,
+            pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]
+        } : tensor<4x1344x19x19xf32>, tensor<1344x1x3x3xf32> -> tensor<4x1344x17x17xf32>
+    %3 = IE.BatchToSpace(%2) {
+            block_shape_value = [1, 1, 2, 2],
+            crops_begin_value = [0, 0, 0, 0],
+            crops_end_value = [0, 0, 1, 1],
+            operandSegmentSizes = array<i32: 1, 0, 0, 0>
+        } : tensor<4x1344x17x17xf32> -> tensor<1x1344x33x33xf32>
+
+    return %3 : tensor<1x1344x33x33xf32>
+
+    // CHECK-NOT:   IE.SpaceToBatch
+
+    // CHECK-DAG:   [[SCALE:%.+]] = const.Declare tensor<1x1344x1x1xf32> = dense<1.000000e+00> : tensor<1x1344x1x1xf32>
+    // CHECK-DAG:   [[CST:%.+]] = const.Declare tensor<1344x1x3x3xf32> = dense<1.000000e-01> : tensor<1344x1x3x3xf32>
+
+    // CHECK:       [[INPUT_DQ:%.+]] = IE.DynamicDequantize([[INPUT_DATA]], [[SCALE]]) {dstElemType = f32} : tensor<1x1344x33x33xsi8>, tensor<1x1344x1x1xf32> -> tensor<1x1344x33x33xf32>
+    // CHECK:       [[GROUP_CONV:%.+]] = IE.GroupConvolution([[INPUT_DQ]], [[CST]]) {
+    // CHECK-SAME:          dilations = [2, 2], groups = 1344 : i64,
+    // CHECK-SAME:          pads_begin = [2, 2], pads_end = [2, 2], strides = [1, 1]
+    // CHECK-SAME:      } : tensor<1x1344x33x33xf32>, tensor<1344x1x3x3xf32> -> tensor<1x1344x33x33xf32>
+
+    // CHECK:       return [[GROUP_CONV]] : tensor<1x1344x33x33xf32>
+}
+
+//
+// -----
+//
+
 // CHECK-LABEL: func.func @DilatedConvConvert
 // CHECK-SAME:    ([[INPUT_DATA:%.+]]: tensor<1x16x33x33xf32>)
 func.func @DilatedConvConvert(%arg0: tensor<1x16x33x33xf32>) -> tensor<1x16x33x33xf32> {

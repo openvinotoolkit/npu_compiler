@@ -15,11 +15,11 @@
 #include "vpux/compiler/dialect/VPU/IR/ops/internal.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops_interfaces.hpp"
 #include "vpux/compiler/dialect/VPU/IR/types.hpp"
+#include "vpux/compiler/dialect/VPU/interfaces/strategies.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
 #include "vpux/compiler/dialect/VPU/utils/auto_padding_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/const_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/distributed_tensor_utils.hpp"
-#include "vpux/compiler/dialect/VPU/utils/mpe_engine_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_interpolate_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_invariant.hpp"
 #include "vpux/compiler/dialect/VPU/utils/ppe_version_config.hpp"
@@ -228,13 +228,13 @@ mlir::Value createSparseInput(mlir::OpBuilder builder, VPU::NCEInterpolateOp ori
     const int64_t seSize = 16;
     const int64_t seDepth = inputShape[Dims4D::Act::C] / seSize;
     const auto seSizeArr = SmallVector<int64_t>(seDepth, seSize);
-    auto seTableOp = builder.create<VPU::StorageElementTableOp>(
-            origSeTableOp->getLoc(), origSeTableOp.getDataShapeAttr(), origSeTableOp.getDataElemTypeAttr(),
+    auto seTableOp = VPU::StorageElementTableOp::create(
+            builder, origSeTableOp->getLoc(), origSeTableOp.getDataShapeAttr(), origSeTableOp.getDataElemTypeAttr(),
             getIntArrayAttr(builder, seSizeArr), getIntAttr(builder, seDepth), origSeTableOp.getSeAttr().value(),
             nullptr, nullptr);
 
-    auto groupOp = builder.create<VPU::GroupSparseTensorOp>(origOp->getLoc(), data, sparsityMap, seTableOp.getOutput(),
-                                                            origSeTableOp.getSeAttr().value());
+    auto groupOp = VPU::GroupSparseTensorOp::create(builder, origOp->getLoc(), data, sparsityMap, seTableOp.getOutput(),
+                                                    origSeTableOp.getSeAttr().value());
     return groupOp.getOutput();
 }
 
@@ -294,8 +294,8 @@ mlir::Value createWeightsConstant(mlir::OpBuilder builder, Const::DeclareOp weig
         contentAttrSetup = contentAttrSetup.reorder(order);
     }
 
-    auto weightsConstOp = builder.create<Const::DeclareOp>(weights->getLoc(), weightsType,
-                                                           Const::ContentAttr::get(dataAttr, contentAttrSetup));
+    auto weightsConstOp = Const::DeclareOp::create(builder, weights->getLoc(), weightsType,
+                                                   Const::ContentAttr::get(dataAttr, contentAttrSetup));
 
     return VPU::alignDepthWiseWeightsTensor(builder, weights.getLoc(), weightsConstOp.getOutput());
 }
@@ -341,7 +341,8 @@ void ConvertNCEInterpolateToDWPass::convertToDWConv(VPU::NCEInterpolateOp origOp
             ppeConfig.getFactoryAs<VPU::IPpeAdapterFpPreluAlpha>().adaptTypeForPreluAlphaScaling(
                     origPpeAttr, outputType.getElementType());
 
-    const auto isNewWeightTableFormat = VPU::MPEEngineConfig::useNewWeightTableFormat(origOp, false);
+    const auto isNewWeightTableFormat =
+            VPU::getVPUStrategyFactory(origOp->getContext())->useNewWeightTableFormat(origOp, false);
     const auto ppeConverter = VPU::NCESparsity::getPPEConverterCb(arch, isNewWeightTableFormat);
     const auto biasConverter = VPU::NCESparsity::getBiasConverterCb(arch, isNewWeightTableFormat);
     const auto wtShape = VPU::NCESparsity::inferWeightsTableShape(OC, isNewWeightTableFormat);
@@ -362,13 +363,14 @@ void ConvertNCEInterpolateToDWPass::convertToDWConv(VPU::NCEInterpolateOp origOp
     const auto rawFilterShape =
             SmallVector<int64_t>{OC, 1, origWeightsShape[Dims4D::Filter::KY], origWeightsShape[Dims4D::Filter::KX]};
     const auto padding = VPU::getPaddingAttr(ctx, 0, 0, 0, 0);
-    auto dwConv = builder.create<VPU::NCEDepthConvolutionOp>(
-            origOp->getLoc(), outputType, /*reduce_xy_max=*/nullptr, /*reduce_xy_min=*/nullptr,
+    auto dwConv = VPU::NCEDepthConvolutionOp::create(
+            builder, origOp->getLoc(), outputType, /*reduce_xy_max=*/nullptr, /*reduce_xy_min=*/nullptr,
             /*reduce_tensor_min_max=*/nullptr, sparseInput, weights, weightsTable,
             newWeightsTableTensors.dataPointerTensor, newWeightsTableTensors.scaleTensor,
             newWeightsTableTensors.biasTensor, origOp.getStridesAttr(), padding, origOp.getPpeAttr(),
             origOp.getMpeEngineAttr(), /*rawFilterShape=*/mlir::ValueRange{}, rawFilterShape,
             origOp.getMultiClusterStrategyAttr(), nullptr, nullptr,
+            /*s2dd2s_config*/ nullptr,
             /*axes_value=*/nullptr);
 
     nestedLog.trace("Created DWConv with SEP for Interpolate.");

@@ -15,8 +15,8 @@ namespace vpux::VPUIPDPU::arch40xx::IDU {
 
 mlir::LogicalResult buildIDUWorkloadSet(mlir::OpBuilder& builder, const mlir::Location& loc,
                                         const SmallVector<int64_t>&& inStart, const SmallVector<int64_t>&& inEnd) {
-    builder.create<IDUWorkloadSetOp>(loc, inStart[0], inStart[1], inStart[2], getRangeSize(inStart[0], inEnd[0]),
-                                     getRangeSize(inStart[1], inEnd[1]), getRangeSize(inStart[2], inEnd[2]));
+    IDUWorkloadSetOp::create(builder, loc, inStart[0], inStart[1], inStart[2], getRangeSize(inStart[0], inEnd[0]),
+                             getRangeSize(inStart[1], inEnd[1]), getRangeSize(inStart[2], inEnd[2]));
 
     return mlir::success();
 }
@@ -69,14 +69,14 @@ mlir::LogicalResult buildIDUWeightSet(mlir::OpBuilder& builder, const mlir::Loca
         break;
     }
 
-    builder.create<IDUWeightSetOp>(loc, weightStart, weightNum, weightSize);
+    IDUWeightSetOp::create(builder, loc, weightStart, weightNum, weightSize);
 
     return mlir::success();
 }
 
 mlir::LogicalResult buildIDUPadding(mlir::OpBuilder& builder, const mlir::Location& loc, const Logger&,
                                     VPU::PaddingAttr pad) {
-    builder.create<IDUPaddingOp>(loc, pad);
+    IDUPaddingOp::create(builder, loc, pad);
 
     return mlir::success();
 }
@@ -90,7 +90,7 @@ mlir::LogicalResult buildIDUActSwizzle(mlir::OpBuilder& builder, const mlir::Loc
             return mlir::failure();
         }
         if (swizzleKey.value() != DPUSwizzleKey::SWIZZLE_OFF) {
-            builder.create<IDUActSwizzleOp>(loc, swizzleKey.value());
+            IDUActSwizzleOp::create(builder, loc, swizzleKey.value());
         }
     }
 
@@ -106,7 +106,7 @@ mlir::LogicalResult buildIDUWeightSwizzle(mlir::OpBuilder& builder, const mlir::
             return mlir::failure();
         }
         if (swizzleKey.value() != DPUSwizzleKey::SWIZZLE_OFF) {
-            builder.create<IDUWeightSwizzleOp>(loc, swizzleKey.value());
+            IDUWeightSwizzleOp::create(builder, loc, swizzleKey.value());
         }
     }
 
@@ -139,7 +139,7 @@ mlir::LogicalResult buildIDUNthwNtk(mlir::OpBuilder& builder, const mlir::Locati
     }
 
     if (activationReuse != IDUNthwNtk::NTHW_NTK_8_8) {
-        builder.create<IDUNthwNtkOp>(loc, activationReuse);
+        IDUNthwNtkOp::create(builder, loc, activationReuse);
     }
 
     return mlir::success();
@@ -147,7 +147,7 @@ mlir::LogicalResult buildIDUNthwNtk(mlir::OpBuilder& builder, const mlir::Locati
 
 mlir::LogicalResult buildIDUSEDense(mlir::OpBuilder& builder, const mlir::Location& loc, const Logger&, bool seDense) {
     if (seDense) {
-        builder.create<IDUSEDenseOp>(loc);
+        IDUSEDenseOp::create(builder, loc);
     }
 
     return mlir::success();
@@ -156,7 +156,7 @@ mlir::LogicalResult buildIDUSEDense(mlir::OpBuilder& builder, const mlir::Locati
 mlir::LogicalResult buildIDUConvContinue(mlir::OpBuilder& builder, const mlir::Location& loc, const Logger&,
                                          std::optional<bool> isContinued) {
     if (isContinued.value_or(false)) {
-        builder.create<IDUConvContinueOp>(loc);
+        IDUConvContinueOp::create(builder, loc);
     }
 
     return mlir::success();

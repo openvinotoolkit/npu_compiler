@@ -8,7 +8,7 @@
 
 bytecode.func_section @function_section {
     bytecode.ext.func @cmp (i64, i64) -> () {
-        %dst = bytecode.virtual_general_register
+        %dst = bytecode.virtual_value_register
         %lhs = bytecode.virtual_parameter_register 1
         %rhs = bytecode.virtual_parameter_register 2
         bytecode.cmp.i64 %dst, %lhs, %rhs, 260
@@ -18,7 +18,7 @@ bytecode.func_section @function_section {
 }
 
 // CHECK-LABEL: bytecode.ext.func @cmp
-// CHECK:         [[DST:%.+]] = bytecode.virtual_general_register
+// CHECK:         [[DST:%.+]] = bytecode.virtual_value_register
 // CHECK:         [[LHS:%.+]] = bytecode.virtual_parameter_register 1
 // CHECK:         [[RHS:%.+]] = bytecode.virtual_parameter_register 2
 // CHECK:         bytecode.cmp.i64 [[DST]], [[LHS]], [[RHS]], 260

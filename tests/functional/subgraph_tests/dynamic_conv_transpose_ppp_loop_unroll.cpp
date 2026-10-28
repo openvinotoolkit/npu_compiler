@@ -140,28 +140,64 @@ public:
     }
 };
 
+// Single tile, H-axis unroll factor=2 — the configuration that triggers the bug.
+class DynConvTransposePPPHUnroll_TileAgnostic : public DynConvTransposePPPHUnroll {
+public:
+    void configure_model() override {
+        DynConvTransposePPPHUnroll::configure_model();
+        configuration[ov::intel_npu::tiles.name()] = "1";
+    }
+};
+
+// Single tile, No unrolling — baseline reference: output must be correct.
+class DynConvTransposePPPNoUnroll_TileAgnostic : public DynConvTransposePPPNoUnroll {
+public:
+    void configure_model() override {
+        DynConvTransposePPPNoUnroll::configure_model();
+        configuration[ov::intel_npu::tiles.name()] = "1";
+    }
+};
+
+// Single tile, W-axis unroll factor=2 — control: unrolling a different axis should not corrupt H.
+class DynConvTransposePPPWUnroll_TileAgnostic : public DynConvTransposePPPWUnroll {
+public:
+    void configure_model() override {
+        DynConvTransposePPPWUnroll::configure_model();
+        configuration[ov::intel_npu::tiles.name()] = "1";
+    }
+};
+
+// Single tile, H- and W-axis unroll factor=2 — combined 2D unroll: both axes unrolled simultaneously.
+class DynConvTransposePPPHWUnroll_TileAgnostic : public DynConvTransposePPPHWUnroll {
+public:
+    void configure_model() override {
+        DynConvTransposePPPHWUnroll::configure_model();
+        configuration[ov::intel_npu::tiles.name()] = "1";
+    }
+};
+
 // NPU4000
 
 TEST_P(DynConvTransposePPPNoUnroll, NPU4000_HC) {
-    setHostCompileMode("HostCompile_Interpreter");
+    setHostCompileMode();
     setPluginCompilerType();
     run(Platform::NPU4000);
 }
 
 TEST_P(DynConvTransposePPPHUnroll, NPU4000_HC) {
-    setHostCompileMode("HostCompile_Interpreter");
+    setHostCompileMode();
     setPluginCompilerType();
     run(Platform::NPU4000);
 }
 
 TEST_P(DynConvTransposePPPWUnroll, NPU4000_HC) {
-    setHostCompileMode("HostCompile_Interpreter");
+    setHostCompileMode();
     setPluginCompilerType();
     run(Platform::NPU4000);
 }
 
 TEST_P(DynConvTransposePPPHWUnroll, NPU4000_HC) {
-    setHostCompileMode("HostCompile_Interpreter");
+    setHostCompileMode();
     setPluginCompilerType();
     run(Platform::NPU4000);
 }
@@ -169,25 +205,49 @@ TEST_P(DynConvTransposePPPHWUnroll, NPU4000_HC) {
 // NPU5010
 
 TEST_P(DynConvTransposePPPNoUnroll, NPU5010_HC) {
-    setHostCompileMode("HostCompile_Interpreter");
+    setHostCompileMode();
     setPluginCompilerType();
     run(Platform::NPU5010);
 }
 
 TEST_P(DynConvTransposePPPHUnroll, NPU5010_HC) {
-    setHostCompileMode("HostCompile_Interpreter");
+    setHostCompileMode();
     setPluginCompilerType();
     run(Platform::NPU5010);
 }
 
 TEST_P(DynConvTransposePPPWUnroll, NPU5010_HC) {
-    setHostCompileMode("HostCompile_Interpreter");
+    setHostCompileMode();
     setPluginCompilerType();
     run(Platform::NPU5010);
 }
 
 TEST_P(DynConvTransposePPPHWUnroll, NPU5010_HC) {
-    setHostCompileMode("HostCompile_Interpreter");
+    setHostCompileMode();
+    setPluginCompilerType();
+    run(Platform::NPU5010);
+}
+
+TEST_P(DynConvTransposePPPNoUnroll_TileAgnostic, NPU5010_HC) {
+    setHostCompileMode();
+    setPluginCompilerType();
+    run(Platform::NPU5010);
+}
+
+TEST_P(DynConvTransposePPPHUnroll_TileAgnostic, NPU5010_HC) {
+    setHostCompileMode();
+    setPluginCompilerType();
+    run(Platform::NPU5010);
+}
+
+TEST_P(DynConvTransposePPPWUnroll_TileAgnostic, NPU5010_HC) {
+    setHostCompileMode();
+    setPluginCompilerType();
+    run(Platform::NPU5010);
+}
+
+TEST_P(DynConvTransposePPPHWUnroll_TileAgnostic, NPU5010_HC) {
+    setHostCompileMode();
     setPluginCompilerType();
     run(Platform::NPU5010);
 }
@@ -217,5 +277,21 @@ INSTANTIATE_TEST_SUITE_P(smoke_DynConvTransposePPP_WAxisUnroll, DynConvTranspose
 INSTANTIATE_TEST_SUITE_P(smoke_DynConvTransposePPP_HWAxesUnroll, DynConvTransposePPPHWUnroll,
                          ::testing::Values(DynConvTransposePPPParams{kDynConvTransposePPPTestShape, ov::element::f16}),
                          DynConvTransposePPPHWUnroll::getTestCaseName);
+
+INSTANTIATE_TEST_SUITE_P(smoke_DynConvTransposePPP_HAxisUnroll, DynConvTransposePPPHUnroll_TileAgnostic,
+                         ::testing::Values(DynConvTransposePPPParams{kDynConvTransposePPPTestShape, ov::element::f16}),
+                         DynConvTransposePPPHUnroll_TileAgnostic::getTestCaseName);
+
+INSTANTIATE_TEST_SUITE_P(smoke_DynConvTransposePPP_NoUnroll, DynConvTransposePPPNoUnroll_TileAgnostic,
+                         ::testing::Values(DynConvTransposePPPParams{kDynConvTransposePPPTestShape, ov::element::f16}),
+                         DynConvTransposePPPNoUnroll_TileAgnostic::getTestCaseName);
+
+INSTANTIATE_TEST_SUITE_P(smoke_DynConvTransposePPP_WAxisUnroll, DynConvTransposePPPWUnroll_TileAgnostic,
+                         ::testing::Values(DynConvTransposePPPParams{kDynConvTransposePPPTestShape, ov::element::f16}),
+                         DynConvTransposePPPWUnroll_TileAgnostic::getTestCaseName);
+
+INSTANTIATE_TEST_SUITE_P(smoke_DynConvTransposePPP_HWAxesUnroll, DynConvTransposePPPHWUnroll_TileAgnostic,
+                         ::testing::Values(DynConvTransposePPPParams{kDynConvTransposePPPTestShape, ov::element::f16}),
+                         DynConvTransposePPPHWUnroll_TileAgnostic::getTestCaseName);
 
 }  // namespace

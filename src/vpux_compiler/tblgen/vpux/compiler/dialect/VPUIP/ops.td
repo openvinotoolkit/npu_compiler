@@ -837,8 +837,7 @@ def VPUIP_NCEClusterTaskOp :
         OptionalAttr<VPU_MPEEngineAttrInterface>:$mpe_engine,
         OptionalAttr<VPUIP_DynamicScaleConfigAttr>:$dynamic_scale_config,
         OptionalAttr<VPUIP_LocalRegionAttr>:$local_region,
-        OptionalAttr<VPU_S2DD2SConfigAttr>:$s2dd2s_config,
-        OptionalAttr<IntAttr>:$split_id
+        OptionalAttr<VPU_S2DD2SConfigAttr>:$s2dd2s_config
     );
 
     let results = (outs
@@ -1496,66 +1495,6 @@ def VPUIP_DepthToSpaceDMAOp :
         `inputs` `(` $input `:` type($input) `)`
         `outputs` `(` $output_buff `:` type($output_buff) `)`
         `->` type(results)
-    }];
-}
-
-//
-// M2ITaskOp
-//
-
-def VPUIP_M2ITaskOp :
-        VPUIP_TaskOp<1,"M2ITask",
-            [
-                MultiViewOpInterface
-            ]
-        > {
-    let summary = "M2I task op";
-
-    let arguments = (ins
-        MemRefOf<[UI8, F16]>:$input,
-        MemRefOf<[UI8, F16]>:$output_buff,
-        Optional<MemRefOf<[UI8]>>:$profiling_data,
-
-        BoolAttr:$do_csc,
-        BoolAttr:$do_norm,
-        VPU_M2iColorFmtAttr:$inFmt,
-        VPU_M2iColorFmtAttr:$outFmt,
-        UnitProp:$chroma_in_reverse_channels,
-        UnitProp:$chroma_out_reverse_channels,
-        UnitProp:$luma_in_reverse_channels,
-        UnitProp:$luma_out_reverse_channels,
-        UI32Attr:$scale_factor_x,
-        UI32Attr:$scale_factor_y,
-        OptionalAttr<F64ArrayAttr>:$norm,
-        OptionalAttr<UI32Attr>:$tile_offset_x,
-        OptionalAttr<UI32Attr>:$tile_offset_y,
-        OptionalAttr<VPUIP_M2IProfilingMetadataAttr>:$profilingMetadata,
-        DefaultValuedAttr<VPU_M2iInterpAttr, "vpux::VPU::M2iInterp::NEAREST">:$interp
-    );
-
-    let results = (outs
-        MemRefOf<[UI8, F16]>:$output,
-        Optional<MemRefOf<[UI8]>>:$profiling_output
-    );
-
-    let assemblyFormat = [{
-        attr-dict
-        prop-dict
-        `inputs` `(` $input `:` type($input) `)`
-        `outputs` `(` $output_buff `:` type($output_buff) `)`
-        (`profiling_data` `(` $profiling_data^  `:` type($profiling_data) `)`)?
-        `->` type(results)
-    }];
-
-    let extraClassDeclaration = [{
-        static vpux::config::ExecutorKind getExecutorKind() {
-            return vpux::config::ExecutorKind::M2I;
-        }
-
-        static mlir::LogicalResult inferReturnTypes(mlir::MLIRContext* ctx, std::optional<mlir::Location> loc,
-                                                    mlir::ValueRange operands, mlir::DictionaryAttr attrs, mlir::OpaqueProperties,
-                                                    mlir::RegionRange regions,
-                                                    mlir::SmallVectorImpl<mlir::Type>& inferredTypes);
     }];
 }
 
@@ -2583,11 +2522,13 @@ def VPUIP_GroupBoundedBufferOp :
             [
                 Pure,
                 DotInterface,
-                DeclareOpInterfaceMethods<GroupedViewOpInterface>,
-                DeclareOpInterfaceMethods<InferTypeOpInterface, ["inferReturnTypes"]>,
+                DeclareOpInterfaceMethods<GroupedViewOpInterface>
             ]
         > {
-    let summary = "Creates a BoundedBuffer type by combining upper-bounded data buffer and a buffer with dynamic shape";
+    let summary = [{
+        Creates a BoundedBuffer (or memref with bounds) type by combining
+        upper-bounded data buffer and a buffer with dynamic shape
+    }];
 
     let arguments = (ins
         AnyTypeOf<[AnyMemRef, VPUIP_DistributedBuffer]>:$data,
@@ -2595,12 +2536,21 @@ def VPUIP_GroupBoundedBufferOp :
     );
 
     let results = (outs
-        VPUIP_BoundedBuffer:$output
+        AnyTypeOf<[AnyMemRef, VPUIP_BoundedBuffer]>:$output
     );
 
     let assemblyFormat = [{
         `(` operands `)` attr-dict `:` type(operands) `->` type(results)
     }];
+
+    let builders = [
+        /// Special backwards-compatibility builder that infers the result type
+        /// from data and shape. This builder always returns a
+        /// VPUIP.BoundedBuffer type.
+        OpBuilder<(ins "mlir::Value":$data, "mlir::Value":$shape)>
+    ];
+
+    let hasVerifier = 1;
 }
 
 //
@@ -2613,14 +2563,16 @@ def VPUIP_UngroupBoundedBufferOp :
             [
                 Pure,
                 DotInterface,
-                DeclareOpInterfaceMethods<MultiViewOpInterface>,
-                DeclareOpInterfaceMethods<InferTypeOpInterface, ["inferReturnTypes"]>
+                DeclareOpInterfaceMethods<MultiViewOpInterface>
             ]
         > {
-    let summary = "Unpacks BoundedBuffer type into upper-bounded buffer and its dynamic shape buffer";
+    let summary = [{
+        Unpacks BoundedBuffer (or memref with bounds) type into upper-bounded
+        buffer and its dynamic shape buffer
+    }];
 
     let arguments = (ins
-        VPUIP_BoundedBuffer:$input
+        AnyTypeOf<[AnyMemRef, VPUIP_BoundedBuffer]>:$input
     );
 
     let results = (outs
@@ -2631,6 +2583,14 @@ def VPUIP_UngroupBoundedBufferOp :
     let assemblyFormat = [{
         `(` operands `)` attr-dict `:` type(operands) `->` type(results)
     }];
+
+    let builders = [
+        /// Special backwards-compatibility builder that infers the result types
+        /// from input. This builder always works with VPUIP.BoundedBuffer type.
+        OpBuilder<(ins "mlir::Value":$input)>
+    ];
+
+    let hasVerifier = 1;
 }
 
 //

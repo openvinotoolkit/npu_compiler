@@ -3,12 +3,15 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
+#include <mlir/Dialect/Utils/StaticValueUtils.h>
+#include <mlir/Support/LLVM.h>
 #include "vpux/compiler/core/attributes/shape.hpp"
 #include "vpux/compiler/core/layers.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/eltwise.hpp"
 #include "vpux/compiler/dialect/IE/utils/dynamic_shape_utils.hpp"
 #include "vpux/compiler/dialect/IE/utils/type_padding.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/dpu.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/internal.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops_interfaces.hpp"
 #include "vpux/compiler/dialect/VPU/utils/const_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/distributed_tensor_utils.hpp"
@@ -22,6 +25,7 @@
 #include "vpux/compiler/utils/error.hpp"
 #include "vpux/compiler/utils/infer_output_shape.hpp"
 #include "vpux/compiler/utils/quantization.hpp"
+#include "vpux/compiler/utils/rewriter.hpp"
 
 using namespace vpux;
 
@@ -213,8 +217,12 @@ bool vpux::VPU::NCEEltwiseOp::checkStrategyCompatibility(VPU::MultiClusterStrate
 
     // Support SplitOverKernel for eltwise Multiply operation
     // More eltwise types support need implement E#164581
+    // During VerticalFusion, the post-eltwise merging policy may select SplitOverKernel for other eltwise
+    // operations to avoid DMA spilling between the eltwise and its parent. The check can be removed when E#164581 is
+    // implemented.
     if (strategy == VPU::MultiClusterStrategy::SplitOverKernel) {
-        return getOpType() == VPU::EltwiseType::MULTIPLY;
+        return getOpType() == VPU::EltwiseType::MULTIPLY ||
+               mlir::isa_and_present<VPU::VerticalFusionOp>(getOperation()->getParentOp());
     }
 
     return strategy == VPU::MultiClusterStrategy::Clustering ||
@@ -491,6 +499,61 @@ mlir::LogicalResult vpux::VPU::NCEEltwiseOp::reifyResultShapes(mlir::OpBuilder& 
         return outShape;
     }
 
-    reifiedReturnShapes.emplace_back(std::move(outShape.value()));
+    // reifyEltwiseTensors return out_shape == in_shape (broadcasting rules apply), as is normal for an eltwise-like op.
+    // However, NCE. Eltwise is capable of input/output padding, which mean that in_dim != out_dim (usually C-dim) in
+    // some cases. To be able to obtain a correct output shape, we need to remove the input padding/add the output
+    // padding to the reified shape.
+    // E.g. input shape = 1x16x?x? with input_padding = [1, 13, 1, 1] -> output shape 1x3x?x?
+    //          => out[C] = in[C] - input_padding[C]
+    auto oShape = outShape.value();
+    if (auto inputPaddingAttr = getInputPaddingAttr()) {
+        const auto inputPadding = parseIntArrayAttr<int64_t>(inputPaddingAttr);
+        for (size_t i = 0; i < oShape.size(); ++i) {
+            if (inputPadding[i] == 0) {
+                continue;
+            }
+
+            if (auto val = mlir::getConstantIntValue(oShape[i])) {
+                oShape[i] = mlir::getAsIndexOpFoldResult(builder.getContext(), val.value() - inputPadding[i]);
+                continue;
+            }
+
+            auto oShapeVal = llvm::dyn_cast_if_present<mlir::Value>(oShape[i]);
+            if (!oShapeVal) {
+                return mlir::failure();
+            }
+
+            auto inPad = builder.createOrFold<mlir::arith::ConstantOp>(appendLoc(loc, "input_pad_{0}", i),
+                                                                       builder.getIndexAttr(inputPadding[i]));
+            oShape[i] =
+                    builder.createOrFold<mlir::arith::SubIOp>(appendLoc(loc, "input_pad_sub_{0}", i), oShapeVal, inPad);
+        }
+    }
+
+    if (auto outputPaddingAttr = getOutputPaddingAttr()) {
+        const auto outputPadding = parseIntArrayAttr<int64_t>(outputPaddingAttr);
+        for (size_t i = 0; i < oShape.size(); ++i) {
+            if (outputPadding[i] == 0) {
+                continue;
+            }
+
+            if (auto val = mlir::getConstantIntValue(oShape[i])) {
+                oShape[i] = mlir::getAsIndexOpFoldResult(builder.getContext(), val.value() + outputPadding[i]);
+                continue;
+            }
+
+            auto oShapeVal = llvm::dyn_cast_if_present<mlir::Value>(oShape[i]);
+            if (!oShapeVal) {
+                return mlir::failure();
+            }
+
+            auto outPad = builder.createOrFold<mlir::arith::ConstantOp>(appendLoc(loc, "output_pad_{0}", i),
+                                                                        builder.getIndexAttr(outputPadding[i]));
+            oShape[i] = builder.createOrFold<mlir::arith::AddIOp>(appendLoc(loc, "output_pad_add_{0}", i), oShapeVal,
+                                                                  outPad);
+        }
+    }
+
+    reifiedReturnShapes.emplace_back(std::move(oShape));
     return mlir::success();
 }

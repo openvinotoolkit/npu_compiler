@@ -41,6 +41,7 @@ func.func @FuseDQ(%arg0: tensor<1x304x560xf32>) -> (tensor<1x304x560xui8>, tenso
     // CHECK: [[ReduceMax:%.+]] = IE.ReduceMax([[INPUT]])
     // CHECK: [[ClampMax:%.+]] = IE.Clamp([[ReduceMax]])
     // CHECK: [[OUT:%.+]], [[SCALE:%.+]], [[ZP:%.+]] = IE.DynamicQuantize([[INPUT]], [[ClampMin]], [[ClampMax]])
+    // CHECK-SAME: {axes_value = [{{.*}}]
     // CHECK-SAME: -> tensor<1x304x560xui8>, tensor<1xf32>, tensor<1xui8>
     // CHECK: return [[OUT]], [[SCALE]], [[ZP]] : tensor<1x304x560xui8>, tensor<1xf32>, tensor<1xui8>
 }
@@ -80,7 +81,7 @@ func.func @FuseDQSigned(%arg0: tensor<1x304x560xf32>) -> (tensor<1x304x560xsi8>,
     // CHECK: [[ClampMin:%.+]] = IE.Clamp([[ReduceMin]])
     // CHECK: [[ReduceMax:%.+]] = IE.ReduceMax([[INPUT]])
     // CHECK: [[ClampMax:%.+]] = IE.Clamp([[ReduceMax]])
-    // CHECK: [[OUT:%.+]], [[SCALE:%.+]], [[ZP:%.+]] = IE.DynamicQuantize([[INPUT]], [[ClampMin]], [[ClampMax]]) {dstElemType = si8
+    // CHECK: [[OUT:%.+]], [[SCALE:%.+]], [[ZP:%.+]] = IE.DynamicQuantize([[INPUT]], [[ClampMin]], [[ClampMax]]) {axes_value = [{{.*}}], dstElemType = si8
     // CHECK-SAME: -> tensor<1x304x560xsi8>, tensor<1xf32>, tensor<1xsi8>
     // CHECK: return [[OUT]], [[SCALE]], [[ZP]] : tensor<1x304x560xsi8>, tensor<1xf32>, tensor<1xsi8>
 }
@@ -121,6 +122,7 @@ func.func @FuseDQSpanUnsigned(%arg0: tensor<1x4x8xf32>) -> (tensor<1x4x8xui8>, t
     // CHECK: [[ReduceMax:%.+]] = IE.ReduceMax([[INPUT]])
     // CHECK: [[ClampMax:%.+]] = IE.Clamp([[ReduceMax]])
     // CHECK: [[OUT:%.+]], [[SCALE:%.+]], [[ZP:%.+]] = IE.DynamicQuantize([[INPUT]], [[ClampMin]], [[ClampMax]])
+    // CHECK-SAME: {axes_value = [{{.*}}]
     // CHECK-SAME: -> tensor<1x4x8xui8>, tensor<1xf32>, tensor<1xui8>
     // CHECK: return [[OUT]], [[SCALE]], [[ZP]] : tensor<1x4x8xui8>, tensor<1xf32>, tensor<1xui8>
 }
@@ -160,7 +162,7 @@ func.func @FuseDQSpanSigned(%arg0: tensor<1x4x8xf32>) -> (tensor<1x4x8xsi8>, ten
     // CHECK: [[ClampMin:%.+]] = IE.Clamp([[ReduceMin]])
     // CHECK: [[ReduceMax:%.+]] = IE.ReduceMax([[INPUT]])
     // CHECK: [[ClampMax:%.+]] = IE.Clamp([[ReduceMax]])
-    // CHECK: [[OUT:%.+]], [[SCALE:%.+]], [[ZP:%.+]] = IE.DynamicQuantize([[INPUT]], [[ClampMin]], [[ClampMax]]) {dstElemType = si8
+    // CHECK: [[OUT:%.+]], [[SCALE:%.+]], [[ZP:%.+]] = IE.DynamicQuantize([[INPUT]], [[ClampMin]], [[ClampMax]]) {axes_value = [{{.*}}], dstElemType = si8
     // CHECK-SAME: -> tensor<1x4x8xsi8>, tensor<1xf32>, tensor<1xsi8>
     // CHECK: return [[OUT]], [[SCALE]], [[ZP]] : tensor<1x4x8xsi8>, tensor<1xf32>, tensor<1xsi8>
 }
@@ -201,6 +203,7 @@ func.func @FuseDQPerAxis(%arg0: tensor<1x4x8xf32>) -> (tensor<1x4x8xui8>, tensor
     // CHECK: [[ReduceMax:%.+]] = IE.ReduceMax([[INPUT]])
     // CHECK: [[ClampMax:%.+]] = IE.Clamp([[ReduceMax]])
     // CHECK: [[OUT:%.+]], [[SCALE:%.+]], [[ZP:%.+]] = IE.DynamicQuantize([[INPUT]], [[ClampMin]], [[ClampMax]])
+    // CHECK-SAME: {axes_value = [{{.*}}]
     // CHECK-SAME: -> tensor<1x4x8xui8>, tensor<1x4x1xf32>, tensor<1x4x1xui8>
     // CHECK: return [[OUT]], [[SCALE]], [[ZP]] : tensor<1x4x8xui8>, tensor<1x4x1xf32>, tensor<1x4x1xui8>
 }
@@ -236,11 +239,52 @@ func.func @FuseDQSignedSymmetricClamp(%arg0: tensor<1x2x1x64xf32>) -> (tensor<1x
     // CHECK: [[ClampMin:%.+]] = IE.Clamp([[ReduceMin]])
     // CHECK: [[ReduceMax:%.+]] = IE.ReduceMax([[INPUT]])
     // CHECK: [[ClampMax:%.+]] = IE.Clamp([[ReduceMax]])
-    // CHECK: [[OUT_I8:%.+]], [[SCALE:%.+]], [[ZP_I8:%.+]] = IE.DynamicQuantize([[INPUT]], [[ClampMin]], [[ClampMax]]) {dstElemType = si8
+    // CHECK: [[OUT_I8:%.+]], [[SCALE:%.+]], [[ZP_I8:%.+]] = IE.DynamicQuantize([[INPUT]], [[ClampMin]], [[ClampMax]]) {axes_value = [{{.*}}], dstElemType = si8
     // CHECK-SAME: -> tensor<1x2x1x64xsi8>, tensor<1x2x1x1xf32>, tensor<1x2x1x1xsi8>
     // CHECK: [[ZP_F32:%.+]] = IE.Convert([[ZP_I8]]) {dstElemType = f32}
     // CHECK: [[OUT_F32:%.+]] = IE.Convert([[OUT_I8]]) {dstElemType = f32}
     // CHECK: return [[OUT_F32]], [[SCALE]], [[ZP_F32]] : tensor<1x2x1x64xf32>, tensor<1x2x1x1xf32>, tensor<1x2x1x1xf32>
+}
+
+// -----
+
+// Signed asymmetric Key quantization uses an internal reduction and a 127-point
+// quantization range. The explicit ReduceMin/ReduceMax values are removed from
+// the fused operation, while the reduction axes are preserved as an attribute.
+
+// CHECK-LABEL: @FuseDQSignedAsymmetricInternalReduction
+// CHECK-SAME: [[INPUT:%.+]]: tensor<1x4x8xf32>
+func.func @FuseDQSignedAsymmetricInternalReduction(%arg0: tensor<1x4x8xf32>) -> (tensor<1x4x8xsi8>, tensor<1x4x1xf32>, tensor<1x4x1xsi8>) {
+    %qmin = const.Declare tensor<1x1x1xf32> = dense<-127.0> : tensor<1x1x1xf32>
+    %quantSpan = const.Declare tensor<1x1x1xf32> = dense<127.0> : tensor<1x1x1xf32>
+    %0 = IE.ReduceMin(%arg0) {axes_value = [2], keep_dims} : tensor<1x4x8xf32> -> tensor<1x4x1xf32>
+    %1 = IE.Clamp(%0) {max = 0.0 : f64, min = -6.550400e+04 : f64} : tensor<1x4x1xf32> -> tensor<1x4x1xf32>
+    %2 = IE.Subtract(%qmin, %1) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x1xf32>, tensor<1x4x1xf32> -> tensor<1x4x1xf32>
+    %3 = IE.ReduceMax(%arg0) {axes_value = [2], keep_dims} : tensor<1x4x8xf32> -> tensor<1x4x1xf32>
+    %4 = IE.Clamp(%3) {max = 6.550400e+04 : f64, min = 0.0 : f64} : tensor<1x4x1xf32> -> tensor<1x4x1xf32>
+    %5 = IE.Subtract(%4, %1) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x4x1xf32>, tensor<1x4x1xf32> -> tensor<1x4x1xf32>
+    %6 = IE.Divide(%5, %quantSpan) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x4x1xf32>, tensor<1x1x1xf32> -> tensor<1x4x1xf32>
+    %7 = IE.Divide(%2, %6) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x4x1xf32>, tensor<1x4x1xf32> -> tensor<1x4x1xf32>
+    %8 = IE.Round(%7) {mode = #IE.round_mode<HALF_TO_EVEN>} : tensor<1x4x1xf32> -> tensor<1x4x1xf32>
+    %9 = IE.Clamp(%8) {max = 127.0 : f64, min = -127.0 : f64} : tensor<1x4x1xf32> -> tensor<1x4x1xf32>
+    %10 = IE.Convert(%9) {dstElemType = si8} : tensor<1x4x1xf32> -> tensor<1x4x1xsi8>
+    %11 = IE.Multiply(%arg0, %quantSpan) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x4x8xf32>, tensor<1x1x1xf32> -> tensor<1x4x8xf32>
+    %12 = IE.Divide(%11, %5) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x4x8xf32>, tensor<1x4x1xf32> -> tensor<1x4x8xf32>
+    %13 = IE.Round(%12) {mode = #IE.round_mode<HALF_TO_EVEN>} : tensor<1x4x8xf32> -> tensor<1x4x8xf32>
+    %14 = IE.Add(%13, %9) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x4x8xf32>, tensor<1x4x1xf32> -> tensor<1x4x8xf32>
+    %15 = IE.Clamp(%14) {max = 127.0 : f64, min = -127.0 : f64} : tensor<1x4x8xf32> -> tensor<1x4x8xf32>
+    %16 = IE.Convert(%15) {dstElemType = si8} : tensor<1x4x8xf32> -> tensor<1x4x8xsi8>
+    return %16, %6, %10 : tensor<1x4x8xsi8>, tensor<1x4x1xf32>, tensor<1x4x1xsi8>
+
+    // CHECK-NOT: IE.ReduceMin
+    // CHECK-NOT: IE.ReduceMax
+    // CHECK-NOT: IE.Multiply
+    // CHECK-NOT: IE.Subtract
+    // CHECK-NOT: IE.Divide
+    // CHECK-NOT: IE.Add
+    // CHECK: [[OUT:%.+]], [[SCALE:%.+]], [[ZP:%.+]] = IE.DynamicQuantize([[INPUT]]) {axes_value = [2], dstElemType = si8, operandSegmentSizes = array<i32: 1, 0, 0>}
+    // CHECK-SAME: -> tensor<1x4x8xsi8>, tensor<1x4x1xf32>, tensor<1x4x1xsi8>
+    // CHECK: return [[OUT]], [[SCALE]], [[ZP]] : tensor<1x4x8xsi8>, tensor<1x4x1xf32>, tensor<1x4x1xsi8>
 }
 
 // -----
@@ -289,6 +333,7 @@ func.func @FuseDQScaleUsedBeforeOutputConvert(%arg0: tensor<1x304x560xf32>) -> (
     // CHECK: [[ReduceMax:%.+]] = IE.ReduceMax([[INPUT]])
     // CHECK: [[ClampMax:%.+]] = IE.Clamp([[ReduceMax]])
     // CHECK: [[OUT:%.+]], [[SCALE:%.+]], [[ZP:%.+]] = IE.DynamicQuantize([[INPUT]], [[ClampMin]], [[ClampMax]])
+    // CHECK-SAME: {axes_value = [{{.*}}]
     // CHECK-SAME: -> tensor<1x304x560xui8>, tensor<1xf32>, tensor<1xui8>
     // The surviving scale consumer must reference the fused DynamicQuantize scale result.
     // CHECK: [[SCALE_USER:%.+]] = IE.Multiply([[SCALE]], %cst{{.*}})

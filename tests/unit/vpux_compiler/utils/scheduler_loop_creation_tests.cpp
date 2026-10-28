@@ -55,23 +55,23 @@ std::pair<mlir::Value, mlir::Value> createPackedWeightsAndTable(mlir::OpBuilder&
     packedContentSetup = packedContentSetup.castElemType(i8Type);
     packedContentSetup = packedContentSetup.reorder(DimsOrder::NHWC);
     auto packedContentAttr = Const::ContentAttr::get(packedAttr, packedContentSetup);
-    auto packedDDR = builder.create<Const::DeclareOp>(loc, packedTypeDDR, packedContentAttr);
-    auto packedCMX = builder.create<mlir::memref::AllocOp>(loc, packedTypeCMX);
-    auto copyPacked = builder.create<VPUIP::NNDMAOp>(loc, packedDDR, packedCMX);
+    auto packedDDR = Const::DeclareOp::create(builder, loc, packedTypeDDR, packedContentAttr);
+    auto packedCMX = mlir::memref::AllocOp::create(builder, loc, packedTypeCMX);
+    auto copyPacked = VPUIP::NNDMAOp::create(builder, loc, packedDDR, packedCMX);
 
     auto weightBytesSubview =
-            builder.create<VPUIP::SubViewOp>(loc, copyPacked.getOutput(), mlir::ArrayRef<int64_t>{0, 0, 0, 0},
-                                             mlir::ArrayRef<int64_t>{1, 1, 1, weightsBytes});
-    auto tableBytesSubview = builder.create<VPUIP::SubViewOp>(loc, copyPacked.getOutput(),
-                                                              mlir::ArrayRef<int64_t>{0, 0, 0, weightsBytes},
-                                                              mlir::ArrayRef<int64_t>{1, 1, 1, tableBytes});
+            VPUIP::SubViewOp::create(builder, loc, copyPacked.getOutput(), mlir::ArrayRef<int64_t>{0, 0, 0, 0},
+                                     mlir::ArrayRef<int64_t>{1, 1, 1, weightsBytes});
+    auto tableBytesSubview = VPUIP::SubViewOp::create(builder, loc, copyPacked.getOutput(),
+                                                      mlir::ArrayRef<int64_t>{0, 0, 0, weightsBytes},
+                                                      mlir::ArrayRef<int64_t>{1, 1, 1, tableBytes});
 
     auto weightsTypeCMX =
             vpux::getMemRefType({tileC, inputChannels, kernelSize, kernelSize}, f16Type, DimsOrder::NHWC, cmxSpace);
     auto weightTableTypeCMX = vpux::getMemRefType({tileC, 1, 1, 4}, i32Type, DimsOrder::OIYX, cmxSpace);
 
-    auto weightsView = builder.create<VPUIP::ViewOp>(loc, weightsTypeCMX, weightBytesSubview.getResult());
-    auto tableView = builder.create<VPUIP::ViewOp>(loc, weightTableTypeCMX, tableBytesSubview.getResult());
+    auto weightsView = VPUIP::ViewOp::create(builder, loc, weightsTypeCMX, weightBytesSubview.getResult());
+    auto tableView = VPUIP::ViewOp::create(builder, loc, weightTableTypeCMX, tableBytesSubview.getResult());
 
     return {weightsView.getResult(), tableView.getResult()};
 }
@@ -103,7 +103,7 @@ mlir::OwningOpRef<mlir::ModuleOp> createHeterogeneousLoopPatternModule(mlir::MLI
     auto inputTypeCMX = vpux::getMemRefType({1, inputChannels, inputSizeH, inputSizeW}, f16Type, orderNHWC, cmxSpace);
 
     auto funcType = builder.getFunctionType({inputTypeDDR, outputTypeDDR}, {outputTypeDDR});
-    auto func = builder.create<mlir::func::FuncOp>(loc, "main", funcType);
+    auto func = mlir::func::FuncOp::create(builder, loc, "main", funcType);
     func.setPublic();
 
     auto* entryBlock = func.addEntryBlock();
@@ -112,8 +112,8 @@ mlir::OwningOpRef<mlir::ModuleOp> createHeterogeneousLoopPatternModule(mlir::MLI
     auto inputArg = entryBlock->getArgument(0);
     auto outputArg = entryBlock->getArgument(1);
 
-    auto input = builder.create<mlir::memref::AllocOp>(loc, inputTypeCMX);
-    auto copyIn = builder.create<VPUIP::NNDMAOp>(loc, inputArg, input);
+    auto input = mlir::memref::AllocOp::create(builder, loc, inputTypeCMX);
+    auto copyIn = VPUIP::NNDMAOp::create(builder, loc, inputArg, input);
 
     // Pattern A iterations: packed single DMA for weights + weight table.
     const std::set<int64_t> patternAIterations = {0, 4, 5, 8, 13};
@@ -122,8 +122,8 @@ mlir::OwningOpRef<mlir::ModuleOp> createHeterogeneousLoopPatternModule(mlir::MLI
     allTiles.reserve(numTilesH);
     for (int64_t h = 0; h < numTilesH; ++h) {
         auto inputTile =
-                builder.create<VPUIP::SubViewOp>(loc, copyIn.getOutput(), mlir::ArrayRef<int64_t>{0, 0, h * tileH, 0},
-                                                 mlir::ArrayRef<int64_t>{1, inputChannels, tileH, inputSizeW});
+                VPUIP::SubViewOp::create(builder, loc, copyIn.getOutput(), mlir::ArrayRef<int64_t>{0, 0, h * tileH, 0},
+                                         mlir::ArrayRef<int64_t>{1, inputChannels, tileH, inputSizeW});
 
         mlir::Value weightOp = nullptr;
         mlir::Value weightTableOp = nullptr;
@@ -140,7 +140,7 @@ mlir::OwningOpRef<mlir::ModuleOp> createHeterogeneousLoopPatternModule(mlir::MLI
 
         // Per-tile CMX output buffer (small, tile-sized)
         auto outputTileTypeCMX = vpux::getMemRefType({1, tileC, tileH, inputSizeW}, f16Type, orderNHWC, cmxSpace);
-        auto outputTileCMX = builder.create<mlir::memref::AllocOp>(loc, outputTileTypeCMX);
+        auto outputTileCMX = mlir::memref::AllocOp::create(builder, loc, outputTileTypeCMX);
 
         auto mpeEngineAttr = createMPEEngineAttr(ctx, platform);
         auto nceOp = createNCEClusterTaskOp(builder, ctx, loc, kernelSize, padding, stride, inputTile, weightOp,
@@ -154,14 +154,14 @@ mlir::OwningOpRef<mlir::ModuleOp> createHeterogeneousLoopPatternModule(mlir::MLI
 
         // Per-tile DATA_OUT: copy from per-tile CMX buffer to DDR subview
         auto outputTileDDR =
-                builder.create<vpux::VPUIP::SubViewOp>(loc, outputArg, mlir::ArrayRef<int64_t>{0, 0, h * tileH, 0},
-                                                       mlir::ArrayRef<int64_t>{1, tileC, tileH, inputSizeW});
-        auto copyOut = builder.create<VPUIP::NNDMAOp>(loc, nceOp.getOutput(), outputTileDDR);
+                vpux::VPUIP::SubViewOp::create(builder, loc, outputArg, mlir::ArrayRef<int64_t>{0, 0, h * tileH, 0},
+                                               mlir::ArrayRef<int64_t>{1, tileC, tileH, inputSizeW});
+        auto copyOut = VPUIP::NNDMAOp::create(builder, loc, nceOp.getOutput(), outputTileDDR);
         allTiles.push_back(copyOut.getOutput());
     }
 
-    auto concatOp = builder.create<VPUIP::ConcatViewOp>(loc, allTiles, outputArg);
-    builder.create<mlir::func::ReturnOp>(loc, mlir::ValueRange{concatOp.getOutput()});
+    auto concatOp = VPUIP::ConcatViewOp::create(builder, loc, allTiles, outputArg);
+    mlir::func::ReturnOp::create(builder, loc, mlir::ValueRange{concatOp.getOutput()});
 
     mlir::PassManager pm(ctx);
     VPUIP::buildAsyncSchedulingPipeline(pm);
@@ -207,7 +207,7 @@ mlir::OwningOpRef<mlir::ModuleOp> createSharedOutputTiledModule(mlir::MLIRContex
     auto outputTypeCMX = vpux::getMemRefType({1, outputChannels, inputSizeH, inputSizeW}, f16Type, orderNHWC, cmxSpace);
 
     auto funcType = builder.getFunctionType({inputTypeDDR, outputTypeDDR}, {outputTypeDDR});
-    auto func = builder.create<mlir::func::FuncOp>(loc, "main", funcType);
+    auto func = mlir::func::FuncOp::create(builder, loc, "main", funcType);
     func.setPublic();
 
     auto* entryBlock = func.addEntryBlock();
@@ -217,11 +217,11 @@ mlir::OwningOpRef<mlir::ModuleOp> createSharedOutputTiledModule(mlir::MLIRContex
     auto outputArg = entryBlock->getArgument(1);
 
     // Copy input from DDR to CMX.
-    auto inputCMX = builder.create<mlir::memref::AllocOp>(loc, inputTypeCMX);
-    auto copyIn = builder.create<VPUIP::NNDMAOp>(loc, inputArg, inputCMX);
+    auto inputCMX = mlir::memref::AllocOp::create(builder, loc, inputTypeCMX);
+    auto copyIn = VPUIP::NNDMAOp::create(builder, loc, inputArg, inputCMX);
 
     // Shared CMX output buffer -- all NCE tiles write SubViews into this single allocation.
-    auto outputCMX = builder.create<mlir::memref::AllocOp>(loc, outputTypeCMX);
+    auto outputCMX = mlir::memref::AllocOp::create(builder, loc, outputTypeCMX);
 
     // Per-tile weights (private, not shared).
     llvm::SmallVector<mlir::Value> weightOps;
@@ -234,15 +234,14 @@ mlir::OwningOpRef<mlir::ModuleOp> createSharedOutputTiledModule(mlir::MLIRContex
 
     llvm::SmallVector<mlir::Value> allTiles;
     for (int c = 0; c < numTilesC; ++c) {
-        auto inputTile =
-                builder.create<VPUIP::SubViewOp>(loc, copyIn.getOutput(), mlir::ArrayRef<int64_t>{0, 0, 0, 0},
-                                                 mlir::ArrayRef<int64_t>{1, inputChannels, inputSizeH, inputSizeW});
+        auto inputTile = VPUIP::SubViewOp::create(builder, loc, copyIn.getOutput(), mlir::ArrayRef<int64_t>{0, 0, 0, 0},
+                                                  mlir::ArrayRef<int64_t>{1, inputChannels, inputSizeH, inputSizeW});
 
         // Output tile is a SubView of the shared CMX root buffer.
         // ConcatView inputs and output share the same root buffer.
-        auto outputTile = builder.create<VPUIP::SubViewOp>(loc, outputCMX.getResult(),
-                                                           mlir::ArrayRef<int64_t>{0, c * tileC, 0, 0},
-                                                           mlir::ArrayRef<int64_t>{1, tileC, inputSizeH, inputSizeW});
+        auto outputTile = VPUIP::SubViewOp::create(builder, loc, outputCMX.getResult(),
+                                                   mlir::ArrayRef<int64_t>{0, c * tileC, 0, 0},
+                                                   mlir::ArrayRef<int64_t>{1, tileC, inputSizeH, inputSizeW});
 
         auto mpeEngineAttr = createMPEEngineAttr(ctx, platform);
         auto nceOp = createNCEClusterTaskOp(builder, ctx, loc, kernelSize, padding, stride, inputTile, weightOps[c],
@@ -258,11 +257,11 @@ mlir::OwningOpRef<mlir::ModuleOp> createSharedOutputTiledModule(mlir::MLIRContex
     }
 
     // ConcatView combines all SubViews into the shared CMX output buffer (same root).
-    auto concatOp = builder.create<VPUIP::ConcatViewOp>(loc, allTiles, outputCMX);
+    auto concatOp = VPUIP::ConcatViewOp::create(builder, loc, allTiles, outputCMX);
 
     // Single DATA_OUT: copy the entire shared CMX buffer to DDR.
-    auto copyOut = builder.create<VPUIP::NNDMAOp>(loc, concatOp.getOutput(), outputArg);
-    builder.create<mlir::func::ReturnOp>(loc, mlir::ValueRange{copyOut.getOutput()});
+    auto copyOut = VPUIP::NNDMAOp::create(builder, loc, concatOp.getOutput(), outputArg);
+    mlir::func::ReturnOp::create(builder, loc, mlir::ValueRange{copyOut.getOutput()});
 
     mlir::PassManager pm(ctx);
     VPUIP::buildAsyncSchedulingPipeline(pm);
@@ -298,7 +297,7 @@ mlir::OwningOpRef<mlir::ModuleOp> createChainedTiledModule(mlir::MLIRContext* ct
     auto tensorTypeCMX = vpux::getMemRefType({1, channels, inputSizeH, inputSizeW}, f16Type, orderNHWC, cmxSpace);
 
     auto funcType = builder.getFunctionType({tensorTypeDDR, tensorTypeDDR}, {tensorTypeDDR});
-    auto func = builder.create<mlir::func::FuncOp>(loc, "main", funcType);
+    auto func = mlir::func::FuncOp::create(builder, loc, "main", funcType);
     func.setPublic();
 
     auto* entryBlock = func.addEntryBlock();
@@ -308,8 +307,8 @@ mlir::OwningOpRef<mlir::ModuleOp> createChainedTiledModule(mlir::MLIRContext* ct
     auto outputArg = entryBlock->getArgument(1);
 
     // Copy input from DDR to CMX (shared only for tile_0; tiles 1..N-1 depend on the previous NCE output).
-    auto inputCMX = builder.create<mlir::memref::AllocOp>(loc, tensorTypeCMX);
-    auto copyIn = builder.create<VPUIP::NNDMAOp>(loc, inputArg, inputCMX);
+    auto inputCMX = mlir::memref::AllocOp::create(builder, loc, tensorTypeCMX);
+    auto copyIn = VPUIP::NNDMAOp::create(builder, loc, inputArg, inputCMX);
 
     // Build the chain.  currentInput is updated to each tile's NCE output for the next tile.
     mlir::Value currentInput = copyIn.getOutput();
@@ -319,7 +318,7 @@ mlir::OwningOpRef<mlir::ModuleOp> createChainedTiledModule(mlir::MLIRContext* ct
         auto weightOp = createWeights(builder, loc, f16Type, weightsShape, ddrSpace, cmxSpace);
         auto weightTableOp = createWeightsTable(builder, loc, channels, ddrSpace, cmxSpace);
 
-        auto outputTile = builder.create<mlir::memref::AllocOp>(loc, tensorTypeCMX);
+        auto outputTile = mlir::memref::AllocOp::create(builder, loc, tensorTypeCMX);
 
         auto mpeEngineAttr = createMPEEngineAttr(ctx, platform);
         auto nceOp = createNCEClusterTaskOp(builder, ctx, loc, kernelSize, padding, stride, currentInput, weightOp,
@@ -337,8 +336,8 @@ mlir::OwningOpRef<mlir::ModuleOp> createChainedTiledModule(mlir::MLIRContext* ct
     }
 
     // Copy final output from CMX to DDR.
-    auto copyOut = builder.create<VPUIP::NNDMAOp>(loc, currentInput, outputArg);
-    builder.create<mlir::func::ReturnOp>(loc, mlir::ValueRange{copyOut.getOutput()});
+    auto copyOut = VPUIP::NNDMAOp::create(builder, loc, currentInput, outputArg);
+    mlir::func::ReturnOp::create(builder, loc, mlir::ValueRange{copyOut.getOutput()});
 
     mlir::PassManager pm(ctx);
     VPUIP::buildAsyncSchedulingPipeline(pm);

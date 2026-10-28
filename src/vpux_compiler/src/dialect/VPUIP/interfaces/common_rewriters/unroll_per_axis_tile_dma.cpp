@@ -167,12 +167,12 @@ mlir::LogicalResult MultiClusterPerAxisTileDMARewriter::unrollSegmentedOrOverlap
     const auto getOperand = [&](int64_t clusterId, mlir::Value operand, vpux::NDTypeInterface newType,
                                 mlir::Operation* insertionPoint) -> mlir::Value {
         if (auto cst = operand.getDefiningOp<Const::DeclareOp>()) {
-            return rewriter.create<VPUIP::SubViewOp>(loc, cst, perClusterShapeOffsets[clusterId].raw(),
-                                                     perClusterShapes[clusterId].raw());
+            return VPUIP::SubViewOp::create(rewriter, loc, cst, perClusterShapeOffsets[clusterId].raw(),
+                                            perClusterShapes[clusterId].raw());
         }
 
         auto declBuff = operand.getDefiningOp<VPURT::DeclareBufferOp>();
-        VPUX_THROW_UNLESS(declBuff != nullptr, "Can't find DeclareBuffer");
+        VPUX_THROW_WHEN(declBuff == nullptr, "Can't find DeclareBuffer");
 
         if (newType.getMemoryKind() == VPU::MemoryKind::CMX_NN) {
             const auto cmxNameAttr = mlir::FlatSymbolRefAttr::get(ctx, stringifyEnum(VPU::MemoryKind::CMX_NN));
@@ -207,9 +207,9 @@ mlir::LogicalResult MultiClusterPerAxisTileDMARewriter::unrollSegmentedOrOverlap
     auto padAxis = perAxisTileDMAOp.getAxis();
     auto padTiles = perAxisTileDMAOp.getTiles();
     VPUX_THROW_UNLESS(padAxis.has_value() && padTiles.has_value(), "Cannot get PerAxisTile attribute");
-    VPUX_THROW_UNLESS(padAxis.value() != tilingAxis,
-                      "TilePerAxis expand axis '{0}' should not be the same as tiling axis '{1}'", padAxis.value(),
-                      tilingAxis);
+    VPUX_THROW_WHEN(padAxis.value() == tilingAxis,
+                    "TilePerAxis expand axis '{0}' should not be the same as tiling axis '{1}'", padAxis.value(),
+                    tilingAxis);
 
     auto elemTypeSize = Byte(inputType.getElemTypeSize());
     auto dmaDescriptorGenerator = VPUIP::PerAxisTileDmaDescriptorGenerator(ctx, _log);
@@ -291,7 +291,7 @@ mlir::LogicalResult MultiClusterPerAxisTileDMARewriter::unrollDuplicated(VPUIP::
     rewriter.setInsertionPointAfter(vpurtTask);
 
     auto outDeclBuff = output.getDefiningOp<VPURT::DeclareBufferOp>();
-    VPUX_THROW_UNLESS(outDeclBuff != nullptr, "Can't get output buffer");
+    VPUX_THROW_WHEN(outDeclBuff == nullptr, "Can't get output buffer");
 
     auto cmxBuffer = VPURT::createOp<VPURT::DeclareBufferOp>(
             rewriter, outDeclBuff, loc, outDeclBuff.getType(), VPURT::BufferSection::CMX_NN,

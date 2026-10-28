@@ -210,8 +210,8 @@ mlir::LogicalResult LogSoftmaxRewriter::matchAndRewrite(IE::LogSoftmaxOp origOp,
     outPadAfter[Dim(axisInd)] = axisPad;
     const auto newOutputType = outputType.pad(outPadBefore, outPadAfter);
 
-    auto newOp = rewriter.create<IE::LogSoftmaxOp>(appendLoc(origOp->getLoc(), "_expanded"), newOutputType,
-                                                   expandedInput, origOp.getAxisIndAttr(), getIntAttr(ctx, axisPad));
+    auto newOp = IE::LogSoftmaxOp::create(rewriter, appendLoc(origOp->getLoc(), "_expanded"), newOutputType,
+                                          expandedInput, origOp.getAxisIndAttr(), getIntAttr(ctx, axisPad));
 
     const auto outShape = outputType.getShape();
     SmallVector<int64_t> offsets(outShape.size(), 0);

@@ -34,7 +34,7 @@ void vpux::ELFNPU37XX::RelocOp::serialize(elf::writer::Relocation* relocation,
         relocation->setSpecialSymbol(static_cast<elf::Elf_Word>(symValue));
     } else {
         auto symbolMapEntry = symbolMap.find(symbolOp);
-        VPUX_THROW_UNLESS(symbolMapEntry != symbolMap.end(), "Unable to locate symbol entry for relocation");
+        VPUX_THROW_WHEN(symbolMapEntry == symbolMap.end(), "Unable to locate symbol entry for relocation");
         auto symbolEntry = symbolMapEntry->second;
         relocation->setSymbol(symbolEntry);
     }

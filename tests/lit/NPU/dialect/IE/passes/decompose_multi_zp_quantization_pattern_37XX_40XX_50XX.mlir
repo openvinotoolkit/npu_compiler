@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-// RUN: vpux-opt --split-input-file --init-compiler="platform=%platform%" --run-initial-low-precision-transformations-rewriters="rewriter=decompose-multi-zp-quantization" %s | FileCheck %s
+// RUN: vpux-opt --split-input-file --init-compiler="platform=%platform% enable-weights-dynamic-dequantization=true" --run-initial-low-precision-transformations-rewriters="rewriter=decompose-multi-zp-quantization" %s | FileCheck %s
 // REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010
 
 // CHECK-LABEL: @DecomposeWACKVcachedPatternWithPostFP32MatMul
@@ -587,4 +587,68 @@ func.func @NotDecomposeU2WAITransposePrefillPattern(%act: tensor<4x16xf32>, %wei
   // CHECK: [[RESHAPE:%.+]] = IE.AffineReshape([[TRANSPOSE]]) {{.*}} shape_value = [4, 16]{{.*}} : tensor<4x2x8xf32> -> tensor<4x16xf32>
   // CHECK: [[FC:%.+]] = IE.FullyConnected([[ACT]], [[RESHAPE]]) : tensor<4x16xf32>, tensor<4x16xf32> -> tensor<4x4xf32>
   // CHECK: return [[FC]]
+}
+
+// -----
+
+// CHECK-LABEL: @DecomposePerChannelPatternWithRuntimeScaleAndZP
+// CHECK-SAME:  ([[ACT:%.+]]: tensor<1x1x8xf32>, [[WEIGHTS:%.+]]: tensor<4x8xsi8>, [[ZP:%.+]]: tensor<4x1xsi8>, [[SCALE:%.+]]: tensor<4x1xf16>)
+func.func @DecomposePerChannelPatternWithRuntimeScaleAndZP(%act: tensor<1x1x8xf32>, %weights: tensor<4x8xsi8>, %zp: tensor<4x1xsi8>, %scale: tensor<4x1xf16>) -> tensor<1x1x4xf32> {
+  %0 = IE.Convert(%weights) {dstElemType = f16} : tensor<4x8xsi8> -> tensor<4x8xf16>
+  %1 = IE.Convert(%zp) {dstElemType = f16} : tensor<4x1xsi8> -> tensor<4x1xf16>
+  %2 = IE.Subtract(%0, %1) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<4x8xf16>, tensor<4x1xf16> -> tensor<4x8xf16>
+  %3 = IE.Multiply(%2, %scale) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<4x8xf16>, tensor<4x1xf16> -> tensor<4x8xf16>
+  %4 = IE.Convert(%3) {dstElemType = f32} : tensor<4x8xf16> -> tensor<4x8xf32>
+  %5 = IE.Reshape(%act) {shape_value = [1, 8]} : tensor<1x1x8xf32> -> tensor<1x8xf32>
+  %6 = IE.FullyConnected(%5, %4) : tensor<1x8xf32>, tensor<4x8xf32> -> tensor<1x4xf32>
+  %7 = IE.Reshape(%6) {shape_value = [1, 1, 4]} : tensor<1x4xf32> -> tensor<1x1x4xf32>
+  return %7 : tensor<1x1x4xf32>
+
+  // CHECK: [[CONVERT_W:%.+]] = IE.Convert([[WEIGHTS]]) {dstElemType = f16} : tensor<4x8xsi8> -> tensor<4x8xf16>
+  // CHECK: [[CONVERT_ZP:%.+]] = IE.Convert([[ZP]]) {dstElemType = f16} : tensor<4x1xsi8> -> tensor<4x1xf16>
+  // CHECK: [[MULTIPLY_W:%.+]] = IE.Multiply([[CONVERT_W]], [[SCALE]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<4x8xf16>, tensor<4x1xf16> -> tensor<4x8xf16>
+  // CHECK: [[CONVERT_F32:%.+]] = IE.Convert([[MULTIPLY_W]]) {dstElemType = f32} : tensor<4x8xf16> -> tensor<4x8xf32>
+  // CHECK: [[RESHAPE_ACT:%.+]] = IE.Reshape([[ACT]]) {shape_value = [1, 8]} : tensor<1x1x8xf32> -> tensor<1x8xf32>
+  // CHECK: [[FC:%.+]] = IE.FullyConnected([[RESHAPE_ACT]], [[CONVERT_F32]]) : tensor<1x8xf32>, tensor<4x8xf32> -> tensor<1x4xf32>
+  // CHECK: [[REDUCE_SUM:%.+]] = IE.ReduceSum([[RESHAPE_ACT]]) {axes_value = [1], keep_dims} : tensor<1x8xf32> -> tensor<1x1xf32>
+  // CHECK: [[MULTIPLY_SCALE_ZP:%.+]] = IE.Multiply([[SCALE]], [[CONVERT_ZP]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<4x1xf16>, tensor<4x1xf16> -> tensor<4x1xf16>
+  // CHECK: [[RESHAPE_SCALE_ZP:%.+]] = IE.Reshape([[MULTIPLY_SCALE_ZP]]) {shape_value = [1, 4]} : tensor<4x1xf16> -> tensor<1x4xf16>
+  // CHECK: [[CONVERT_SCALE_ZP:%.+]] = IE.Convert([[RESHAPE_SCALE_ZP]]) {dstElemType = f32} : tensor<1x4xf16> -> tensor<1x4xf32>
+  // CHECK: [[CORRECTION:%.+]] = IE.Multiply([[REDUCE_SUM]], [[CONVERT_SCALE_ZP]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1xf32>, tensor<1x4xf32> -> tensor<1x4xf32>
+  // CHECK: [[SUBTRACT:%.+]] = IE.Subtract([[FC]], [[CORRECTION]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x4xf32>, tensor<1x4xf32> -> tensor<1x4xf32>
+  // CHECK: [[RES:%.+]] = IE.Reshape([[SUBTRACT]]) {shape_value = [1, 1, 4]} : tensor<1x4xf32> -> tensor<1x1x4xf32>
+  // CHECK: return [[RES]]
+}
+
+// -----
+
+// CHECK-LABEL: @DecomposePerChannelPatternWithScaleConvert
+// CHECK-SAME:  ([[ACT:%.+]]: tensor<1x1x8xf32>, [[WEIGHTS:%.+]]: tensor<4x8xsi8>, [[ZP:%.+]]: tensor<4x1xsi8>, [[SCALE:%.+]]: tensor<4x1xf32>)
+func.func @DecomposePerChannelPatternWithScaleConvert(%act: tensor<1x1x8xf32>, %weights: tensor<4x8xsi8>, %zp: tensor<4x1xsi8>, %scale: tensor<4x1xf32>) -> tensor<1x1x4xf32> {
+  %0 = IE.Convert(%weights) {dstElemType = f16} : tensor<4x8xsi8> -> tensor<4x8xf16>
+  %1 = IE.Convert(%zp) {dstElemType = f16} : tensor<4x1xsi8> -> tensor<4x1xf16>
+  %2 = IE.Convert(%scale) {dstElemType = f16} : tensor<4x1xf32> -> tensor<4x1xf16>
+  %3 = IE.Subtract(%0, %1) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<4x8xf16>, tensor<4x1xf16> -> tensor<4x8xf16>
+  %4 = IE.Multiply(%3, %2) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<4x8xf16>, tensor<4x1xf16> -> tensor<4x8xf16>
+  %5 = IE.Convert(%4) {dstElemType = f32} : tensor<4x8xf16> -> tensor<4x8xf32>
+  %6 = IE.Reshape(%act) {shape_value = [1, 8]} : tensor<1x1x8xf32> -> tensor<1x8xf32>
+  %7 = IE.FullyConnected(%6, %5) : tensor<1x8xf32>, tensor<4x8xf32> -> tensor<1x4xf32>
+  %8 = IE.Reshape(%7) {shape_value = [1, 1, 4]} : tensor<1x4xf32> -> tensor<1x1x4xf32>
+  return %8 : tensor<1x1x4xf32>
+
+  // CHECK: [[CONVERT_W:%.+]] = IE.Convert([[WEIGHTS]]) {dstElemType = f16} : tensor<4x8xsi8> -> tensor<4x8xf16>
+  // CHECK: [[CONVERT_ZP:%.+]] = IE.Convert([[ZP]]) {dstElemType = f16} : tensor<4x1xsi8> -> tensor<4x1xf16>
+  // CHECK: [[CONVERT_SCALE:%.+]] = IE.Convert([[SCALE]]) {dstElemType = f16} : tensor<4x1xf32> -> tensor<4x1xf16>
+  // CHECK: [[MULTIPLY_W:%.+]] = IE.Multiply([[CONVERT_W]], [[CONVERT_SCALE]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<4x8xf16>, tensor<4x1xf16> -> tensor<4x8xf16>
+  // CHECK: [[CONVERT_F32:%.+]] = IE.Convert([[MULTIPLY_W]]) {dstElemType = f32} : tensor<4x8xf16> -> tensor<4x8xf32>
+  // CHECK: [[RESHAPE_ACT:%.+]] = IE.Reshape([[ACT]]) {shape_value = [1, 8]} : tensor<1x1x8xf32> -> tensor<1x8xf32>
+  // CHECK: [[FC:%.+]] = IE.FullyConnected([[RESHAPE_ACT]], [[CONVERT_F32]]) : tensor<1x8xf32>, tensor<4x8xf32> -> tensor<1x4xf32>
+  // CHECK: [[REDUCE_SUM:%.+]] = IE.ReduceSum([[RESHAPE_ACT]]) {axes_value = [1], keep_dims} : tensor<1x8xf32> -> tensor<1x1xf32>
+  // CHECK: [[MULTIPLY_SCALE_ZP:%.+]] = IE.Multiply([[CONVERT_SCALE]], [[CONVERT_ZP]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<4x1xf16>, tensor<4x1xf16> -> tensor<4x1xf16>
+  // CHECK: [[RESHAPE_SCALE_ZP:%.+]] = IE.Reshape([[MULTIPLY_SCALE_ZP]]) {shape_value = [1, 4]} : tensor<4x1xf16> -> tensor<1x4xf16>
+  // CHECK: [[CONVERT_SCALE_ZP:%.+]] = IE.Convert([[RESHAPE_SCALE_ZP]]) {dstElemType = f32} : tensor<1x4xf16> -> tensor<1x4xf32>
+  // CHECK: [[CORRECTION:%.+]] = IE.Multiply([[REDUCE_SUM]], [[CONVERT_SCALE_ZP]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1xf32>, tensor<1x4xf32> -> tensor<1x4xf32>
+  // CHECK: [[SUBTRACT:%.+]] = IE.Subtract([[FC]], [[CORRECTION]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x4xf32>, tensor<1x4xf32> -> tensor<1x4xf32>
+  // CHECK: [[RES:%.+]] = IE.Reshape([[SUBTRACT]]) {shape_value = [1, 1, 4]} : tensor<1x4xf32> -> tensor<1x1x4xf32>
+  // CHECK: return [[RES]]
 }

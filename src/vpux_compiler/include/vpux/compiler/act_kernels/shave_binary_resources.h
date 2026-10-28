@@ -54,7 +54,7 @@ public:
         auto symbolName = printToString("{0}{1}_elf", result, argsConcat);
         const auto it = _shaveBinaryResourcesMap.find(symbolName);
 
-        VPUX_THROW_UNLESS(it != _shaveBinaryResourcesMap.end(), "Can't find 'elf' for kernel symbol '{0}'", symbolName);
+        VPUX_THROW_WHEN(it == _shaveBinaryResourcesMap.end(), "Can't find 'elf' for kernel symbol '{0}'", symbolName);
 
         const auto [symbolData, symbolSize] = it->second;
         return llvm::ArrayRef<uint8_t>(symbolData, symbolSize);

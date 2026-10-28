@@ -13,6 +13,7 @@
 #include "vpux/compiler/dialect/VPU/utils/vertical_fusion/v2/vertical_fusion_config.hpp"
 #include "vpux/compiler/dialect/VPU/utils/vertical_fusion/v2/vertical_fusion_scheduler_interface.hpp"
 #include "vpux/compiler/dialect/VPU/utils/vertical_fusion/v2/vertical_fusion_scheduling_factory.hpp"
+#include "vpux/compiler/dialect/VPU/utils/vertical_fusion/v2/vf_scenario_cost_calculator.hpp"
 #include "vpux/compiler/dialect/VPU/utils/vertical_fusion/vertical_fusion_algorithm.hpp"
 #include "vpux/compiler/dialect/VPU/utils/vertical_fusion/vertical_fusion_axis_increment.hpp"
 #include "vpux/compiler/dialect/VPU/utils/vertical_fusion/vertical_fusion_utils.hpp"
@@ -84,6 +85,20 @@ bool isCmxOperation(mlir::Operation* operation, const bool checkTilingType) {
     return outputSize <= VPU::getTotalCMXSize(operation);
 }
 
+std::optional<Dim> backInferProducerTilingDim(mlir::Operation* consumer, mlir::Value input, Dim consumerAxis) {
+    // For view like op, the dim can be inferred by the interface backInferTilingDim. For other ops, currently it
+    // lacks the interface to back-infer tiling dim for the input. So here we need to handle the input tiling dim
+    // case by case.
+    if (auto tilingViewLikeOp = mlir::dyn_cast<VPU::TilingViewLikeOpInterface>(consumer)) {
+        return tilingViewLikeOp.backInferTilingDim(consumerAxis);
+    } else if (nceOpNeedsTilingAxisInference(consumer, input)) {
+        const auto is5DTensor = getShape(consumer->getResult(0)).size() == 5;
+        return nceBackInferWeightsTilingAxisFromOut(consumerAxis, is5DTensor);
+    }
+
+    return consumerAxis;
+}
+
 namespace {
 // Using queue to traverse all ops in VF block and back-infer their tiling dims
 // The data structure pattern - {(op, tilingDim)...}
@@ -107,22 +122,11 @@ void traverseVFOps(VFConfig& config, Dim outputDim, llvm::function_ref<void(mlir
             if (parentOp == nullptr || llvm::find(operations, parentOp) == operations.end()) {
                 continue;
             }
-            // Back infer the tiling dim for the producer op. For view like op, it can be inferred by the interface
-            // backInferTilingDim. For other ops, currently it lacks the interface to back-infer tiling dim for the
-            // input. So here we need to handle the input tiling dim case by case.
-            auto inputAxis = curAxis;
-            if (auto tilingViewLikeOp = mlir::dyn_cast<VPU::TilingViewLikeOpInterface>(curOp)) {
-                inputAxis = tilingViewLikeOp.backInferTilingDim(inputAxis);
-            } else if (nceOpNeedsTilingAxisInference(curOp, input)) {
-                const auto is5DTensor = getShape(curOp->getResult(0)).size() == 5;
-                const auto backInferredAxis = nceBackInferWeightsTilingAxisFromOut(inputAxis, is5DTensor);
-                if (!backInferredAxis.has_value()) {
-                    // axis is not on channels, and therefore weights-like inputs will not be tiled
-                    continue;
-                }
-                inputAxis = backInferredAxis.value();
+            const auto inputAxis = backInferProducerTilingDim(curOp, input, curAxis);
+            if (!inputAxis.has_value()) {
+                continue;
             }
-            opQueue.emplace(parentOp, inputAxis);
+            opQueue.emplace(parentOp, inputAxis.value());
         }
     }
 }
@@ -183,7 +187,8 @@ std::optional<Dim> getNonTiledDimForVFOptimization(const VFSplit& vfSplit) {
 }
 
 mlir::FailureOr<TilingStorage> calculateTilingRegions(VFConfig& config, ArrayRef<int64_t> tilingStrategy, Logger log,
-                                                      const TilingOperationStorage::UPtr& opStorage) {
+                                                      const TilingOperationStorage::UPtr& opStorage,
+                                                      bool enableOutputTileAdjustmentForSW) {
     auto outputOp = config.getSubgraph() != nullptr ? config.getSubgraph() : config.getOutputs().back();
     const auto outputShape = getBoundedShape(outputOp->getResult(0));
     const auto strategy = Shape(tilingStrategy);
@@ -193,7 +198,7 @@ mlir::FailureOr<TilingStorage> calculateTilingRegions(VFConfig& config, ArrayRef
         return llvm::is_contained(config.getOutputs(), op);
     };
 
-    // disable alignment for performance optimizations to let cost model deside
+    // disable alignment for performance optimizations to let cost model decide
     // if VF with less strict alignment is better with isolated operation with additional alignment requirements
     const auto tiles = fillDividedTiles(config.getOutputs().back(), config.getVFOperations().getArrayRef(), strategy,
                                         outputShape, dynAlignmentFunction,
@@ -202,7 +207,8 @@ mlir::FailureOr<TilingStorage> calculateTilingRegions(VFConfig& config, ArrayRef
         return mlir::failure();
     }
 
-    return calculateTilingRegions(config.getOutputs().back(), tiles.value(), log, opStorage, config.getVFOperations());
+    return calculateTilingRegions(config.getOutputs().back(), tiles.value(), log, opStorage, config.getVFOperations(),
+                                  enableOutputTileAdjustmentForSW);
 }
 
 // get a valid tiling strategy for VF block between the given range of tiling strategy
@@ -212,7 +218,8 @@ mlir::FailureOr<TilingStorage> calculateTilingRegions(VFConfig& config, ArrayRef
 // parameter
 mlir::FailureOr<SmallVector<int64_t>> getValidTilingStrategyFromRange(
         VFConfig& config, ArrayRef<int64_t> lowerTilingStrategy, ArrayRef<int64_t> upperTilingStrategy,
-        bool closeToUpperLimit, Dim tilingAxis, TilingOperationStorage::UPtr& opStorage, Logger log) {
+        bool closeToUpperLimit, Dim tilingAxis, TilingOperationStorage::UPtr& opStorage,
+        bool enableOutputTileAdjustmentForSW, Logger log) {
     SmallVector<int64_t> validTilingStrategy =
             closeToUpperLimit ? to_small_vector(upperTilingStrategy) : to_small_vector(lowerTilingStrategy);
 
@@ -256,7 +263,8 @@ mlir::FailureOr<SmallVector<int64_t>> getValidTilingStrategyFromRange(
         auto tilingStrategyCandidate = getTilingStrategy(valueIdx);
 
         auto curOpStorage = std::make_unique<TilingOperationStorage>();
-        auto tilingRegions = calculateTilingRegions(config, tilingStrategyCandidate, log, curOpStorage);
+        auto tilingRegions = calculateTilingRegions(config, tilingStrategyCandidate, log, curOpStorage,
+                                                    enableOutputTileAdjustmentForSW);
         if (mlir::failed(tilingRegions)) {
             continue;
         }
@@ -279,7 +287,8 @@ mlir::FailureOr<SmallVector<int64_t>> getValidTilingStrategyFromRange(
         auto tilingStrategyCandidate = getTilingStrategy(dimValueIdx);
 
         auto curOpStorage = std::make_unique<TilingOperationStorage>();
-        auto tilingRegions = calculateTilingRegions(config, tilingStrategyCandidate, log, curOpStorage);
+        auto tilingRegions = calculateTilingRegions(config, tilingStrategyCandidate, log, curOpStorage,
+                                                    enableOutputTileAdjustmentForSW);
         if (mlir::failed(tilingRegions)) {
             return false;
         }
@@ -306,9 +315,9 @@ mlir::FailureOr<SmallVector<int64_t>> getValidTilingStrategyFromRange(
 // can't fit in CMX
 mlir::FailureOr<SmallVector<int64_t>> getMaximalValidTilingStrategyFromRange(
         VFConfig& config, ArrayRef<int64_t> lowerTilingStrategy, ArrayRef<int64_t> upperTilingStrategy, Dim tilingAxis,
-        TilingOperationStorage::UPtr& opStorage, Logger log) {
+        TilingOperationStorage::UPtr& opStorage, bool enableOutputTileAdjustmentForSW, Logger log) {
     return getValidTilingStrategyFromRange(config, lowerTilingStrategy, upperTilingStrategy, true, tilingAxis,
-                                           opStorage, log);
+                                           opStorage, enableOutputTileAdjustmentForSW, log);
 }
 
 // get a minimal valid tiling strategy for VF block between the given range of tiling strategy
@@ -316,9 +325,9 @@ mlir::FailureOr<SmallVector<int64_t>> getMaximalValidTilingStrategyFromRange(
 // can't fit in CMX
 mlir::FailureOr<SmallVector<int64_t>> getMinimalValidTilingStrategyFromRange(
         VFConfig& config, ArrayRef<int64_t> lowerTilingStrategy, ArrayRef<int64_t> upperTilingStrategy, Dim tilingAxis,
-        TilingOperationStorage::UPtr& opStorage, Logger log) {
+        TilingOperationStorage::UPtr& opStorage, bool enableOutputTileAdjustmentForSW, Logger log) {
     return getValidTilingStrategyFromRange(config, lowerTilingStrategy, upperTilingStrategy, false, tilingAxis,
-                                           opStorage, log);
+                                           opStorage, enableOutputTileAdjustmentForSW, log);
 }
 
 bool hasBeforeDDRUsers(mlir::Operation* prevOp, mlir::Operation* nextOp) {
@@ -553,11 +562,12 @@ void printVFSchedulingTrace(mlir::func::FuncOp funcOp, const std::unique_ptr<VPU
         VPUX_THROW_WHEN(vfScheduling == nullptr, "Cannot create VF scheduling for scenario '{0}'", type);
 
         auto vfTilingStorage = std::make_unique<TilingOperationStorage>();
-        auto tilingStorage = calculateTilingRegions(vfOp, tilingDims, log, vfTilingStorage);
+        auto tilingStorage = calculateTilingRegions(config, tilingDims, log, vfTilingStorage);
         VPUX_THROW_WHEN(mlir::failed(tilingStorage), "Cannot get tiling regions for {0} and {1} tiles", vfOp->getLoc(),
                         tilingDims);
 
-        auto timeIntervals = vfScheduling->getTimeIntervals(config, tileLen, vfTilingStorage, costFunction);
+        auto timeIntervals =
+                getVFTimeIntervals(*vfScheduling, config, tileLen, vfTilingStorage, costFunction, log, true);
         std::vector<profiling::TaskInfo> taskInfos;
         taskInfos.reserve(timeIntervals.size());
         llvm::transform(timeIntervals, std::back_inserter(taskInfos), [&](auto& interval) {

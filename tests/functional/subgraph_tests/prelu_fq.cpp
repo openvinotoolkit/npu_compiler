@@ -39,13 +39,9 @@ class FqPreluSubGraphTest : public VpuOv2LayerTest {
     }
 };
 
-TEST_F(FqPreluSubGraphTest, NPU5010_TestKindSubgraph) {
+TEST_F(FqPreluSubGraphTest, NPU3720_TestKindSubgraph) {
     setDefaultHardwareMode();
-    run(Platform::NPU5010);
-}
-TEST_F(FqPreluSubGraphTest, NPU5020_TestKindSubgraph) {
-    setDefaultHardwareMode();
-    run(Platform::NPU5020);
+    run(Platform::NPU3720);
 }
 
 TEST_F(FqPreluSubGraphTest, NPU4000_TestKindSubgraph) {
@@ -53,9 +49,14 @@ TEST_F(FqPreluSubGraphTest, NPU4000_TestKindSubgraph) {
     run(Platform::NPU4000);
 }
 
-TEST_F(FqPreluSubGraphTest, NPU3720_TestKindSubgraph) {
+TEST_F(FqPreluSubGraphTest, NPU5010_TestKindSubgraph) {
     setDefaultHardwareMode();
-    run(Platform::NPU3720);
+    run(Platform::NPU5010);
+}
+
+TEST_F(FqPreluSubGraphTest, NPU5020_TestKindSubgraph) {
+    setDefaultHardwareMode();
+    run(Platform::NPU5020);
 }
 
 class PreluFqSubGraphTest : public VpuOv2LayerTest {
@@ -82,13 +83,9 @@ class PreluFqSubGraphTest : public VpuOv2LayerTest {
     }
 };
 
-TEST_F(PreluFqSubGraphTest, NPU5010_TestKindSubgraph) {
+TEST_F(PreluFqSubGraphTest, NPU3720_TestKindSubgraph) {
     setDefaultHardwareMode();
-    run(Platform::NPU5010);
-}
-TEST_F(PreluFqSubGraphTest, NPU5020_TestKindSubgraph) {
-    setDefaultHardwareMode();
-    run(Platform::NPU5020);
+    run(Platform::NPU3720);
 }
 
 TEST_F(PreluFqSubGraphTest, NPU4000_TestKindSubgraph) {
@@ -96,9 +93,14 @@ TEST_F(PreluFqSubGraphTest, NPU4000_TestKindSubgraph) {
     run(Platform::NPU4000);
 }
 
-TEST_F(PreluFqSubGraphTest, NPU3720_TestKindSubgraph) {
+TEST_F(PreluFqSubGraphTest, NPU5010_TestKindSubgraph) {
     setDefaultHardwareMode();
-    run(Platform::NPU3720);
+    run(Platform::NPU5010);
+}
+
+TEST_F(PreluFqSubGraphTest, NPU5020_TestKindSubgraph) {
+    setDefaultHardwareMode();
+    run(Platform::NPU5020);
 }
 
 }  // namespace ov::test

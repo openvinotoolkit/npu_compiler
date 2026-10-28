@@ -137,11 +137,11 @@ mlir::LogicalResult RemoveConcatWrappers::matchAndRewrite(VPU::ConcatOp concatOp
 
     _log.trace("Removed wrappers around '{0}'", concatOp);
     const auto newOutputType = (*consumerSparsifyOps.begin())->getResult(0).getType();
-    auto newConcatOp = rewriter.create<VPU::ConcatOp>(concatOp->getLoc(), newOutputType, newConcatInputs,
-                                                      concatOp.getPerAxisAttr(), concatOp.getStaticOffsetsAttr());
+    auto newConcatOp = VPU::ConcatOp::create(rewriter, concatOp->getLoc(), newOutputType, newConcatInputs,
+                                             concatOp.getPerAxisAttr(), concatOp.getStaticOffsetsAttr());
 
     if (!canBeFullyConverted) {
-        auto desparsifyOp = rewriter.create<VPU::DesparsifyOp>(concatOp->getLoc(), newConcatOp.getOutput());
+        auto desparsifyOp = VPU::DesparsifyOp::create(rewriter, concatOp->getLoc(), newConcatOp.getOutput());
         concatOp.getOutput().replaceUsesWithIf(desparsifyOp.getOutput(), [&](mlir::OpOperand& opOperand) {
             return !consumerSparsifyOps.contains(opOperand.getOwner());
         });

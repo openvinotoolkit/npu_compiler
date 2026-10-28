@@ -52,7 +52,8 @@ func.func @FlashSDPA8kSeqLen(%arg0: tensor<1x8x8192x32xf16>, %arg1: tensor<1x8x1
     // CHECK:       [[VAL0:%.+]] = VPU.Slice [[VALUE_REORDERED]] [0, 0, 0, 0] [1, 1, 128, 64]
     // CHECK:       [[Q0:%.+]] = VPU.Slice [[HEAD0_Q]] [0, 0, 0, 0] [1, 1, 2736, 32]
     // CHECK:       VPU.FlashSDPA
-    // CHECK-SAME:      tiling_loop_index = 0
+    // CHECK-SAME:      loop_tile_coord = {axes = array<i64: 2>, indices = array<i64: 0>}
+    // CHECK-SAME:      tiling_loop_index = 1
     // CHECK-SAME:      -> tensor<1x1x2736x64xf16>, tensor<1x1x2736x1xf16>, tensor<1x1x2736x1xf32>
 
     // Seq tile 1 of head 0, then heads 1-7 with 3 seq tiles each
@@ -98,27 +99,42 @@ func.func @FlashSDPAKeyValueTilingWithNoQueryTiling(%arg0: tensor<1x1x1x128xf16>
 
     return %result_running_output : tensor<1x1x1x128xf16>
 
-    // No head or query seq tiling needed, KV unrolled into 2 tiles chained through running output/max/sum.
-    // Same result with or without pipelining for this small query.
+    // No head or query seq tiling needed. In the decode case (target SL 1) the KV sequence is
+    // unrolled into 3 tiles instead of the minimal 2, reserving one extra KV block of
+    // Key/Value/mask so the scheduler can prefetch the next block while the current one computes.
+    // Tiles are chained through running output/max/sum.
 
     // First KV tile: key/value/mask sliced on H/W, is_head=true, is_tail=false
-    // CHECK:       [[KEY0:%.+]] = VPU.Slice {{%.+}} [0, 0, 0, 0] [1, 1, 2048, 128]
-    // CHECK:       [[VAL0:%.+]] = VPU.Slice {{%.+}} [0, 0, 0, 0] [1, 1, 2048, 128]
-    // CHECK:       [[MASK0:%.+]] = VPU.Slice {{%.+}} [0, 0, 0, 0] [1, 1, 1, 2048]
+    // CHECK:       [[KEY0:%.+]] = VPU.Slice {{%.+}} [0, 0, 0, 0] [1, 1, 1376, 128]
+    // CHECK:       [[VAL0:%.+]] = VPU.Slice {{%.+}} [0, 0, 0, 0] [1, 1, 1376, 128]
+    // CHECK:       [[MASK0:%.+]] = VPU.Slice {{%.+}} [0, 0, 0, 0] [1, 1, 1, 1376]
     // CHECK:       [[OUT0:%.+]], [[MAX0:%.+]], [[SUM0:%.+]] = VPU.FlashSDPA({{%.+}}, [[KEY0]], [[VAL0]],
     // CHECK-SAME:      is_head = true
     // CHECK-SAME:      is_tail = false
-    // CHECK-SAME:      tiling_loop_index = 0
+    // CHECK-SAME:      loop_tile_coord = {axes = array<i64>, indices = array<i64>}
+    // CHECK-SAME:      tiling_loop_index = [[LOOP_INDEX_0:[0-9]+]]
     // CHECK-SAME:      -> tensor<1x1x1x128xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf32>
 
-    // Second KV tile: key/value/mask sliced on H/W at offset 2048, takes running OUT0/MAX0/SUM0
-    // CHECK:       [[KEY1:%.+]] = VPU.Slice {{%.+}} [0, 0, 2048, 0] [1, 1, 2048, 128]
-    // CHECK:       [[VAL1:%.+]] = VPU.Slice {{%.+}} [0, 0, 2048, 0] [1, 1, 2048, 128]
-    // CHECK:       [[MASK1:%.+]] = VPU.Slice {{%.+}} [0, 0, 0, 2048] [1, 1, 1, 2048]
-    // CHECK:       VPU.FlashSDPA{{.*}}[[OUT0]], [[MAX0]], [[SUM0]]
+    // Second KV tile: key/value/mask sliced on H/W at offset 1376, takes running OUT0/MAX0/SUM0
+    // CHECK:       [[KEY1:%.+]] = VPU.Slice {{%.+}} [0, 0, 1376, 0] [1, 1, 1376, 128]
+    // CHECK:       [[VAL1:%.+]] = VPU.Slice {{%.+}} [0, 0, 1376, 0] [1, 1, 1376, 128]
+    // CHECK:       [[MASK1:%.+]] = VPU.Slice {{%.+}} [0, 0, 0, 1376] [1, 1, 1, 1376]
+    // CHECK:       [[OUT1:%.+]], [[MAX1:%.+]], [[SUM1:%.+]] = VPU.FlashSDPA{{.*}}[[OUT0]], [[MAX0]], [[SUM0]]
+    // CHECK-SAME:      is_head = false
+    // CHECK-SAME:      is_tail = false
+    // CHECK-SAME:      loop_tile_coord = {axes = array<i64>, indices = array<i64>}
+    // CHECK-SAME:      tiling_loop_index = [[LOOP_INDEX_1:[0-9]+]]
+    // CHECK-SAME:      -> tensor<1x1x1x128xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf32>
+
+    // Third KV tile: key/value/mask sliced on H/W at offset 2752 (size 1344), takes running OUT1/MAX1/SUM1
+    // CHECK:       [[KEY2:%.+]] = VPU.Slice {{%.+}} [0, 0, 2752, 0] [1, 1, 1344, 128]
+    // CHECK:       [[VAL2:%.+]] = VPU.Slice {{%.+}} [0, 0, 2752, 0] [1, 1, 1344, 128]
+    // CHECK:       [[MASK2:%.+]] = VPU.Slice {{%.+}} [0, 0, 0, 2752] [1, 1, 1, 1344]
+    // CHECK:       VPU.FlashSDPA{{.*}}[[OUT1]], [[MAX1]], [[SUM1]]
     // CHECK-SAME:      is_head = false
     // CHECK-SAME:      is_tail = true
-    // CHECK-SAME:      tiling_loop_index = 1
+    // CHECK-SAME:      loop_tile_coord = {axes = array<i64>, indices = array<i64>}
+    // CHECK-SAME:      tiling_loop_index = [[LOOP_INDEX_2:[0-9]+]]
     // CHECK-SAME:      -> tensor<1x1x1x128xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf32>
     // CHECK:       return
 }
@@ -165,10 +181,21 @@ func.func @FlashSDPAKeyValueTilingPadSizePropagation(%arg0: tensor<1x1x1x128xf16
 
     return %result_running_output : tensor<1x1x1x128xf16>
 
-    // KV unrolled into 2 tiles chained through running output/max/sum.
+    // In decode the KV sequence is unrolled into 3 tiles chained through running output/max/sum.
+    // The padding describes trailing junk in the (already expanded) KV sequence, so only the
+    // final tile keeps source_seq_len_pad_size = 15; every earlier tile computes over a full,
+    // real key/value slice and must carry source_seq_len_pad_size = 0.
+
     // First (head) tile is a full, real KV slice: source_seq_len_pad_size must be 0.
     // CHECK:       VPU.FlashSDPA
     // CHECK-SAME:      is_head = true
+    // CHECK-SAME:      is_tail = false
+    // CHECK-SAME:      source_seq_len_pad_size = 0 : i64
+    // CHECK-SAME:      -> tensor<1x1x1x128xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf32>
+
+    // Middle tile is also a full, real KV slice: source_seq_len_pad_size must be 0.
+    // CHECK:       VPU.FlashSDPA
+    // CHECK-SAME:      is_head = false
     // CHECK-SAME:      is_tail = false
     // CHECK-SAME:      source_seq_len_pad_size = 0 : i64
     // CHECK-SAME:      -> tensor<1x1x1x128xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf32>
@@ -234,7 +261,7 @@ func.func @FlashSDPA_GQA_1024(%arg0: tensor<1x32x1024x128xf16>, %arg1: tensor<1x
     // CHECK:       [[VAL0:%.+]] = VPU.Slice [[VALUE_REORDERED]] [0, 0, 0, 0] [1, 1, 1024, 128]
     // CHECK:       [[Q0:%.+]] = VPU.Slice [[HEAD0_Q]] [0, 0, 0, 0] [1, 4, 192, 128]
     // CHECK:       VPU.FlashSDPA([[Q0]], [[KEY0]], [[VAL0]],
-    // CHECK-SAME:      tiling_loop_index = 0
+    // CHECK-SAME:      tiling_loop_index = 1
     // CHECK-SAME:      -> tensor<1x4x192x128xf16>, tensor<1x4x192x1xf16>, tensor<1x4x192x1xf32>
 
     // Total: 8 KV groups x 6 seq tiles = 48 FlashSDPA ops (1 checked above, 47 remaining)
@@ -298,11 +325,18 @@ func.func @FlashSDPA_MHA_SplitOverKernel_27Heads(%arg0: tensor<1x27x1x64xf16>, %
     // CHECK:       [[KEY0:%.+]] = VPU.Slice [[KEY:%.+]] [0, 0, 0, 0] [1, 3, 1024, 64]
     // CHECK:       [[VAL0:%.+]] = VPU.Slice [[VALUE_REORDERED]] [0, 0, 0, 0] [1, 3, 1024, 64]
     // CHECK:       VPU.FlashSDPA
-    // CHECK-SAME:      tiling_loop_index = 0
+    // CHECK-SAME:      loop_tile_coord = {axes = array<i64>, indices = array<i64>}
+    // CHECK-SAME:      tiling_loop_index = 1
     // CHECK-SAME:      -> tensor<1x3x1x64xf16>, tensor<1x3x1x1xf16>, tensor<1x3x1x1xf32>
 
-    // Tiles 2-9: 3 heads each
-    // CHECK-COUNT-8: -> tensor<1x3x1x64xf16>
+    // Second head tile
+    // CHECK:       VPU.Slice [[QUERY]] [0, 3, 0, 0] [1, 3, 1, 64]
+    // CHECK:       VPU.FlashSDPA
+    // CHECK-SAME:      loop_tile_coord = {axes = array<i64>, indices = array<i64>}
+    // CHECK-SAME:      tiling_loop_index = 2
+
+    // Tiles 3-9: 3 heads each
+    // CHECK-COUNT-7: -> tensor<1x3x1x64xf16>
 
     // CHECK:       [[CONCAT:%.+]] = VPU.Concat(
     // CHECK-SAME:      -> tensor<1x27x1x64xf16>

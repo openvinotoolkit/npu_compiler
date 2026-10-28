@@ -71,7 +71,7 @@ std::string BatchCompilerOptionsAdapterView::injectInto(const std::string& origi
 }
 
 std::string BatchCompilerOptionsAdapterView::print() const {
-    VPUX_THROW_UNLESS(optionDataPtr != nullptr, "BatchCompilerOptionsAdapterView::print() must have an object");
+    VPUX_THROW_WHEN(optionDataPtr == nullptr, "BatchCompilerOptionsAdapterView::print() must have an object");
     std::string ret;
     llvm::raw_string_ostream optionsPrinter(ret);
     guard->print(optionsPrinter);
@@ -84,7 +84,7 @@ std::string BatchCompilerOptionsAdapterView::print() const {
 }
 
 const BatchCompileOptionsAdapter& BatchCompilerOptionsAdapterView::get() const {
-    VPUX_THROW_UNLESS(optionDataPtr != nullptr, "BatchCompilerOptionsAdapterView::get() must have an object");
+    VPUX_THROW_WHEN(optionDataPtr == nullptr, "BatchCompilerOptionsAdapterView::get() must have an object");
     return *optionDataPtr;
 }
 

@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-// RUN: vpux-opt --split-input-file --init-compiler="platform=%platform%" --tiling-strategy-assignment="tiling-mode=ISOLATED enable-shave-ddr-access-optimization=true" %s | FileCheck %s
+// RUN: vpux-opt --split-input-file --init-compiler="platform=%platform%" --reserve-profiling-mem --tiling-strategy-assignment="tiling-mode=ISOLATED enable-shave-ddr-access-optimization=true" %s | FileCheck %s
 // REQUIRES: platform-NPU3720
 
 // CHECK-LABEL: func.func @SplitSwConvOverOC

@@ -258,18 +258,18 @@ public:
             rewriter.setInsertionPointAfter(expandOp);
         }
 
-        auto fusedOp = rewriter.create<IE::LogSoftmaxPeakOp>(
-                logSoftmaxOp.getLoc(), peakValuesInferredType, indicesInferredType, fusedInput,
-                logSoftmaxOp.getAxisIndAttr(), logSoftmaxOp.getPadSizeAttr(), dstElemTypeAttr);
+        auto fusedOp = IE::LogSoftmaxPeakOp::create(rewriter, logSoftmaxOp.getLoc(), peakValuesInferredType,
+                                                    indicesInferredType, fusedInput, logSoftmaxOp.getAxisIndAttr(),
+                                                    logSoftmaxOp.getPadSizeAttr(), dstElemTypeAttr);
 
         auto finalPeakValuesType = mlir::cast<vpux::NDTypeInterface>(peakValuesConvert.getOutput().getType());
-        auto peakValuesReshape = rewriter.create<IE::AffineReshapeOp>(
-                reshapeAfterGather.getLoc(), finalPeakValuesType, fusedOp.getOutput(),
+        auto peakValuesReshape = IE::AffineReshapeOp::create(
+                rewriter, reshapeAfterGather.getLoc(), finalPeakValuesType, fusedOp.getOutput(),
                 reshapeAfterGather.getDimMappingAttr(), reshapeAfterGather.getShapeValueAttr());
 
         auto finalIndicesType = mlir::cast<vpux::NDTypeInterface>(indicesConvert.getOutput().getType());
-        auto indicesReshape = rewriter.create<IE::AffineReshapeOp>(
-                indicesReshapeForOutput.getLoc(), finalIndicesType, fusedOp.getTopKOutput(),
+        auto indicesReshape = IE::AffineReshapeOp::create(
+                rewriter, indicesReshapeForOutput.getLoc(), finalIndicesType, fusedOp.getTopKOutput(),
                 indicesReshapeForOutput.getDimMappingAttr(), indicesReshapeForOutput.getShapeValueAttr());
 
         rewriter.replaceAllUsesWith(peakValuesConvert.getOutput(), peakValuesReshape.getOutput());
@@ -487,21 +487,21 @@ public:
 
         rewriter.setInsertionPointAfter(expandOutput.getDefiningOp());
 
-        auto fusedLogSoftmax = rewriter.create<IE::LogSoftmaxTopKOp>(logSoftmaxOp.getLoc(), outputType, topKOutputType,
-                                                                     expandOutput, logSoftmaxOp.getAxisIndAttr(),
-                                                                     logSoftmaxOp.getPadSizeAttr(), dstElemTypeAttr);
+        auto fusedLogSoftmax = IE::LogSoftmaxTopKOp::create(rewriter, logSoftmaxOp.getLoc(), outputType, topKOutputType,
+                                                            expandOutput, logSoftmaxOp.getAxisIndAttr(),
+                                                            logSoftmaxOp.getPadSizeAttr(), dstElemTypeAttr);
 
         auto originalSliceType = mlir::cast<vpux::NDTypeInterface>(sliceOp.getResult().getType());
         auto newSliceType = originalSliceType.changeElemType(f32Type);
 
-        auto newSliceOp = rewriter.create<IE::SliceOp>(sliceOp.getLoc(), newSliceType, fusedLogSoftmax.getOutput(),
-                                                       sliceOp.getStaticOffsetsAttr(), sliceOp.getStaticSizesAttr());
+        auto newSliceOp = IE::SliceOp::create(rewriter, sliceOp.getLoc(), newSliceType, fusedLogSoftmax.getOutput(),
+                                              sliceOp.getStaticOffsetsAttr(), sliceOp.getStaticSizesAttr());
 
         auto topKReshape1OrigType = mlir::cast<vpux::NDTypeInterface>(topKReshape1.getOutput().getType());
         auto newTopKReshape1Type = topKReshape1OrigType.changeElemType(si64Type);
 
-        auto newTopKReshape1 = rewriter.create<IE::AffineReshapeOp>(
-                topKReshape1.getLoc(), newTopKReshape1Type, fusedLogSoftmax.getTopKOutput(),
+        auto newTopKReshape1 = IE::AffineReshapeOp::create(
+                rewriter, topKReshape1.getLoc(), newTopKReshape1Type, fusedLogSoftmax.getTopKOutput(),
                 topKReshape1.getDimMappingAttr(), topKReshape1.getShapeValueAttr());
 
         rewriter.replaceAllUsesWith(sliceConvertOp.getOutput(), newSliceOp.getOutput());

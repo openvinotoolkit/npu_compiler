@@ -17,13 +17,13 @@ namespace VPURT {
 template <typename OpTy, typename... Args>
 OpTy wrapIntoTaskOp(mlir::OpBuilder& builder, mlir::ValueRange waitBarriers, mlir::ValueRange updateBarriers,
                     mlir::Location loc, Args&&... args) {
-    auto taskOp = builder.create<vpux::VPURT::TaskOp>(loc, waitBarriers, updateBarriers);
+    auto taskOp = vpux::VPURT::TaskOp::create(builder, loc, waitBarriers, updateBarriers);
     auto& block = taskOp.getBody().emplaceBlock();
 
     mlir::OpBuilder::InsertionGuard guard(builder);
     builder.setInsertionPointToStart(&block);
 
-    return builder.create<OpTy>(loc, std::forward<Args>(args)...);
+    return OpTy::create(builder, loc, std::forward<Args>(args)...);
 }
 
 template <typename OpTy, typename... Args>
@@ -31,7 +31,7 @@ OpTy createOp(mlir::PatternRewriter& rewriter, mlir::Operation* insertionPoint, 
     VPUX_THROW_WHEN(insertionPoint == nullptr, "Insertion point is empty");
     mlir::OpBuilder::InsertionGuard guard(rewriter);
     rewriter.setInsertionPointAfter(insertionPoint);
-    return rewriter.create<OpTy>(std::forward<Args>(args)...);
+    return OpTy::create(rewriter, std::forward<Args>(args)...);
 }
 
 template <typename OpTy, typename... Args>
@@ -39,7 +39,7 @@ OpTy createOp(mlir::OpBuilder& builder, mlir::Operation* insertionPoint, Args&&.
     VPUX_THROW_WHEN(insertionPoint == nullptr, "Insertion point is empty");
     mlir::OpBuilder::InsertionGuard guard(builder);
     builder.setInsertionPointAfter(insertionPoint);
-    return builder.create<OpTy>(std::forward<Args>(args)...);
+    return OpTy::create(builder, std::forward<Args>(args)...);
 }
 
 /// The hardware has different executors that can run in parallel. In the abstract compute model that we use for

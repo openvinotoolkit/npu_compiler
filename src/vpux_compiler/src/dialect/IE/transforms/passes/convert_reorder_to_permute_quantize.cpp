@@ -105,8 +105,8 @@ mlir::LogicalResult FusePermuteRewrite::matchAndRewrite(IE::ReorderOp origOp, ml
         // There is a chance to convert reorderOp to permuteQuantizeOp after inserting a permuteCastOp for input
         const auto inMemPerm = vpux::getPermutationFromOrders(inOrder, DimsOrder::NCHW, origOp->getContext());
         auto inPermuteCastOp =
-                rewriter.create<IE::PermuteCastOp>(appendLoc(origOp->getLoc(), "PermuteCast"), origOp.getInput(),
-                                                   DimsOrder::NCHW.toAffineMap(origOp->getContext()), inMemPerm);
+                IE::PermuteCastOp::create(rewriter, appendLoc(origOp->getLoc(), "PermuteCast"), origOp.getInput(),
+                                          DimsOrder::NCHW.toAffineMap(origOp->getContext()), inMemPerm);
         curInput = inPermuteCastOp.getResult();
         inOrder = DimsOrder::NCHW;
     }
@@ -118,8 +118,8 @@ mlir::LogicalResult FusePermuteRewrite::matchAndRewrite(IE::ReorderOp origOp, ml
     const auto permQuantElemType = mlir::cast<vpux::NDTypeInterface>(permQuantOutType).getElementType();
     const auto dstElemTypeAttr = mlir::TypeAttr::get(permQuantElemType);
     const auto permQuantLoc = takeOpLoc(origOp, "PermuteQuantize");
-    auto permuteQuantizeOp = rewriter.create<IE::PermuteQuantizeOp>(
-            permQuantLoc, permQuantOutType, curInput, origOp.getDstOrderAttr(), memPermAttr, dstElemTypeAttr,
+    auto permuteQuantizeOp = IE::PermuteQuantizeOp::create(
+            rewriter, permQuantLoc, permQuantOutType, curInput, origOp.getDstOrderAttr(), memPermAttr, dstElemTypeAttr,
             getIntArrayAttr(ctx, noPadBeginEnd), getIntArrayAttr(ctx, noPadBeginEnd));
 
     rewriter.replaceOp(origOp, permuteQuantizeOp.getOutput());

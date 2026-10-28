@@ -132,8 +132,8 @@ mlir::LogicalResult TileSliceRewriter::matchAndRewrite(IE::SliceOp origOp, mlir:
     Shape newShape(tileOpInputShape.raw());
     newShape[tileAxis.value()] = newRepeatValue;
     const auto newOutputType = outputType.changeShape(newShape);
-    auto newTileOp = rewriter.create<IE::TileOp>(takeOpLoc(origOp, "tile_in"), newOutputType, tileOp.getInput(),
-                                                 getIntArrayAttr(ctx, repeatsOnNewShape));
+    auto newTileOp = IE::TileOp::create(rewriter, takeOpLoc(origOp, "tile_in"), newOutputType, tileOp.getInput(),
+                                        getIntArrayAttr(ctx, repeatsOnNewShape));
     if (hasReshape) {
         const auto sliceOutShape = getShape(origOp.getResult()).raw();
         rewriter.replaceOpWithNewOp<IE::AffineReshapeOp>(origOp, newTileOp.getOutput(), reshapeOp.getDimMappingAttr(),
@@ -207,14 +207,14 @@ mlir::LogicalResult ConcatSliceRewriter::matchAndRewrite(IE::SliceOp origOp, mli
 
         const auto sliceAxis = IE::getSingleDiffAxis(getShape(origOp.getSource()), sliceOutShape);
         if (!sliceAxis.has_value()) {
-            return matchFailed(rewriter, origOp, "Not a single axis slice operation");
+            return matchFailed(_log, rewriter, origOp, "Not a single axis slice operation");
         }
 
         const auto concatAxis = *getConcatAxes(concatOp).begin();
         const auto concatOutShape = getShape(concatOp.getResult());
         for (auto i = sliceAxis.value().ind(); i < concatAxis; i++) {
             if (concatOutShape[Dim(i)] != 1) {
-                return matchFailed(rewriter, origOp, "Slice shape is not one on the front of Concat axis");
+                return matchFailed(_log, rewriter, origOp, "Slice shape is not one on the front of Concat axis");
             }
         }
 
@@ -254,9 +254,9 @@ mlir::LogicalResult ConcatSliceRewriter::matchAndRewrite(IE::SliceOp origOp, mli
                    sliceOffsetShape, curOffsetShape, sliceOutShape, curShape);
 
         if (hasReshape) {
-            curVal = rewriter.create<IE::AffineReshapeOp>(takeOpLoc(reshapeOp, "affine_in"), curVal,
-                                                          reshapeOp.getDimMapping(),
-                                                          getIntArrayAttr(rewriter.getContext(), curShape));
+            curVal = IE::AffineReshapeOp::create(rewriter, takeOpLoc(reshapeOp, "affine_in"), curVal,
+                                                 reshapeOp.getDimMapping(),
+                                                 getIntArrayAttr(rewriter.getContext(), curShape));
         }
 
         for (auto i : irange(sliceOffset.size())) {
@@ -309,21 +309,21 @@ mlir::LogicalResult SliceConcatRewriter::matchAndRewrite(IE::SliceOp origOp, mli
     auto outShape = getShape(origOp.getResult());
     auto refSliceAxis = IE::getSingleDiffAxis(getShape(origOp.getSource()), outShape);
     if (!refSliceAxis.has_value()) {
-        return matchFailed(rewriter, origOp, "Not a single axis slice operation");
+        return matchFailed(_log, rewriter, origOp, "Not a single axis slice operation");
     }
 
     if (!origOp->hasOneUse()) {
-        return matchFailed(rewriter, origOp, "Slice has more than one user");
+        return matchFailed(_log, rewriter, origOp, "Slice has more than one user");
     }
 
     auto concatOp = mlir::dyn_cast<IE::ConcatOp>(*origOp.getResult().getUsers().begin());
     if (concatOp == nullptr) {
-        return matchFailed(rewriter, origOp, "Slice user is not a concat");
+        return matchFailed(_log, rewriter, origOp, "Slice user is not a concat");
     }
 
     auto concatAxis = IE::getSingleDiffAxis(outShape, getShape(concatOp.getOutput()));
     if (!concatAxis.has_value()) {
-        return matchFailed(rewriter, origOp, "Not a single axis concat operation");
+        return matchFailed(_log, rewriter, origOp, "Not a single axis concat operation");
     }
 
     SmallVector<IE::SliceOp> sliceOps;
@@ -331,10 +331,10 @@ mlir::LogicalResult SliceConcatRewriter::matchAndRewrite(IE::SliceOp origOp, mli
         if (auto sliceOp = mlir::dyn_cast<IE::SliceOp>(user)) {
             auto sliceAxis = IE::getSingleDiffAxis(getShape(sliceOp.getSource()), getShape(sliceOp.getResult()));
             if (!sliceAxis.has_value() || sliceAxis.value() != refSliceAxis.value()) {
-                return matchFailed(rewriter, origOp, "Don't have same slice axis");
+                return matchFailed(_log, rewriter, origOp, "Don't have same slice axis");
             }
             if (!sliceOp->hasOneUse()) {
-                return matchFailed(rewriter, origOp, "Slice has more than one user");
+                return matchFailed(_log, rewriter, origOp, "Slice has more than one user");
             }
             // slice have the same concat user
             if (concatOp == (*sliceOp.getResult().getUsers().begin())) {
@@ -343,7 +343,7 @@ mlir::LogicalResult SliceConcatRewriter::matchAndRewrite(IE::SliceOp origOp, mli
         }
     }
     if (sliceOps.size() < 2) {
-        return matchFailed(rewriter, origOp, "Need to have at least 2 slice operation");
+        return matchFailed(_log, rewriter, origOp, "Need to have at least 2 slice operation");
     }
 
     // sort slice ops according to the offset
@@ -355,7 +355,7 @@ mlir::LogicalResult SliceConcatRewriter::matchAndRewrite(IE::SliceOp origOp, mli
 
     // only continuous slices can be optimized.
     if (!isContinuousSlices(sliceOps, refSliceAxis.value())) {
-        return matchFailed(rewriter, origOp, "Not continious slice from parent");
+        return matchFailed(_log, rewriter, origOp, "Not continious slice from parent");
     }
 
     SmallVector<IE::SliceOp> concatSliceParent;
@@ -380,7 +380,7 @@ mlir::LogicalResult SliceConcatRewriter::matchAndRewrite(IE::SliceOp origOp, mli
     }
 
     if (concatSliceParent != sliceOps) {
-        return matchFailed(rewriter, origOp, "Slice is not the same sequence as concat");
+        return matchFailed(_log, rewriter, origOp, "Slice is not the same sequence as concat");
     }
 
     // if concat axis is different with slice axis, try to add a permuteCastOp.
@@ -395,11 +395,11 @@ mlir::LogicalResult SliceConcatRewriter::matchAndRewrite(IE::SliceOp origOp, mli
         const auto memPerm = vpux::getPermutationFromOrders(dimsOrder, newOrder, ctx);
         const auto memShape = inType.getMemShape();
         if (!isTrivialPermute(memShape, memPerm)) {
-            return matchFailed(rewriter, origOp,
+            return matchFailed(_log, rewriter, origOp,
                                "Could not add permuteCast when slice axis and concat axis is different");
         }
         sliceParent =
-                rewriter.create<IE::PermuteCastOp>(origOp->getLoc(), sliceParent, dimsOrder.toAffineMap(ctx), memPerm);
+                IE::PermuteCastOp::create(rewriter, origOp->getLoc(), sliceParent, dimsOrder.toAffineMap(ctx), memPerm);
     }
 
     const auto firstOffsets = parseIntArrayAttr<int64_t>(sliceOps.front().getStaticOffsets());
@@ -411,9 +411,9 @@ mlir::LogicalResult SliceConcatRewriter::matchAndRewrite(IE::SliceOp origOp, mli
         return a + sliceSize[refSliceAxis.value().ind()];
     });
 
-    auto newSlice = rewriter.create<IE::SliceOp>(origOp->getLoc(), sliceParent,
-                                                 getIntArrayAttr(getContext(), sliceOffset.raw()),
-                                                 getIntArrayAttr(getContext(), sliceShape.raw()));
+    auto newSlice = IE::SliceOp::create(rewriter, origOp->getLoc(), sliceParent,
+                                        getIntArrayAttr(getContext(), sliceOffset.raw()),
+                                        getIntArrayAttr(getContext(), sliceShape.raw()));
 
     // replace several slice input with one big slice input
     SmallVector<mlir::Value> concatInput;
@@ -471,19 +471,19 @@ mlir::LogicalResult RMSSliceRewriter::matchAndRewrite(IE::SliceOp origOp, mlir::
     // Case 1: direct RMS -> Slice
     if (auto rmsOp = origOp.getSource().getDefiningOp<IE::RMSOp>()) {
         if (!rmsOp->hasOneUse()) {
-            return matchFailed(rewriter, origOp, "The parent RMSOp has multiple users");
+            return matchFailed(_log, rewriter, origOp, "The parent RMSOp has multiple users");
         }
         const auto rmsInputShape = getShape(rmsOp.getInput());
         const auto sliceOffsets = parseIntArrayAttr<int64_t>(origOp.getStaticOffsets());
         const auto sliceSizes = parseIntArrayAttr<int64_t>(origOp.getStaticSizes());
         const auto normDim = rmsInputShape.size() - 1;
         if (sliceOffsets[normDim] != 0 || sliceSizes[normDim] != rmsInputShape[Dim(normDim)]) {
-            return matchFailed(rewriter, origOp, "Slice affects normalization dimension");
+            return matchFailed(_log, rewriter, origOp, "Slice affects normalization dimension");
         }
-        auto inputSliceOp = rewriter.create<IE::SliceOp>(origOp.getLoc(), rmsOp.getInput(),
-                                                         origOp.getStaticOffsetsAttr(), origOp.getStaticSizesAttr());
-        auto newRMSOp = rewriter.create<IE::RMSOp>(rmsOp.getLoc(), inputSliceOp.getResult(), rmsOp.getGamma(),
-                                                   rmsOp.getEpsAttr());
+        auto inputSliceOp = IE::SliceOp::create(rewriter, origOp.getLoc(), rmsOp.getInput(),
+                                                origOp.getStaticOffsetsAttr(), origOp.getStaticSizesAttr());
+        auto newRMSOp = IE::RMSOp::create(rewriter, rmsOp.getLoc(), inputSliceOp.getResult(), rmsOp.getGamma(),
+                                          rmsOp.getEpsAttr(), rmsOp.getEpsModeAttr());
         rewriter.replaceOp(origOp, newRMSOp.getResult());
         _log.trace("Optimize RMS and Slice operations successfully");
         return mlir::success();
@@ -492,11 +492,11 @@ mlir::LogicalResult RMSSliceRewriter::matchAndRewrite(IE::SliceOp origOp, mlir::
     // Case 2: RMS -> AffineReshape -> Slice
     auto reshapeOp = origOp.getSource().getDefiningOp<IE::AffineReshapeOp>();
     if (reshapeOp == nullptr || !reshapeOp->hasOneUse()) {
-        return matchFailed(rewriter, origOp, "Parent is not AffineReshapeOp with one use");
+        return matchFailed(_log, rewriter, origOp, "Parent is not AffineReshapeOp with one use");
     }
     auto rmsOp = reshapeOp.getInput().getDefiningOp<IE::RMSOp>();
     if (rmsOp == nullptr || !rmsOp->hasOneUse()) {
-        return matchFailed(rewriter, origOp, "AffineReshape source is not RMSOp with one use");
+        return matchFailed(_log, rewriter, origOp, "AffineReshape source is not RMSOp with one use");
     }
 
     const auto sliceOffsets = parseIntArrayAttr<int64_t>(origOp.getStaticOffsets());
@@ -540,10 +540,10 @@ mlir::LogicalResult RMSSliceRewriter::matchAndRewrite(IE::SliceOp origOp, mlir::
     }
 
     const auto ctx = rewriter.getContext();
-    auto inputSliceOp = rewriter.create<IE::SliceOp>(origOp.getLoc(), rmsOp.getInput(),
-                                                     getIntArrayAttr(ctx, rmsOffsets), getIntArrayAttr(ctx, rmsSizes));
-    auto newRMSOp =
-            rewriter.create<IE::RMSOp>(rmsOp.getLoc(), inputSliceOp.getResult(), rmsOp.getGamma(), rmsOp.getEpsAttr());
+    auto inputSliceOp = IE::SliceOp::create(rewriter, origOp.getLoc(), rmsOp.getInput(),
+                                            getIntArrayAttr(ctx, rmsOffsets), getIntArrayAttr(ctx, rmsSizes));
+    auto newRMSOp = IE::RMSOp::create(rewriter, rmsOp.getLoc(), inputSliceOp.getResult(), rmsOp.getGamma(),
+                                      rmsOp.getEpsAttr(), rmsOp.getEpsModeAttr());
     const auto newOutShape = getShape(origOp.getResult()).raw();
     rewriter.replaceOpWithNewOp<IE::AffineReshapeOp>(origOp, newRMSOp.getResult(), reshapeOp.getDimMappingAttr(),
                                                      getIntArrayAttr(ctx, newOutShape));

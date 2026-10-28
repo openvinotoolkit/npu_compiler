@@ -83,13 +83,13 @@ constexpr StringLiteral executorInstanceMaskAttrName = "VPUIP.executorIdx";
 }  // namespace
 
 void vpux::VPUIP::VPUIPDialect::setExecutor(mlir::async::ExecuteOp execOp, IndexedSymbolAttr executor) {
-    VPUX_THROW_UNLESS(executor != nullptr, "Got an empty executor");
+    VPUX_THROW_WHEN(executor == nullptr, "Got an empty executor");
     execOp->setAttr(executorAttrName, executor);
 }
 
 void vpux::VPUIP::VPUIPDialect::setExecutorInstanceMask(mlir::async::ExecuteOp execOp,
                                                         mlir::ArrayAttr executorInstanceMask) {
-    VPUX_THROW_UNLESS(executorInstanceMask != nullptr, "Got an empty executor instance");
+    VPUX_THROW_WHEN(executorInstanceMask == nullptr, "Got an empty executor instance");
     execOp->setAttr(executorInstanceMaskAttrName, executorInstanceMask);
 
     // In case of some DMA tasks port is also maintained as part of operation iself
@@ -119,10 +119,10 @@ llvm::StringLiteral vpux::VPUIP::VPUIPDialect::getExecutorAttrName() {
 
 IndexedSymbolAttr vpux::VPUIP::VPUIPDialect::getExecutor(mlir::async::ExecuteOp execOp) {
     const auto executor = execOp->getAttr(executorAttrName);
-    VPUX_THROW_UNLESS(executor != nullptr, "Can't find Executor attributes for Operation at '{0}'", execOp->getLoc());
+    VPUX_THROW_WHEN(executor == nullptr, "Can't find Executor attributes for Operation at '{0}'", execOp->getLoc());
 
     const auto executorSymbol = mlir::dyn_cast<vpux::IndexedSymbolAttr>(executor);
-    VPUX_THROW_UNLESS(executorSymbol != nullptr, "Unsupported Executor attribute '{0}'", executorSymbol);
+    VPUX_THROW_WHEN(executorSymbol == nullptr, "Unsupported Executor attribute '{0}'", executorSymbol);
 
     return executorSymbol;
 }
@@ -148,12 +148,12 @@ bool vpux::VPUIP::VPUIPDialect::isComputeExecutorKind(config::ExecutorKind execu
 
 mlir::ArrayAttr vpux::VPUIP::VPUIPDialect::getExecutorInstanceMask(mlir::async::ExecuteOp execOp) {
     const auto executorInstanceMask = execOp->getAttr(executorInstanceMaskAttrName);
-    VPUX_THROW_UNLESS(executorInstanceMask != nullptr, "Can't find Executor Instance attributes for Operation at '{0}'",
-                      execOp->getLoc());
+    VPUX_THROW_WHEN(executorInstanceMask == nullptr, "Can't find Executor Instance attributes for Operation at '{0}'",
+                    execOp->getLoc());
 
     const auto executorInstanceMaskSymbol = mlir::dyn_cast<mlir::ArrayAttr>(executorInstanceMask);
-    VPUX_THROW_UNLESS(executorInstanceMaskSymbol != nullptr, "Unsupported Executor Instance attribute '{0}'",
-                      executorInstanceMaskSymbol);
+    VPUX_THROW_WHEN(executorInstanceMaskSymbol == nullptr, "Unsupported Executor Instance attribute '{0}'",
+                    executorInstanceMaskSymbol);
 
     return executorInstanceMaskSymbol;
 }
@@ -174,7 +174,7 @@ mlir::Operation* vpux::VPUIP::VPUIPDialect::materializeConstant(mlir::OpBuilder&
         return nullptr;
     }
 
-    return builder.create<Const::DeclareOp>(loc, type, mlir::cast<Const::ContentAttr>(value));
+    return Const::DeclareOp::create(builder, loc, type, mlir::cast<Const::ContentAttr>(value));
 }
 
 //

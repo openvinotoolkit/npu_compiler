@@ -227,6 +227,53 @@ func.func @ConvInsideForallDynamicH(%arg0: tensor<1x16x?x16xf16, {bounds = #cons
 
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
+// CHECK-LABEL: @MaxPoolStaticDimOverridesStaleBound
+func.func @MaxPoolStaticDimOverridesStaleBound(
+    %arg0: tensor<1x?x?x16xf16, {bounds = #const.OpaqueI64Elements<[1, 48, 64, 16]> : tensor<4xsi64>, mem_space = @CMX_NN, order = #NHWC}>)
+        -> tensor<2x48x11x16xf16, {mem_space = @CMX_NN, order = #NHWC}> {
+
+    %out = tensor.empty() : tensor<2x48x11x16xf16, {mem_space = @CMX_NN, order = #NHWC}>
+
+    %result = scf.forall (%tid) = (0) to (2) step (1)
+        shared_outs(%o = %out) -> (tensor<2x48x11x16xf16, {mem_space = @CMX_NN, order = #NHWC}>) {
+
+                // Refining H to a static value can retain the less precise bound propagated from the source type.
+                %refined = tensor.cast %arg0
+                        : tensor<1x?x?x16xf16, {bounds = #const.OpaqueI64Elements<[1, 48, 64, 16]> : tensor<4xsi64>, mem_space = @CMX_NN, order = #NHWC}>
+                            to tensor<1x?x11x16xf16, {bounds = #const.OpaqueI64Elements<[1, 48, 64, 16]> : tensor<4xsi64>, mem_space = @CMX_NN, order = #NHWC}>
+
+                %pool = VPU.NCE.MaxPool(%refined) {
+            resultSegmentSizes = array<i32: 1, 0, 0, 0>,
+            pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
+            ppe = #VPU.PPEInt<mode = <NOOP>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64>,
+            strides = [1, 1],
+            kernel_size = [1, 1]
+        } : tensor<1x?x11x16xf16, {bounds = #const.OpaqueI64Elements<[1, 48, 64, 16]> : tensor<4xsi64>, mem_space = @CMX_NN, order = #NHWC}>
+                    -> tensor<1x?x11x16xf16, {bounds = #const.OpaqueI64Elements<[1, 48, 11, 16]> : tensor<4xsi64>, mem_space = @CMX_NN, order = #NHWC}>
+
+                %cast = tensor.cast %pool : tensor<1x?x11x16xf16, {bounds = #const.OpaqueI64Elements<[1, 48, 11, 16]> : tensor<4xsi64>, mem_space = @CMX_NN, order = #NHWC}>
+                                  to tensor<1x48x11x16xf16, {mem_space = @CMX_NN, order = #NHWC}>
+
+        scf.forall.in_parallel {
+            tensor.parallel_insert_slice %cast into %o[%tid, 0, 0, 0] [1, 48, 11, 16] [1, 1, 1, 1]
+                : tensor<1x48x11x16xf16, {mem_space = @CMX_NN, order = #NHWC}>
+                into tensor<2x48x11x16xf16, {mem_space = @CMX_NN, order = #NHWC}>
+        }
+    }
+
+    return %result : tensor<2x48x11x16xf16, {mem_space = @CMX_NN, order = #NHWC}>
+
+    // CHECK:       VPU.NCE.MaxPool
+    // CHECK:         VPU.DPU.Workload
+    // CHECK-SAME:      inSizes [1, [[CHANNEL_SIZE:%[^,]+]], 11, 16]
+    // CHECK-SAME:      outSizes [1, [[CHANNEL_SIZE]], 11, 16]
+    // CHECK-NOT:       outSizes [1, {{[^,]+}}, 64, 16]
+}
+
+// -----
+
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+
 // CHECK-LABEL: @ConvOutsideForallNotTouched
 func.func @ConvOutsideForallNotTouched(%arg0: tensor<1x16x16x16xf16, {mem_space = @CMX_NN, order = #NHWC}>,
                                        %weights: tensor<32x16x1x1xf16, {mem_space = @CMX_NN, order = #NHWC}>)

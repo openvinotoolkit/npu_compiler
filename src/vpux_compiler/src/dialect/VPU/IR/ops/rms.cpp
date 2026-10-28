@@ -55,8 +55,8 @@ bool vpux::VPU::RMSOp::checkStrategyCompatibility(VPU::MultiClusterStrategy stra
 }
 
 void vpux::VPU::RMSOp::build(::mlir::OpBuilder& odsBuilder, ::mlir::OperationState& odsState, ::mlir::Value input,
-                             ::mlir::Value gamma, ::mlir::FloatAttr epsilon, ::mlir::BoolAttr conditionalEps) {
-    build(odsBuilder, odsState, input, gamma, epsilon, conditionalEps, {});
+                             ::mlir::Value gamma, ::mlir::FloatAttr epsilon, ::vpux::IE::EpsModeAttr epsMode) {
+    build(odsBuilder, odsState, input, gamma, epsilon, epsMode, {});
 }
 
 vpux::VPU::DistributionInfo vpux::VPU::RMSOp::getExplicitDistributionInfoAttr(

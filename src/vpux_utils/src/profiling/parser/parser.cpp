@@ -193,28 +193,6 @@ RawProfilingRecords parseActShaveTaskProfiling(
     return rawRecords;
 }
 
-RawProfilingRecords parseM2ITaskProfiling(
-        const flatbuffers::Vector<flatbuffers::Offset<ProfilingFB::M2ITask>>* m2iTaskList, const void* output,
-        size_t outputLen, Logger& log, bool ignoreSanitizationErrors) {
-    if (m2iTaskList == nullptr) {
-        return {};
-    }
-
-    const M2IData_t* outputM2I = reinterpret_cast<const M2IData_t*>(output);
-    VPUX_THROW_UNLESS(outputLen % sizeof(M2IData_t) == 0, "Invalid profiling data");
-    const size_t numOfM2ITasks = outputLen / sizeof(M2IData_t);
-    VPUX_THROW_UNLESS(numOfM2ITasks == m2iTaskList->size(), "All M2I tasks should be profiled");
-
-    RawProfilingRecords rawRecords;
-    for (size_t taskIndex = 0; taskIndex < m2iTaskList->size(); taskIndex++) {
-        const auto record =
-                std::make_shared<RawProfilingM2IRecord>(outputM2I[taskIndex], m2iTaskList->Get(taskIndex), taskIndex);
-        record->checkData(!ignoreSanitizationErrors, log);
-        rawRecords.push_back(record);
-    }
-    return rawRecords;
-}
-
 size_t getDpuRecordSize(TargetDevice device) {
     if (device >= TargetDevice::TargetDevice_VPUX40XX) {
         return sizeof(HwpDpuIduOduData_t);
@@ -365,12 +343,6 @@ RawProfilingData parseProfilingTaskLists(const RawDataLayout& sections, TargetDe
             }
             break;
         }
-        case ExecutorType::M2I: {
-            rawProfData.m2iTasks = parseM2ITaskProfiling(profilingSchema->m2iTasks(), profData + offset, length, log,
-                                                         ignoreSanitizationErrors);
-            rawProfData.parseOrder.emplace_back(ExecutorType::M2I, offset);
-            break;
-        }
         default:
             VPUX_THROW("Invalid profiling executor.");
         }
@@ -379,7 +351,7 @@ RawProfilingData parseProfilingTaskLists(const RawDataLayout& sections, TargetDe
 }
 
 RawDataLayout getRawDataLayoutFB(const ProfilingFB::ProfilingBuffer* profBuffer, size_t actualBufferSize) {
-    VPUX_THROW_UNLESS(profBuffer != nullptr, "Profiling buffer data must be not empty");
+    VPUX_THROW_WHEN(profBuffer == nullptr, "Profiling buffer data must be not empty");
 
     const uint32_t profSize = profBuffer->size();
     VPUX_THROW_WHEN(uint32_t(actualBufferSize) != profSize,
@@ -442,7 +414,7 @@ RawProfilingRecords makeFakeDpuInvariants(const RawProfilingRecords& variants,
 std::vector<TaskInfo> convertRawTasksToTaskInfo(const RawProfilingData& rawTasks,
                                                 const FrequenciesSetup& frequenciesSetup, VerbosityLevel verbosity,
                                                 vpux::Logger& log) {
-    for (const auto& taskList : {rawTasks.dmaTasks, rawTasks.dpuTasks, rawTasks.swTasks, rawTasks.m2iTasks}) {
+    for (const auto& taskList : {rawTasks.dmaTasks, rawTasks.dpuTasks, rawTasks.swTasks}) {
         for (const auto& task : taskList) {
             task->sanitize(log, frequenciesSetup);
         }
@@ -451,7 +423,6 @@ std::vector<TaskInfo> convertRawTasksToTaskInfo(const RawProfilingData& rawTasks
     std::vector<TaskInfo> dmaTaskInfo;
     std::vector<TaskInfo> swTaskInfo;
     std::vector<TaskInfo> dpuTaskInfo;
-    std::vector<TaskInfo> m2iTaskInfo;
 
     fillTaskInfoWithParsedRawRecords(dmaTaskInfo, rawTasks.dmaTasks, frequenciesSetup);
 
@@ -463,17 +434,13 @@ std::vector<TaskInfo> convertRawTasksToTaskInfo(const RawProfilingData& rawTasks
         fillTaskInfoWithParsedRawRecords(dpuTaskInfo, rawTasks.dpuTasks, frequenciesSetup);
     }
 
-    fillTaskInfoWithParsedRawRecords(m2iTaskInfo, rawTasks.m2iTasks, frequenciesSetup);
-
     const auto earliestDpuNs = getEarliestTaskBegin(dpuTaskInfo);
     const auto earliestDmaNs = getEarliestTaskBegin(dmaTaskInfo);
     const auto earliestSwNs = getEarliestTaskBegin(swTaskInfo);
-    const auto earliestM2iNs = getEarliestTaskBegin(m2iTaskInfo);
 
     log.trace("Earliest DMA: {0}", earliestDmaNs);
     log.trace("Earliest DPU: {0}", earliestDpuNs);
     log.trace("Earliest SW : {0}", earliestSwNs);
-    log.trace("Earliest M2I : {0}", earliestM2iNs);
 
     adjustZeroPoint(dmaTaskInfo, 0, earliestDmaNs);
 
@@ -488,7 +455,7 @@ std::vector<TaskInfo> convertRawTasksToTaskInfo(const RawProfilingData& rawTasks
             // If DMA profiling enabled difference is 0, otherwise setting to earliest task without call to
             // getTimersOffset to avoid counting twice. Timer also can be shared with SW tasks
             // List of other engines, which share timer with DMA
-            std::vector<std::optional<size_t>> otherEngineStarts = {earliestM2iNs, earliestSwNs};
+            std::vector<std::optional<size_t>> otherEngineStarts = {earliestSwNs};
             size_t earliestTaskNs = findEarliestTask(earliestDpuNs.value(), otherEngineStarts);
             dma2dpuOffset = earliestDmaNs.has_value() ? 0 : -static_cast<int64_t>(earliestTaskNs);
         }
@@ -499,7 +466,7 @@ std::vector<TaskInfo> convertRawTasksToTaskInfo(const RawProfilingData& rawTasks
         // If DMA profiling enabled difference is 0, otherwise setting to earliest task without call to
         // getTimersOffset to avoid counting twice. Timer also can be shared with SW tasks
         // List of other engines, which share timer with DMA
-        std::vector<std::optional<size_t>> otherEngineStarts = {earliestM2iNs};
+        std::vector<std::optional<size_t>> otherEngineStarts;
         if (frequenciesSetup.hasSharedDmaDpuCounter) {
             otherEngineStarts.push_back(earliestDpuNs);
         }
@@ -509,14 +476,11 @@ std::vector<TaskInfo> convertRawTasksToTaskInfo(const RawProfilingData& rawTasks
         adjustZeroPoint(swTaskInfo, dma2SwOffset, earliestDmaNs);
     }
 
-    adjustZeroPoint(m2iTaskInfo, 0, earliestDmaNs);
-
     std::vector<TaskInfo> allTaskInfo;
-    allTaskInfo.reserve(dpuTaskInfo.size() + dmaTaskInfo.size() + swTaskInfo.size() + m2iTaskInfo.size());
+    allTaskInfo.reserve(dpuTaskInfo.size() + dmaTaskInfo.size() + swTaskInfo.size());
     allTaskInfo.insert(allTaskInfo.end(), dpuTaskInfo.begin(), dpuTaskInfo.end());
     allTaskInfo.insert(allTaskInfo.end(), dmaTaskInfo.begin(), dmaTaskInfo.end());
     allTaskInfo.insert(allTaskInfo.end(), swTaskInfo.begin(), swTaskInfo.end());
-    allTaskInfo.insert(allTaskInfo.end(), m2iTaskInfo.begin(), m2iTaskInfo.end());
 
     std::sort(allTaskInfo.begin(), allTaskInfo.end(), profilingTaskStartTimeComparator<TaskInfo>);
 

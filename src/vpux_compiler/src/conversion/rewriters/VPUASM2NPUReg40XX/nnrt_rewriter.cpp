@@ -47,10 +47,10 @@ mlir::LogicalResult NNRTConfigRewriter::matchAndRewrite(VPUASM::NNrtConfigOp ori
                       sizeof(npu40xx::nn_public::VpuNNRTConfig), nnrtDesc.size());
     nnrtDesc.copyFrom(nnrtConfig);
 
-    rewriter.create<NPUReg40XX::NNrtConfigOp>(origOp.getLoc(), origOp.getSymNameAttr(),
-                                              origOp.getIsActKernelInvocations(), origOp.getActShaveRtAttr(),
-                                              origOp.getActShaveStacksAttr(), origOp.getDmaHwpBaseAttr(),
-                                              origOp.getHwpWorkpointCfgAttr(), std::move(nnrtDesc));
+    NPUReg40XX::NNrtConfigOp::create(rewriter, origOp.getLoc(), origOp.getSymNameAttr(),
+                                     origOp.getIsActKernelInvocations(), origOp.getActShaveRtAttr(),
+                                     origOp.getActShaveStacksAttr(), origOp.getDmaHwpBaseAttr(),
+                                     origOp.getHwpWorkpointCfgAttr(), std::move(nnrtDesc));
     rewriter.eraseOp(origOp);
     return mlir::success();
 }

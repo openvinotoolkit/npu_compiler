@@ -121,8 +121,8 @@ std::optional<WrapFuncDataAttributeView> WrapFuncDataAttributeView::extract(mlir
         return {};
     }
     auto attr = mlir::dyn_cast_or_null<mlir::ArrayAttr>(funcOp->getAttr(WrapFuncDataAttributeView::name()));
-    VPUX_THROW_UNLESS(attr != nullptr, "Unexpected type for \"{0}\", only \"mlir::ArrayAttr\" supported",
-                      WrapFuncDataAttributeView::name());
+    VPUX_THROW_WHEN(attr == nullptr, "Unexpected type for \"{0}\", only \"mlir::ArrayAttr\" supported",
+                    WrapFuncDataAttributeView::name());
     auto attrData = parseCustomAttrArray<mlir::StringAttr>(attr);
     SmallVector<StringRef> attrStringData;
     std::transform(attrData.begin(), attrData.end(), std::back_inserter(attrStringData),
@@ -142,7 +142,7 @@ void WrapFuncDataAttributeView::injectImpl(mlir::func::FuncOp funcOp) const {
     }
 
     auto wrapAttrs = mlir::ArrayAttr::get(ctx, strAttrs);
-    VPUX_THROW_UNLESS(wrapAttrs != nullptr, "Cannot create 'WrapFuncDataAttributeView' attribute \"{0}\"",
-                      WrapFuncDataAttributeView::name());
+    VPUX_THROW_WHEN(wrapAttrs == nullptr, "Cannot create 'WrapFuncDataAttributeView' attribute \"{0}\"",
+                    WrapFuncDataAttributeView::name());
     funcOp->setAttr(WrapFuncDataAttributeView::name(), wrapAttrs);
 }

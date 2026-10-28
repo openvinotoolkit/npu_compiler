@@ -85,11 +85,11 @@ private:
                 auto memType = mlir::MemRefType::get(compactType.getShape(), compactType.getElementType(),
                                                      compactType.getLayout(), newMemSpace);
                 if (swizzlingKey.has_value()) {
-                    res = builder.create<VPURT::DeclareBufferOp>(output.getLoc(), memType, buffSec, cluster, byteOffset,
-                                                                 swizzlingKey.value());
+                    res = VPURT::DeclareBufferOp::create(builder, output.getLoc(), memType, buffSec, cluster,
+                                                         byteOffset, swizzlingKey.value());
                 } else {
-                    res = builder.create<VPURT::DeclareBufferOp>(output.getLoc(), memType, buffSec, cluster,
-                                                                 byteOffset);
+                    res = VPURT::DeclareBufferOp::create(builder, output.getLoc(), memType, buffSec, cluster,
+                                                         byteOffset);
                 }
 
                 results.push_back(res.getResult());
@@ -163,8 +163,8 @@ private:
                     [&](VPUIP::NNDMAOp dmaOp, llvm::SmallVector<mlir::Value> dmaResults,
                         VPURegMapped::IndexType indexType, mlir::ValueRange waitBarriers,
                         mlir::ValueRange updateBarriers) {
-                        auto operation = builderBlk.create<VPUMI37XX::NNDMAOp>(
-                                dmaOp->getLoc(), indexType, dmaOp.getInput(), dmaResults, nullptr,
+                        auto operation = VPUMI37XX::NNDMAOp::create(
+                                builderBlk, dmaOp->getLoc(), indexType, dmaOp.getInput(), dmaResults, nullptr,
                                 mlir::ValueRange(waitBarriers), mlir::ValueRange(updateBarriers), /* start_after= */ 0,
                                 /* clean_after= */ 0, dmaOp.getIsOutOfOrder(), dmaOp.getIsCritical(),
                                 dmaOp.getPort().value(), VPUIP::DMAAccMode::DISABLE, /* dma_descriptor= */ nullptr);
@@ -196,9 +196,9 @@ private:
                                           "NUM PLANES should be less than or equal to {0}, but got {1}.",
                                           dmaMaxNumPlanes, numPlanes);
 
-                        auto operation = builderBlk.create<VPUMI37XX::NNDMAOp>(
-                                permuteDMAOp->getLoc(), indexType, permuteDMAOp.getInput(), dmaResults, nullptr,
-                                mlir::ValueRange(waitBarriers), mlir::ValueRange(updateBarriers), 0, 0,
+                        auto operation = VPUMI37XX::NNDMAOp::create(
+                                builderBlk, permuteDMAOp->getLoc(), indexType, permuteDMAOp.getInput(), dmaResults,
+                                nullptr, mlir::ValueRange(waitBarriers), mlir::ValueRange(updateBarriers), 0, 0,
                                 permuteDMAOp.getIsOutOfOrder(), permuteDMAOp.getIsCritical(),
                                 permuteDMAOp.getPort().value(), VPUIP::DMAAccMode::DISABLE, dmaDescriptorValue);
                         builderBlk.setInsertionPoint(operation);
@@ -225,10 +225,10 @@ private:
                                           "NUM PLANES should be less than or equal to {0}, but got {1}.",
                                           dmaMaxNumPlanes, numPlanes);
 
-                        auto operation = builderBlk.create<VPUMI37XX::NNDMAOp>(
-                                upsamplingDMAOp->getLoc(), indexType, upsamplingDMAOp.getInput(), dmaResults, nullptr,
-                                mlir::ValueRange(waitBarriers), mlir::ValueRange(updateBarriers), 0, 0,
-                                upsamplingDMAOp.getIsOutOfOrder(), upsamplingDMAOp.getIsCritical(),
+                        auto operation = VPUMI37XX::NNDMAOp::create(
+                                builderBlk, upsamplingDMAOp->getLoc(), indexType, upsamplingDMAOp.getInput(),
+                                dmaResults, nullptr, mlir::ValueRange(waitBarriers), mlir::ValueRange(updateBarriers),
+                                0, 0, upsamplingDMAOp.getIsOutOfOrder(), upsamplingDMAOp.getIsCritical(),
                                 upsamplingDMAOp.getPort().value(), VPUIP::DMAAccMode::DISABLE, dmaDescriptorValue);
                         builderBlk.setInsertionPoint(operation);
                         return operation;
@@ -254,10 +254,10 @@ private:
                                           "NUM PLANES should be less than or equal to {0}, but got {1}.",
                                           dmaMaxNumPlanes, numPlanes);
 
-                        auto operation = builderBlk.create<VPUMI37XX::NNDMAOp>(
-                                perAxisTileDMAOp->getLoc(), indexType, perAxisTileDMAOp.getInput(), dmaResults, nullptr,
-                                mlir::ValueRange(waitBarriers), mlir::ValueRange(updateBarriers), 0, 0,
-                                perAxisTileDMAOp.getIsOutOfOrder(), perAxisTileDMAOp.getIsCritical(),
+                        auto operation = VPUMI37XX::NNDMAOp::create(
+                                builderBlk, perAxisTileDMAOp->getLoc(), indexType, perAxisTileDMAOp.getInput(),
+                                dmaResults, nullptr, mlir::ValueRange(waitBarriers), mlir::ValueRange(updateBarriers),
+                                0, 0, perAxisTileDMAOp.getIsOutOfOrder(), perAxisTileDMAOp.getIsCritical(),
                                 perAxisTileDMAOp.getPort().value(), VPUIP::DMAAccMode::DISABLE, dmaDescriptorValue);
                         builderBlk.setInsertionPoint(operation);
                         return operation;
@@ -273,10 +273,10 @@ private:
                     [&](VPUIP::DecompressDMAOp decompressDMAOp, llvm::SmallVector<mlir::Value> dmaResults,
                         VPURegMapped::IndexType indexType, mlir::ValueRange waitBarriers,
                         mlir::ValueRange updateBarriers) {
-                        auto operation = builderBlk.create<VPUMI37XX::NNDMAOp>(
-                                decompressDMAOp->getLoc(), indexType, decompressDMAOp.getInput(), dmaResults, nullptr,
-                                mlir::ValueRange(waitBarriers), mlir::ValueRange(updateBarriers), 0, 0,
-                                decompressDMAOp.getIsOutOfOrder(), decompressDMAOp.getIsCritical(),
+                        auto operation = VPUMI37XX::NNDMAOp::create(
+                                builderBlk, decompressDMAOp->getLoc(), indexType, decompressDMAOp.getInput(),
+                                dmaResults, nullptr, mlir::ValueRange(waitBarriers), mlir::ValueRange(updateBarriers),
+                                0, 0, decompressDMAOp.getIsOutOfOrder(), decompressDMAOp.getIsCritical(),
                                 decompressDMAOp.getPort().value(), VPUIP::DMAAccMode::DECOMPRESSION, nullptr);
                         builderBlk.setInsertionPoint(operation);
                         return operation;
@@ -292,9 +292,9 @@ private:
                     [&](VPUIP::ExpandDMAOp expandDMAOp, llvm::SmallVector<mlir::Value> dmaResults,
                         VPURegMapped::IndexType indexType, mlir::ValueRange waitBarriers,
                         mlir::ValueRange updateBarriers) {
-                        auto operation = builderBlk.create<VPUMI37XX::NNDMAOp>(
-                                expandDMAOp->getLoc(), indexType, expandDMAOp.getInput(), dmaResults, nullptr,
-                                mlir::ValueRange(waitBarriers), mlir::ValueRange(updateBarriers), 0, 0,
+                        auto operation = VPUMI37XX::NNDMAOp::create(
+                                builderBlk, expandDMAOp->getLoc(), indexType, expandDMAOp.getInput(), dmaResults,
+                                nullptr, mlir::ValueRange(waitBarriers), mlir::ValueRange(updateBarriers), 0, 0,
                                 expandDMAOp.getIsOutOfOrder(), expandDMAOp.getIsCritical(),
                                 expandDMAOp.getPort().value(), VPUIP::DMAAccMode::DISABLE,
                                 expandDMAOp.getDmaDescriptor().value());
@@ -312,10 +312,10 @@ private:
                     [&](VPUIP::SpaceToDepthDMAOp spaceToDepthDMAOp, llvm::SmallVector<mlir::Value> dmaResults,
                         VPURegMapped::IndexType indexType, mlir::ValueRange waitBarriers,
                         mlir::ValueRange updateBarriers) {
-                        auto operation = builderBlk.create<VPUMI37XX::NNDMAOp>(
-                                spaceToDepthDMAOp->getLoc(), indexType, spaceToDepthDMAOp.getInput(), dmaResults,
-                                nullptr, mlir::ValueRange(waitBarriers), mlir::ValueRange(updateBarriers), 0, 0,
-                                spaceToDepthDMAOp.getIsOutOfOrder(), spaceToDepthDMAOp.getIsCritical(),
+                        auto operation = VPUMI37XX::NNDMAOp::create(
+                                builderBlk, spaceToDepthDMAOp->getLoc(), indexType, spaceToDepthDMAOp.getInput(),
+                                dmaResults, nullptr, mlir::ValueRange(waitBarriers), mlir::ValueRange(updateBarriers),
+                                0, 0, spaceToDepthDMAOp.getIsOutOfOrder(), spaceToDepthDMAOp.getIsCritical(),
                                 spaceToDepthDMAOp.getPort().value(), VPUIP::DMAAccMode::DISABLE,
                                 spaceToDepthDMAOp.getDmaDescriptor().value());
                         builderBlk.setInsertionPoint(operation);
@@ -348,10 +348,10 @@ private:
                                           "NUM PLANES should be less than or equal to {0}, but got {1}.",
                                           dmaMaxNumPlanes, numPlanes);
 
-                        auto operation = builderBlk.create<VPUMI37XX::NNDMAOp>(
-                                depthToSpaceDMAOp->getLoc(), indexType, depthToSpaceDMAOp.getInput(), dmaResults,
-                                nullptr, mlir::ValueRange(waitBarriers), mlir::ValueRange(updateBarriers), 0, 0,
-                                depthToSpaceDMAOp.getIsOutOfOrder(), depthToSpaceDMAOp.getIsCritical(),
+                        auto operation = VPUMI37XX::NNDMAOp::create(
+                                builderBlk, depthToSpaceDMAOp->getLoc(), indexType, depthToSpaceDMAOp.getInput(),
+                                dmaResults, nullptr, mlir::ValueRange(waitBarriers), mlir::ValueRange(updateBarriers),
+                                0, 0, depthToSpaceDMAOp.getIsOutOfOrder(), depthToSpaceDMAOp.getIsCritical(),
                                 depthToSpaceDMAOp.getPort().value(), VPUIP::DMAAccMode::DISABLE, dmaDescriptorValue);
                         builderBlk.setInsertionPoint(operation);
                         return operation;
@@ -379,9 +379,9 @@ private:
                 -> std::pair<VPUMI37XX::DeclareKernelTextOp, VPUMI37XX::DeclareKernelEntryOp> {
             if (kernelTextEntryMap.find(kernelElf) == kernelTextEntryMap.end()) {
                 auto kernelTextOp =
-                        builderBlk.create<VPUMI37XX::DeclareKernelTextOp>(op->getLoc(), indexType, kernelElf);
+                        VPUMI37XX::DeclareKernelTextOp::create(builderBlk, op->getLoc(), indexType, kernelElf);
                 auto kernelEntryOp =
-                        builderBlk.create<VPUMI37XX::DeclareKernelEntryOp>(op->getLoc(), indexType, kernelElf);
+                        VPUMI37XX::DeclareKernelEntryOp::create(builderBlk, op->getLoc(), indexType, kernelElf);
                 kernelTextEntryMap.insert(std::make_pair(kernelElf, std::make_pair(kernelTextOp, kernelEntryOp)));
             }
 
@@ -406,11 +406,12 @@ private:
         auto [kernelTextOp, kernelEntryOp] =
                 findKernelTextAndEntryOps(builderBlk, op, indexType, mlir::StringAttr::get(ctx, kernel_elf));
 
-        auto kernelArgsOp = builderBlk.create<VPUMI37XX::DeclareKernelArgsOp>(op->getLoc(), indexType,
-                                                                              mlir::StringAttr::get(ctx, kernel_elf));
+        auto kernelArgsOp = VPUMI37XX::DeclareKernelArgsOp::create(builderBlk, op->getLoc(), indexType,
+                                                                   mlir::StringAttr::get(ctx, kernel_elf));
 
-        auto kernelRangeOp = builderBlk.create<VPUMI37XX::ActKernelRangeOp>(
-                op->getLoc(), indexType, /*taskLocation*/ nullptr, kernelTextOp, kernelArgsOp, kernelEntryOp,
+        auto kernelRangeOp = VPUMI37XX::ActKernelRangeOp::create(
+                builderBlk, op->getLoc(), indexType, /*taskLocation*/ nullptr, kernelTextOp, kernelArgsOp,
+                kernelEntryOp,
                 mlir::SymbolRefAttr::get(ctx, VPU::stringifyActShaveTaskType(VPU::ActShaveTaskType::COMPUTE)));
 
         auto tileIndex = op.getTileIndex().value_or(0);
@@ -445,18 +446,18 @@ private:
         auto dynOutputShapesRange = SmallVector<mlir::ValueRange>();
         llvm::transform(dynOutputShapes, std::back_inserter(dynOutputShapesRange), toValueRange);
 
-        auto kernelParams = builderBlk.create<VPUMI37XX::KernelParamsOp>(
-                op->getLoc(), indexType, op.getInputs(), op.getOutputBuffs(), dynInputShapesRange, dynOutputShapesRange,
-                mlir::StringAttr::get(ctx, kernel_elf),
+        auto kernelParams = VPUMI37XX::KernelParamsOp::create(
+                builderBlk, op->getLoc(), indexType, op.getInputs(), op.getOutputBuffs(), dynInputShapesRange,
+                dynOutputShapesRange, mlir::StringAttr::get(ctx, kernel_elf),
                 mlir::DenseIntElementsAttr::get(mlir::VectorType::get({paramsSize}, uint8Type), paramsVector),
                 mlir::BoolAttr::get(ctx, isCompiled));
 
-        builderBlk.create<VPUMI37XX::ActKernelInvocationOp>(op->getLoc(), indexType, /*taskLocation*/ nullptr,
-                                                            mlir::ValueRange(wait_bars), mlir::ValueRange(update_bars),
-                                                            kernelRangeOp.getResult(), kernelParams.getResult(),
-                                                            op.getProfilingData(),
-                                                            /* tile= */ tileIndex,
-                                                            /* start_after= */ 0, /* clean_after= */ 0);
+        VPUMI37XX::ActKernelInvocationOp::create(builderBlk, op->getLoc(), indexType, /*taskLocation*/ nullptr,
+                                                 mlir::ValueRange(wait_bars), mlir::ValueRange(update_bars),
+                                                 kernelRangeOp.getResult(), kernelParams.getResult(),
+                                                 op.getProfilingData(),
+                                                 /* tile= */ tileIndex,
+                                                 /* start_after= */ 0, /* clean_after= */ 0);
     }
 
     void createCacheOpSwKernel(mlir::MLIRContext* ctx, VPUIP::SwKernelOp op, mlir::OpBuilder builderBlk,
@@ -482,8 +483,8 @@ private:
             VPUX_THROW("Unrecognized Kernel Task Type '{0}'", kernelTaskType.getLeafReference());
         }
 
-        auto kernelRangeOp = builderBlk.create<VPUMI37XX::ActKernelRangeOp>(
-                op->getLoc(), indexType, /*taskLocation*/ nullptr, nullptr, nullptr, nullptr,
+        auto kernelRangeOp = VPUMI37XX::ActKernelRangeOp::create(
+                builderBlk, op->getLoc(), indexType, /*taskLocation*/ nullptr, nullptr, nullptr, nullptr,
                 mlir::SymbolRefAttr::get(ctx, VPU::stringifyActShaveTaskType(taskTypeVal.value())));
 
         auto tileIndex = op.getTileIndex().value_or(0);
@@ -494,17 +495,17 @@ private:
 
         SmallVector<mlir::ValueRange> dynInputShapes(0);
         SmallVector<mlir::ValueRange> dynOutputShapes(0);
-        auto kernelParams = builderBlk.create<VPUMI37XX::KernelParamsOp>(
-                op->getLoc(), indexType, mlir::ValueRange(), mlir::ValueRange(), dynInputShapes, dynOutputShapes,
-                mlir::StringAttr::get(ctx, kernel_type),
+        auto kernelParams = VPUMI37XX::KernelParamsOp::create(
+                builderBlk, op->getLoc(), indexType, mlir::ValueRange(), mlir::ValueRange(), dynInputShapes,
+                dynOutputShapes, mlir::StringAttr::get(ctx, kernel_type),
                 mlir::DenseIntElementsAttr::get(mlir::VectorType::get({paramsSize}, uint8Type), paramsVectorDummy),
                 mlir::BoolAttr::get(ctx, isCompiled));
 
-        builderBlk.create<VPUMI37XX::ActKernelInvocationOp>(
-                op->getLoc(), indexType, /*taskLocation*/ nullptr, mlir::ValueRange(wait_bars),
-                mlir::ValueRange(update_bars), kernelRangeOp.getResult(), kernelParams.getResult(), nullptr,
-                /* tile= */ tileIndex,
-                /* start_after= */ 0, /* clean_after= */ 0);
+        VPUMI37XX::ActKernelInvocationOp::create(builderBlk, op->getLoc(), indexType, /*taskLocation*/ nullptr,
+                                                 mlir::ValueRange(wait_bars), mlir::ValueRange(update_bars),
+                                                 kernelRangeOp.getResult(), kernelParams.getResult(), nullptr,
+                                                 /* tile= */ tileIndex,
+                                                 /* start_after= */ 0, /* clean_after= */ 0);
     }
 
     void replaceVPURTTaskOpWithKernelOps(mlir::MLIRContext* ctx, mlir::ModuleOp moduleOp, mlir::func::FuncOp funcOp,
@@ -561,7 +562,7 @@ private:
                     // This is the compiled kernel case
                     auto kernel_info_llvmFuncOp = moduleOp.lookupSymbol<mlir::LLVM::LLVMFuncOp>(sw_kernel_symbol);
 
-                    VPUX_THROW_UNLESS(kernel_info_llvmFuncOp != nullptr, "kernel_info_llvmFuncOp should be valid");
+                    VPUX_THROW_WHEN(kernel_info_llvmFuncOp == nullptr, "kernel_info_llvmFuncOp should be valid");
 
                     auto llvmFuncOpNameStr = kernel_info_llvmFuncOp.getName().str();
 
@@ -610,7 +611,7 @@ private:
                 }
 
                 const auto& dpuTasks = op.getVariants().getOps<VPUIP::DPUTaskOp>();
-                VPUX_THROW_UNLESS(!dpuTasks.empty(), "Encountered op {} with empty dpu list", op);
+                VPUX_THROW_WHEN(dpuTasks.empty(), "Encountered op {} with empty dpu list", op);
                 const auto& differentMPEModes = std::adjacent_find(dpuTasks.begin(), dpuTasks.end(),
                                                                    [](VPUIP::DPUTaskOp lhs, VPUIP::DPUTaskOp rhs) {
                                                                        return lhs.getMpeMode() != rhs.getMpeMode();
@@ -631,14 +632,15 @@ private:
                 auto cleanAfterAttr = builderBlk.getIntegerAttr(builderBlk.getIntegerType(64, false), 0);
 
                 auto dpuResults = unrollDistributedBuff(builderBlk, op.getOutputBuff());
-                auto invariant = builderBlk.create<VPUMI37XX::DPUInvariantOp>(
-                        op->getLoc(), invariantIndex, /*taskLocation*/ nullptr, op.getInput(), op.getInputSparsityMap(),
-                        op.getInputStorageElementTable(), op.getWeights(), op.getWeightsSparsityMap(),
-                        op.getWeightTable(), op.getParentInput(), op.getParentInputSparsityMap(),
-                        op.getParentInputStorageElementTable(), op.getParentOutput(), op.getParentOutputSparsityMap(),
-                        dpuResults, op.getOutputSparsityMapBuff(), op.getProfilingData(), op.getTaskTypeAttr(),
-                        op.getEltwiseTypeAttr(), mpe_freq_mode, op.getKernelSizeAttr(), op.getKernelStridesAttr(),
-                        op.getKernelPaddingAttr(), op.getIsContinued(), op.getCmSpPatternAttr(), op.getIsSegmented(),
+                auto invariant = VPUMI37XX::DPUInvariantOp::create(
+                        builderBlk, op->getLoc(), invariantIndex, /*taskLocation*/ nullptr, op.getInput(),
+                        op.getInputSparsityMap(), op.getInputStorageElementTable(), op.getWeights(),
+                        op.getWeightsSparsityMap(), op.getWeightTable(), op.getParentInput(),
+                        op.getParentInputSparsityMap(), op.getParentInputStorageElementTable(), op.getParentOutput(),
+                        op.getParentOutputSparsityMap(), dpuResults, op.getOutputSparsityMapBuff(),
+                        op.getProfilingData(), op.getTaskTypeAttr(), op.getEltwiseTypeAttr(), mpe_freq_mode,
+                        op.getKernelSizeAttr(), op.getKernelStridesAttr(), op.getKernelPaddingAttr(),
+                        op.getIsContinued(), op.getCmSpPatternAttr(), op.getIsSegmented(),
                         op.getInputChannelsCompression(), op.getIsZeroOffsetWeightsTable(),
                         op.getOutChannelOffsetAttr(), op.getIsSuperdense(), op.getIsInplaceAttr(),
                         op.getInputSeSizeAttr(), op.getOutputSeSizeAttr(), op.getIsPermuteQuantize(), wait_barriers,
@@ -648,10 +650,11 @@ private:
 
                 for (auto dpuTaskOp : op.getVariants().getOps<VPUIP::DPUTaskOp>()) {
                     auto variantIndex = VPURegMapped::IndexType::get(ctx, variant_task_count);
-                    builderBlk.create<VPUMI37XX::DPUVariantOp>(
-                            dpuTaskOp->getLoc(), variantIndex, /*taskLocation*/ nullptr, invariant.getResult(),
-                            dpuTaskOp.getOutStartAttr(), dpuTaskOp.getOutEndAttr(), dpuTaskOp.getPadAttr(),
-                            dpuTaskOp.getMpeModeAttr(), dpuTaskOp.getClusterIdAttr(), dpuTaskOp.getWorkloadIdAttr());
+                    VPUMI37XX::DPUVariantOp::create(builderBlk, dpuTaskOp->getLoc(), variantIndex,
+                                                    /*taskLocation*/ nullptr, invariant.getResult(),
+                                                    dpuTaskOp.getOutStartAttr(), dpuTaskOp.getOutEndAttr(),
+                                                    dpuTaskOp.getPadAttr(), dpuTaskOp.getMpeModeAttr(),
+                                                    dpuTaskOp.getClusterIdAttr(), dpuTaskOp.getWorkloadIdAttr());
                     variant_task_count++;
                 }
 
@@ -663,9 +666,8 @@ private:
                     builderBlk.setInsertionPointToEnd(&ppeRegion.front());
 
                     for (auto ppe : op.getPpe().getOps<VPUIP::PPETaskOp>()) {
-                        builderBlk.create<VPUMI37XX::PPETaskOp>(builderBlk.getUnknownLoc(), ppe->getResultTypes(),
-                                                                ppe->getOperands(),
-                                                                ppe->getAttrDictionary().getValue());
+                        VPUMI37XX::PPETaskOp::create(builderBlk, builderBlk.getUnknownLoc(), ppe->getResultTypes(),
+                                                     ppe->getOperands(), ppe->getAttrDictionary().getValue());
                     }
                 }
             }
@@ -764,22 +766,21 @@ private:
             dmaHeadsValues.push_back(optionalHead.value());
         }
 
-        builderFunc.create<VPUMI37XX::MappedInferenceOp>(
-                mlir::UnknownLoc::get(ctx), trivialIndexType,
-                dmaHeadsValues,                                   // mlir::Value dmaTasks
-                invariantTasks,                                   // mlir::Value invariantTasks
-                variantTasks,                                     // mlir::Value variantTasks
-                actKernelRanges,                                  // mlir::Value actKernelRanges
-                actKernelInvocations,                             // mlir::Value actKernelInvocations
-                barrierTasks,                                     // mlir::Value barrierTasks
-                actShvRt,                                         // mlir::Value actShaveRt
-                actShaveStacks,                                   // mlir::ValueRange actShaveStacks
-                builderFunc.getI64ArrayAttr(ArrayRef(dmaCount)),  // mlir::ArrayAttr
-                invariantCount,                                   // uint32_t invariantCount
-                variantCount,                                     // uint32_t variantCount
-                rangeCount,                                       // uint32_t rangeCount
-                invoCount,                                        // uint32_t invoCount
-                barrierCount                                      // uint32_t barrierCount
+        VPUMI37XX::MappedInferenceOp::create(builderFunc, mlir::UnknownLoc::get(ctx), trivialIndexType,
+                                             dmaHeadsValues,        // mlir::Value dmaTasks
+                                             invariantTasks,        // mlir::Value invariantTasks
+                                             variantTasks,          // mlir::Value variantTasks
+                                             actKernelRanges,       // mlir::Value actKernelRanges
+                                             actKernelInvocations,  // mlir::Value actKernelInvocations
+                                             barrierTasks,          // mlir::Value barrierTasks
+                                             actShvRt,              // mlir::Value actShaveRt
+                                             actShaveStacks,        // mlir::ValueRange actShaveStacks
+                                             builderFunc.getI64ArrayAttr(ArrayRef(dmaCount)),  // mlir::ArrayAttr
+                                             invariantCount,  // uint32_t invariantCount
+                                             variantCount,    // uint32_t variantCount
+                                             rangeCount,      // uint32_t rangeCount
+                                             invoCount,       // uint32_t invoCount
+                                             barrierCount     // uint32_t barrierCount
         );
     }
 
@@ -807,7 +808,7 @@ private:
         auto vectorType = mlir::VectorType::get({bufferSize}, uint8Type);
         const auto elemAttr = mlir::DenseElementsAttr::getFromRawBuffer(vectorType, rawMetadata);
         auto trivialIndexType = VPURegMapped::IndexType::get(ctx, 0);
-        builderFunc.create<VPUMI37XX::ProfilingMetadataOp>(mlir::UnknownLoc::get(ctx), trivialIndexType, elemAttr);
+        VPUMI37XX::ProfilingMetadataOp::create(builderFunc, mlir::UnknownLoc::get(ctx), trivialIndexType, elemAttr);
     }
 
 };  // namespace
@@ -871,7 +872,7 @@ void ConvertVPUIP2VPUMI37XXPass::safeRunOnModule() {
     auto ctx = &(getContext());
     auto moduleOp = getOperation();
     auto funcOpsRange = moduleOp.getOps<mlir::func::FuncOp>();
-    VPUX_THROW_UNLESS(!funcOpsRange.empty(), "Empty FuncOp");
+    VPUX_THROW_WHEN(funcOpsRange.empty(), "Empty FuncOp");
     auto funcOp = *funcOpsRange.begin();
 
     _log.trace("funcOp = {0}", funcOp);

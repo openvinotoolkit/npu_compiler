@@ -68,6 +68,9 @@ void buildDefaultHWPipeline(mlir::OpPassManager& pm, const DefaultHWOptions& opt
 void buildIncrementalPipeline(mlir::OpPassManager& pm, const vpux::MCAndTilingOptionsBase& options,
                               Logger log = Logger::global(), bool enableLegacyConvSplitOverIC = true);
 
+void buildNCEWorkloadsPipeline(mlir::OpPassManager& pm, const VPU::NCEWorkloadsOptions& options,
+                               Logger log = Logger::global());
+
 std::unique_ptr<mlir::Pass> createAutopadChannelsPass(const Logger& log = Logger::global());
 std::unique_ptr<mlir::Pass> createDecomposeSoftmaxInSdpaPass(const Logger& log = Logger::global());
 

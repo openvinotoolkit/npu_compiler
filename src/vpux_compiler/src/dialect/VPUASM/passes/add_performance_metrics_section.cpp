@@ -41,7 +41,7 @@ void AddPerformanceMetricsSectionPass::safeRunOnFunc() {
                       llvm::range_size(perfMetricsOps));
 
     auto builder = mlir::OpBuilder::atBlockEnd(elfMain.getBody());
-    auto perfMetricsOp = builder.create<ELF::PerformanceMetricsOp>(elfMain.getLoc());
+    auto perfMetricsOp = ELF::PerformanceMetricsOp::create(builder, elfMain.getLoc());
     ELF::moveOpToSection(perfMetricsOp.getOperation(), builder);
 }
 }  // namespace

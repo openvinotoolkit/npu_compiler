@@ -76,10 +76,10 @@ void SetEntryPointPass::safeRunOnFunc() {
 
     auto builder = mlir::OpBuilder::atBlockEnd(symTab.getBlock());
 
-    builder.create<ELF::SymbolOp>(elfMain.getLoc(),                 // location
-                                  "entry",                          // sym_name
-                                  mpiRef,                           // reference
-                                  ELF::SymbolType::VPU_STT_ENTRY);  // type
+    ELF::SymbolOp::create(builder, elfMain.getLoc(),        // location
+                          "entry",                          // sym_name
+                          mpiRef,                           // reference
+                          ELF::SymbolType::VPU_STT_ENTRY);  // type
 }
 }  // namespace
 

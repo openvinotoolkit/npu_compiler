@@ -71,9 +71,8 @@ auto getConcatResult(mlir::PatternRewriter& rewriter, vpux::Dim axis, int64_t fa
         concatInputs.push_back(constZeros);
     }
 
-    return rewriter
-            .create<IE::ConcatOp>(takeOpLoc(origOp, "concat_cst_d{0}", axis.ind()), mlir::ValueRange(concatInputs),
-                                  axis, 1, factor)
+    return IE::ConcatOp::create(rewriter, takeOpLoc(origOp, "concat_cst_d{0}", axis.ind()),
+                                mlir::ValueRange(concatInputs), axis, 1, factor)
             .getOutput();
 }
 
@@ -168,9 +167,9 @@ mlir::LogicalResult ConvertUpsamplingToStridedConcatPass::UpsamplingOpConverter:
         }
         if (needSlicing && (sliceShape != inputShape)) {
             const Shape sliceOffsets{0, 0, 0, 0};
-            auto slice = rewriter.create<IE::SliceOp>(takeOpLoc(origOp, "slice_in"), upsamplingResult,
-                                                      getIntArrayAttr(rewriter, sliceOffsets.raw()),
-                                                      getIntArrayAttr(rewriter, sliceShape.raw()));
+            auto slice = IE::SliceOp::create(rewriter, takeOpLoc(origOp, "slice_in"), upsamplingResult,
+                                             getIntArrayAttr(rewriter, sliceOffsets.raw()),
+                                             getIntArrayAttr(rewriter, sliceShape.raw()));
             upsamplingResult = slice.getResult();
         }
     } else {
@@ -180,8 +179,8 @@ mlir::LogicalResult ConvertUpsamplingToStridedConcatPass::UpsamplingOpConverter:
         auto padAttr = IE::UpsamplingPadAttr::get(rewriter.getContext(), padChannelAttr, padHeightAttr, padWidthAttr);
 
         auto newUpsample =
-                rewriter.create<IE::UpsamplingOp>(origOp->getLoc(), upsamplingResult, origOp.getUpsamplingFactor(),
-                                                  padAttr, origOp.getOutputPaddingAttr(), origOp.getInputPaddingAttr());
+                IE::UpsamplingOp::create(rewriter, origOp->getLoc(), upsamplingResult, origOp.getUpsamplingFactor(),
+                                         padAttr, origOp.getOutputPaddingAttr(), origOp.getInputPaddingAttr());
         upsamplingResult = newUpsample.getOutput();
     }
     auto isZero = [](auto val) {
@@ -191,10 +190,10 @@ mlir::LogicalResult ConvertUpsamplingToStridedConcatPass::UpsamplingOpConverter:
         auto padBeginAttr = getIntArrayAttr(rewriter, padingLAtt);
         auto padEndAttr = getIntArrayAttr(rewriter, padingRAtt);
         auto zeroFpAttr = getFPAttr(rewriter, 0.0f);
-        auto padingOp = rewriter.create<IE::PadOp>(takeOpLoc(origOp, "pad_out"), upsamplingResult, nullptr, nullptr,
-                                                   nullptr, padBeginAttr, padEndAttr, zeroFpAttr, IE::PadMode::CONSTANT,
-                                                   origOp.getOutputPaddingAttr(), origOp.getInputPaddingAttr(), nullptr,
-                                                   nullptr);
+        auto padingOp =
+                IE::PadOp::create(rewriter, takeOpLoc(origOp, "pad_out"), upsamplingResult, nullptr, nullptr, nullptr,
+                                  padBeginAttr, padEndAttr, zeroFpAttr, IE::PadMode::CONSTANT,
+                                  origOp.getOutputPaddingAttr(), origOp.getInputPaddingAttr(), nullptr, nullptr);
         upsamplingResult = padingOp.getOutput();
     }
 

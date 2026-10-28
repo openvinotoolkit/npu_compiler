@@ -25,7 +25,7 @@ void serializeDescriptorMetadata(vpux::bytecode::BytecodeWriter& writer, mlir::O
                                  uint32_t indexUsedByDriver, bool hasDynamicStrides, mlir::ArrayAttr tensorNames,
                                  mlir::SymbolRefAttr shapeFromIRModelRef, mlir::SymbolRefAttr nodeFriendlyNameRef) {
     auto moduleOp = op->getParentOfType<mlir::ModuleOp>();
-    VPUX_THROW_UNLESS(moduleOp != nullptr, "Expected metadata op to be inside a module");
+    VPUX_THROW_WHEN(moduleOp == nullptr, "Expected metadata op to be inside a module");
 
     using namespace vpux;
     const auto nameIndexOpt = bytecode::getIndex<bytecode::StringSectionOp, bytecode::StringOp>(nameRef, moduleOp);
@@ -53,7 +53,7 @@ void serializeDescriptorMetadata(vpux::bytecode::BytecodeWriter& writer, mlir::O
     if (tensorNameCount > 0) {
         for (auto tensorNameAttr : tensorNames) {
             auto symRefAttr = mlir::dyn_cast<mlir::SymbolRefAttr>(tensorNameAttr);
-            VPUX_THROW_UNLESS(symRefAttr != nullptr, "Expected tensor name to be a SymbolRefAttr");
+            VPUX_THROW_WHEN(symRefAttr == nullptr, "Expected tensor name to be a SymbolRefAttr");
             const auto tensorNameIndex =
                     vpux::bytecode::getStringIndex(symRefAttr.getLeafReference().getValue(), moduleOp);
             intel_npu::vm::appendValueTo(writer.getBytecodeBuffer(), tensorNameIndex);
@@ -176,7 +176,7 @@ size_t bytecode::ProfilingOutputMetadataOp::getBinarySize() {
 
 void bytecode::NetworkMetadataOp::serialize(vpux::bytecode::BytecodeWriter& writer) {
     auto moduleOp = getOperation()->getParentOfType<mlir::ModuleOp>();
-    VPUX_THROW_UNLESS(moduleOp != nullptr, "Expected network metadata op to be inside a module");
+    VPUX_THROW_WHEN(moduleOp == nullptr, "Expected network metadata op to be inside a module");
 
     const auto nameIndexOpt = bytecode::getIndex<bytecode::StringSectionOp, bytecode::StringOp>(getName(), moduleOp);
     VPUX_THROW_UNLESS(nameIndexOpt.has_value(), "Failed to resolve network metadata name symbol {0}", getName());

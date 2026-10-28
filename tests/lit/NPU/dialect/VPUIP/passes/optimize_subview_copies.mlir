@@ -57,7 +57,7 @@ func.func @OptimizeSubviewCopyConvPattern(
         -> !InputDistributed
 
     %allocConv = VPURT.AllocDistributed -> !OutputDistributed
-    %conv = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
+    %conv = VPUIP.NCEClusterTask <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>,
             kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
             kernel_size = [1, 1], kernel_strides = [1, 1],
             task_type = #VPUIP.nce_task_type<CONV>}>
@@ -162,7 +162,7 @@ func.func @OptimizeSubviewCopy2ConvPattern(
         -> !InputDistributed
 
     %allocConv0 = VPURT.AllocDistributed -> !OutputDistributed0
-    %conv0 = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
+    %conv0 = VPUIP.NCEClusterTask <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>,
             kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
             kernel_size = [1, 1], kernel_strides = [1, 1],
             task_type = #VPUIP.nce_task_type<CONV>}>
@@ -179,7 +179,7 @@ func.func @OptimizeSubviewCopy2ConvPattern(
     }
 
     %allocConv1 = VPURT.AllocDistributed -> !OutputDistributed1
-    %conv1 = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
+    %conv1 = VPUIP.NCEClusterTask <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>,
             kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
             kernel_size = [1, 1], kernel_strides = [1, 1],
             task_type = #VPUIP.nce_task_type<CONV>}>
@@ -300,7 +300,7 @@ func.func @Optimize2SubviewCopyConvPattern(
         -> !InputDistributed
 
     %allocConv0 = VPURT.AllocDistributed -> !OutputDistributed0
-    %conv0 = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
+    %conv0 = VPUIP.NCEClusterTask <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>,
             kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
             kernel_size = [1, 1], kernel_strides = [1, 1],
             task_type = #VPUIP.nce_task_type<CONV>}>
@@ -317,7 +317,7 @@ func.func @Optimize2SubviewCopyConvPattern(
     }
 
     %allocConv1 = VPURT.AllocDistributed -> !OutputDistributed1
-    %conv1 = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
+    %conv1 = VPUIP.NCEClusterTask <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>,
             kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
             kernel_size = [1, 1], kernel_strides = [1, 1],
             task_type = #VPUIP.nce_task_type<CONV>}>
@@ -464,7 +464,7 @@ func.func @Optimize2SubviewCopyConvPatternWithOptimizableCopyIn(
         -> !InputDistributed
 
     %allocConv0 = VPURT.AllocDistributed -> !OutputDistributed0
-    %conv0 = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
+    %conv0 = VPUIP.NCEClusterTask <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>,
             kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
             kernel_size = [1, 1], kernel_strides = [1, 1],
             task_type = #VPUIP.nce_task_type<CONV>}>
@@ -481,7 +481,7 @@ func.func @Optimize2SubviewCopyConvPatternWithOptimizableCopyIn(
     }
 
     %allocConv1 = VPURT.AllocDistributed -> !OutputDistributed1
-    %conv1 = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
+    %conv1 = VPUIP.NCEClusterTask <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>,
             kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
             kernel_size = [1, 1], kernel_strides = [1, 1],
             task_type = #VPUIP.nce_task_type<CONV>}>
@@ -624,7 +624,7 @@ func.func @Optimize2SubviewCopyConvPatternKeepCopyInWithOtherUsers(
         -> !InputDistributed
 
     %allocConv0 = VPURT.AllocDistributed -> !OutputDistributed0
-    %conv0 = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
+    %conv0 = VPUIP.NCEClusterTask <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>,
             kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
             kernel_size = [1, 1], kernel_strides = [1, 1],
             task_type = #VPUIP.nce_task_type<CONV>}>
@@ -641,7 +641,7 @@ func.func @Optimize2SubviewCopyConvPatternKeepCopyInWithOtherUsers(
     }
 
     %allocConv1 = VPURT.AllocDistributed -> !OutputDistributed1
-    %conv1 = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
+    %conv1 = VPUIP.NCEClusterTask <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>,
             kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
             kernel_size = [1, 1], kernel_strides = [1, 1],
             task_type = #VPUIP.nce_task_type<CONV>}>
@@ -778,7 +778,7 @@ func.func @Optimize2SubviewCopyConvPatternKeepCopyInNotCMX2DDR(
         -> !InputDistributed
 
     %allocConv0 = VPURT.AllocDistributed -> !OutputDistributed0
-    %conv0 = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
+    %conv0 = VPUIP.NCEClusterTask <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>,
             kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
             kernel_size = [1, 1], kernel_strides = [1, 1],
             task_type = #VPUIP.nce_task_type<CONV>}>
@@ -795,7 +795,7 @@ func.func @Optimize2SubviewCopyConvPatternKeepCopyInNotCMX2DDR(
     }
 
     %allocConv1 = VPURT.AllocDistributed -> !OutputDistributed1
-    %conv1 = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
+    %conv1 = VPUIP.NCEClusterTask <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>,
             kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
             kernel_size = [1, 1], kernel_strides = [1, 1],
             task_type = #VPUIP.nce_task_type<CONV>}>
@@ -930,7 +930,7 @@ func.func @Optimize2SubviewCopyConvPatternKeepCopyInNotDuplicatedLike(
         -> !InputDistributed
 
     %allocConv0 = VPURT.AllocDistributed -> !OutputDistributed0
-    %conv0 = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
+    %conv0 = VPUIP.NCEClusterTask <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>,
             kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
             kernel_size = [1, 1], kernel_strides = [1, 1],
             task_type = #VPUIP.nce_task_type<CONV>}>
@@ -947,7 +947,7 @@ func.func @Optimize2SubviewCopyConvPatternKeepCopyInNotDuplicatedLike(
     }
 
     %allocConv1 = VPURT.AllocDistributed -> !OutputDistributed1
-    %conv1 = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
+    %conv1 = VPUIP.NCEClusterTask <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>,
             kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
             kernel_size = [1, 1], kernel_strides = [1, 1],
             task_type = #VPUIP.nce_task_type<CONV>}>
@@ -1076,7 +1076,7 @@ func.func @Optimize2SubviewCopyConvPatternWithKeepCopyInNotFitInCMX(
         -> !InputDistributed
 
     %allocConv0 = VPURT.AllocDistributed -> !OutputDistributed0
-    %conv0 = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
+    %conv0 = VPUIP.NCEClusterTask <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>,
             kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
             kernel_size = [1, 1], kernel_strides = [1, 1],
             task_type = #VPUIP.nce_task_type<CONV>}>
@@ -1093,7 +1093,7 @@ func.func @Optimize2SubviewCopyConvPatternWithKeepCopyInNotFitInCMX(
     }
 
     %allocConv1 = VPURT.AllocDistributed -> !OutputDistributed1
-    %conv1 = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
+    %conv1 = VPUIP.NCEClusterTask <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>,
             kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
             kernel_size = [1, 1], kernel_strides = [1, 1],
             task_type = #VPUIP.nce_task_type<CONV>}>
@@ -1224,7 +1224,7 @@ func.func @Optimize2SubviewCopyConvPatternWithOptimizeCopyInWithStrides(
         -> !InputDistributed
 
     %allocConv0 = VPURT.AllocDistributed -> !OutputDistributed0
-    %conv0 = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
+    %conv0 = VPUIP.NCEClusterTask <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>,
             kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
             kernel_size = [1, 1], kernel_strides = [1, 1],
             task_type = #VPUIP.nce_task_type<CONV>}>
@@ -1241,7 +1241,7 @@ func.func @Optimize2SubviewCopyConvPatternWithOptimizeCopyInWithStrides(
     }
 
     %allocConv1 = VPURT.AllocDistributed -> !OutputDistributed1
-    %conv1 = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
+    %conv1 = VPUIP.NCEClusterTask <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>,
             kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
             kernel_size = [1, 1], kernel_strides = [1, 1],
             task_type = #VPUIP.nce_task_type<CONV>}>
@@ -1327,7 +1327,7 @@ func.func @OptimizeSubview2CopyConvPattern(
         -> !InputDistributed
 
     %allocConv0 = VPURT.AllocDistributed -> !OutputDistributed0
-    %conv0 = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
+    %conv0 = VPUIP.NCEClusterTask <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>,
             kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
             kernel_size = [1, 1], kernel_strides = [1, 1],
             task_type = #VPUIP.nce_task_type<CONV>}>
@@ -1349,7 +1349,7 @@ func.func @OptimizeSubview2CopyConvPattern(
         -> !InputDistributed
 
     %allocConv1 = VPURT.AllocDistributed -> !OutputDistributed1
-    %conv1 = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
+    %conv1 = VPUIP.NCEClusterTask <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>,
             kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
             kernel_size = [1, 1], kernel_strides = [1, 1],
             task_type = #VPUIP.nce_task_type<CONV>}>
@@ -1428,7 +1428,7 @@ func.func @NonDistributedOptimizeSubviewCopyConvPattern(
             -> !InputCMXType
 
     %allocConv0 =  memref.alloc(): !OutputCMXType
-    %conv0 = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
+    %conv0 = VPUIP.NCEClusterTask <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>,
             kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
             kernel_size = [1, 1], kernel_strides = [1, 1],
             task_type = #VPUIP.nce_task_type<CONV>}>
@@ -1445,7 +1445,7 @@ func.func @NonDistributedOptimizeSubviewCopyConvPattern(
     }
 
     %allocConv1 =  memref.alloc(): !OutputCMXType
-    %conv1 = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
+    %conv1 = VPUIP.NCEClusterTask <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>,
             kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
             kernel_size = [1, 1], kernel_strides = [1, 1],
             task_type = #VPUIP.nce_task_type<CONV>}>
@@ -1525,7 +1525,7 @@ func.func @NonDistributedOptimizeSubviewCopyConvPatternWithOptimizedCopyIn(
             -> !InputCMXType
 
     %allocConv0 =  memref.alloc(): !OutputCMXType
-    %conv0 = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
+    %conv0 = VPUIP.NCEClusterTask <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>,
             kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
             kernel_size = [1, 1], kernel_strides = [1, 1],
             task_type = #VPUIP.nce_task_type<CONV>}>
@@ -1542,7 +1542,7 @@ func.func @NonDistributedOptimizeSubviewCopyConvPatternWithOptimizedCopyIn(
     }
 
     %allocConv1 =  memref.alloc(): !OutputCMXType
-    %conv1 = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
+    %conv1 = VPUIP.NCEClusterTask <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>,
             kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
             kernel_size = [1, 1], kernel_strides = [1, 1],
             task_type = #VPUIP.nce_task_type<CONV>}>
@@ -1620,7 +1620,7 @@ func.func @NotOptimizeSubviewCopyCDimTooBig(
         -> !InputDistributed
 
     %allocConv = VPURT.AllocDistributed -> !OutputDistributed
-    %conv = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
+    %conv = VPUIP.NCEClusterTask <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>,
             kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
             kernel_size = [1, 1], kernel_strides = [1, 1],
             task_type = #VPUIP.nce_task_type<CONV>}>
@@ -1695,7 +1695,7 @@ func.func @NotOptimizeSubviewWithNonCopyConsumer(
         -> !InputDistributed
 
     %allocConv = VPURT.AllocDistributed -> !OutputDistributed
-    %conv = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
+    %conv = VPUIP.NCEClusterTask <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>,
             kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
             kernel_size = [1, 1], kernel_strides = [1, 1],
             task_type = #VPUIP.nce_task_type<CONV>}>
@@ -1771,7 +1771,7 @@ func.func @NotOptimizeSubviewWithCopyConsumerNotToCMX(
         -> !InputDistributed
 
     %allocConv = VPURT.AllocDistributed -> !OutputDistributed
-    %conv = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
+    %conv = VPUIP.NCEClusterTask <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>,
             kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
             kernel_size = [1, 1], kernel_strides = [1, 1],
             task_type = #VPUIP.nce_task_type<CONV>}>
@@ -1851,7 +1851,7 @@ func.func @NotOptimizeSubviewWithDistributedAndNonDistributedCopies(
         -> !InputDistributed
 
     %allocConv = VPURT.AllocDistributed -> !OutputDistributed
-    %conv = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
+    %conv = VPUIP.NCEClusterTask <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>,
             kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
             kernel_size = [1, 1], kernel_strides = [1, 1],
             task_type = #VPUIP.nce_task_type<CONV>}>
@@ -1926,7 +1926,7 @@ func.func @NotOptimizeSubviewWithNon1x1SpatialSize(
         -> !InputDistributed
 
     %allocConv = VPURT.AllocDistributed -> !OutputDistributed
-    %conv = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
+    %conv = VPUIP.NCEClusterTask <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>,
             kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
             kernel_size = [1, 1], kernel_strides = [1, 1],
             task_type = #VPUIP.nce_task_type<CONV>}>
@@ -2015,7 +2015,7 @@ func.func @NotOptimizeSubviewWithNonConvEndConsumer(
         -> !InputDistributed
 
     %allocConv = VPURT.AllocDistributed -> !OutputDistributed
-    %conv = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
+    %conv = VPUIP.NCEClusterTask <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>,
             kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
             kernel_size = [1, 1], kernel_strides = [1, 1],
             task_type = #VPUIP.nce_task_type<CONV>}>
@@ -2032,7 +2032,7 @@ func.func @NotOptimizeSubviewWithNonConvEndConsumer(
     }
 
     %allocPool = VPURT.AllocDistributed -> !PoolOutputDistributed
-    %maxpool = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
+    %maxpool = VPUIP.NCEClusterTask <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>,
             kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
             kernel_size = [1, 1], kernel_strides = [1, 1],
             task_type = #VPUIP.nce_task_type<MAXPOOL>}>
@@ -2119,7 +2119,7 @@ func.func @NotOptimizeSubviewWithRMS(
         -> !InputDistributed
 
     %allocConv = VPURT.AllocDistributed -> !OutputDistributed
-    %conv = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
+    %conv = VPUIP.NCEClusterTask <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>,
             kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
             kernel_size = [1, 1], kernel_strides = [1, 1],
             task_type = #VPUIP.nce_task_type<CONV>}>

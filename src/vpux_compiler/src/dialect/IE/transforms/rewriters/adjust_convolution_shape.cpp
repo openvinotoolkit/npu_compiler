@@ -109,7 +109,7 @@ mlir::LogicalResult FoldConvStrideKernel::matchAndRewrite(IE::ConvolutionOp conv
     const auto dstType = inputType.changeShape(newShape);
     const auto targetShapeAttr = getIntArrayAttr(ctx, newShape.raw());
     auto inputShapeCastOp =
-            rewriter.create<IE::ShapeCastOp>(convOp.getLoc(), dstType, convOp.getInput(), targetShapeAttr);
+            IE::ShapeCastOp::create(rewriter, convOp.getLoc(), dstType, convOp.getInput(), targetShapeAttr);
 
     Shape newFilterShape(filterShape.raw());
     newFilterShape[Dims4D::Filter::IC] *= newFilterShape[Dims4D::Filter::KX];
@@ -121,8 +121,8 @@ mlir::LogicalResult FoldConvStrideKernel::matchAndRewrite(IE::ConvolutionOp conv
         cstContentAttrFilterSetup = cstContentAttrFilterSetup.padWithZero({0, 0, 0, 0}, {0, padding, 0, 0});
     }
     auto cstContentAttrFilter = cstContentAttrFilterSetup.get();
-    auto newFilter = rewriter.create<Const::DeclareOp>(convOp.getLoc(), cstContentAttrFilter.getType(),
-                                                       std::move(cstContentAttrFilter));
+    auto newFilter = Const::DeclareOp::create(rewriter, convOp.getLoc(), cstContentAttrFilter.getType(),
+                                              std::move(cstContentAttrFilter));
 
     auto newStride = std::move(strides);
     newStride[Dims4D::Strides::X] = 1;
@@ -184,7 +184,7 @@ mlir::Value reshapeBias(mlir::PatternRewriter& rewriter, mlir::Value bias, Shape
         contentAttrSetup = contentAttrSetup.broadcast(broadCastDim, dimValue);
     }
     auto contentAttr = contentAttrSetup.reshape(newOutShape).get();
-    return rewriter.create<Const::DeclareOp>(bias.getLoc(), contentAttr.getType(), std::move(contentAttr));
+    return Const::DeclareOp::create(rewriter, bias.getLoc(), contentAttr.getType(), std::move(contentAttr));
 }
 
 //
@@ -396,12 +396,12 @@ mlir::LogicalResult AdjustConvShape::matchAndRewrite(IE::ConvolutionOp convOp, m
         }
         auto newCstContent = newCstContentSetup.get();
         auto temp =
-                rewriter.create<Const::DeclareOp>(convOp.getLoc(), newCstContent.getType(), std::move(newCstContent));
+                Const::DeclareOp::create(rewriter, convOp.getLoc(), newCstContent.getType(), std::move(newCstContent));
         filterConst.push_back(temp);
         leftPading += filterShape[Dims4D::Filter::IC] * strides[Dims4D::Strides::X];
     }
     auto newFilterConcatOp =
-            rewriter.create<IE::ConcatOp>(appendLoc(convOp.getLoc(), "filter"), filterConst, Dims4D::Filter::OC);
+            IE::ConcatOp::create(rewriter, appendLoc(convOp.getLoc(), "filter"), filterConst, Dims4D::Filter::OC);
     auto newFilterConcatType = mlir::dyn_cast<vpux::NDTypeInterface>(newFilterConcatOp.getOutput().getType());
     auto newFilterType = newFilterConcatType.changeShape(newFilterShape);
 
@@ -436,13 +436,13 @@ mlir::LogicalResult AdjustConvShape::matchAndRewrite(IE::ConvolutionOp convOp, m
         valueRange.push_back(
                 vpux::IE::createPaddingConstForConcat(constShape, convOp->getLoc(), inNDInterface, 0.0f, rewriter));
         maybePaddedInput =
-                rewriter.create<IE::ConcatOp>(appendLoc(convOp.getLoc(), "pad"), valueRange, Dims4D::Act::W.ind())
+                IE::ConcatOp::create(rewriter, appendLoc(convOp.getLoc(), "pad"), valueRange, Dims4D::Act::W.ind())
                         .getOutput();
     }
     auto inputShapeCastOp =
-            rewriter.create<IE::ShapeCastOp>(convOp.getLoc(), dstType, maybePaddedInput, targetShapeAttr);
-    auto newConvOp = rewriter.create<IE::ConvolutionOp>(
-            convOp.getLoc(), inputShapeCastOp, newFilter, newBias, /*scale*/ nullptr, /*zero_points*/ nullptr,
+            IE::ShapeCastOp::create(rewriter, convOp.getLoc(), dstType, maybePaddedInput, targetShapeAttr);
+    auto newConvOp = IE::ConvolutionOp::create(
+            rewriter, convOp.getLoc(), inputShapeCastOp, newFilter, newBias, /*scale*/ nullptr, /*zero_points*/ nullptr,
             getIntArrayAttr(ctx, newStride), getIntArrayAttr(ctx, padBVect), getIntArrayAttr(ctx, padEVect),
             convOp.getDilationsAttr(), convOp.getPostOpAttr(), convOp.getClampAttr(), convOp.getStaticScaleAttr(),
             /*outputPadding=*/nullptr,
@@ -523,27 +523,27 @@ mlir::LogicalResult AdjustDWConvShape::matchAndRewrite(IE::GroupConvolutionOp or
 
     auto ctx = origOp->getContext();
     if (!IE::isEltwiseGroupConv(origOp, /*isConstFilter*/ false)) {
-        return matchFailed(rewriter, origOp, "Not a valid groupConv");
+        return matchFailed(_log, rewriter, origOp, "Not a valid groupConv");
     }
 
     if (getShape(origOp.getFilter()).totalSize() != 1) {
-        return matchFailed(rewriter, origOp, "Filter size need to be 1");
+        return matchFailed(_log, rewriter, origOp, "Filter size need to be 1");
     }
 
     // Don't do the optimization if ODU permute exist
     auto outputLayout = mlir::cast<vpux::NDTypeInterface>(origOp.getType()).getDimsOrder();
     if (outputLayout != DimsOrder::NHWC) {
-        return matchFailed(rewriter, origOp, "Could not support other output order");
+        return matchFailed(_log, rewriter, origOp, "Could not support other output order");
     }
 
     auto iface = mlir::dyn_cast<IE::AlignedChannelsOpInterface>(origOp.getOperation());
     if (iface == nullptr) {
-        return matchFailed(rewriter, origOp, "Not a channel aligned interface");
+        return matchFailed(_log, rewriter, origOp, "Not a channel aligned interface");
     }
     const auto alignment = iface.getInputChannelAlignment();
     auto inShape = getShape(origOp.getInput());
     if ((inShape[Dims4D::Act::W] * inShape[Dims4D::Act::H]) % alignment != 0) {
-        return matchFailed(rewriter, origOp, "Could not adjust the shape");
+        return matchFailed(_log, rewriter, origOp, "Could not adjust the shape");
     }
 
     SmallVector<int64_t> newInShape(inShape.raw());
@@ -553,24 +553,25 @@ mlir::LogicalResult AdjustDWConvShape::matchAndRewrite(IE::GroupConvolutionOp or
     newInShape[Dims4D::Act::W.ind()] = adjustHW.second;
 
     // Reshape input
-    auto inShapeCast = rewriter.create<IE::ShapeCastOp>(takeOpLoc(origOp, "in_reshape"), origOp.getInput(),
-                                                        getIntArrayAttr(ctx, newInShape));
+    auto inShapeCast = IE::ShapeCastOp::create(rewriter, takeOpLoc(origOp, "in_reshape"), origOp.getInput(),
+                                               getIntArrayAttr(ctx, newInShape));
 
     // Tile filter
     SmallVector<int32_t> repeats(getShape(origOp.getFilter()).size(), 1);
     repeats[Dims4D::Act::N.ind()] = alignment;
     const auto repeatsAttr = getIntArrayAttr(ctx, repeats);
-    auto filterTile = rewriter.create<IE::TileOp>(takeOpLoc(origOp, "filter_repeats"), origOp.getFilter(), repeatsAttr);
+    auto filterTile =
+            IE::TileOp::create(rewriter, takeOpLoc(origOp, "filter_repeats"), origOp.getFilter(), repeatsAttr);
 
     // Tile bias
     auto bias = origOp.getBias();
     if (bias != nullptr) {
-        bias = rewriter.create<IE::TileOp>(takeOpLoc(origOp, "bias_repeats"), bias, repeatsAttr).getOutput();
+        bias = IE::TileOp::create(rewriter, takeOpLoc(origOp, "bias_repeats"), bias, repeatsAttr).getOutput();
     }
 
     auto newGroupAttr = getIntAttr(ctx, alignment);
-    auto newGroupConv = rewriter.create<IE::GroupConvolutionOp>(
-            origOp->getLoc(), inShapeCast.getResult(), filterTile.getOutput(), bias, origOp.getStridesAttr(),
+    auto newGroupConv = IE::GroupConvolutionOp::create(
+            rewriter, origOp->getLoc(), inShapeCast.getResult(), filterTile.getOutput(), bias, origOp.getStridesAttr(),
             origOp.getPadsBeginAttr(), origOp.getPadsEnd(), origOp.getDilationsAttr(), newGroupAttr,
             origOp.getPostOpAttr(), origOp.getClampAttr(), origOp.getOutputPaddingAttr(), origOp.getInputPaddingAttr());
 
@@ -580,8 +581,8 @@ mlir::LogicalResult AdjustDWConvShape::matchAndRewrite(IE::GroupConvolutionOp or
             mlir::cast<mlir::RankedTensorType>(origOutputType.changeShape(getShape(newGroupConv.getOutput()))));
 
     auto outShape = getShape(origOp.getOutput()).raw();
-    auto outShapeCast = rewriter.create<IE::ShapeCastOp>(takeOpLoc(origOp, "out_reshape"), newGroupConv.getOutput(),
-                                                         getIntArrayAttr(ctx, outShape));
+    auto outShapeCast = IE::ShapeCastOp::create(rewriter, takeOpLoc(origOp, "out_reshape"), newGroupConv.getOutput(),
+                                                getIntArrayAttr(ctx, outShape));
     rewriter.replaceOp(origOp, outShapeCast.getResult());
     _log.trace("Successfully adjusted groupconv shape");
 

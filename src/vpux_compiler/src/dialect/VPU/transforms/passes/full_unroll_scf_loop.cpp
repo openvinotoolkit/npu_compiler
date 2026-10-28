@@ -22,9 +22,13 @@
 #include "vpux/compiler/dialect/VPU/utils/sw_utils.hpp"
 #include "vpux/compiler/dialect/config/utils/config_option_utils.hpp"
 #include "vpux/compiler/dialect/core/IR/dynamic_attrs.hpp"
+#include "vpux/compiler/dialect/core/IR/tensor_attr.hpp"
 #include "vpux/compiler/dialect/core/interfaces/type_interfaces.hpp"
+#include "vpux/compiler/dialect/core/types.hpp"
 #include "vpux/compiler/dialect/net/IR/ops.hpp"
 
+#include <llvm/ADT/STLExtras.h>
+#include <mlir-c/IR.h>
 #include <mlir/Dialect/Affine/Analysis/Utils.h>
 #include <mlir/Dialect/Affine/IR/AffineOps.h>
 #include <mlir/Dialect/SCF/IR/SCF.h>
@@ -35,6 +39,7 @@
 #include <mlir/IR/Value.h>
 #include <mlir/Interfaces/LoopLikeInterface.h>
 #include <mlir/Support/LLVM.h>
+#include <vpux/utils/core/small_vector.hpp>
 #include "mlir/Dialect/SCF/TransformOps/SCFTransformOps.h"
 
 #include "mlir/Dialect/SCF/Utils/Utils.h"
@@ -59,7 +64,7 @@ public:
         setDebugName("ConvertSlice");
     }
 
-    mlir::LogicalResult matchAndRewrite(mlir::OffsetSizeAndStrideOpInterface convOp,
+    mlir::LogicalResult matchAndRewrite(mlir::OffsetSizeAndStrideOpInterface sliceOp,
                                         mlir::PatternRewriter& rewriter) const final;
 
 private:
@@ -68,9 +73,10 @@ private:
 
 mlir::LogicalResult ConvertSlice::matchAndRewrite(mlir::OffsetSizeAndStrideOpInterface sliceOp,
                                                   mlir::PatternRewriter& rewriter) const {
+    _log.trace("Convert slice op @ {0}", sliceOp.getLoc());
     if (sliceOp->getParentOfType<mlir::scf::ForOp>() != nullptr ||
         sliceOp->getName().getDialectNamespace() != mlir::tensor::TensorDialect::getDialectNamespace()) {
-        return mlir::failure();
+        return matchFailed(_log, rewriter, sliceOp, "Only apply to slice ops outside of scf.for loops.");
     }
 
     auto offsets = mlir::getConstantIntValues(sliceOp.getMixedOffsets());
@@ -78,7 +84,7 @@ mlir::LogicalResult ConvertSlice::matchAndRewrite(mlir::OffsetSizeAndStrideOpInt
     auto strides = mlir::getConstantIntValues(sliceOp.getMixedStrides());
 
     if (!offsets.has_value() || !sizes.has_value()) {
-        return mlir::failure();
+        return matchFailed(_log, rewriter, sliceOp, "Offsets or sizes are not constant.");
     }
 
     auto insertOp = mlir::dyn_cast<mlir::DestinationStyleOpInterface>(sliceOp.getOperation());
@@ -86,13 +92,13 @@ mlir::LogicalResult ConvertSlice::matchAndRewrite(mlir::OffsetSizeAndStrideOpInt
     if (insertOp != nullptr) {
         auto destinations = insertOp.getDpsInits();
         if (destinations.size() > 1) {
-            return mlir::failure();
+            return matchFailed(_log, rewriter, sliceOp, "Only single destination is supported.");
         }
 
         auto destOperation = destinations.front().getDefiningOp();
 
         if (getShape(insertOp.getDpsInputOperand(0)->get()).isDynamic()) {
-            return mlir::failure();
+            return matchFailed(_log, rewriter, sliceOp, "Input shape is dynamic.");
         }
 
         auto input = insertOp.getDpsInputOperand(0)->get();
@@ -133,8 +139,7 @@ mlir::LogicalResult ConvertSlice::matchAndRewrite(mlir::OffsetSizeAndStrideOpInt
         } else {
             /*
                For situation when insert_slice writes its result to operation
-               substituted on the previous steps,
-               create the concat instead
+               substituted on the previous steps, create the concat instead
                result_buffer = VPU.Operation
                operation1 = VPU.Operation
                slice = tensor.insert_slice operation into result_buffer[offsets1][sizes1]
@@ -181,6 +186,77 @@ mlir::LogicalResult ConvertSlice::matchAndRewrite(mlir::OffsetSizeAndStrideOpInt
     return mlir::success();
 }
 
+struct ResolvedTypeComponents {
+    Shape shape;
+    SmallVector<mlir::Value> dynamicSizes;
+    Bounds bounds;
+
+    ResolvedTypeComponents(ShapeRef shape, ArrayRef<mlir::Value> dynamicSizes, BoundsRef bounds)
+            : shape(shape), dynamicSizes(dynamicSizes), bounds(bounds) {
+    }
+};
+
+// Compute the resolved shape and the dynamic-size values for a slice-like op
+// (tensor.extract_slice or tensor.parallel_insert_slice) inside a forall loop.
+// Dimensions whose offset is independent of the induction variable are resolved
+// to the corresponding source dimension; IV-dependent dimensions that turn out
+// to have a constant size are also folded to static. Everything else is kept
+// dynamic and its runtime-value is appended to dynamicSizes.
+ResolvedTypeComponents resolveSliceShapeAndDynamicSizes(mlir::OffsetSizeAndStrideOpInterface sliceOp,
+                                                        mlir::scf::ForallOp forallOp, NDTypeInterface srcType,
+                                                        NDTypeInterface dstType) {
+    const auto mixedOffsets = sliceOp.getMixedOffsets();
+    auto newShape = Shape(dstType.getShape());
+    auto bounds = Bounds(getBounds(dstType));
+    const auto dstTypeShape = dstType.getShape();
+
+    const auto mixedSizes = sliceOp.getMixedSizes();
+    SmallVector<mlir::Value> dynamicSizes;
+    for (auto idx : irange(mixedOffsets.size())) {
+        if (VPU::isDependentOnForallIv(mixedOffsets[idx], forallOp)) {
+            // if dimension is the distribution axis and has become a constant,
+            // make the shape static for that dimension
+            if (auto constVal = getConstantIntValue(mixedSizes[idx]); constVal.has_value()) {
+                newShape[Dim(idx)] = constVal.value();
+                if (!bounds.empty() && dstTypeShape[Dim(idx)] == mlir::ShapedType::kDynamic) {
+                    bounds[Dim(idx)] = constVal.value();
+                }
+                continue;
+            }
+
+            if (auto val = mlir::dyn_cast_if_present<mlir::Value>(mixedSizes[idx])) {
+                // dimension is the distribution axis and remains dynamic; keep the dim value as is
+                dynamicSizes.push_back(val);
+            }
+
+            continue;
+        }
+
+        // if dimension is not iterated over by the loop, it should be inferred as static with the same size
+        // as source
+        newShape[Dim(idx)] = srcType.getShape()[Dim(idx)];
+        // If the inferred size is still dynamic, keep the corresponding dynamic size operand so the rebuilt
+        // slice/insert op remains well-formed.
+        if (newShape[Dim(idx)] == mlir::ShapedType::kDynamic && sliceOp.isDynamicSize(idx)) {
+            if (auto val = mlir::dyn_cast_if_present<mlir::Value>(mixedSizes[idx])) {
+                dynamicSizes.push_back(val);
+            }
+            continue;
+        }
+
+        if (bounds.empty()) {
+            continue;
+        }
+
+        // If some dims became static, update bounds accordingly
+        if (newShape[Dim(idx)] != mlir::ShapedType::kDynamic && dstTypeShape[Dim(idx)] == mlir::ShapedType::kDynamic) {
+            bounds[Dim(idx)] = newShape[Dim(idx)];
+        }
+    }
+
+    return ResolvedTypeComponents{newShape, dynamicSizes, bounds};
+}
+
 class SimplifyDynamicCast final : public mlir::OpRewritePattern<mlir::tensor::CastOp> {
 public:
     SimplifyDynamicCast(mlir::MLIRContext* ctx, Logger log)
@@ -194,19 +270,19 @@ private:
     Logger _log;
 
     mlir::Operation* adaptSourceOp(mlir::scf::ForallOp loop, mlir::Value castInput, mlir::ShapedType resultType,
-                                   mlir::PatternRewriter& rewriter, Logger log) const;
-    mlir::Operation* adaptSourceOp(mlir::InferTypeOpInterface inferRetTypeIfOp, mlir::PatternRewriter& rewriter,
-                                   Logger log) const;
+                                   mlir::PatternRewriter& rewriter) const;
+    mlir::Operation* adaptSourceOp(mlir::InferTypeOpInterface inferRetTypeIfOp, mlir::PatternRewriter& rewriter) const;
 };
 
 mlir::Operation* SimplifyDynamicCast::adaptSourceOp(mlir::scf::ForallOp loop, mlir::Value castInput,
-                                                    mlir::ShapedType resultType, mlir::PatternRewriter& rewriter,
-                                                    Logger log) const {
+                                                    mlir::ShapedType resultType,
+                                                    mlir::PatternRewriter& rewriter) const {
     if (loop == nullptr) {
         return nullptr;
     }
 
     auto sharedOutputs = loop.getOutputsMutable();
+    const auto& nestedLog = _log.nest();
 
     mlir::IRMapping mapper;
 
@@ -225,15 +301,16 @@ mlir::Operation* SimplifyDynamicCast::adaptSourceOp(mlir::scf::ForallOp loop, ml
         }
 
         rewriter.setInsertionPoint(loop);
-        auto newEmptyOp = rewriter.create<mlir::tensor::EmptyOp>(loopOutBuffer->getLoc(), resultType.getShape(),
-                                                                 resultType.getElementType());
+        auto newEmptyOp = mlir::tensor::EmptyOp::create(rewriter, loopOutBuffer->getLoc(), resultType.getShape(),
+                                                        resultType.getElementType());
         mapper.map(outOperand.get(), newEmptyOp);
         resultIdx = result.getResultNumber();
         break;
     }
 
     if (resultIdx < 0) {
-        log.trace("Cannot simplify dynamic cast after forall op: tensor.cast input is not tied to a tensor.empty op.");
+        nestedLog.trace(
+                "Cannot simplify dynamic cast after forall op: tensor.cast input is not tied to a tensor.empty op.");
         return nullptr;
     }
 
@@ -261,7 +338,6 @@ mlir::Operation* SimplifyDynamicCast::adaptSourceOp(mlir::scf::ForallOp loop, ml
                     });
 
             if (insertOpIt != parallelInsertSliceOps.end()) {
-                log.trace("Found insertOp.");
                 auto insertOp = *insertOpIt;
 
                 // update type of parallel_insert_slice's destination
@@ -272,19 +348,39 @@ mlir::Operation* SimplifyDynamicCast::adaptSourceOp(mlir::scf::ForallOp loop, ml
                 auto newBounds = Shape(getBoundedShape(origOutType));
                 auto dstShape = resultType.getShape();
 
-                for (auto idx : irange(newShape.size())) {
-                    if (origOutType.getShape()[Dim(idx)] != mlir::ShapedType::kDynamic) {
+                const auto mixedOffsets = insertOp.getMixedOffsets();
+                const auto mixedSizes = insertOp.getMixedSizes();
+                SmallVector<mlir::Value> dynamicSizes;
+                dynamicSizes.reserve(mixedSizes.size());
+                for (auto idx : irange(mixedOffsets.size())) {
+                    if (VPU::isDependentOnForallIv(mixedOffsets[idx], newLoop)) {
+                        if (auto val = mlir::dyn_cast_if_present<mlir::Value>(mixedSizes[idx])) {
+                            dynamicSizes.push_back(val);
+                        }
+                        continue;
+                    }
+
+                    if (!insertOp.isDynamicSize(idx)) {
                         newShape[Dim(idx)] = dstShape[idx];
                         newBounds[Dim(idx)] = dstShape[idx];
+                    } else if (auto constVal = getConstantIntValue(mixedSizes[idx]); constVal.has_value()) {
+                        newShape[Dim(idx)] = constVal.value();
+                        newBounds[Dim(idx)] = constVal.value();
+                    } else {
+                        VPUX_THROW("if not dependent on IV, should be static or constant dynamic size");
                     }
                 }
 
-                // set new static sizes to reflect the updated shapes after dynamic cast propagation
-                insertOp.setStaticSizes(newShape.raw());
+                rewriter.setInsertionPoint(insertOp);
+                auto newInsert = mlir::tensor::ParallelInsertSliceOp::create(
+                        rewriter, insertOp.getLoc(), insertOp.getSource(), insertOp.getDest(), insertOp.getOffsets(),
+                        dynamicSizes, insertOp.getStrides(), insertOp.getStaticOffsets(), to_small_vector(newShape),
+                        insertOp.getStaticStrides());
+                rewriter.replaceOp(insertOp, newInsert);
 
                 // if there is a tensor.cast op inside the loop body, which goes into the parallel_insert_slice,
                 // it should also be updated with the new shapes in mind
-                auto insertedSliceCast = insertOp->getOperand(0).getDefiningOp<mlir::tensor::CastOp>();
+                auto insertedSliceCast = newInsert->getOperand(0).getDefiningOp<mlir::tensor::CastOp>();
                 if (insertedSliceCast != nullptr) {
                     rewriter.setInsertionPoint(insertedSliceCast);
                     mlir::Type newType = origOutType.changeShape(newShape);
@@ -293,9 +389,9 @@ mlir::Operation* SimplifyDynamicCast::adaptSourceOp(mlir::scf::ForallOp loop, ml
                         newType = boundedType.changeBounds(bounds);
                     }
 
-                    log.trace("Replace tensor.cast found inside the forall loop; new cast output type: {0}", newType);
-                    auto newCastOp = rewriter.create<mlir::tensor::CastOp>(
-                            insertedSliceCast->getLoc(), mlir::TypeRange{newType}, insertedSliceCast->getOperands());
+                    auto newCastOp =
+                            mlir::tensor::CastOp::create(rewriter, insertedSliceCast->getLoc(),
+                                                         mlir::TypeRange{newType}, insertedSliceCast->getOperands());
 
                     rewriter.replaceOp(insertedSliceCast, newCastOp);
                 }
@@ -307,7 +403,7 @@ mlir::Operation* SimplifyDynamicCast::adaptSourceOp(mlir::scf::ForallOp loop, ml
 }
 
 mlir::Operation* SimplifyDynamicCast::adaptSourceOp(mlir::InferTypeOpInterface inferRetTypeIfOp,
-                                                    mlir::PatternRewriter& rewriter, Logger log) const {
+                                                    mlir::PatternRewriter& rewriter) const {
     if (inferRetTypeIfOp == nullptr) {
         return nullptr;
     }
@@ -320,13 +416,11 @@ mlir::Operation* SimplifyDynamicCast::adaptSourceOp(mlir::InferTypeOpInterface i
         if (upperCast == nullptr) {
             continue;
         }
-        log.trace("Found upper cast op.");
 
         auto upperSourceType = mlir::cast<mlir::ShapedType>(upperCast.getSource().getType());
         auto upperResultType = mlir::cast<mlir::ShapedType>(upperCast.getResult().getType());
 
         if (!upperSourceType.hasStaticShape() || upperResultType.hasStaticShape()) {
-            log.trace("Cannot simplify dynamic cast: upper cast is not supported.");
             return nullptr;
         }
 
@@ -371,9 +465,9 @@ mlir::LogicalResult SimplifyDynamicCast::matchAndRewrite(mlir::tensor::CastOp ca
     auto sourceOp = castOp.getSource().getDefiningOp();
     mlir::Operation* updatedOp = nullptr;
     if (auto inferRetTypeIfOp = mlir::dyn_cast_if_present<mlir::InferTypeOpInterface>(sourceOp)) {
-        updatedOp = adaptSourceOp(inferRetTypeIfOp, rewriter, nestedLog);
+        updatedOp = adaptSourceOp(inferRetTypeIfOp, rewriter);
     } else if (auto loopOp = mlir::dyn_cast_if_present<mlir::scf::ForallOp>(sourceOp)) {
-        updatedOp = adaptSourceOp(loopOp, castOp.getSource(), resultType, rewriter, nestedLog);
+        updatedOp = adaptSourceOp(loopOp, castOp.getSource(), resultType, rewriter);
     } else {
         return matchFailed(nestedLog, rewriter, castOp, "Cannot simplify dynamic cast with unsupported source op.");
     }
@@ -384,6 +478,396 @@ mlir::LogicalResult SimplifyDynamicCast::matchAndRewrite(mlir::tensor::CastOp ca
     }
 
     rewriter.replaceOp(castOp, updatedOp->getResults());
+    return mlir::success();
+}
+
+class PropagateTypeThroughForallOp final : public mlir::OpRewritePattern<mlir::scf::ForallOp> {
+public:
+    PropagateTypeThroughForallOp(mlir::MLIRContext* ctx, Logger log)
+            : mlir::OpRewritePattern<mlir::scf::ForallOp>(ctx, vpux::benefitLow), _log(log) {
+        setDebugName("PropagateTypeThroughForallOp");
+    }
+
+    mlir::LogicalResult matchAndRewrite(mlir::scf::ForallOp forallOp, mlir::PatternRewriter& rewriter) const final;
+    void propagateTypeThroughOp(mlir::InferTypeOpInterface inferRetTypeIfOp) const;
+    void propagateTypeThroughOp(mlir::tensor::ParallelInsertSliceOp insertOp, mlir::scf::ForallOp forallOp,
+                                mlir::PatternRewriter& rewriter) const;
+    void propagateTypeThroughOp(mlir::tensor::PadOp padOp, mlir::scf::ForallOp forallOp, VPU::OpChainAnalysis& analysis,
+                                mlir::PatternRewriter& rewriter) const;
+
+private:
+    Logger _log;
+};
+
+void PropagateTypeThroughForallOp::propagateTypeThroughOp(mlir::InferTypeOpInterface inferRetTypeIfOp) const {
+    if (inferRetTypeIfOp->hasAttr("rawFilterShape")) {
+        auto rawFilterShape = Shape(
+                parseIntArrayAttr<int64_t>(mlir::cast<mlir::ArrayAttr>(inferRetTypeIfOp->getAttr("rawFilterShape"))));
+
+        auto filterShape = getShape(inferRetTypeIfOp->getOperand(1));
+        if (!mlir::ShapedType::isDynamic(filterShape[Dims4D::Filter::OC])) {
+            rawFilterShape[Dims4D::Filter::OC] = filterShape[Dims4D::Filter::OC];
+            inferRetTypeIfOp->setAttr("rawFilterShape",
+                                      getIntArrayAttr(inferRetTypeIfOp->getContext(), rawFilterShape.raw()));
+        }
+    }
+
+    _log.nest().trace("Inferring return types for op {0} @ {1}", inferRetTypeIfOp->getName(),
+                      inferRetTypeIfOp->getLoc());
+    vpux::inferReturnTypes(inferRetTypeIfOp, vpux::InferShapedTypeMode::SHAPE);
+}
+
+void PropagateTypeThroughForallOp::propagateTypeThroughOp(mlir::tensor::ParallelInsertSliceOp insertOp,
+                                                          mlir::scf::ForallOp forallOp,
+                                                          mlir::PatternRewriter& rewriter) const {
+    _log.nest().trace("Processing tensor.parallel_insert_slice op @ {0}", insertOp->getLoc());
+    auto ctx = insertOp->getContext();
+    auto dst = insertOp.getDest();
+    auto srcType = mlir::cast<NDTypeInterface>(insertOp.getSource().getType());
+    auto dstType = mlir::cast<NDTypeInterface>(dst.getType());
+
+    if (!dstType.getShape().isDynamic()) {
+        return;
+    }
+
+    auto [resolvedShape, dynamicSizes, bounds] = resolveSliceShapeAndDynamicSizes(insertOp, forallOp, srcType, dstType);
+
+    auto boundedType = mlir::dyn_cast<Core::BoundedTensorType>(dstType);
+    VPUX_THROW_WHEN(boundedType == nullptr,
+                    "Expected destination type of tensor.parallel_insert_slice to be a BoundedTensorType, but got {0}",
+                    dstType);
+
+    // Compute new dstType for insert slice op
+    if (!resolvedShape.isDynamic()) {
+        // no dynamic dim remain, therefore convert the type to a RankedTensorType
+        auto tensorAttr = getTensorAttr(ctx, dstType.getDimsOrder().toAffineMap(ctx), dstType.getMemSpace());
+        dstType = mlir::cast<NDTypeInterface>(
+                mlir::RankedTensorType::get(resolvedShape.raw(), dstType.getElementType(), tensorAttr));
+    } else {
+        // dstType was already checked to be a BoundedTensorType, so we can safely cast it here as it has not
+        // been changed
+        auto boundedTypeUpdated =
+                mlir::cast<Core::BoundedTensorType>(dstType.changeShape(resolvedShape)).changeBounds(bounds);
+        dstType = mlir::cast<NDTypeInterface>(boundedTypeUpdated);
+        _log.nest().trace("  op returns type with new shape {0}", dstType.getShape());
+    }
+
+    auto dstBlockArg = mlir::dyn_cast_if_present<mlir::BlockArgument>(dst);
+    VPUX_THROW_WHEN(dstBlockArg == nullptr,
+                    "Expected destination of tensor.parallel_insert_slice to be a block argument, but got {0}", dst);
+
+    auto opOperand = forallOp.getTiedOpOperand(dstBlockArg);
+    VPUX_THROW_WHEN(opOperand == nullptr, "Expected to find OpOperand tied to the destination block argument "
+                                          "of tensor.parallel_insert_slice, but got nullptr");
+
+    auto loopOutBuffer = mlir::dyn_cast<mlir::tensor::EmptyOp>(opOperand->get().getDefiningOp());
+    VPUX_THROW_WHEN(loopOutBuffer == nullptr,
+                    "Expected the OpOperand tied to the destination block argument of tensor.parallel_insert_slice "
+                    "to be defined by a tensor.empty op, but got {0}",
+                    opOperand->get().getDefiningOp());
+
+    // If there are dynamic dims remaining, look to the original loop out buffer and reconcile the shape with the static
+    // dim there
+    auto loopOutType = mlir::cast<NDTypeInterface>(loopOutBuffer.getType());
+    auto loopOutNewShape = Shape(dstType.getShape());
+    auto loopOutSizes = loopOutBuffer.getMixedSizes();
+    for (auto [idx, size] : enumerate(loopOutSizes)) {
+        if (loopOutNewShape[Dim(idx)] != mlir::ShapedType::kDynamic) {
+            continue;
+        }
+
+        // try to make all dims static
+        auto constVal = getConstantIntValue(size);
+        if (constVal.has_value()) {
+            loopOutNewShape[Dim(idx)] = constVal.value();
+            continue;
+        }
+
+        auto val = mlir::dyn_cast_if_present<mlir::Value>(size);
+        if (!val) {
+            loopOutNewShape[Dim(idx)] = loopOutType.getShape()[Dim(idx)];
+        }
+    }
+
+    VPUX_THROW_WHEN(loopOutNewShape.isDynamic(),
+                    "Expected new shape of the forall loop output buffer to be static, but got {0}", loopOutNewShape);
+    rewriter.setInsertionPoint(forallOp);
+
+    auto loopOutTensorAttr = getTensorAttr(ctx, dstType.getDimsOrder().toAffineMap(ctx), dstType.getMemSpace());
+    auto loopOutNewType = dstType = mlir::cast<NDTypeInterface>(
+            mlir::RankedTensorType::get(loopOutNewShape.raw(), dstType.getElementType(), loopOutTensorAttr));
+    auto newEmptyOp = mlir::tensor::EmptyOp::create(rewriter, loopOutBuffer->getLoc(), loopOutNewType,
+                                                    /*dynamicSizes*/ mlir::ValueRange{});
+    rewriter.replaceOp(loopOutBuffer, newEmptyOp);
+
+    _log.nest().trace("  replacing tensor.empty return buffer with the static version with type {0}", loopOutNewType);
+    const auto& dynSz = dynamicSizes;
+
+    // Update forall result / shared_out types in-place.
+    rewriter.modifyOpInPlace(forallOp, [&]() {
+        auto currentResult = forallOp.getTiedOpResult(opOperand);
+        currentResult.setType(loopOutNewType);
+
+        // update type of the OpOperand tied to the above shared_out
+        opOperand->get().setType(loopOutNewType);
+        // update type of parallel_insert_slice's destination
+        insertOp.getDestMutable().get().setType(loopOutNewType);
+    });
+
+    rewriter.setInsertionPoint(insertOp);
+    auto newInsert = mlir::tensor::ParallelInsertSliceOp::create(
+            rewriter, insertOp.getLoc(), insertOp.getSource(), insertOp.getDest(), insertOp.getOffsets(), dynSz,
+            insertOp.getStrides(), insertOp.getStaticOffsets(), to_small_vector(srcType.getShape()),
+            insertOp.getStaticStrides());
+    rewriter.replaceOp(insertOp, newInsert);
+}
+
+void PropagateTypeThroughForallOp::propagateTypeThroughOp(mlir::tensor::PadOp padOp, mlir::scf::ForallOp forallOp,
+                                                          VPU::OpChainAnalysis& analysis,
+                                                          mlir::PatternRewriter& rewriter) const {
+    _log.nest().trace("Processing tensor.pad op @ {0}", padOp->getLoc());
+    auto sourceType = mlir::cast<NDTypeInterface>(padOp.getSource().getType());
+    auto dstType = mlir::cast<NDTypeInterface>(padOp.getResult().getType());
+    auto padShape = Shape(dstType.getShape());
+
+    SmallVector<mlir::Value> dynLow, dynHigh;
+    dynLow.reserve(padOp.getLow().size());
+    dynHigh.reserve(padOp.getHigh().size());
+    const auto spatialDims = {Dims4D::Act::H, Dims4D::Act::W};
+
+    // Make pad values static if they do not depend on the IVs of the current unrolled forall loop
+    auto dynLowStatic = SmallVector<int64_t>(padOp.getStaticLow());
+    auto dynHighStatic = SmallVector<int64_t>(padOp.getStaticHigh());
+    for (auto dim : spatialDims) {
+        auto lowPad = padOp.getMixedLowPad()[dim.ind()];
+        auto highPad = padOp.getMixedHighPad()[dim.ind()];
+        // Keep pads dependent on IVs as dynamic
+        if (VPU::isDependentOnForallIv(lowPad, forallOp) || VPU::isDependentOnForallIv(highPad, forallOp)) {
+            if (auto val = mlir::dyn_cast_if_present<mlir::Value>(lowPad)) {
+                dynLow.push_back(val);
+            }
+            if (auto val = mlir::dyn_cast_if_present<mlir::Value>(highPad)) {
+                dynHigh.push_back(val);
+            }
+            continue;
+        }
+
+        ValueRangeMap emptyMap;
+        // Get low/high values that have become static
+        auto lowValue = analysis.getOpFoldResultValue(lowPad, emptyMap);
+        auto highValue = analysis.getOpFoldResultValue(highPad, emptyMap);
+        VPUX_THROW_WHEN(!lowValue.has_value() || !highValue.has_value(),
+                        "Failed to compute static padding values for {0} operation", padOp->getName());
+        const auto& lv = lowValue.value();
+        const auto& hv = highValue.value();
+        dynLowStatic[dim.ind()] = lv[0];
+        dynHighStatic[dim.ind()] = hv[0];
+
+        // Recompute the pad shape, given the new low/high
+        padShape[dim] = sourceType.getShape()[dim] + lv[0] + hv[0];
+    }
+
+    if (auto boundedType = mlir::dyn_cast<Core::BoundedTensorType>(dstType)) {
+        auto bounds = boundedType.getBounds().toValues();
+        const auto dstTypeShape = dstType.getShape();
+        // If some dims became static, update bounds accordingly
+        for (auto idx : irange(padShape.size())) {
+            if (padShape[Dim(idx)] != mlir::ShapedType::kDynamic &&
+                dstTypeShape[Dim(idx)] == mlir::ShapedType::kDynamic) {
+                bounds[Dim(idx)] = padShape[Dim(idx)];
+            }
+        }
+
+        // dstType was already checked to be a BoundedTensorType, so we can safely cast it here as it has not
+        // been changed
+        auto boundedTypeUpdated =
+                mlir::cast<Core::BoundedTensorType>(dstType.changeShape(padShape)).changeBounds(bounds);
+        dstType = mlir::cast<NDTypeInterface>(boundedTypeUpdated);
+    } else {
+        dstType = dstType.changeShape(padShape);
+    }
+
+    _log.nest().trace("tensor.pad op @ {0}: updated output type to {1}", padOp->getLoc(), dstType);
+
+    rewriter.setInsertionPoint(padOp);
+    auto newPadOp = mlir::tensor::PadOp::create(rewriter, padOp.getLoc(), dstType, padOp.getSource(), dynLowStatic,
+                                                dynHighStatic, dynLow, dynHigh);
+
+    // Copy content of pad op into new op
+    mlir::IRMapping mapper;
+    padOp.getRegion().cloneInto(&newPadOp.getRegion(), mapper);
+
+    padOp->replaceAllUsesWith(newPadOp);
+    rewriter.eraseOp(padOp);
+}
+
+mlir::LogicalResult PropagateTypeThroughForallOp::matchAndRewrite(mlir::scf::ForallOp forallOp,
+                                                                  mlir::PatternRewriter& rewriter) const {
+    _log.trace("Propagate type through forall op @ {0}", forallOp->getLoc());
+    auto ctx = forallOp->getContext();
+    auto analysis = VPU::OpChainAnalysis(_log.nest());
+
+    auto extractSlices = forallOp.getOps<mlir::tensor::ExtractSliceOp>();
+    const auto allSrcTypesAreStatic = llvm::all_of(extractSlices, [](mlir::tensor::ExtractSliceOp extractSlice) {
+        auto srcType = mlir::cast<mlir::ShapedType>(extractSlice.getSource().getType());
+        return srcType.hasStaticShape();
+    });
+
+    _log.trace("PropagateTypeThroughForallOp: all extract_slice source types static: {0}", allSrcTypesAreStatic);
+
+    if (!allSrcTypesAreStatic) {
+        return matchFailed(_log, rewriter, forallOp,
+                           "Not all source types of extract_slice ops inside the forall op are static.");
+    }
+
+    VPUX_THROW_WHEN(forallOp.getNumResults() == 0, "Forall op has no result; @ {0}", forallOp.getLoc());
+    const auto allResultsStatic = llvm::all_of(forallOp.getResultTypes(), [](mlir::Type type) {
+        return mlir::cast<mlir::ShapedType>(type).hasStaticShape();
+    });
+    if (allResultsStatic) {
+        return matchFailed(_log, rewriter, forallOp, "All result types are already static.");
+    }
+
+    std::queue<mlir::Operation*> users;
+    llvm::DenseSet<mlir::Operation*> visitedUsers;
+    auto pushUsersToQueue = [&](mlir::Operation* parentOp) {
+        for (auto user : parentOp->getUsers()) {
+            users.push(user);
+        }
+    };
+
+    bool changed = false;
+    for (auto extractSlice : llvm::make_early_inc_range(extractSlices)) {
+        auto srcType = mlir::cast<NDTypeInterface>(extractSlice.getSource().getType());
+        auto dstType = mlir::cast<NDTypeInterface>(extractSlice.getResult().getType());
+        auto boundedType = mlir::dyn_cast<Core::BoundedTensorType>(dstType);
+        if (boundedType == nullptr) {
+            continue;
+        }
+
+        pushUsersToQueue(extractSlice);
+
+        auto [newShape, dynamicSizes, bounds] =
+                resolveSliceShapeAndDynamicSizes(extractSlice, forallOp, srcType, dstType);
+
+        if (!newShape.isDynamic()) {
+            auto tensorAttr = getTensorAttr(ctx, dstType.getDimsOrder().toAffineMap(ctx), dstType.getMemSpace());
+            dstType = mlir::cast<NDTypeInterface>(
+                    mlir::RankedTensorType::get(newShape.raw(), dstType.getElementType(), tensorAttr));
+        } else {
+            // dstType was already checked to be a BoundedTensorType, so we can safely cast it here as it has not been
+            // changed
+            auto boundedTypeUpdated =
+                    mlir::cast<Core::BoundedTensorType>(dstType.changeShape(newShape)).changeBounds(bounds);
+            dstType = mlir::cast<NDTypeInterface>(boundedTypeUpdated);
+        }
+
+        rewriter.setInsertionPoint(extractSlice);
+        auto newExtractSlice = mlir::tensor::ExtractSliceOp::create(
+                rewriter, extractSlice.getLoc(), dstType, extractSlice.getSource(), extractSlice.getOffsets(),
+                dynamicSizes, extractSlice.getStrides(), extractSlice.getStaticOffsets(), to_small_vector(newShape),
+                extractSlice.getStaticStrides());
+        rewriter.replaceOp(extractSlice, newExtractSlice);
+        changed = true;
+    }
+
+    if (!changed) {
+        return matchFailed(_log, rewriter, forallOp, "No extract_slice ops were updated.");
+    }
+
+    while (!users.empty()) {
+        auto crtOp = users.front();
+        users.pop();
+
+        if (visitedUsers.contains(crtOp)) {
+            continue;
+        }
+        visitedUsers.insert(crtOp);
+
+        if (auto padOp = mlir::dyn_cast_if_present<mlir::tensor::PadOp>(crtOp)) {
+            pushUsersToQueue(crtOp);
+            propagateTypeThroughOp(padOp, forallOp, analysis, rewriter);
+            continue;
+        }
+
+        if (auto insertOp = mlir::dyn_cast_if_present<mlir::tensor::ParallelInsertSliceOp>(crtOp)) {
+            propagateTypeThroughOp(insertOp, forallOp, rewriter);
+            continue;
+        }
+
+        if (auto inferTypeIfOp = mlir::dyn_cast_if_present<mlir::InferTypeOpInterface>(crtOp)) {
+            pushUsersToQueue(crtOp);
+            propagateTypeThroughOp(inferTypeIfOp);
+        }
+    }
+
+    _log.trace("PropagateTypeThroughForallOp: done @ {0}", forallOp->getLoc());
+    return mlir::success();
+}
+
+//
+// FoldStaticTensorDim
+//
+
+// Resolves `tensor.dim` into a constant once full unrolling makes the queried dimension static. For tensor.pad results
+// whose encoded type remains dynamic, derive the dimension from the static source shape and padding amounts. Workload
+// dispatch conditions built by WorkloadsForNCEOpsSCFPass compare such dims against the tile shapes they were generated
+// for, so folding them is what allows the surrounding scf.if to collapse.
+//
+// The upstream `tensor.pad` canonicalization would achieve the same indirectly, but it rebuilds the padded type
+// without the original encoding (losing `order`/`bounds`) and inserts a `tensor.cast`, so it must not be applied to
+// pads that still feed NCE operations. Only the `tensor.dim` user is rewritten here, the pad itself is left alone.
+class FoldStaticTensorDim final : public mlir::OpRewritePattern<mlir::tensor::DimOp> {
+public:
+    FoldStaticTensorDim(mlir::MLIRContext* ctx, Logger log)
+            : mlir::OpRewritePattern<mlir::tensor::DimOp>(ctx, vpux::benefitHigh), _log(log) {
+        setDebugName("FoldStaticTensorDim");
+    }
+
+    mlir::LogicalResult matchAndRewrite(mlir::tensor::DimOp dimOp, mlir::PatternRewriter& rewriter) const final;
+
+private:
+    Logger _log;
+};
+
+mlir::LogicalResult FoldStaticTensorDim::matchAndRewrite(mlir::tensor::DimOp dimOp,
+                                                         mlir::PatternRewriter& rewriter) const {
+    auto nestedLog = _log.nest();
+
+    const auto dimIdx = dimOp.getConstantIndex();
+    if (!dimIdx.has_value()) {
+        return matchFailed(nestedLog, rewriter, dimOp, "Dimension index is not constant.");
+    }
+
+    const auto resultShape = getShape(dimOp.getSource());
+    if (dimIdx.value() < 0 || dimIdx.value() >= static_cast<int64_t>(resultShape.size())) {
+        return matchFailed(nestedLog, rewriter, dimOp, "Dimension index '{0}' is out of range.", dimIdx.value());
+    }
+
+    const auto resultSize = resultShape[Dim(dimIdx.value())];
+    if (resultSize != mlir::ShapedType::kDynamic) {
+        rewriter.replaceOpWithNewOp<mlir::arith::ConstantIndexOp>(dimOp, resultSize);
+        return mlir::success();
+    }
+
+    auto padOp = dimOp.getSource().getDefiningOp<mlir::tensor::PadOp>();
+    if (padOp == nullptr) {
+        return matchFailed(nestedLog, rewriter, dimOp, "Dynamic source is not produced by tensor.pad.");
+    }
+
+    const auto sourceShape = getShape(padOp.getSource());
+    const auto sourceSize = sourceShape[Dim(dimIdx.value())];
+    if (sourceSize == mlir::ShapedType::kDynamic) {
+        return matchFailed(nestedLog, rewriter, dimOp, "Padded source has a dynamic dimension '{0}'.", dimIdx.value());
+    }
+
+    const auto lowPad = mlir::getConstantIntValue(padOp.getMixedLowPad()[dimIdx.value()]);
+    const auto highPad = mlir::getConstantIntValue(padOp.getMixedHighPad()[dimIdx.value()]);
+    if (!lowPad.has_value() || !highPad.has_value()) {
+        return matchFailed(nestedLog, rewriter, dimOp, "Padding amounts are not constant.");
+    }
+
+    rewriter.replaceOpWithNewOp<mlir::arith::ConstantIndexOp>(dimOp, sourceSize + lowPad.value() + highPad.value());
 
     return mlir::success();
 }
@@ -421,6 +905,8 @@ static std::optional<int64_t> getConstantTripCount(mlir::scf::ForOp forOp) {
 
 void FullUnrollSCFLoopPass::unrollTiling(ArrayRef<mlir::scf::ForOp> loopVector,
                                          [[maybe_unused]] mlir::ModuleOp moduleOp) {
+    _log.trace("unrollTiling: unrolling {0} tiling loop(s)", loopVector.size());
+
     // full unrolling of tiling loops
     for (auto& loop : loopVector) {
         const auto tripCountOpt = getConstantTripCount(loop);
@@ -428,8 +914,11 @@ void FullUnrollSCFLoopPass::unrollTiling(ArrayRef<mlir::scf::ForOp> loopVector,
         VPUX_THROW_WHEN(!tripCountOpt.has_value(),
                         "Full unrolling is not supported for loop {0} with dynamic trip count", loop);
 
+        _log.trace("unrollTiling: unrolling loop @ {0} with trip count {1}", loop->getLoc(), tripCountOpt.value());
         (void)mlir::loopUnrollByFactor(loop, tripCountOpt.value());
     }
+
+    _log.trace("unrollTiling: applying canonicalization patterns");
 
     // canonicalization patterns
     auto& ctx = *moduleOp.getContext();
@@ -500,7 +989,36 @@ void FullUnrollSCFLoopPass::unrollTiling(ArrayRef<mlir::scf::ForOp> loopVector,
 
     inferShapeOps();
 
-    restorePaddingAttribute(moduleOp, _log.nest());
+    // Workload dispatch conditions can become constant only after the unrolled operations have inferred static
+    // shapes. Resolve them before restoring padding so that workload translation sees only the alternative for the
+    // concrete tile, rather than also processing stale alternatives for other dynamic tile shapes. Dispatch resolution
+    // is mandatory rather than cosmetic: bufferization only reads workloads that are direct children of the workloads
+    // region, so a workload left inside an scf.if would be silently dropped.
+    //
+    // Every registered pattern covers one step of that resolution:
+    //   * FoldStaticTensorDim turns `tensor.dim` of a `tensor.pad` into a constant, the padding amounts being constant
+    //   after
+    //     unrolling. Dispatch conditions are built on top of such dims, and the arith/affine operations combining them
+    //     are folded by the greedy driver itself, so no pattern has to be registered for those.
+    //   * scf::IfOp canonicalization inlines the branch selected by the now constant condition and drops the
+    //     alternatives.
+    //   * the tensor dialect canonicalization (FoldTensorCastProducerOp) absorbs the `tensor.cast` operations that the
+    //     unrolled loop body leaves in front of its slices.
+    //   * ConvertSlice and SimplifyDynamicCast lower the slices whose shapes have just become static to
+    //     VPU.Slice/VPU.Concat and propagate the remaining dynamic casts to their producers.
+    patterns.clear();
+    ctx.getOrLoadDialect<mlir::tensor::TensorDialect>()->getCanonicalizationPatterns(patterns);
+    mlir::scf::IfOp::getCanonicalizationPatterns(patterns, &ctx);
+    patterns.add<ConvertSlice>(&ctx, _log);
+    patterns.add<SimplifyDynamicCast>(&ctx, _log);
+    patterns.add<FoldStaticTensorDim>(&ctx, _log);
+
+    if (mlir::failed(mlir::applyPatternsGreedily(moduleOp, std::move(patterns), getDefaultGreedyRewriteConfig()))) {
+        signalPassFailure();
+        return;
+    }
+
+    restorePaddingAttribute(moduleOp, _log.nest(), /*deferDynamicShapeWorkloads=*/true);
 
     inferShapeOps();
 
@@ -508,14 +1026,30 @@ void FullUnrollSCFLoopPass::unrollTiling(ArrayRef<mlir::scf::ForOp> loopVector,
     patterns.clear();
     patterns.add<ConvertSlice>(&ctx, _log);
     patterns.add<SimplifyDynamicCast>(&ctx, _log);
+    patterns.add<PropagateTypeThroughForallOp>(&ctx, _log);
 
     if (mlir::failed(mlir::applyPatternsGreedily(moduleOp, std::move(patterns), getDefaultGreedyRewriteConfig()))) {
         signalPassFailure();
     }
-
     // Re-infer types after SimplifyDynamicCast removes tensor.cast ops, since
     // inferReturnTypes in that pattern only updates direct users, not the full chain
     inferShapeOps();
+
+    // Workloads on NCE ops whose shapes were still dynamic during restorePaddingAttribute were deferred. Their output
+    // tiles are static now, so the bounded-shape fallback can be repaired and the workloads translated.
+    VPU::translateDeferredWorkloadsAfterInference(moduleOp, _log.nest());
+
+    // Safety net: clamp any remaining workload larger than its op's static output, covering ops not handled by padding
+    // restoration (e.g. unpadded Eltwise) whose per-iteration output only became static after unrolling.
+    VPU::clampOversizedWorkloadsToStaticOutput(moduleOp, _log.nest());
+
+    patterns.clear();
+    mlir::scf::IfOp::getCanonicalizationPatterns(patterns, &ctx);
+    patterns.add<FoldStaticTensorDim>(&ctx, _log);
+    if (mlir::failed(mlir::applyPatternsGreedily(moduleOp, std::move(patterns), getDefaultGreedyRewriteConfig()))) {
+        signalPassFailure();
+        return;
+    }
 
     // After type propagation, tensor.insert_slice/extract_slice ops may have stale
     // dynamic size declarations incompatible with now-static source types. Run
@@ -606,6 +1140,7 @@ VPU::DistributedTensorType getDistributedTypeForInput(VPU::OpChainAnalysis& anal
 }
 
 void FullUnrollSCFLoopPass::unrollMulticlustering(mlir::ModuleOp moduleOp) {
+    _log.trace("unrollMulticlustering: begin");
     auto analysis = VPU::OpChainAnalysis(_log.nest());
     auto ctx = moduleOp.getContext();
     mlir::OpBuilder builder(ctx);
@@ -625,7 +1160,6 @@ void FullUnrollSCFLoopPass::unrollMulticlustering(mlir::ModuleOp moduleOp) {
             auto lv = lowValue.value();
             auto hv = highValue.value();
 
-            _log.trace("Padding for dim {0}: low={1}, high={2}", dim, lv, hv);
             padValues.emplace_back(lowValue.value()[0]);
             padValues.emplace_back(highValue.value()[0]);
         }
@@ -667,6 +1201,8 @@ void FullUnrollSCFLoopPass::unrollMulticlustering(mlir::ModuleOp moduleOp) {
         const auto numClusters = static_cast<int64_t>(inductionDimRange.size());
         VPUX_THROW_WHEN(numClusters <= 1, "Cannot unroll forall with single iteration at {0}", forallOp->getLoc());
 
+        _log.trace("unrollMulticlustering: forall loop at {0} has {1} cluster(s)", forallOp->getLoc(), numClusters);
+
         auto numClustersAttr = getIntAttr(ctx, numClusters);
 
         const auto computeOp = *clusteredOpIf.begin();
@@ -674,8 +1210,8 @@ void FullUnrollSCFLoopPass::unrollMulticlustering(mlir::ModuleOp moduleOp) {
 
         // Infer the multiclustering strategy from result 0. All results of the same
         // compute op share the same strategy because the tiling axis is identical.
-        nestedLog.trace("Inferring multiclustering strategy from result 0.");
         auto strategy = inferMulticlusterStrategy(analysis, computeOp, computeOp->getOpResult(0));
+        nestedLog.trace("Inferred multicluster strategy: {0}", VPU::stringifyMultiClusterStrategy(strategy));
 
         // Verify that every result produces the same strategy as result 0.
         // This guards against future ops where results might have different distributions.
@@ -697,6 +1233,7 @@ void FullUnrollSCFLoopPass::unrollMulticlustering(mlir::ModuleOp moduleOp) {
                     getOutputDistributedType(analysis, computeOp, result, strategy, numClustersAttr, ctx));
         }
 
+        nestedLog.trace("Building distributed copy-in ops for {0} input(s).", computeOp->getNumOperands());
         mlir::IRMapping mapper;
         builder.setInsertionPointAfter(forallOp);
         mlir::tensor::PadOp padOp = nullptr;
@@ -726,23 +1263,22 @@ void FullUnrollSCFLoopPass::unrollMulticlustering(mlir::ModuleOp moduleOp) {
 
             const auto inputIdx = std::distance(computeOp->getOpOperands().begin(), &input);
 
-            nestedLog.trace("Inserting distributed CopyOp for input {0}.", inputIdx);
-            auto distributedCopyOp = builder.create<VPU::CopyOp>(
-                    appendLoc(computeOp->getLoc(), "copy_in{0}", inputIdx), distributedType,
+            auto distributedCopyOp = VPU::CopyOp::create(
+                    builder, appendLoc(computeOp->getLoc(), "copy_in{0}", inputIdx), distributedType,
                     getInputValue(input.get(), extractSliceOp), distributedType.getMemSpace());
+            nestedLog.nest().trace("  copy_in output: {0}", distributedCopyOp.getOutput().getType());
 
             // map current input to the output of the distributed Copy op
             mapper.map(input.get(), distributedCopyOp.getOutput());
         }
 
-        nestedLog.trace("Clone compute op outside of loop.");
         auto clonedOp = builder.clone(*computeOp, mapper);
+        nestedLog.trace("Cloned op: {0} @ {1}", clonedOp->getName(), clonedOp->getLoc());
+
         if (padOp != nullptr) {
             auto padding = getPadAttribute(padOp);
             VPUX_THROW_WHEN(!clonedOp->hasAttr("pad"),
                             "tensor.pad op is producer to an op that does not support pad attr.");
-
-            nestedLog.trace("tensor.pad op found; replacing with padding attribute.");
             clonedOp->setAttr("pad", padding);
         }
 
@@ -755,13 +1291,13 @@ void FullUnrollSCFLoopPass::unrollMulticlustering(mlir::ModuleOp moduleOp) {
         for (auto resultIdx : irange(computeOp->getNumResults())) {
             clonedOp->getResult(resultIdx).setType(outDistributedTypes[resultIdx]);
 
-            nestedLog.trace("Inserting distributed CopyOp for output {0}.", resultIdx);
             auto valToReplace = forallOp.getResult(resultIdx);
             auto copyOutType = mlir::cast<NDTypeInterface>(valToReplace.getType());
 
             if (valToReplace.hasOneUse() && mlir::isa_and_present<VPU::CopyOp>(*(valToReplace.user_begin()))) {
                 auto copyOp = mlir::cast<VPU::CopyOp>(*(valToReplace.user_begin()));
                 copyOutType = mlir::cast<NDTypeInterface>(copyOp.getOutput().getType());
+                nestedLog.nest().trace("  forall result consumed by CopyOp; using its output type: {0}", copyOutType);
                 valToReplace = copyOp.getOutput();
 
                 // push copy op before loop, so it gets erased first
@@ -779,24 +1315,27 @@ void FullUnrollSCFLoopPass::unrollMulticlustering(mlir::ModuleOp moduleOp) {
                 resolvedCopyOutType = compactType.changeMemSpace(copyOutType.getMemSpace());
             }
 
-            auto copyOut = builder.create<VPU::CopyOp>(appendLoc(computeOp->getLoc(), "copy_out{0}", resultIdx),
-                                                       resolvedCopyOutType, clonedOp->getResult(resultIdx),
-                                                       resolvedCopyOutType.getMemSpace());
+            auto copyOut = VPU::CopyOp::create(builder, appendLoc(computeOp->getLoc(), "copy_out{0}", resultIdx),
+                                               resolvedCopyOutType, clonedOp->getResult(resultIdx),
+                                               resolvedCopyOutType.getMemSpace());
 
             mlir::Value replacement = copyOut.getOutput();
             if (copyOutType.getShape().isDynamic()) {
-                replacement = builder.create<mlir::tensor::CastOp>(computeOp->getLoc(), copyOutType, replacement);
+                replacement = mlir::tensor::CastOp::create(builder, computeOp->getLoc(), copyOutType, replacement);
             }
             valToReplace.replaceAllUsesWith(replacement);
         }
         opsToErase.push_back(forallOp);
     });
 
+    _log.trace("unrollMulticlustering: erasing {0} op(s)", opsToErase.size());
     for (auto op : llvm::make_early_inc_range(opsToErase)) {
-        if (op->use_empty()) {
-            op->erase();
+        if (!op->use_empty()) {
+            continue;
         }
+        op->erase();
     }
+    _log.trace("unrollMulticlustering: done");
 }
 
 void FullUnrollSCFLoopPass::safeRunOnModule() {
@@ -817,6 +1356,24 @@ void FullUnrollSCFLoopPass::safeRunOnModule() {
     }
 
     unrollMulticlustering(moduleOp);
+
+    // Bufferization only picks up workloads that are direct children of the workloads region, so any workload left
+    // under a dispatch scf.if/scf.for would be dropped there without a diagnostic, producing an operation without
+    // variants. Fail the pass instead: the scf.if dispatch is expected to be resolved by the canonicalization above,
+    // and the scf.for form emitted for dynamic workload channels is not supported by bufferization yet.
+    auto hasUnresolvedDispatch = false;
+    moduleOp->walk([&](VPU::NCEOpInterface nceOp) {
+        for (auto& workloadOp : nceOp.getWorkloads().getOps()) {
+            if (mlir::isa<mlir::scf::IfOp, mlir::scf::ForOp>(workloadOp)) {
+                hasUnresolvedDispatch = true;
+                nceOp->emitError() << "Unresolved workload dispatch '" << workloadOp.getName().getStringRef()
+                                   << "' left in the workloads region, it cannot be bufferized";
+            }
+        }
+    });
+    if (hasUnresolvedDispatch) {
+        signalPassFailure();
+    }
 }
 }  // namespace
 

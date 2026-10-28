@@ -50,6 +50,7 @@ TEST_F(DpuConcatLayerTest, NPU5010_HW) {
     setDefaultHardwareMode();
     run(Platform::NPU5010);
 }
+
 TEST_F(DpuConcatLayerTest, NPU5020_HW) {
     setDefaultHardwareMode();
     run(Platform::NPU5020);

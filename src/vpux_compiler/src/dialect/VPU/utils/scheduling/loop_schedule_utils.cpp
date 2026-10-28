@@ -18,6 +18,7 @@
 #include "vpux/compiler/dialect/VPU/utils/scheduling/undefined_tiling.hpp"
 #include "vpux/compiler/dialect/VPU/utils/scheduling/undefined_vf.hpp"
 
+#include <llvm/ADT/DenseSet.h>
 #include <map>
 #include <memory>
 #include <string>
@@ -72,8 +73,8 @@ ComputeRegionsSchedule vpux::VPU::generateLoopSchedules(const ComputeRegionVec& 
 
         const auto& scenarioName = scenarioIt->second;
         auto scenarioImplIt = tilingScenarios.find(scenarioName);
-        VPUX_THROW_UNLESS(scenarioImplIt != tilingScenarios.end(), "Temporal tiling scenario '{0}' not found",
-                          scenarioName);
+        VPUX_THROW_WHEN(scenarioImplIt == tilingScenarios.end(), "Temporal tiling scenario '{0}' not found",
+                        scenarioName);
         auto result = scenarioImplIt->second->getScheduleStrategy(computeRegion, memorySize);
         if (result.empty()) {
             continue;
@@ -82,12 +83,13 @@ ComputeRegionsSchedule vpux::VPU::generateLoopSchedules(const ComputeRegionVec& 
         // Categorize operations from loop bodies into scheduling sets
         for (const auto& loop : computeRegion.schedulingLoop->loopBodies) {
             for (const auto& alloc : loop) {
-                if (alloc.allocationType == AllocationType::DATA_IN) {
-                    // DATA_IN operations (input DMAs) can be prefetched normally
+                if (alloc.allocationType == AllocationType::DATA_IN && !alloc.hasInnerLoopDependency) {
+                    // DATA_IN operations without inner loop dependencies (input DMAs)
+                    // can be prefetched normally
                     computeRegionsSchedule.loopPrefetchInd.insert(alloc.opIdx);
                     continue;
                 }
-                // All other operations (COMPUTE, DATA_OUT, etc.) require loop scheduling
+                // DATA_UPDATE, COMPUTE, and DATA_OUT operations require loop scheduling.
                 computeRegionsSchedule.loopRegionInd.insert(alloc.opIdx);
             }
         }

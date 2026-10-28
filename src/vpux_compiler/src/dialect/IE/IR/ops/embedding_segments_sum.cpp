@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
+#include "vpux/compiler/dialect/IE/IR/import/embedding_segments_sum.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/specialized.hpp"
 #include "vpux/compiler/dialect/IE/utils/const_attributes.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
@@ -13,55 +14,41 @@
 
 using namespace vpux;
 
-//
-// verify
-//
-
-mlir::LogicalResult vpux::IE::EmbeddingSegmentsSumOp::verify() {
-    int64_t numElements = 0;
-    const auto checkNumElements = [&](mlir::Value tensor) {
-        if (tensor == nullptr) {
-            return true;
-        }
-
-        numElements = mlir::cast<vpux::NDTypeInterface>(tensor.getType()).getNumElements();
-        return numElements == 1;
-    };
-
-    if (!checkNumElements(getNumSegments())) {
-        return errorAt(*this, "num_segments should have only 1 element, while it has {0}", numElements);
+namespace vpux::IE::EmbeddingSegmentsSum {
+llvm::FailureOr<int64_t> parseNumSegments(mlir::Location loc, mlir::ValueRange opInputs) {
+    if (opInputs.size() < 4) {
+        return errorAt(loc, "Invalid IE.EmbeddingSegmentsSum operation: expected at least 4 inputs got {0}",
+                       opInputs.size());
     }
 
-    if (!checkNumElements(getDefaultIndex())) {
-        return errorAt(*this, "default_index should have only 1 element, while it has {0}", numElements);
+    auto numSegmentsConst = opInputs[3].getDefiningOp<Const::DeclareOp>();
+    if (numSegmentsConst == nullptr) {
+        return errorAt(loc, "Only constant input is supported for numSegments");
     }
 
-    return mlir::success();
+    if (const auto& attr = numSegmentsConst.getContentAttr(); !attr.isSplat()) {
+        return errorAt(loc, "numSegments value must be a scalar");
+    }
+
+    const auto numSegmentsContent = numSegmentsConst.getContent();
+    return numSegmentsContent.getSplatValue<int64_t>();
 }
 
-namespace {
-
-mlir::FailureOr<int64_t> extractNumSegments(mlir::Location loc,
-                                            IE::EmbeddingSegmentsSumOpAdaptor embeddingSegmentsSum) {
-    if (embeddingSegmentsSum.getNumSegments() != nullptr) {
-        auto numSegmentsConst = embeddingSegmentsSum.getNumSegments().getDefiningOp<Const::DeclareOp>();
-        if (numSegmentsConst == nullptr) {
-            return errorAt(loc, "Only constant input is supported for numSegments");
-        }
-
-        if (const auto& attr = numSegmentsConst.getContentAttr(); !attr.isSplat()) {
-            return errorAt(loc, "numSegments value must be a scalar");
-        }
-
-        const auto numSegmentsContent = numSegmentsConst.getContent();
-        return numSegmentsContent.getSplatValue<int64_t>();
-    } else if (embeddingSegmentsSum.getNumSegmentsValue().has_value()) {
-        return embeddingSegmentsSum.getNumSegmentsValue().value();
+int64_t parseDefaultIndex(mlir::ValueRange opInputs) {
+    if (opInputs.size() < 5) {
+        return -1;
     }
-    return errorAt(loc, "NumSegments was not provided");
-}
 
-}  // namespace
+    auto defaultIndexConst = opInputs[4].getDefiningOp<Const::DeclareOp>();
+    if (defaultIndexConst == nullptr) {
+        return -1;
+    }
+    if (const auto& attr = defaultIndexConst.getContentAttr(); !attr.isSplat()) {
+        return -1;
+    }
+    return defaultIndexConst.getContent().getSplatValue<int64_t>();
+}
+}  // namespace vpux::IE::EmbeddingSegmentsSum
 
 mlir::LogicalResult vpux::IE::EmbeddingSegmentsSumOp::inferReturnTypeComponents(
         mlir::MLIRContext* ctx, std::optional<mlir::Location> optLoc, mlir::ValueShapeRange operands,
@@ -75,13 +62,7 @@ mlir::LogicalResult vpux::IE::EmbeddingSegmentsSumOp::inferReturnTypeComponents(
     }
 
     const auto inType = mlir::cast<mlir::ShapedType>(embeddingSegmentsSum.getEmbTable().getType());
-
-    const auto numSegments = extractNumSegments(loc, embeddingSegmentsSum);
-    if (mlir::failed(numSegments)) {
-        return mlir::failure();
-    }
-
-    int64_t numSegmentsVal = checked_cast<int64_t>(*numSegments);
+    const int64_t numSegmentsVal = embeddingSegmentsSum.getNumSegmentsValue();
 
     SmallVector<int64_t> outShape(to_small_vector(inType.getShape()));
     outShape[0] = numSegmentsVal;
@@ -89,46 +70,4 @@ mlir::LogicalResult vpux::IE::EmbeddingSegmentsSumOp::inferReturnTypeComponents(
     inferredReturnShapes.emplace_back(outShape, inType.getElementType());
 
     return mlir::success();
-}
-
-//
-// ConvertConstToAttr
-//
-
-namespace {
-class ConvertConstToAttr final : public mlir::OpRewritePattern<IE::EmbeddingSegmentsSumOp> {
-public:
-    using mlir::OpRewritePattern<IE::EmbeddingSegmentsSumOp>::OpRewritePattern;
-
-public:
-    mlir::LogicalResult matchAndRewrite(IE::EmbeddingSegmentsSumOp EmbeddingSegmentsSumOp,
-                                        mlir::PatternRewriter& rewriter) const final;
-};
-
-mlir::LogicalResult ConvertConstToAttr::matchAndRewrite(IE::EmbeddingSegmentsSumOp embeddingSegmentsSumOp,
-                                                        mlir::PatternRewriter& rewriter) const {
-    auto numSegmentsAttr = vpux::IE::getIntAttrValue(embeddingSegmentsSumOp.getNumSegments(), rewriter);
-    auto defaultIndexAttr = vpux::IE::getIntAttrValue(embeddingSegmentsSumOp.getDefaultIndex(), rewriter);
-
-    if ((embeddingSegmentsSumOp.getNumSegments() == nullptr) && (embeddingSegmentsSumOp.getDefaultIndex() == nullptr)) {
-        return mlir::failure();
-    }
-
-    if (defaultIndexAttr == nullptr) {
-        int32_t defaultValueDefaultIndex = -1;
-        defaultIndexAttr = rewriter.getI32IntegerAttr(defaultValueDefaultIndex);
-    }
-
-    rewriter.replaceOpWithNewOp<IE::EmbeddingSegmentsSumOp>(
-            embeddingSegmentsSumOp, embeddingSegmentsSumOp.getType(), embeddingSegmentsSumOp.getEmbTable(),
-            embeddingSegmentsSumOp.getIndices(), embeddingSegmentsSumOp.getSegmentIds(), nullptr, nullptr,
-            embeddingSegmentsSumOp.getPerSampleWeights(), nullptr, nullptr, numSegmentsAttr, defaultIndexAttr, nullptr);
-    return mlir::success();
-}
-
-}  // namespace
-
-void vpux::IE::EmbeddingSegmentsSumOp::getCanonicalizationPatterns(mlir::RewritePatternSet& patterns,
-                                                                   mlir::MLIRContext* context) {
-    patterns.add<ConvertConstToAttr>(context);
 }

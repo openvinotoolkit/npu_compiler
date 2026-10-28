@@ -17,7 +17,7 @@ def DecomposeSoftmaxInSdpa : PassBase<"decompose-softmax-in-sdpa", "vpux::Functi
 
     let description = [{
         Re-balance the workloads between DPU and Shave for SDPA patterns
-        Transform 
+        Transform
             Operand -> Softmax -> Matmul(Convolution)
         to
             Operand ->
@@ -27,10 +27,10 @@ def DecomposeSoftmaxInSdpa : PassBase<"decompose-softmax-in-sdpa", "vpux::Functi
                     \   NCEReduceSum -> Divide(Inverse) -> NCEConvolution(Expand)
                     \   NCEConvolution, scaling up by 1/rescaler    \
                             \ --------------------------------NCEEltwise.Multiply, scaling down by rescaler
-        
+
         TODO:
             Replace `ReduceMax(fp16) -> Subtract(fp16) -> Convert(fp32) -> Exp(fp32) -> Convert(fp16)`
-                with a new ShaveOp Exp_stabilized. The ReduceMax has a chance to be fused into the previous MatMul.
+                with a new ShaveOp ExpStabilized. The ReduceMax has a chance to be fused into the previous MatMul.
             Replace `NCEReduceSum -> Divide(Inverse)` with NCEReduceSum(ppe.mode=<INV>)
     }];
 

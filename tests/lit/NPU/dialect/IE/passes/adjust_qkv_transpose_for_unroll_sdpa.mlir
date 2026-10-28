@@ -93,14 +93,12 @@ func.func @AdjustQKVTransposeForUnrollSDPA(%input: tensor<1x577x768xf32>) -> ten
 #map1 = affine_map<(d0, d1, d2, d3, d4) -> (d2, d0, d3, d1, d4)>
 #NCWH = affine_map<(d0, d1, d2, d3) -> (d0, d1, d3, d2)>
 
-// CHECK-LABEL: @AdjustQKVTransposeForUnrollSDPAWithFQWeights
+// CHECK-LABEL: @AdjustQKVTransposeForUnrollSDPAWithDynDeqWeightsAndZp
 // CHECK-SAME: ([[INPUT:%.+]]: tensor<577x768xf32>)
-func.func @AdjustQKVTransposeForUnrollSDPAWithFQWeights(%input: tensor<577x768xf32>) -> tensor<1x12x577x64xf32> {
-  %weights = const.Declare tensor<2304x768xf32> = dense<1.0> : tensor<2304x768xf32>
-  %weight_input_low = const.Declare tensor<1x1xf32> = dense<0.0> : tensor<1x1xf32>
-  %weight_input_high = const.Declare tensor<1x1xf32> = dense<1.0> : tensor<1x1xf32>
-  %weight_output_low = const.Declare tensor<2304x1xf32> = dense<0.0> : tensor<2304x1xf32>
-  %weight_output_high = const.Declare tensor<2304x1xf32> = dense<1.0> : tensor<2304x1xf32>
+func.func @AdjustQKVTransposeForUnrollSDPAWithDynDeqWeightsAndZp(%input: tensor<577x768xf32>) -> tensor<1x12x577x64xf32> {
+  %weights_raw = const.Declare tensor<2304x768xsi8> = dense<1> : tensor<2304x768xsi8>
+  %weight_scale = const.Declare tensor<2304x1xf32> = dense<1.0> : tensor<2304x1xf32>
+  %weight_zp = const.Declare tensor<2304x1xsi8> = dense<0> : tensor<2304x1xsi8>
   %bias = const.Declare tensor<1x1x2304xf32> = dense<2.0> : tensor<1x1x2304xf32>
   %fq_low = const.Declare tensor<1x1x1x1x1xf32> = dense<0.0> : tensor<1x1x1x1x1xf32>
   %fq_high = const.Declare tensor<1x1x1x1x1xf32> = dense<1.0> : tensor<1x1x1x1x1xf32>
@@ -109,8 +107,8 @@ func.func @AdjustQKVTransposeForUnrollSDPAWithFQWeights(%input: tensor<577x768xf
   %v_idx = const.Declare tensor<1xsi64> = dense<2> : tensor<1xsi64>
   %scale = const.Declare tensor<1xf32> = dense<1.0> : tensor<1xf32>
 
-  %weight_fq = IE.FakeQuantize(%weights, %weight_input_low, %weight_input_high, %weight_output_low, %weight_output_high) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i64} : tensor<2304x768xf32>, tensor<1x1xf32>, tensor<1x1xf32>, tensor<2304x1xf32>, tensor<2304x1xf32> -> tensor<2304x768xf32>
-  %fc = IE.FullyConnected(%input, %weight_fq) : tensor<577x768xf32>, tensor<2304x768xf32> -> tensor<577x2304xf32>
+  %weight_dq = IE.DynamicDequantize(%weights_raw, %weight_scale, %weight_zp) {dstElemType = f32} : tensor<2304x768xsi8>, tensor<2304x1xf32>, tensor<2304x1xsi8> -> tensor<2304x768xf32>
+  %fc = IE.FullyConnected(%input, %weight_dq) : tensor<577x768xf32>, tensor<2304x768xf32> -> tensor<577x2304xf32>
   %reshape_fc = IE.AffineReshape(%fc) {dim_mapping = [[0, 1], [2]], shape_value = [1, 577, 2304]} : tensor<577x2304xf32> -> tensor<1x577x2304xf32>
   %add = IE.Add(%reshape_fc, %bias) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x577x2304xf32>, tensor<1x1x2304xf32> -> tensor<1x577x2304xf32>
   %reshape = IE.AffineReshape(%add) {dim_mapping = [[0], [1], [2, 3, 4]], shape_value = [1, 577, 3, 12, 64]} : tensor<1x577x2304xf32> -> tensor<1x577x3x12x64xf32>
@@ -123,42 +121,113 @@ func.func @AdjustQKVTransposeForUnrollSDPAWithFQWeights(%input: tensor<577x768xf
   %attention = IE.Attention(%q, %k, %vt, %scale) {operandSegmentSizes = array<i32: 1, 1, 1, 0, 1, 0, 0>} : tensor<1x12x577x64xf32>, tensor<1x12x577x64xf32>, tensor<1x12x64x577xf32>, tensor<1xf32> -> tensor<1x12x577x64xf32>
   return %attention : tensor<1x12x577x64xf32>
 
-  // CHECK-DAG: [[Q_WEIGHT:%.+]] = const.Declare tensor<768x768xf32> = dense<1.000000e+00> : tensor<2304x768xf32>, [#const.SubView<[0, 0], [768, 768]>]
-  // CHECK-DAG: [[K_WEIGHT:%.+]] = const.Declare tensor<768x768xf32> = dense<1.000000e+00> : tensor<2304x768xf32>, [#const.SubView<[768, 0], [768, 768]>]
-  // CHECK-DAG: [[V_WEIGHT:%.+]] = const.Declare tensor<768x768xf32> = dense<1.000000e+00> : tensor<2304x768xf32>, [#const.SubView<[1536, 0], [768, 768]>]
+  // CHECK-DAG: [[Q_WEIGHT:%.+]] = const.Declare tensor<768x768xsi8> = dense<1> : tensor<2304x768xsi8>, [#const.SubView<[0, 0], [768, 768]>]
+  // CHECK-DAG: [[K_WEIGHT:%.+]] = const.Declare tensor<768x768xsi8> = dense<1> : tensor<2304x768xsi8>, [#const.SubView<[768, 0], [768, 768]>]
+  // CHECK-DAG: [[V_WEIGHT:%.+]] = const.Declare tensor<768x768xsi8> = dense<1> : tensor<2304x768xsi8>, [#const.SubView<[1536, 0], [768, 768]>]
+  // CHECK-DAG: [[Q_SCALE:%.+]] = const.Declare tensor<768x1xf32> = dense<1.000000e+00> : tensor<2304x1xf32>, [#const.SubView<[0, 0], [768, 1]>]
+  // CHECK-DAG: [[K_SCALE:%.+]] = const.Declare tensor<768x1xf32> = dense<1.000000e+00> : tensor<2304x1xf32>, [#const.SubView<[768, 0], [768, 1]>]
+  // CHECK-DAG: [[V_SCALE:%.+]] = const.Declare tensor<768x1xf32> = dense<1.000000e+00> : tensor<2304x1xf32>, [#const.SubView<[1536, 0], [768, 1]>]
+  // CHECK-DAG: [[Q_ZP:%.+]] = const.Declare tensor<768x1xsi8> = dense<0> : tensor<2304x1xsi8>, [#const.SubView<[0, 0], [768, 1]>]
+  // CHECK-DAG: [[K_ZP:%.+]] = const.Declare tensor<768x1xsi8> = dense<0> : tensor<2304x1xsi8>, [#const.SubView<[768, 0], [768, 1]>]
+  // CHECK-DAG: [[V_ZP:%.+]] = const.Declare tensor<768x1xsi8> = dense<0> : tensor<2304x1xsi8>, [#const.SubView<[1536, 0], [768, 1]>]
   // CHECK-DAG: [[Q_BIAS:%.+]] = const.Declare tensor<1x1x768xf32> = dense<2.000000e+00> : tensor<1x1x2304xf32>, [#const.SubView<[0, 0, 0], [1, 1, 768]>]
   // CHECK-DAG: [[K_BIAS:%.+]] = const.Declare tensor<1x1x768xf32> = dense<2.000000e+00> : tensor<1x1x2304xf32>, [#const.SubView<[0, 0, 768], [1, 1, 768]>]
   // CHECK-DAG: [[V_BIAS:%.+]] = const.Declare tensor<1x1x768xf32> = dense<2.000000e+00> : tensor<1x1x2304xf32>, [#const.SubView<[0, 0, 1536], [1, 1, 768]>]
-  // CHECK-DAG: [[Q_OUTPUT_LOW:%.+]] = const.Declare tensor<768x1xf32> = dense<0.000000e+00> : tensor<2304x1xf32>, [#const.SubView<[0, 0], [768, 1]>]
-  // CHECK-DAG: [[Q_OUTPUT_HIGH:%.+]] = const.Declare tensor<768x1xf32> = dense<1.000000e+00> : tensor<2304x1xf32>, [#const.SubView<[0, 0], [768, 1]>]
-  // CHECK-DAG: [[K_OUTPUT_LOW:%.+]] = const.Declare tensor<768x1xf32> = dense<0.000000e+00> : tensor<2304x1xf32>, [#const.SubView<[768, 0], [768, 1]>]
-  // CHECK-DAG: [[K_OUTPUT_HIGH:%.+]] = const.Declare tensor<768x1xf32> = dense<1.000000e+00> : tensor<2304x1xf32>, [#const.SubView<[768, 0], [768, 1]>]
-  // CHECK-DAG: [[V_OUTPUT_LOW:%.+]] = const.Declare tensor<768x1xf32> = dense<0.000000e+00> : tensor<2304x1xf32>, [#const.SubView<[1536, 0], [768, 1]>]
-  // CHECK-DAG: [[V_OUTPUT_HIGH:%.+]] = const.Declare tensor<768x1xf32> = dense<1.000000e+00> : tensor<2304x1xf32>, [#const.SubView<[1536, 0], [768, 1]>]
-  // CHECK-DAG: [[WEIGHT_INPUT_LOW:%.+]] = const.Declare tensor<1xf32> = dense<0.000000e+00> : tensor<1x1xf32>, [#const.Reshape<[1]>]
-  // CHECK-DAG: [[WEIGHT_INPUT_HIGH:%.+]] = const.Declare tensor<1xf32> = dense<1.000000e+00> : tensor<1x1xf32>, [#const.Reshape<[1]>]
   // CHECK-DAG: [[FQ_LOW:%.+]] = const.Declare tensor<1xf32> = dense<0.000000e+00> : tensor<1x1x1x1x1xf32>, [#const.Reshape<[1]>]
   // CHECK-DAG: [[FQ_HIGH:%.+]] = const.Declare tensor<1xf32> = dense<1.000000e+00> : tensor<1x1x1x1x1xf32>, [#const.Reshape<[1]>]
   // CHECK-DAG: [[SCALE:%.+]] = const.Declare tensor<1xf32> = dense<1.000000e+00> : tensor<1xf32>
 
-  // CHECK: [[Q_WEIGHT_FQ:%.+]] = IE.FakeQuantize([[Q_WEIGHT]], [[WEIGHT_INPUT_LOW]], [[WEIGHT_INPUT_HIGH]], [[Q_OUTPUT_LOW]], [[Q_OUTPUT_HIGH]])
-  // CHECK: [[Q_FC:%.+]] = IE.FullyConnected([[INPUT]], [[Q_WEIGHT_FQ]]) : tensor<577x768xf32>, tensor<768x768xf32> -> tensor<577x768xf32>
+  // CHECK: [[Q_WEIGHT_DQ:%.+]] = IE.DynamicDequantize([[Q_WEIGHT]], [[Q_SCALE]], [[Q_ZP]]) {dstElemType = f32} : tensor<768x768xsi8>, tensor<768x1xf32>, tensor<768x1xsi8> -> tensor<768x768xf32>
+  // CHECK: [[Q_FC:%.+]] = IE.FullyConnected([[INPUT]], [[Q_WEIGHT_DQ]]) : tensor<577x768xf32>, tensor<768x768xf32> -> tensor<577x768xf32>
   // CHECK: [[Q_RESHAPE_FC:%.+]] = IE.AffineReshape([[Q_FC]]) {dim_mapping = {{\[\[}}0, 1], [2]], shape_value = [1, 577, 768]} : tensor<577x768xf32> -> tensor<1x577x768xf32>
   // CHECK: [[Q_ADD:%.+]] = IE.Add([[Q_RESHAPE_FC]], [[Q_BIAS]])
   // CHECK: [[Q_RESHAPE:%.+]] = IE.AffineReshape([[Q_ADD]]) {dim_mapping = {{\[\[}}0], [1], [2, 3]], shape_value = [1, 577, 12, 64]} : tensor<1x577x768xf32> -> tensor<1x577x12x64xf32>
   // CHECK: [[Q_FQ:%.+]] = IE.FakeQuantize([[Q_RESHAPE]], [[FQ_LOW]], [[FQ_HIGH]], [[FQ_LOW]], [[FQ_HIGH]])
   // CHECK: [[Q_TRANSPOSE:%.+]] = IE.Transpose([[Q_FQ]]) {order_value = #NHCW} : tensor<1x577x12x64xf32> -> tensor<1x12x577x64xf32>
 
-  // CHECK: [[K_WEIGHT_FQ:%.+]] = IE.FakeQuantize([[K_WEIGHT]], [[WEIGHT_INPUT_LOW]], [[WEIGHT_INPUT_HIGH]], [[K_OUTPUT_LOW]], [[K_OUTPUT_HIGH]])
-  // CHECK: [[K_FC:%.+]] = IE.FullyConnected([[INPUT]], [[K_WEIGHT_FQ]]) : tensor<577x768xf32>, tensor<768x768xf32> -> tensor<577x768xf32>
+  // CHECK: [[K_WEIGHT_DQ:%.+]] = IE.DynamicDequantize([[K_WEIGHT]], [[K_SCALE]], [[K_ZP]]) {dstElemType = f32} : tensor<768x768xsi8>, tensor<768x1xf32>, tensor<768x1xsi8> -> tensor<768x768xf32>
+  // CHECK: [[K_FC:%.+]] = IE.FullyConnected([[INPUT]], [[K_WEIGHT_DQ]]) : tensor<577x768xf32>, tensor<768x768xf32> -> tensor<577x768xf32>
   // CHECK: [[K_RESHAPE_FC:%.+]] = IE.AffineReshape([[K_FC]]) {dim_mapping = {{\[\[}}0, 1], [2]], shape_value = [1, 577, 768]} : tensor<577x768xf32> -> tensor<1x577x768xf32>
   // CHECK: [[K_ADD:%.+]] = IE.Add([[K_RESHAPE_FC]], [[K_BIAS]])
   // CHECK: [[K_RESHAPE:%.+]] = IE.AffineReshape([[K_ADD]]) {dim_mapping = {{\[\[}}0], [1], [2, 3]], shape_value = [1, 577, 12, 64]} : tensor<1x577x768xf32> -> tensor<1x577x12x64xf32>
   // CHECK: [[K_FQ:%.+]] = IE.FakeQuantize([[K_RESHAPE]], [[FQ_LOW]], [[FQ_HIGH]], [[FQ_LOW]], [[FQ_HIGH]])
   // CHECK: [[K_TRANSPOSE:%.+]] = IE.Transpose([[K_FQ]]) {order_value = #NHCW} : tensor<1x577x12x64xf32> -> tensor<1x12x577x64xf32>
 
-  // CHECK: [[V_WEIGHT_FQ:%.+]] = IE.FakeQuantize([[V_WEIGHT]], [[WEIGHT_INPUT_LOW]], [[WEIGHT_INPUT_HIGH]], [[V_OUTPUT_LOW]], [[V_OUTPUT_HIGH]])
-  // CHECK: [[V_FC:%.+]] = IE.FullyConnected([[INPUT]], [[V_WEIGHT_FQ]]) : tensor<577x768xf32>, tensor<768x768xf32> -> tensor<577x768xf32>
+  // CHECK: [[V_WEIGHT_DQ:%.+]] = IE.DynamicDequantize([[V_WEIGHT]], [[V_SCALE]], [[V_ZP]]) {dstElemType = f32} : tensor<768x768xsi8>, tensor<768x1xf32>, tensor<768x1xsi8> -> tensor<768x768xf32>
+  // CHECK: [[V_FC:%.+]] = IE.FullyConnected([[INPUT]], [[V_WEIGHT_DQ]]) : tensor<577x768xf32>, tensor<768x768xf32> -> tensor<577x768xf32>
+  // CHECK: [[V_RESHAPE_FC:%.+]] = IE.AffineReshape([[V_FC]]) {dim_mapping = {{\[\[}}0, 1], [2]], shape_value = [1, 577, 768]} : tensor<577x768xf32> -> tensor<1x577x768xf32>
+  // CHECK: [[V_ADD:%.+]] = IE.Add([[V_RESHAPE_FC]], [[V_BIAS]])
+  // CHECK: [[V_RESHAPE:%.+]] = IE.AffineReshape([[V_ADD]]) {dim_mapping = {{\[\[}}0], [1], [2, 3]], shape_value = [1, 577, 12, 64]} : tensor<1x577x768xf32> -> tensor<1x577x12x64xf32>
+  // CHECK: [[V_TRANSPOSE:%.+]] = IE.Transpose([[V_RESHAPE]]) {order_value = #NHCW} : tensor<1x577x12x64xf32> -> tensor<1x12x577x64xf32>
+  // CHECK: [[VT:%.+]] = IE.Transpose([[V_TRANSPOSE]]) {order_value = #NCWH} : tensor<1x12x577x64xf32> -> tensor<1x12x64x577xf32>
+  // CHECK-NOT: IE.Gather
+  // CHECK: [[ATTENTION:%.+]] = IE.Attention([[Q_TRANSPOSE]], [[K_TRANSPOSE]], [[VT]], [[SCALE]])
+  // CHECK: return [[ATTENTION]]
+}
+
+// -----
+
+#map1 = affine_map<(d0, d1, d2, d3, d4) -> (d2, d0, d3, d1, d4)>
+#NCWH = affine_map<(d0, d1, d2, d3) -> (d0, d1, d3, d2)>
+
+// CHECK-LABEL: @AdjustQKVTransposeForUnrollSDPAWithDynDeqWeights
+// CHECK-SAME: ([[INPUT:%.+]]: tensor<577x768xf32>)
+func.func @AdjustQKVTransposeForUnrollSDPAWithDynDeqWeights(%input: tensor<577x768xf32>) -> tensor<1x12x577x64xf32> {
+  %weights_raw = const.Declare tensor<2304x768xsi8> = dense<1> : tensor<2304x768xsi8>
+  %weight_scale = const.Declare tensor<2304x1xf32> = dense<1.0> : tensor<2304x1xf32>
+  %bias = const.Declare tensor<1x1x2304xf32> = dense<2.0> : tensor<1x1x2304xf32>
+  %fq_low = const.Declare tensor<1x1x1x1x1xf32> = dense<0.0> : tensor<1x1x1x1x1xf32>
+  %fq_high = const.Declare tensor<1x1x1x1x1xf32> = dense<1.0> : tensor<1x1x1x1x1xf32>
+  %q_idx = const.Declare tensor<1xsi64> = dense<0> : tensor<1xsi64>
+  %k_idx = const.Declare tensor<1xsi64> = dense<1> : tensor<1xsi64>
+  %v_idx = const.Declare tensor<1xsi64> = dense<2> : tensor<1xsi64>
+  %scale = const.Declare tensor<1xf32> = dense<1.0> : tensor<1xf32>
+
+  %weight_dq = IE.DynamicDequantize(%weights_raw, %weight_scale) {dstElemType = f32} : tensor<2304x768xsi8>, tensor<2304x1xf32> -> tensor<2304x768xf32>
+  %fc = IE.FullyConnected(%input, %weight_dq) : tensor<577x768xf32>, tensor<2304x768xf32> -> tensor<577x2304xf32>
+  %reshape_fc = IE.AffineReshape(%fc) {dim_mapping = [[0, 1], [2]], shape_value = [1, 577, 2304]} : tensor<577x2304xf32> -> tensor<1x577x2304xf32>
+  %add = IE.Add(%reshape_fc, %bias) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x577x2304xf32>, tensor<1x1x2304xf32> -> tensor<1x577x2304xf32>
+  %reshape = IE.AffineReshape(%add) {dim_mapping = [[0], [1], [2, 3, 4]], shape_value = [1, 577, 3, 12, 64]} : tensor<1x577x2304xf32> -> tensor<1x577x3x12x64xf32>
+  %transpose = IE.Transpose(%reshape) {order_value = #map1} : tensor<1x577x3x12x64xf32> -> tensor<3x1x12x577x64xf32>
+  %fq = IE.FakeQuantize(%transpose, %fq_low, %fq_high, %fq_low, %fq_high) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i64} : tensor<3x1x12x577x64xf32>, tensor<1x1x1x1x1xf32>, tensor<1x1x1x1x1xf32>, tensor<1x1x1x1x1xf32>, tensor<1x1x1x1x1xf32> -> tensor<3x1x12x577x64xf32>
+  %q = IE.Gather(%fq, %q_idx) {axis_value = 0 : i64, batch_dims = 0 : i64, indices_rank = 0 : i64} : tensor<3x1x12x577x64xf32>, tensor<1xsi64> -> tensor<1x12x577x64xf32>
+  %k = IE.Gather(%fq, %k_idx) {axis_value = 0 : i64, batch_dims = 0 : i64, indices_rank = 0 : i64} : tensor<3x1x12x577x64xf32>, tensor<1xsi64> -> tensor<1x12x577x64xf32>
+  %v = IE.Gather(%transpose, %v_idx) {axis_value = 0 : i64, batch_dims = 0 : i64, indices_rank = 0 : i64} : tensor<3x1x12x577x64xf32>, tensor<1xsi64> -> tensor<1x12x577x64xf32>
+  %vt = IE.Transpose(%v) {order_value = #NCWH} : tensor<1x12x577x64xf32> -> tensor<1x12x64x577xf32>
+  %attention = IE.Attention(%q, %k, %vt, %scale) {operandSegmentSizes = array<i32: 1, 1, 1, 0, 1, 0, 0>} : tensor<1x12x577x64xf32>, tensor<1x12x577x64xf32>, tensor<1x12x64x577xf32>, tensor<1xf32> -> tensor<1x12x577x64xf32>
+  return %attention : tensor<1x12x577x64xf32>
+
+  // CHECK-DAG: [[Q_WEIGHT:%.+]] = const.Declare tensor<768x768xsi8> = dense<1> : tensor<2304x768xsi8>, [#const.SubView<[0, 0], [768, 768]>]
+  // CHECK-DAG: [[K_WEIGHT:%.+]] = const.Declare tensor<768x768xsi8> = dense<1> : tensor<2304x768xsi8>, [#const.SubView<[768, 0], [768, 768]>]
+  // CHECK-DAG: [[V_WEIGHT:%.+]] = const.Declare tensor<768x768xsi8> = dense<1> : tensor<2304x768xsi8>, [#const.SubView<[1536, 0], [768, 768]>]
+  // CHECK-DAG: [[Q_SCALE:%.+]] = const.Declare tensor<768x1xf32> = dense<1.000000e+00> : tensor<2304x1xf32>, [#const.SubView<[0, 0], [768, 1]>]
+  // CHECK-DAG: [[K_SCALE:%.+]] = const.Declare tensor<768x1xf32> = dense<1.000000e+00> : tensor<2304x1xf32>, [#const.SubView<[768, 0], [768, 1]>]
+  // CHECK-DAG: [[V_SCALE:%.+]] = const.Declare tensor<768x1xf32> = dense<1.000000e+00> : tensor<2304x1xf32>, [#const.SubView<[1536, 0], [768, 1]>]
+  // CHECK-DAG: [[Q_BIAS:%.+]] = const.Declare tensor<1x1x768xf32> = dense<2.000000e+00> : tensor<1x1x2304xf32>, [#const.SubView<[0, 0, 0], [1, 1, 768]>]
+  // CHECK-DAG: [[K_BIAS:%.+]] = const.Declare tensor<1x1x768xf32> = dense<2.000000e+00> : tensor<1x1x2304xf32>, [#const.SubView<[0, 0, 768], [1, 1, 768]>]
+  // CHECK-DAG: [[V_BIAS:%.+]] = const.Declare tensor<1x1x768xf32> = dense<2.000000e+00> : tensor<1x1x2304xf32>, [#const.SubView<[0, 0, 1536], [1, 1, 768]>]
+  // CHECK-DAG: [[FQ_LOW:%.+]] = const.Declare tensor<1xf32> = dense<0.000000e+00> : tensor<1x1x1x1x1xf32>, [#const.Reshape<[1]>]
+  // CHECK-DAG: [[FQ_HIGH:%.+]] = const.Declare tensor<1xf32> = dense<1.000000e+00> : tensor<1x1x1x1x1xf32>, [#const.Reshape<[1]>]
+  // CHECK-DAG: [[SCALE:%.+]] = const.Declare tensor<1xf32> = dense<1.000000e+00> : tensor<1xf32>
+
+  // CHECK: [[Q_WEIGHT_DQ:%.+]] = IE.DynamicDequantize([[Q_WEIGHT]], [[Q_SCALE]]) {dstElemType = f32} : tensor<768x768xsi8>, tensor<768x1xf32> -> tensor<768x768xf32>
+  // CHECK: [[Q_FC:%.+]] = IE.FullyConnected([[INPUT]], [[Q_WEIGHT_DQ]]) : tensor<577x768xf32>, tensor<768x768xf32> -> tensor<577x768xf32>
+  // CHECK: [[Q_RESHAPE_FC:%.+]] = IE.AffineReshape([[Q_FC]]) {dim_mapping = {{\[\[}}0, 1], [2]], shape_value = [1, 577, 768]} : tensor<577x768xf32> -> tensor<1x577x768xf32>
+  // CHECK: [[Q_ADD:%.+]] = IE.Add([[Q_RESHAPE_FC]], [[Q_BIAS]])
+  // CHECK: [[Q_RESHAPE:%.+]] = IE.AffineReshape([[Q_ADD]]) {dim_mapping = {{\[\[}}0], [1], [2, 3]], shape_value = [1, 577, 12, 64]} : tensor<1x577x768xf32> -> tensor<1x577x12x64xf32>
+  // CHECK: [[Q_FQ:%.+]] = IE.FakeQuantize([[Q_RESHAPE]], [[FQ_LOW]], [[FQ_HIGH]], [[FQ_LOW]], [[FQ_HIGH]])
+  // CHECK: [[Q_TRANSPOSE:%.+]] = IE.Transpose([[Q_FQ]]) {order_value = #NHCW} : tensor<1x577x12x64xf32> -> tensor<1x12x577x64xf32>
+
+  // CHECK: [[K_WEIGHT_DQ:%.+]] = IE.DynamicDequantize([[K_WEIGHT]], [[K_SCALE]]) {dstElemType = f32} : tensor<768x768xsi8>, tensor<768x1xf32> -> tensor<768x768xf32>
+  // CHECK: [[K_FC:%.+]] = IE.FullyConnected([[INPUT]], [[K_WEIGHT_DQ]]) : tensor<577x768xf32>, tensor<768x768xf32> -> tensor<577x768xf32>
+  // CHECK: [[K_RESHAPE_FC:%.+]] = IE.AffineReshape([[K_FC]]) {dim_mapping = {{\[\[}}0, 1], [2]], shape_value = [1, 577, 768]} : tensor<577x768xf32> -> tensor<1x577x768xf32>
+  // CHECK: [[K_ADD:%.+]] = IE.Add([[K_RESHAPE_FC]], [[K_BIAS]])
+  // CHECK: [[K_RESHAPE:%.+]] = IE.AffineReshape([[K_ADD]]) {dim_mapping = {{\[\[}}0], [1], [2, 3]], shape_value = [1, 577, 12, 64]} : tensor<1x577x768xf32> -> tensor<1x577x12x64xf32>
+  // CHECK: [[K_FQ:%.+]] = IE.FakeQuantize([[K_RESHAPE]], [[FQ_LOW]], [[FQ_HIGH]], [[FQ_LOW]], [[FQ_HIGH]])
+  // CHECK: [[K_TRANSPOSE:%.+]] = IE.Transpose([[K_FQ]]) {order_value = #NHCW} : tensor<1x577x12x64xf32> -> tensor<1x12x577x64xf32>
+
+  // CHECK: [[V_WEIGHT_DQ:%.+]] = IE.DynamicDequantize([[V_WEIGHT]], [[V_SCALE]]) {dstElemType = f32} : tensor<768x768xsi8>, tensor<768x1xf32> -> tensor<768x768xf32>
+  // CHECK: [[V_FC:%.+]] = IE.FullyConnected([[INPUT]], [[V_WEIGHT_DQ]]) : tensor<577x768xf32>, tensor<768x768xf32> -> tensor<577x768xf32>
   // CHECK: [[V_RESHAPE_FC:%.+]] = IE.AffineReshape([[V_FC]]) {dim_mapping = {{\[\[}}0, 1], [2]], shape_value = [1, 577, 768]} : tensor<577x768xf32> -> tensor<1x577x768xf32>
   // CHECK: [[V_ADD:%.+]] = IE.Add([[V_RESHAPE_FC]], [[V_BIAS]])
   // CHECK: [[V_RESHAPE:%.+]] = IE.AffineReshape([[V_ADD]]) {dim_mapping = {{\[\[}}0], [1], [2, 3]], shape_value = [1, 577, 12, 64]} : tensor<1x577x768xf32> -> tensor<1x577x12x64xf32>

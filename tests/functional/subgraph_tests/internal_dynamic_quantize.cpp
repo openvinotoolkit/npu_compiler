@@ -118,7 +118,10 @@ std::shared_ptr<ov::Model> buildDecomposedReferenceDQModel(const ov::Shape& inpu
     const float quantRangeMaxValue = isSigned ? 127.0f : 255.0f;
     auto quantRangeMin = ov::op::v0::Constant::create(ov::element::f32, ov::Shape{}, {quantRangeMinValue});
     auto quantRangeMax = ov::op::v0::Constant::create(ov::element::f32, ov::Shape{}, {quantRangeMaxValue});
-    auto quantRangeSpan = std::make_shared<ov::op::v1::Subtract>(quantRangeMax, quantRangeMin);
+    // Internal signed Key quantization uses the NPUW V1 span of 127. The external signed
+    // DynamicQuantize decomposition uses the full [-127, 127] span of 254 instead.
+    const float quantSpan = isSigned ? 127.0f : 255.0f;
+    auto quantRangeSpan = ov::op::v0::Constant::create(ov::element::f32, ov::Shape{}, {quantSpan});
 
     auto yScale = std::make_shared<ov::op::v1::Divide>(xSpan, quantRangeSpan);
     auto xMinShifted = std::make_shared<ov::op::v1::Subtract>(quantRangeMin, xMin);
@@ -173,7 +176,8 @@ public:
         init_input_shapes(ov::test::static_shapes_to_test_representation({inputShape}));
 
         const auto attrs = makeSupportedAttrs(quantType, scaleType, groupSizes);
-        // NPU frontend decomposes internal::DynamicQuantize into the existing compiler DynamicQuantize subgraph.
+        // NPU frontend imports internal::DynamicQuantize into a single compiler DynamicQuantize op whose SW kernel
+        // computes the reduction (min/max) internally over the reduction axes; no external ReduceMin/ReduceMax.
         function = buildInternalDQModel(inputShape, inputType, attrs, "InternalDynamicQuantize");
         // CPU executes a decomposed reference subgraph so the test validates DynamicQuantize semantics rather than
         // relying on CPU support for the internal op.
@@ -282,6 +286,7 @@ TEST_P(UnsupportedInternalDynamicQuantizeTest, NPU4000) {
 
 const std::vector<InternalDQParams> positiveCases = {
         {{1, 4, 8}, ov::element::f32, ov::element::u8, ov::element::f32, {WHOLE_DIM, WHOLE_DIM, WHOLE_DIM}},
+        {{1, 4, 8}, ov::element::f32, ov::element::i8, ov::element::f32, {WHOLE_DIM, WHOLE_DIM, WHOLE_DIM}},
         {{1, 4, 8}, ov::element::f16, ov::element::i8, ov::element::f16, {1, 1, 8}},
 };
 
@@ -338,23 +343,12 @@ const std::vector<NegativeInternalDQParams> negativeCases = [] {
     return cases;
 }();
 
-// [E#-220941] Temporarily disabled: these tests exercise ov::op::internal::DynamicQuantize through the PLUGIN
-// (in-plugin VCL) compiler path, which serializes the model to IR and deserializes it inside the compiler. The op
-// attributes (group_sizes, scales_zp_output_order, quantization_type, per-tensor data types, output_storage_type)
-// only survive that round-trip once ov::op::internal::DynamicQuantize::visit_attributes() exists in OpenVINO.
-// The OpenVINO commit currently pinned in validation/openvino_config.json (655b96740d) predates that support, so the
-// deserialized op is rebuilt with empty group_sizes and shape_infer aborts with
-// "Scale_shape and group_size are supposed to have same rank: N / 0" before any NPU-side logic runs. This breaks both
-// the positive round-trip cases and the negative rejection cases (the "N / 0" abort masks the expected NPU error).
-//
-// The required support already exists upstream: PR openvinotoolkit/openvino#35283
-// (commit c508c7595e307571828f7d15e979471614cdcbe2) added DynamicQuantize::visit_attributes(), and it is present on
-// current OpenVINO master. Remove the DISABLED_ prefixes once validation/openvino_config.json is bumped to an
-// OpenVINO commit that includes c508c7595e; the tests then pass unchanged with no NPU-side or OpenVINO-side fix.
-INSTANTIATE_TEST_SUITE_P(DISABLED_precommit_InternalDynamicQuantize, InternalDynamicQuantizeTestCommon,
+// These suites validate end-to-end internal::DynamicQuantize behavior in plugin mode:
+// OV internal op import -> compiler DynamicQuantize path -> kernel execution -> CPU decomposed reference compare.
+INSTANTIATE_TEST_SUITE_P(precommit_InternalDynamicQuantize, InternalDynamicQuantizeTestCommon,
                          ::testing::ValuesIn(positiveCases), InternalDynamicQuantizeTestCommon::getTestCaseName);
 
-INSTANTIATE_TEST_SUITE_P(DISABLED_smoke_InternalDynamicQuantize_Negative, UnsupportedInternalDynamicQuantizeTest,
+INSTANTIATE_TEST_SUITE_P(smoke_InternalDynamicQuantize_Negative, UnsupportedInternalDynamicQuantizeTest,
                          ::testing::ValuesIn(negativeCases), UnsupportedInternalDynamicQuantizeTest::getTestCaseName);
 
 }  // namespace

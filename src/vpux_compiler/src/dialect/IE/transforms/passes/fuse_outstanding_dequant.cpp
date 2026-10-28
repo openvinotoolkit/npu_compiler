@@ -306,9 +306,9 @@ mlir::LogicalResult DequantizeWithNCEReLUxRewriter::matchAndRewrite(IE::Dequanti
         }
 
         rewriter.setInsertionPointAfter(newNCEOp);
-        auto clampOp = rewriter.create<IE::ClampOp>(takeOpLoc(origOp, "as_clamp"), newNCEOp->getResult(0),
-                                                    rewriter.getF64FloatAttr(newClamp.min),
-                                                    rewriter.getF64FloatAttr(newClamp.max));
+        auto clampOp =
+                IE::ClampOp::create(rewriter, takeOpLoc(origOp, "as_clamp"), newNCEOp->getResult(0),
+                                    rewriter.getF64FloatAttr(newClamp.min), rewriter.getF64FloatAttr(newClamp.max));
         // NOTE: The chain references based of nceOp not newNCEOp
         rewriter.replaceAllUsesExcept(nceOp->getResult(0), clampOp.getOutput(), clampOp);
         result = chain.empty() ? clampOp.getOutput() : chainTail;

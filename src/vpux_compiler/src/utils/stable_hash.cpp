@@ -4,7 +4,7 @@
 //
 
 #include "vpux/compiler/utils/stable_hash.hpp"
-#include "vpux/compiler/core/types/quantile_float/types.hpp"
+#include "vpux/compiler/core/types/quantile_types/types.hpp"
 #include "vpux/utils/core/format.hpp"
 
 #include <llvm/ADT/Hashing.h>
@@ -33,7 +33,7 @@ llvm::hash_code getStableHash(mlir::Type type) {
     return mlir::TypeSwitch<mlir::Type, llvm::hash_code>(type)
             .Case([](mlir::quant::UniformQuantizedPerAxisType perAxisType) {
                 if (const auto quantileStorageType =
-                            mlir::dyn_cast<vpux::type::QuantileType>(perAxisType.getStorageType())) {
+                            mlir::dyn_cast<mlir::quant::QuantileType>(perAxisType.getStorageType())) {
                     const auto quantiles = quantileStorageType.getQuantiles();
                     const auto scales = perAxisType.getScales();
                     return llvm::hash_combine(

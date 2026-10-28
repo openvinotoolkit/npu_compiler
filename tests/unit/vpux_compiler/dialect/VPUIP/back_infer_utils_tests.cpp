@@ -356,6 +356,30 @@ TEST_F(MLIR_VPUIP_BackInfer, GenericReshape_ForwardInfersOutputShape) {
     EXPECT_EQ(asND(inferred.value()).getNumElements(), 1000);
 }
 
+TEST_F(MLIR_VPUIP_BackInfer, GenericReshape_ForwardPreservesOutputDimsOrder) {
+    constexpr llvm::StringLiteral ir = R"(
+        #NCWH = affine_map<(d0, d1, d2, d3) -> (d0, d1, d3, d2)>
+        #NWCH = affine_map<(d0, d1, d2, d3) -> (d0, d3, d1, d2)>
+        module @test {
+            func.func @main(%arg0: memref<1x1x203x12xf16, {order = #NCWH}, @DDR>)
+                    -> memref<1x203x1x12xf16, {order = #NWCH}, @DDR> {
+                %0 = VPUIP.GenericReshape
+                        inputs(%arg0 : memref<1x1x203x12xf16, {order = #NCWH}, @DDR>)
+                        -> memref<1x203x1x12xf16, {order = #NWCH}, @DDR>
+                return %0 : memref<1x203x1x12xf16, {order = #NWCH}, @DDR>
+            }
+        }
+    )";
+    auto module = parse(ir);
+    ASSERT_TRUE(module.get() != nullptr);
+    auto op = findFirstOp<VPUIP::GenericReshapeOp>(module.get());
+    ASSERT_NE(op, nullptr);
+
+    const auto inferred = VPUIP::BackInferUtils::inferOutputType(op, op.getInput().getType());
+    ASSERT_TRUE(inferred.has_value());
+    expectSameNDType(inferred.value(), op.getOutput().getType());
+}
+
 TEST_F(MLIR_VPUIP_BackInfer, GenericReshape_ForwardRejectsElementCountMismatch) {
     constexpr llvm::StringLiteral ir = R"(
         module @test {

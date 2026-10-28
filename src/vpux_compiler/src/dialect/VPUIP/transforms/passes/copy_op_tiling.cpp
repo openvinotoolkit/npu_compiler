@@ -215,10 +215,10 @@ SmallVector<mlir::Value> CopyOpTiling::createTiles(VPUIP::CopyOp origOp, mlir::P
 
         // Create the operations for it
         auto inputSubView =
-                rewriter.create<VPUIP::SubViewOp>(tileLoc, origOp.getInput(), currentOffset, currentTileShapeVector);
-        auto outputSubView = rewriter.create<VPUIP::SubViewOp>(tileLoc, origOp.getOutputBuff(), currentOffset,
-                                                               currentTileShapeVector);
-        auto copyTile = rewriter.create<VPUIP::CopyOp>(tileLoc, inputSubView.getResult(), outputSubView.getResult());
+                VPUIP::SubViewOp::create(rewriter, tileLoc, origOp.getInput(), currentOffset, currentTileShapeVector);
+        auto outputSubView = VPUIP::SubViewOp::create(rewriter, tileLoc, origOp.getOutputBuff(), currentOffset,
+                                                      currentTileShapeVector);
+        auto copyTile = VPUIP::CopyOp::create(rewriter, tileLoc, inputSubView.getResult(), outputSubView.getResult());
 
         concatInputs.push_back(copyTile.getOutput());
         _log.nest().trace("Created tile #{0} for {1} planes that requires {2}", tileIdx,
@@ -291,10 +291,10 @@ SmallVector<mlir::Value> SingleCopyOpWithConcatOpUserTiling::createWithParallelT
 
         // Create the operations for it
         auto inputSubView =
-                rewriter.create<VPUIP::SubViewOp>(tileLoc, origOp.getInput(), currentOffset, currentTileShapeVector);
-        auto outputSubView = rewriter.create<VPUIP::SubViewOp>(tileLoc, origOp.getOutputBuff(), currentOffset,
-                                                               currentTileShapeVector);
-        auto copyTile = rewriter.create<VPUIP::CopyOp>(tileLoc, inputSubView.getResult(), outputSubView.getResult());
+                VPUIP::SubViewOp::create(rewriter, tileLoc, origOp.getInput(), currentOffset, currentTileShapeVector);
+        auto outputSubView = VPUIP::SubViewOp::create(rewriter, tileLoc, origOp.getOutputBuff(), currentOffset,
+                                                      currentTileShapeVector);
+        auto copyTile = VPUIP::CopyOp::create(rewriter, tileLoc, inputSubView.getResult(), outputSubView.getResult());
 
         concatInputs.push_back(copyTile.getOutput());
 

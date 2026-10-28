@@ -146,8 +146,8 @@ mlir::LogicalResult MaxPoolConverter::matchAndRewrite(IE::MaxPoolOp origOp, mlir
         SmallVector<int64_t> padsBegin(4, 0);
         SmallVector<int64_t> padsEnd(4, 0);
         padsEnd[C.ind()] = padAmount;
-        reshapeInput = rewriter.create<IE::ExpandOp>(appendLoc(origOp->getLoc(), "pad_channels"), transposeInResult,
-                                                     getIntArrayAttr(ctx, padsBegin), getIntArrayAttr(ctx, padsEnd));
+        reshapeInput = IE::ExpandOp::create(rewriter, appendLoc(origOp->getLoc(), "pad_channels"), transposeInResult,
+                                            getIntArrayAttr(ctx, padsBegin), getIntArrayAttr(ctx, padsEnd));
     }
 
     const SmallVector<int64_t> newInputShape = {
@@ -162,10 +162,11 @@ mlir::LogicalResult MaxPoolConverter::matchAndRewrite(IE::MaxPoolOp origOp, mlir
 
     const auto newKernel = getIntArrayAttr(ctx, SmallVector<int64_t>{kernel[1], kernel[0]});
     const auto newStrides = getIntArrayAttr(ctx, SmallVector<int64_t>{strides[1], strides[0]});
-    auto maxpool = rewriter.create<IE::MaxPoolOp>(
-            origOp.getLoc(), reshapeInResult, origOp.getScale(), newKernel, newStrides, origOp.getPadsBeginAttr(),
-            origOp.getPadsEndAttr(), origOp.getRoundingType(), origOp.getPostOpAttr(), origOp.getClampAttr(),
-            origOp.getStaticScaleAttr(), origOp.getOutputPaddingAttr(), origOp.getInputPaddingAttr());
+    auto maxpool =
+            IE::MaxPoolOp::create(rewriter, origOp.getLoc(), reshapeInResult, origOp.getScale(), newKernel, newStrides,
+                                  origOp.getPadsBeginAttr(), origOp.getPadsEndAttr(), origOp.getRoundingType(),
+                                  origOp.getPostOpAttr(), origOp.getClampAttr(), origOp.getStaticScaleAttr(),
+                                  origOp.getOutputPaddingAttr(), origOp.getInputPaddingAttr());
 
     // Reshape output back
     const SmallVector<int64_t> newOutputShape = {
@@ -188,8 +189,8 @@ mlir::LogicalResult MaxPoolConverter::matchAndRewrite(IE::MaxPoolOp origOp, mlir
                 outShape[W],
                 outShape[H],
         };
-        transposeInput = rewriter.create<IE::SliceOp>(appendLoc(origOp->getLoc(), "slice_channels"), reshapeOutResult,
-                                                      getIntArrayAttr(ctx, offsets), getIntArrayAttr(ctx, sizes));
+        transposeInput = IE::SliceOp::create(rewriter, appendLoc(origOp->getLoc(), "slice_channels"), reshapeOutResult,
+                                             getIntArrayAttr(ctx, offsets), getIntArrayAttr(ctx, sizes));
     }
 
     auto transposeOutResult = rewriter.createOrFold<IE::TransposeOp>(appendLoc(origOp->getLoc(), "transpose_out"),

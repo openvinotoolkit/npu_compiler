@@ -28,6 +28,9 @@ namespace VPUIP {
 
 bool isBeneficialForUsingSWDepthToSpace(VPU::DepthToSpaceOp d2sOp);
 
+bool doesPermuteHaveSubByteStride(NDTypeInterface inType, NDTypeInterface outType, mlir::AffineMap perm,
+                                  Logger log = Logger::global());
+
 // Replace permute with DMA
 std::optional<Shape> getPermuteDMAInputShape(NDTypeInterface inType, NDTypeInterface outType, mlir::AffineMap memPerm,
                                              vpux::Logger log);

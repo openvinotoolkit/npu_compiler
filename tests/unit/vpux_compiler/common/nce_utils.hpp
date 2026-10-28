@@ -14,7 +14,7 @@ inline vpux::VPUIP::DPUTaskOp createDPUTaskOp(mlir::OpBuilder& builder, vpux::Ar
                                               vpux::ArrayRef<int64_t> outEnd) {
     auto pad = vpux::VPU::getPaddingAttr(builder.getContext(), 0, 0, 0, 0);
 
-    return builder.create<vpux::VPUIP::DPUTaskOp>(builder.getUnknownLoc(), vpux::getIntArrayAttr(builder, outStart),
-                                                  vpux::getIntArrayAttr(builder, outEnd), pad,
-                                                  vpux::VPU::MPEMode::CUBOID_16x16);
+    return vpux::VPUIP::DPUTaskOp::create(builder, builder.getUnknownLoc(), vpux::getIntArrayAttr(builder, outStart),
+                                          vpux::getIntArrayAttr(builder, outEnd), pad,
+                                          vpux::VPU::MPEMode::CUBOID_16x16);
 }

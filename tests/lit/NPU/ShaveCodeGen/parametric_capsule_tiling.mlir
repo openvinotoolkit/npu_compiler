@@ -543,3 +543,108 @@ module @InvalidOp {
 // CHECK-NOT: Shave.OutSliceInfo
   }
 }
+
+// -----
+
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+
+// CHECK: module @FusedEltwiseAtMinTilingSize
+module @FusedEltwiseAtMinTilingSize {
+
+  net.NetworkInfo entryPoint : @main inputsInfo : {
+    DataInfo "input0" : tensor<1x1x1024x1xf32>
+  } outputsInfo : {
+    DataInfo "output" : tensor<1x1x1024x1xf32>
+  }
+
+// The graph is too small to tile.
+
+// CHECK:       func.func @main([[ARG:%.+]]: tensor<1x1x1024x1xf32>)
+  func.func @main(%argi: tensor<1x1x1024x1xf32>) -> tensor<1x1x1024x1xf32> {
+    %caps = IE.CodeGenCapsule inputs(%argi as %arg0: tensor<1x1x1024x1xf32>) {
+        %0 = tensor.empty() : tensor<1x1x1024x1xf32>
+        %1 = linalg.generic {indexing_maps = [#NCHW, #NCHW], iterator_types = ["parallel", "parallel", "parallel", "parallel"]} ins(%arg0 : tensor<1x1x1024x1xf32>) outs(%0 : tensor<1x1x1024x1xf32>) {
+        ^bb0(%in: f32, %out: f32):
+          %e = math.exp %in fastmath<afn> : f32
+          linalg.yield %e : f32
+        } -> tensor<1x1x1024x1xf32>
+        %2 = tensor.empty() : tensor<1x1x1024x1xf32>
+        %3 = linalg.generic {indexing_maps = [#NCHW, #NCHW], iterator_types = ["parallel", "parallel", "parallel", "parallel"]} ins(%1 : tensor<1x1x1024x1xf32>) outs(%2 : tensor<1x1x1024x1xf32>) {
+        ^bb0(%in: f32, %out: f32):
+          %a = math.absf %in : f32
+          linalg.yield %a : f32
+        } -> tensor<1x1x1024x1xf32>
+        IE.CGCYield %3 : tensor<1x1x1024x1xf32>
+    } -> tensor<1x1x1024x1xf32>
+    return %caps : tensor<1x1x1024x1xf32>
+
+  // CHECK-NEXT:  [[CAPSULE:%.+]] = IE.CodeGenCapsule inputs([[ARG]] as [[ARG0:%.+]]: tensor<1x1x1024x1xf32>)
+  // CHECK-NEXT:    [[EMPTY_EXP:%.+]] = tensor.empty() : tensor<1x1x1024x1xf32>
+  // CHECK-NEXT:    [[EXP:%.+]] = linalg.generic
+  // CHECK-SAME:        ins([[ARG0]] : tensor<1x1x1024x1xf32>)
+  // CHECK-SAME:        outs([[EMPTY_EXP]] : tensor<1x1x1024x1xf32>)
+  // CHECK:         [[EMPTY_ABS:%.+]] = tensor.empty() : tensor<1x1x1024x1xf32>
+  // CHECK-NEXT:    [[ABS:%.+]] = linalg.generic
+  // CHECK-SAME:        ins([[EXP]] : tensor<1x1x1024x1xf32>)
+  // CHECK-SAME:        outs([[EMPTY_ABS]] : tensor<1x1x1024x1xf32>)
+  // CHECK:         IE.CGCYield [[ABS]] : tensor<1x1x1024x1xf32>
+  // CHECK-NEXT:  } -> tensor<1x1x1024x1xf32>
+  // CHECK-NEXT:  return [[CAPSULE]] : tensor<1x1x1024x1xf32>
+  }
+}
+
+// -----
+
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+
+// CHECK: module @FusedEltwiseAboveMinTilingSize
+module @FusedEltwiseAboveMinTilingSize {
+
+  net.NetworkInfo entryPoint : @main inputsInfo : {
+    DataInfo "input0" : tensor<1x1x1025x1xf32>
+  } outputsInfo : {
+    DataInfo "output" : tensor<1x1x1025x1xf32>
+  }
+
+// CHECK:       func.func @main([[ARG:%.+]]: tensor<1x1x1025x1xf32>)
+  func.func @main(%argi: tensor<1x1x1025x1xf32>) -> tensor<1x1x1025x1xf32> {
+    %caps = IE.CodeGenCapsule inputs(%argi as %arg0: tensor<1x1x1025x1xf32>) {
+        %0 = tensor.empty() : tensor<1x1x1025x1xf32>
+        %1 = linalg.generic {indexing_maps = [#NCHW, #NCHW], iterator_types = ["parallel", "parallel", "parallel", "parallel"]} ins(%arg0 : tensor<1x1x1025x1xf32>) outs(%0 : tensor<1x1x1025x1xf32>) {
+        ^bb0(%in: f32, %out: f32):
+          %e = math.exp %in fastmath<afn> : f32
+          linalg.yield %e : f32
+        } -> tensor<1x1x1025x1xf32>
+        %2 = tensor.empty() : tensor<1x1x1025x1xf32>
+        %3 = linalg.generic {indexing_maps = [#NCHW, #NCHW], iterator_types = ["parallel", "parallel", "parallel", "parallel"]} ins(%1 : tensor<1x1x1025x1xf32>) outs(%2 : tensor<1x1x1025x1xf32>) {
+        ^bb0(%in: f32, %out: f32):
+          %a = math.absf %in : f32
+          linalg.yield %a : f32
+        } -> tensor<1x1x1025x1xf32>
+        IE.CGCYield %3 : tensor<1x1x1025x1xf32>
+    } -> tensor<1x1x1025x1xf32>
+    return %caps : tensor<1x1x1025x1xf32>
+
+  // CHECK:       IE.CodeGenCapsule inputs([[ARG]] as [[ARG0:%.+]]: tensor<1x1x1025x1xf32>)
+  // CHECK-DAG:     [[EMPTY:%.+]] = tensor.empty() : tensor<1x1x1025x1xf32>
+  // CHECK-DAG:     [[TRIPCOUNT:%.+]] = Shave.LoopTripCount({{.*}}) : index -> index
+  // CHECK-DAG:     [[ONE:%.+]] = arith.constant 1 : index
+  // CHECK:         [[FOR:%.+]] = scf.for [[IT:%.+]] = {{.*}} to [[TRIPCOUNT]] step [[ONE]] iter_args([[ACCUM:%.+]] = [[EMPTY]]) -> (tensor<1x1x1025x1xf32>) {
+  // CHECK:           [[SIZES:%.+]], [[OFFSETS:%.+]] = Shave.OutSliceInfo({{.*}}, [[IT]]) -> sizes(index), offsets(index)
+  // CHECK:           [[SLICE:%.+]] = tensor.extract_slice
+  // CHECK-SAME:          [[ARG0]][0, 0, [[OFFSETS]], 0] [1, 1, [[SIZES]], 1]
+  // CHECK-SAME:          to tensor<1x1x?x1xf32>
+  // CHECK:           [[LOOP_EMPTY:%.+]] = tensor.empty([[SIZES]]) : tensor<1x1x?x1xf32>
+  // CHECK:           [[EXP:%.+]] = linalg.generic
+  // CHECK-SAME:          ins([[SLICE]] : tensor<1x1x?x1xf32>)
+  // CHECK-SAME:          outs([[LOOP_EMPTY]] : tensor<1x1x?x1xf32>)
+  // CHECK:           [[ABS:%.+]] = linalg.generic
+  // CHECK-SAME:          ins([[EXP]] : tensor<1x1x?x1xf32>)
+  // CHECK-SAME:          outs([[LOOP_EMPTY]] : tensor<1x1x?x1xf32>)
+  // CHECK:           [[INSERT:%.+]] = tensor.insert_slice [[ABS]] into [[ACCUM]]
+  // CHECK-SAME:          [0, 0, [[OFFSETS]], 0] [1, 1, [[SIZES]], 1] [1, 1, 1, 1]
+  // CHECK-SAME:          into tensor<1x1x1025x1xf32>
+  // CHECK-NEXT:      scf.yield [[INSERT]] : tensor<1x1x1025x1xf32>
+  // CHECK:         IE.CGCYield [[FOR]] : tensor<1x1x1025x1xf32>
+  }
+}

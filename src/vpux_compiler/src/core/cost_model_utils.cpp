@@ -49,6 +49,8 @@ VPUNN::VPUTensor getVPUNNTensor(ShapeRef tensorShape, VPUNN::DataType dataType) 
     }
 }
 
+// E#226943: need to refer directly to reference implementation getVPUNNElementType in cost_model and remove this
+// duplication
 VPUNN::DataType getElementType(mlir::Type type, [[maybe_unused]] VPUNN::VPUDevice vpuDevice) {
     if (type.isBF16()) {
         return VPUNN::DataType::BFLOAT16;

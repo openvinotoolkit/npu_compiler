@@ -51,6 +51,26 @@ mlir::LogicalResult DPUInvariantRewriter::matchAndRewrite(VPUIPDPU::DPUInvariant
     fillBarrierCfg(origOp, descriptor);
     fillProfilingCfg(origOp, descriptor);
 
+    auto hasTwoBitPalletizedWeights = false;
+    auto hasOneByOneKernel = false;
+    auto hasFourBySixteenMode = false;
+    origOp.getRegion().walk([&](mlir::Operation* op) {
+        if (auto weightsOp = mlir::dyn_cast<VPUIPDPU::IDUWeightsOp>(op)) {
+            hasTwoBitPalletizedWeights |= weightsOp.getWtPltCfg() == VPUIPDPU::IDUWeightPalletMode::TWO_BIT_PLT;
+        } else if (auto kernelOp = mlir::dyn_cast<VPUIPDPU::IDUKernelOp>(op)) {
+            hasOneByOneKernel |= kernelOp.getKernelX() == 1 && kernelOp.getKernelY() == 1;
+        } else if (auto dataReuseOp = mlir::dyn_cast<VPUIPDPU::ODUDataReuseOp>(op)) {
+            hasFourBySixteenMode |= dataReuseOp.getActivationReuse() == VPUIPDPU::ODUActivationReuseMode::NTHW_4;
+        }
+        const auto allFound = hasTwoBitPalletizedWeights && hasOneByOneKernel && hasFourBySixteenMode;
+        return allFound ? mlir::WalkResult::interrupt() : mlir::WalkResult::advance();
+    });
+    const auto enableWtDenseOptEn = origOp.getNceTaskType() == VPUIP::NCETaskType::CONV && hasFourBySixteenMode &&
+                                    hasOneByOneKernel && hasTwoBitPalletizedWeights;
+    if (enableWtDenseOptEn) {
+        descriptor.write<Fields::wt_dense_opt_en>(1);
+    }
+
     auto taskListCfgOp = to_small_vector(origOp.getRegion().getOps<VPUIPDPU::DPUGroupOp>());
     if (taskListCfgOp.size() == 1) {
         descriptor.write<Fields::variant_count_>(taskListCfgOp[0].getVariantCount());
@@ -58,8 +78,8 @@ mlir::LogicalResult DPUInvariantRewriter::matchAndRewrite(VPUIPDPU::DPUInvariant
 
     descriptor.write<Fields::nvar_tag>(origOp.getIndex() + 1);
 
-    rewriter.create<NPUReg50XX::DPUInvariantOp>(
-            origOp->getLoc(), origOp.getSymNameAttr(), origOp.getTaskIndexAttr(), std::move(descriptor),
+    NPUReg50XX::DPUInvariantOp::create(
+            rewriter, origOp->getLoc(), origOp.getSymNameAttr(), origOp.getTaskIndexAttr(), std::move(descriptor),
             origOp.getTaskLocationAttr(), origOp.getInputAttr(), origOp.getInputSparsityMapAttr(),
             origOp.getInputStorageElementTableAttr(), origOp.getWeightsAttr(), origOp.getWeightsSparsityMapAttr(),
             origOp.getWeightTableAttr(), origOp.getSprLookupTableAttr(), origOp.getOutputAttr(),

@@ -593,3 +593,82 @@ func.func @DynamicPaddedDimExpandStaysOutsideSCFLoop(%arg0: !dynInput) -> !dynEx
     // CHECK-NOT: scf.for
     // CHECK: VPU.Expand(%arg0) {pads_begin = [0, 0, 0, 0], pads_end = [0, 13, 0, 0]}
 }
+
+// -----
+
+// Positive case exercising the new scoping of the Expand exception in `planFusion`:
+// a producer with an explicit multiClusterStrategy (Convert / SplitOverHeight) feeds a
+// single-dim end-padded `VPU.Expand` (no multiClusterStrategy), which then feeds a
+// strategy-carrying NCE consumer chain. The strategy XOR check on the Convert→Expand edge
+// previously rejected the fusion (so Convert stayed above the loop); the new symmetric
+// `isTransparentForMCStrategy` branch treats the Expand as transparent for MC-strategy
+// verification and lets SCF VF pull the whole Convert → Expand → NCE.Convolution chain
+// inside the same `scf.for` body.
+
+config.Resources 3 of @NCE at 1.700000e+03 MHz {
+    config.MemoryResource 1327104 bytes of @CMX_NN_FragmentationAware
+    config.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
+    config.ExecutorResource 2 of @SHAVE_ACT
+    config.ExecutorResource 1 of @DPU
+}
+
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+
+// CHECK-LABEL: @ConvertExpandNCEChainFusedIntoSCFLoop
+func.func @ConvertExpandNCEChainFusedIntoSCFLoop(%arg0: tensor<1x3x540x960xf32, {order = #NHWC}>)
+        -> tensor<1x16x540x960xf16, {order = #NHWC}> {
+    %cst0 = const.Declare tensor<16x16x3x3xf16, {order = #NHWC}> =
+        dense<1.0> : tensor<16x16x3x3xf32>, [#const.CastElemType<f16>, #const.Reorder<#NHWC>]
+    %cst1 = const.Declare tensor<16x16x3x3xf16, {order = #NHWC}> =
+        dense<1.0> : tensor<16x16x3x3xf32>, [#const.CastElemType<f16>, #const.Reorder<#NHWC>]
+
+    %convert = VPU.Convert(%arg0) {dstElemType = f16,
+                                    multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>}
+        : tensor<1x3x540x960xf32, {order = #NHWC}> -> tensor<1x3x540x960xf16, {order = #NHWC}>
+
+    %expand = VPU.Expand(%convert) {pads_begin = [0, 0, 0, 0], pads_end = [0, 13, 0, 0]}
+        : tensor<1x3x540x960xf16, {order = #NHWC}> -> tensor<1x16x540x960xf16, {order = #NHWC}>
+
+    %0 = VPU.NCE.Convolution(%expand, %cst0) rawFilterShape [16, 16, 3, 3] {
+            resultSegmentSizes = array<i32: 1, 0, 0, 0>,
+            mpe_engine = #VPU.MPEEngine37XX<mode = <SCL>>,
+            multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
+            pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
+            ppe = #VPU.PPEInt<mode = <LRELU>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64,
+                              lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 1.000000e+00 : f64>,
+            strides = [1, 1],
+            tilingStrategy = [1, 1, 1, 22]
+        } : tensor<1x16x540x960xf16, {order = #NHWC}>, tensor<16x16x3x3xf16, {order = #NHWC}>
+              -> tensor<1x16x540x960xf16, {order = #NHWC}>
+
+    %1 = VPU.NCE.Convolution(%0, %cst1) rawFilterShape [16, 16, 3, 3] {
+            resultSegmentSizes = array<i32: 1, 0, 0, 0>,
+            mpe_engine = #VPU.MPEEngine37XX<mode = <SCL>>,
+            multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
+            pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
+            ppe = #VPU.PPEInt<mode = <LRELU>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64,
+                              lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 1.000000e+00 : f64>,
+            strides = [1, 1],
+            tilingStrategy = [1, 1, 1, 22]
+        } : tensor<1x16x540x960xf16, {order = #NHWC}>, tensor<16x16x3x3xf16, {order = #NHWC}>
+              -> tensor<1x16x540x960xf16, {order = #NHWC}>
+
+    return %1 : tensor<1x16x540x960xf16, {order = #NHWC}>
+
+    // Convert (producer with strategy) and Expand (no strategy) are both pulled inside the
+    // scf.for body along with the two NCE convolutions; nothing survives above the loop
+    // besides constants and shape-index math.
+    // CHECK-NOT: VPU.Convert
+    // CHECK-NOT: VPU.Expand
+    // CHECK: scf.for
+    // CHECK:   VPU.Convert
+    // CHECK-SAME: dstElemType = f16
+    // CHECK-SAME: multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>
+    // CHECK:   VPU.Expand
+    // CHECK-SAME: pads_end = [0, 13, 0, 0]
+    // CHECK:   VPU.NCE.Convolution
+    // CHECK:   VPU.NCE.Convolution
+    // CHECK:   tensor.insert_slice
+    // CHECK:   scf.yield
+}
+

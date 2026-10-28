@@ -179,7 +179,7 @@ mlir::LogicalResult ISTFTOpConverter::matchAndRewrite(IE::ISTFTOp origOp, mlir::
 
     const auto transposeOrder = mlir::AffineMapAttr::get(mlir::AffineMap::getPermutationMap(transposeOrderVec, ctx));
     auto transposedSignal =
-            rewriter.create<IE::TransposeOp>(appendLoc(loc, "transpose"), signal, nullptr, transposeOrder);
+            IE::TransposeOp::create(rewriter, appendLoc(loc, "transpose"), signal, nullptr, transposeOrder);
 
     auto transposedType = mlir::cast<mlir::ShapedType>(transposedSignal.getOutput().getType());
     auto transposedShape = transposedType.getShape();
@@ -204,9 +204,9 @@ mlir::LogicalResult ISTFTOpConverter::matchAndRewrite(IE::ISTFTOp origOp, mlir::
 
     // Perform vectorized IRDFT on all frames simultaneously
     auto timeType = mlir::RankedTensorType::get(timeShape, elemType);
-    auto timeFrames = rewriter.create<IE::IRDFTOp>(appendLoc(loc, "irdft"), timeType, transposedSignal.getOutput(),
-                                                   nullptr, nullptr, getIntArrayAttr(ctx, irdftAxes),
-                                                   getIntArrayAttr(ctx, irdftSignalSize));
+    auto timeFrames =
+            IE::IRDFTOp::create(rewriter, appendLoc(loc, "irdft"), timeType, transposedSignal.getOutput(), nullptr,
+                                nullptr, getIntArrayAttr(ctx, irdftAxes), getIntArrayAttr(ctx, irdftSignalSize));
 
     auto autoBroadcast = IE::AutoBroadcastTypeAttr::get(ctx, IE::AutoBroadcastType::NUMPY);
     mlir::Value windowedFrames = timeFrames.getResult();
@@ -215,15 +215,15 @@ mlir::LogicalResult ISTFTOpConverter::matchAndRewrite(IE::ISTFTOp origOp, mlir::
         const float sqrtFrameSize = std::sqrt(static_cast<float>(frameSizeVal));
         const auto scalarType = mlir::RankedTensorType::get({}, elemType);
         auto sqrtConst = Const::createConst(rewriter, loc, scalarType, ArrayRef<float>{sqrtFrameSize});
-        windowedFrames = rewriter.create<IE::MultiplyOp>(appendLoc(loc, "denormalize"), windowedFrames, sqrtConst,
-                                                         autoBroadcast, nullptr, nullptr, nullptr, nullptr)
+        windowedFrames = IE::MultiplyOp::create(rewriter, appendLoc(loc, "denormalize"), windowedFrames, sqrtConst,
+                                                autoBroadcast, nullptr, nullptr, nullptr, nullptr)
                                  .getOutput();
     }
 
     auto window = origOp.getWindow();
     if (window) {
-        windowedFrames = rewriter.create<IE::MultiplyOp>(appendLoc(loc, "window_multiply"), windowedFrames, window,
-                                                         autoBroadcast, nullptr, nullptr, nullptr, nullptr)
+        windowedFrames = IE::MultiplyOp::create(rewriter, appendLoc(loc, "window_multiply"), windowedFrames, window,
+                                                autoBroadcast, nullptr, nullptr, nullptr, nullptr)
                                  .getOutput();
     }
 
@@ -297,8 +297,8 @@ mlir::LogicalResult ISTFTOpConverter::matchAndRewrite(IE::ISTFTOp origOp, mlir::
                                                  ArrayRef<float>{windowSumData.data(), windowSumData.size()});
 
         // Normalize by window sum
-        finalResult = rewriter.create<IE::DivideOp>(appendLoc(loc, "window_normalize"), olaResult, windowSumConst,
-                                                    autoBroadcast)
+        finalResult = IE::DivideOp::create(rewriter, appendLoc(loc, "window_normalize"), olaResult, windowSumConst,
+                                           autoBroadcast)
                               .getResult();
     }
 
@@ -330,10 +330,9 @@ mlir::LogicalResult ISTFTOpConverter::matchAndRewrite(IE::ISTFTOp origOp, mlir::
             SmallVector<int64_t> cropSizes = std::move(finalBatchDims);
             cropSizes.push_back(desiredOutLength);
 
-            finalResult =
-                    rewriter.create<IE::SliceOp>(appendLoc(loc, "signal_length_crop"), croppedType, finalResult,
-                                                 getIntArrayAttr(ctx, cropOffsets), getIntArrayAttr(ctx, cropSizes))
-                            .getResult();
+            finalResult = IE::SliceOp::create(rewriter, appendLoc(loc, "signal_length_crop"), croppedType, finalResult,
+                                              getIntArrayAttr(ctx, cropOffsets), getIntArrayAttr(ctx, cropSizes))
+                                  .getResult();
         } else if (olaLength < desiredOutLength) {
             // Pad to desired length
             int64_t padAmount = desiredOutLength - olaLength;
@@ -355,9 +354,9 @@ mlir::LogicalResult ISTFTOpConverter::matchAndRewrite(IE::ISTFTOp origOp, mlir::
             }
 
             finalResult =
-                    rewriter.create<IE::PadOp>(appendLoc(loc, "signal_length_pad"), finalResult, nullptr, nullptr,
-                                               nullptr, getIntArrayAttr(ctx, padBefore), getIntArrayAttr(ctx, padAfter),
-                                               getFPAttr(ctx, 0.0), padModeAttr, nullptr, nullptr, nullptr, nullptr)
+                    IE::PadOp::create(rewriter, appendLoc(loc, "signal_length_pad"), finalResult, nullptr, nullptr,
+                                      nullptr, getIntArrayAttr(ctx, padBefore), getIntArrayAttr(ctx, padAfter),
+                                      getFPAttr(ctx, 0.0), padModeAttr, nullptr, nullptr, nullptr, nullptr)
                             .getResult();
         }
     }
@@ -422,8 +421,8 @@ void ISTFTOpConverter::processChunk(mlir::PatternRewriter& rewriter, mlir::Locat
 
     auto chunkSliceType = mlir::RankedTensorType::get(chunkSliceSizes, elemType);
     auto chunkFrames =
-            rewriter.create<IE::SliceOp>(appendLoc(loc, "slice_" + chunkId), chunkSliceType, frames,
-                                         getIntArrayAttr(ctx, chunkSliceOffsets), getIntArrayAttr(ctx, chunkSliceSizes))
+            IE::SliceOp::create(rewriter, appendLoc(loc, "slice_" + chunkId), chunkSliceType, frames,
+                                getIntArrayAttr(ctx, chunkSliceOffsets), getIntArrayAttr(ctx, chunkSliceSizes))
                     .getResult();
 
     int64_t chunkOlaLength = (chunkNumFrames - 1) * frameStepVal + frameSizeVal;
@@ -449,16 +448,16 @@ void ISTFTOpConverter::processChunk(mlir::PatternRewriter& rewriter, mlir::Locat
     SmallVector<int64_t> flatChunkShape = batchDims;
     flatChunkShape.push_back(chunkNumFrames * frameSizeVal);
     auto flatChunkType = mlir::RankedTensorType::get(flatChunkShape, elemType);
-    auto flatChunk = rewriter.create<IE::ReshapeOp>(appendLoc(loc, "flatten_chunk"), flatChunkType, chunkFrames,
-                                                    getIntArrayAttr(ctx, flatChunkShape))
+    auto flatChunk = IE::ReshapeOp::create(rewriter, appendLoc(loc, "flatten_chunk"), flatChunkType, chunkFrames,
+                                           getIntArrayAttr(ctx, flatChunkShape))
                              .getResult();
 
     // Perform vectorized overlap-add using MatMul
     SmallVector<int64_t> chunkOutputShape = batchDims;
     chunkOutputShape.push_back(chunkOlaLength);
     auto chunkOutputType = mlir::RankedTensorType::get(chunkOutputShape, elemType);
-    auto chunkResult = rewriter.create<IE::MatMulOp>(appendLoc(loc, "matmul_" + chunkId), chunkOutputType, flatChunk,
-                                                     chunkMatrixConst, false, false)
+    auto chunkResult = IE::MatMulOp::create(rewriter, appendLoc(loc, "matmul_" + chunkId), chunkOutputType, flatChunk,
+                                            chunkMatrixConst, false, false)
                                .getResult();
 
     // Calculate global position of chunk in final output
@@ -472,12 +471,11 @@ void ISTFTOpConverter::processChunk(mlir::PatternRewriter& rewriter, mlir::Locat
         targetSizes.push_back(chunkOlaLength);
 
         auto targetSliceType = mlir::RankedTensorType::get(targetSizes, elemType);
-        auto targetSlice =
-                rewriter.create<IE::SliceOp>(appendLoc(loc, "target_" + chunkId), targetSliceType, result,
-                                             getIntArrayAttr(ctx, targetOffsets), getIntArrayAttr(ctx, targetSizes));
+        auto targetSlice = IE::SliceOp::create(rewriter, appendLoc(loc, "target_" + chunkId), targetSliceType, result,
+                                               getIntArrayAttr(ctx, targetOffsets), getIntArrayAttr(ctx, targetSizes));
 
-        auto updatedSlice = rewriter.create<IE::AddOp>(appendLoc(loc, "update_" + chunkId), targetSlice.getResult(),
-                                                       chunkResult, autoBroadcast, nullptr, nullptr, nullptr, nullptr);
+        auto updatedSlice = IE::AddOp::create(rewriter, appendLoc(loc, "update_" + chunkId), targetSlice.getResult(),
+                                              chunkResult, autoBroadcast, nullptr, nullptr, nullptr, nullptr);
 
         SmallVector<mlir::Value> concatParts;
 
@@ -488,9 +486,9 @@ void ISTFTOpConverter::processChunk(mlir::PatternRewriter& rewriter, mlir::Locat
             beforeSizes.push_back(globalStartPos);
 
             auto beforeSliceType = mlir::RankedTensorType::get(beforeSizes, elemType);
-            auto beforeSlice = rewriter.create<IE::SliceOp>(appendLoc(loc, "before_" + chunkId), beforeSliceType,
-                                                            result, getIntArrayAttr(ctx, beforeOffsets),
-                                                            getIntArrayAttr(ctx, beforeSizes));
+            auto beforeSlice =
+                    IE::SliceOp::create(rewriter, appendLoc(loc, "before_" + chunkId), beforeSliceType, result,
+                                        getIntArrayAttr(ctx, beforeOffsets), getIntArrayAttr(ctx, beforeSizes));
             concatParts.push_back(beforeSlice.getResult());
         }
 
@@ -503,14 +501,13 @@ void ISTFTOpConverter::processChunk(mlir::PatternRewriter& rewriter, mlir::Locat
             afterSizes.push_back(olaLength - globalStartPos - chunkOlaLength);
 
             auto afterSliceType = mlir::RankedTensorType::get(afterSizes, elemType);
-            auto afterSlice =
-                    rewriter.create<IE::SliceOp>(appendLoc(loc, "after_" + chunkId), afterSliceType, result,
-                                                 getIntArrayAttr(ctx, afterOffsets), getIntArrayAttr(ctx, afterSizes));
+            auto afterSlice = IE::SliceOp::create(rewriter, appendLoc(loc, "after_" + chunkId), afterSliceType, result,
+                                                  getIntArrayAttr(ctx, afterOffsets), getIntArrayAttr(ctx, afterSizes));
             concatParts.push_back(afterSlice.getResult());
         }
 
-        result = rewriter.create<IE::ConcatOp>(appendLoc(loc, "rebuild_" + chunkId), mlir::ValueRange(concatParts),
-                                               getIntAttr(ctx, batchDims.size()))
+        result = IE::ConcatOp::create(rewriter, appendLoc(loc, "rebuild_" + chunkId), mlir::ValueRange(concatParts),
+                                      getIntAttr(ctx, batchDims.size()))
                          .getOutput();
 
     } else {
@@ -529,8 +526,8 @@ void ISTFTOpConverter::processChunk(mlir::PatternRewriter& rewriter, mlir::Locat
 
             auto croppedChunkType = mlir::RankedTensorType::get(cropSizes, elemType);
             auto croppedChunk =
-                    rewriter.create<IE::SliceOp>(appendLoc(loc, "crop_" + chunkId), croppedChunkType, chunkResult,
-                                                 getIntArrayAttr(ctx, cropOffsets), getIntArrayAttr(ctx, cropSizes));
+                    IE::SliceOp::create(rewriter, appendLoc(loc, "crop_" + chunkId), croppedChunkType, chunkResult,
+                                        getIntArrayAttr(ctx, cropOffsets), getIntArrayAttr(ctx, cropSizes));
 
             SmallVector<int64_t> targetOffsets(batchDims.size(), 0);
             targetOffsets.push_back(validStart);
@@ -538,13 +535,13 @@ void ISTFTOpConverter::processChunk(mlir::PatternRewriter& rewriter, mlir::Locat
             targetSizes.push_back(validSize);
 
             auto targetSliceType = mlir::RankedTensorType::get(targetSizes, elemType);
-            auto targetSlice = rewriter.create<IE::SliceOp>(appendLoc(loc, "target_" + chunkId), targetSliceType,
-                                                            result, getIntArrayAttr(ctx, targetOffsets),
-                                                            getIntArrayAttr(ctx, targetSizes));
+            auto targetSlice =
+                    IE::SliceOp::create(rewriter, appendLoc(loc, "target_" + chunkId), targetSliceType, result,
+                                        getIntArrayAttr(ctx, targetOffsets), getIntArrayAttr(ctx, targetSizes));
 
-            auto updatedSlice = rewriter.create<IE::AddOp>(appendLoc(loc, "update_" + chunkId), targetSlice.getResult(),
-                                                           croppedChunk.getResult(), autoBroadcast, nullptr, nullptr,
-                                                           nullptr, nullptr);
+            auto updatedSlice =
+                    IE::AddOp::create(rewriter, appendLoc(loc, "update_" + chunkId), targetSlice.getResult(),
+                                      croppedChunk.getResult(), autoBroadcast, nullptr, nullptr, nullptr, nullptr);
 
             SmallVector<mlir::Value> concatParts;
 
@@ -552,10 +549,10 @@ void ISTFTOpConverter::processChunk(mlir::PatternRewriter& rewriter, mlir::Locat
                 SmallVector<int64_t> beforeSizes = batchDims;
                 beforeSizes.push_back(validStart);
                 auto beforeSliceType = mlir::RankedTensorType::get(beforeSizes, elemType);
-                auto beforeSlice = rewriter.create<IE::SliceOp>(
-                        appendLoc(loc, "before_" + chunkId), beforeSliceType, result,
-                        getIntArrayAttr(ctx, SmallVector<int64_t>(batchDims.size() + 1, 0)),
-                        getIntArrayAttr(ctx, beforeSizes));
+                auto beforeSlice =
+                        IE::SliceOp::create(rewriter, appendLoc(loc, "before_" + chunkId), beforeSliceType, result,
+                                            getIntArrayAttr(ctx, SmallVector<int64_t>(batchDims.size() + 1, 0)),
+                                            getIntArrayAttr(ctx, beforeSizes));
                 concatParts.push_back(beforeSlice.getResult());
             }
 
@@ -568,14 +565,14 @@ void ISTFTOpConverter::processChunk(mlir::PatternRewriter& rewriter, mlir::Locat
                 afterSizes.push_back(olaLength - validEnd);
 
                 auto afterSliceType = mlir::RankedTensorType::get(afterSizes, elemType);
-                auto afterSlice = rewriter.create<IE::SliceOp>(appendLoc(loc, "after_" + chunkId), afterSliceType,
-                                                               result, getIntArrayAttr(ctx, afterOffsets),
-                                                               getIntArrayAttr(ctx, afterSizes));
+                auto afterSlice =
+                        IE::SliceOp::create(rewriter, appendLoc(loc, "after_" + chunkId), afterSliceType, result,
+                                            getIntArrayAttr(ctx, afterOffsets), getIntArrayAttr(ctx, afterSizes));
                 concatParts.push_back(afterSlice.getResult());
             }
 
-            result = rewriter.create<IE::ConcatOp>(appendLoc(loc, "rebuild_" + chunkId), mlir::ValueRange(concatParts),
-                                                   getIntAttr(ctx, batchDims.size()))
+            result = IE::ConcatOp::create(rewriter, appendLoc(loc, "rebuild_" + chunkId), mlir::ValueRange(concatParts),
+                                          getIntAttr(ctx, batchDims.size()))
                              .getOutput();
         }
     }
@@ -597,23 +594,22 @@ mlir::Value ISTFTOpConverter::createExplicitOverlapAdd(mlir::PatternRewriter& re
     // Flatten batch dimensions for explicit processing
     SmallVector<int64_t> flatBatchShape = {batchSize, numFrames, frameSizeVal};
     auto flatBatchType = mlir::RankedTensorType::get(flatBatchShape, elemType);
-    auto flatBatchFrames = rewriter.create<IE::ReshapeOp>(appendLoc(loc, "flatten_batch"), flatBatchType, frames,
-                                                          getIntArrayAttr(ctx, flatBatchShape))
+    auto flatBatchFrames = IE::ReshapeOp::create(rewriter, appendLoc(loc, "flatten_batch"), flatBatchType, frames,
+                                                 getIntArrayAttr(ctx, flatBatchShape))
                                    .getResult();
 
     SmallVector<mlir::Value> batchResults;
 
     for (int64_t batchIdx = 0; batchIdx < batchSize; ++batchIdx) {
-        auto batchElement =
-                rewriter.create<IE::SliceOp>(appendLoc(loc, "batch_{0}", batchIdx), flatBatchFrames,
-                                             getIntArrayAttr(ctx, SmallVector<int64_t>{batchIdx, 0, 0}),
-                                             getIntArrayAttr(ctx, SmallVector<int64_t>{1, numFrames, frameSizeVal}));
+        auto batchElement = IE::SliceOp::create(rewriter, appendLoc(loc, "batch_{0}", batchIdx), flatBatchFrames,
+                                                getIntArrayAttr(ctx, SmallVector<int64_t>{batchIdx, 0, 0}),
+                                                getIntArrayAttr(ctx, SmallVector<int64_t>{1, numFrames, frameSizeVal}));
 
         SmallVector<int64_t> batchElemShape = {numFrames, frameSizeVal};
         auto batchElemType = mlir::RankedTensorType::get(batchElemShape, elemType);
         auto batchElemReshaped =
-                rewriter.create<IE::ReshapeOp>(appendLoc(loc, "batch_{0}_reshape", batchIdx), batchElemType,
-                                               batchElement.getResult(), getIntArrayAttr(ctx, batchElemShape))
+                IE::ReshapeOp::create(rewriter, appendLoc(loc, "batch_{0}_reshape", batchIdx), batchElemType,
+                                      batchElement.getResult(), getIntArrayAttr(ctx, batchElemShape))
                         .getResult();
 
         auto olaType = mlir::RankedTensorType::get({olaLength}, elemType);
@@ -621,14 +617,14 @@ mlir::Value ISTFTOpConverter::createExplicitOverlapAdd(mlir::PatternRewriter& re
 
         for (int64_t frameIdx = 0; frameIdx < numFrames; ++frameIdx) {
             auto frameSlice =
-                    rewriter.create<IE::SliceOp>(appendLoc(loc, "frame_{0}_{1}", batchIdx, frameIdx), batchElemReshaped,
-                                                 getIntArrayAttr(ctx, SmallVector<int64_t>{frameIdx, 0}),
-                                                 getIntArrayAttr(ctx, SmallVector<int64_t>{1, frameSizeVal}));
+                    IE::SliceOp::create(rewriter, appendLoc(loc, "frame_{0}_{1}", batchIdx, frameIdx),
+                                        batchElemReshaped, getIntArrayAttr(ctx, SmallVector<int64_t>{frameIdx, 0}),
+                                        getIntArrayAttr(ctx, SmallVector<int64_t>{1, frameSizeVal}));
 
             auto frame1DType = mlir::RankedTensorType::get({frameSizeVal}, elemType);
-            auto frame1D = rewriter.create<IE::ReshapeOp>(appendLoc(loc, "frame_{0}_{1}_1d", batchIdx, frameIdx),
-                                                          frame1DType, frameSlice.getResult(),
-                                                          getIntArrayAttr(ctx, SmallVector<int64_t>{frameSizeVal}))
+            auto frame1D = IE::ReshapeOp::create(rewriter, appendLoc(loc, "frame_{0}_{1}_1d", batchIdx, frameIdx),
+                                                 frame1DType, frameSlice.getResult(),
+                                                 getIntArrayAttr(ctx, SmallVector<int64_t>{frameSizeVal}))
                                    .getResult();
 
             int64_t frameStart = isCenter ? frameIdx * frameStepVal - frameSizeVal / 2 : frameIdx * frameStepVal;
@@ -646,23 +642,22 @@ mlir::Value ISTFTOpConverter::createExplicitOverlapAdd(mlir::PatternRewriter& re
             if (frameOffset > 0 || validSize < frameSizeVal) {
                 auto validType = mlir::RankedTensorType::get({validSize}, elemType);
                 validFrame =
-                        rewriter.create<IE::SliceOp>(appendLoc(loc, "valid_{0}_{1}", batchIdx, frameIdx), validType,
-                                                     frame1D, getIntArrayAttr(ctx, SmallVector<int64_t>{frameOffset}),
-                                                     getIntArrayAttr(ctx, SmallVector<int64_t>{validSize}))
+                        IE::SliceOp::create(rewriter, appendLoc(loc, "valid_{0}_{1}", batchIdx, frameIdx), validType,
+                                            frame1D, getIntArrayAttr(ctx, SmallVector<int64_t>{frameOffset}),
+                                            getIntArrayAttr(ctx, SmallVector<int64_t>{validSize}))
                                 .getResult();
             }
 
             // Pad frame to output length and accumulate
             auto padModeAttr = IE::PadModeAttr::get(ctx, IE::PadMode::CONSTANT);
             auto paddedFrame =
-                    rewriter.create<IE::PadOp>(appendLoc(loc, "pad_{0}_{1}", batchIdx, frameIdx), validFrame, nullptr,
-                                               nullptr, nullptr, getIntArrayAttr(ctx, SmallVector<int64_t>{validStart}),
-                                               getIntArrayAttr(ctx, SmallVector<int64_t>{olaLength - validEnd}),
-                                               getFPAttr(ctx, 0.0), padModeAttr, nullptr, nullptr, nullptr, nullptr);
+                    IE::PadOp::create(rewriter, appendLoc(loc, "pad_{0}_{1}", batchIdx, frameIdx), validFrame, nullptr,
+                                      nullptr, nullptr, getIntArrayAttr(ctx, SmallVector<int64_t>{validStart}),
+                                      getIntArrayAttr(ctx, SmallVector<int64_t>{olaLength - validEnd}),
+                                      getFPAttr(ctx, 0.0), padModeAttr, nullptr, nullptr, nullptr, nullptr);
 
-            output = rewriter.create<IE::AddOp>(appendLoc(loc, "add_frame_{0}_{1}", batchIdx, frameIdx), output,
-                                                paddedFrame.getResult(), autoBroadcast, nullptr, nullptr, nullptr,
-                                                nullptr)
+            output = IE::AddOp::create(rewriter, appendLoc(loc, "add_frame_{0}_{1}", batchIdx, frameIdx), output,
+                                       paddedFrame.getResult(), autoBroadcast, nullptr, nullptr, nullptr, nullptr)
                              .getOutput();
         }
 
@@ -673,22 +668,21 @@ mlir::Value ISTFTOpConverter::createExplicitOverlapAdd(mlir::PatternRewriter& re
     mlir::Value stackedOutput;
     if (batchSize == 1) {
         auto reshapeType = mlir::RankedTensorType::get({1, olaLength}, elemType);
-        stackedOutput =
-                rewriter.create<IE::ReshapeOp>(appendLoc(loc, "expand_single_batch"), reshapeType, batchResults[0],
-                                               getIntArrayAttr(ctx, SmallVector<int64_t>{1, olaLength}))
-                        .getResult();
+        stackedOutput = IE::ReshapeOp::create(rewriter, appendLoc(loc, "expand_single_batch"), reshapeType,
+                                              batchResults[0], getIntArrayAttr(ctx, SmallVector<int64_t>{1, olaLength}))
+                                .getResult();
     } else {
         SmallVector<mlir::Value> expandedResults;
         for (int64_t i = 0; i < batchSize; ++i) {
             auto expandedType = mlir::RankedTensorType::get({1, olaLength}, elemType);
             auto expanded =
-                    rewriter.create<IE::ReshapeOp>(appendLoc(loc, "expand_batch_{0}", i), expandedType, batchResults[i],
-                                                   getIntArrayAttr(ctx, SmallVector<int64_t>{1, olaLength}))
+                    IE::ReshapeOp::create(rewriter, appendLoc(loc, "expand_batch_{0}", i), expandedType,
+                                          batchResults[i], getIntArrayAttr(ctx, SmallVector<int64_t>{1, olaLength}))
                             .getResult();
             expandedResults.push_back(expanded);
         }
-        stackedOutput = rewriter.create<IE::ConcatOp>(appendLoc(loc, "concat_batches"),
-                                                      mlir::ValueRange(expandedResults), getIntAttr(ctx, 0))
+        stackedOutput = IE::ConcatOp::create(rewriter, appendLoc(loc, "concat_batches"),
+                                             mlir::ValueRange(expandedResults), getIntAttr(ctx, 0))
                                 .getOutput();
     }
 
@@ -697,9 +691,8 @@ mlir::Value ISTFTOpConverter::createExplicitOverlapAdd(mlir::PatternRewriter& re
     preNormalizeShape.push_back(olaLength);
 
     auto preNormType = mlir::RankedTensorType::get(preNormalizeShape, elemType);
-    return rewriter
-            .create<IE::ReshapeOp>(appendLoc(loc, "unflatten_batch"), preNormType, stackedOutput,
-                                   getIntArrayAttr(ctx, preNormalizeShape))
+    return IE::ReshapeOp::create(rewriter, appendLoc(loc, "unflatten_batch"), preNormType, stackedOutput,
+                                 getIntArrayAttr(ctx, preNormalizeShape))
             .getResult();
 }
 

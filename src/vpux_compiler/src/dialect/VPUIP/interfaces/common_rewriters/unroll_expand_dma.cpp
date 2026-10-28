@@ -110,13 +110,13 @@ void SingleClusterExpandDMARewriter::createTilesForLargeSize(
     const auto& dmaEngineLimits = VPUIP::DMA::getEngineLimits(config::getArch(origOp));
     const auto dmaMaxLength = dmaEngineLimits.getMaxLength();
     const auto numPlanesPerTile = (dmaMaxLength / singlePlaneSize.count());
-    VPUX_THROW_UNLESS(numPlanesPerTile != 0,
-                      "Couldn't split a ExpandDMAOp with single plane size greater than plane limit");
+    VPUX_THROW_WHEN(numPlanesPerTile == 0,
+                    "Couldn't split a ExpandDMAOp with single plane size greater than plane limit");
 
     auto inputDeclBuff = origOp.getInput().getDefiningOp<VPURT::DeclareBufferOp>();
     auto outputDeclBuff = origOp.getOutputBuff().getDefiningOp<VPURT::DeclareBufferOp>();
-    VPUX_THROW_UNLESS(inputDeclBuff != nullptr && outputDeclBuff != nullptr,
-                      "Can't get input or output buffer of ExpandDMAOp '{0}'", origOp->getLoc());
+    VPUX_THROW_WHEN(inputDeclBuff == nullptr || outputDeclBuff == nullptr,
+                    "Can't get input or output buffer of ExpandDMAOp '{0}'", origOp->getLoc());
 
     Byte inputOffset{inputDeclBuff.getByteOffset()};
     Byte outputOffset{outputDeclBuff.getByteOffset()};
@@ -237,7 +237,7 @@ mlir::LogicalResult MultiClusterExpandDMARewriter::matchAndRewrite(VPUIP::Expand
     }
 
     auto vpurtTask = expandDmaOp->getParentOfType<VPURT::TaskOp>();
-    VPUX_THROW_UNLESS(vpurtTask != nullptr, "Can't get VPURT task operation");
+    VPUX_THROW_WHEN(vpurtTask == nullptr, "Can't get VPURT task operation");
     rewriter.setInsertionPointAfter(vpurtTask);
 
     const auto distributionAttr = distributedType.getDistribution();
@@ -299,12 +299,12 @@ void MultiClusterExpandDMARewriter::unrollSegmentedOrOverlapped(
     const auto getOperand = [&](int64_t clusterId, mlir::Value operand, vpux::NDTypeInterface newType,
                                 mlir::Operation* insertionPoint) -> mlir::Value {
         if (auto cst = operand.getDefiningOp<Const::DeclareOp>()) {
-            return rewriter.create<VPUIP::SubViewOp>(loc, cst, perClusterShapeOffsets[clusterId].raw(),
-                                                     perClusterShapes[clusterId].raw());
+            return VPUIP::SubViewOp::create(rewriter, loc, cst, perClusterShapeOffsets[clusterId].raw(),
+                                            perClusterShapes[clusterId].raw());
         }
 
         auto declBuff = operand.getDefiningOp<VPURT::DeclareBufferOp>();
-        VPUX_THROW_UNLESS(declBuff != nullptr, "Can't get buffer offset");
+        VPUX_THROW_WHEN(declBuff == nullptr, "Can't get buffer offset");
 
         if (newType.getMemoryKind() == VPU::MemoryKind::CMX_NN) {
             const auto symbolAttr =
@@ -384,7 +384,7 @@ void MultiClusterExpandDMARewriter::unrollDuplicated(mlir::Location loc, VPUIP::
     std::iota(clusters.begin(), clusters.end(), 0);
 
     auto outDeclBuff = output.getDefiningOp<VPURT::DeclareBufferOp>();
-    VPUX_THROW_UNLESS(outDeclBuff != nullptr, "Can't get output buffer");
+    VPUX_THROW_WHEN(outDeclBuff == nullptr, "Can't get output buffer");
 
     auto newCMXBuffer = VPURT::createOp<VPURT::DeclareBufferOp>(
             rewriter, outDeclBuff, loc, outDeclBuff.getType(), VPURT::BufferSection::CMX_NN,

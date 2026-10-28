@@ -287,8 +287,8 @@ mlir::LogicalResult ConvGeneralRewriter<ConcreteOp>::matchAndRewrite(ConcreteOp 
     // 1. If the dilated kernel fits into the hardware limit, use ExpandDilatedOp and single convolution.
     if (isFilterConstant && isKernelSupportedByNCE) {
         _log.trace("Expand dilated '{0}' layer at '{1}'", origOp->getName(), origOp->getLoc());
-        auto dilatedFilter = rewriter.create<IE::ExpandDilatedOp>(takeOpLoc(origOp, "dilatedfilter_in"),
-                                                                  origOp.getFilter(), origOp.getDilations());
+        auto dilatedFilter = IE::ExpandDilatedOp::create(rewriter, takeOpLoc(origOp, "dilatedfilter_in"),
+                                                         origOp.getFilter(), origOp.getDilations());
         const auto padsBegin = parseIntArrayAttr<int64_t>(origOp.getPadsBegin());
         const auto padsEnd = parseIntArrayAttr<int64_t>(origOp.getPadsEnd());
         auto newOp = createNewOp(rewriter, origOp, {origOp.getInput(), dilatedFilter.getResult(), origOp.getBias()},
@@ -378,14 +378,14 @@ mlir::LogicalResult ConvGeneralRewriter<ConcreteOp>::matchAndRewrite(ConcreteOp 
             SmallVector<int64_t> sliceShape{OC, IC, sizeY, sizeX};
 
             auto slice =
-                    rewriter.create<IE::SliceOp>(takeOpLoc(origOp, "filter_slice_{0}_{1}", kx, ky), origOp.getFilter(),
-                                                 getIntArrayAttr(ctx, offsets.raw()), getIntArrayAttr(ctx, sliceShape));
+                    IE::SliceOp::create(rewriter, takeOpLoc(origOp, "filter_slice_{0}_{1}", kx, ky), origOp.getFilter(),
+                                        getIntArrayAttr(ctx, offsets.raw()), getIntArrayAttr(ctx, sliceShape));
 
             if (sizeX == 1 && sizeY == 1) {
                 slicedFilters.push_back(slice);
             } else {
-                auto dilatedFilter = rewriter.create<IE::ExpandDilatedOp>(
-                        takeOpLoc(origOp, "dilatedfilter_{0}_{1}", kx, ky), slice, origOp.getDilations());
+                auto dilatedFilter = IE::ExpandDilatedOp::create(
+                        rewriter, takeOpLoc(origOp, "dilatedfilter_{0}_{1}", kx, ky), slice, origOp.getDilations());
                 slicedFilters.push_back(dilatedFilter);
             }
         }
@@ -420,8 +420,8 @@ mlir::LogicalResult ConvGeneralRewriter<ConcreteOp>::matchAndRewrite(ConcreteOp 
                         .str();
         auto sliceActLoc = takeOpLoc(origOp, locSuffixBase);
         auto slicedActivation =
-                rewriter.create<IE::SliceOp>(sliceActLoc, origOp->getOperand(0), getIntArrayAttr(ctx, offsets.raw()),
-                                             getIntArrayAttr(ctx, sliceShape));
+                IE::SliceOp::create(rewriter, sliceActLoc, origOp->getOperand(0), getIntArrayAttr(ctx, offsets.raw()),
+                                    getIntArrayAttr(ctx, sliceShape));
 
         SmallVector<mlir::Value> operands;
         if (origOp.getBias() != nullptr) {
@@ -437,7 +437,7 @@ mlir::LogicalResult ConvGeneralRewriter<ConcreteOp>::matchAndRewrite(ConcreteOp 
 
     // 4. add the new convolution one by one
     if (newConvs.empty()) {
-        return matchFailed(rewriter, origOp, "no any new conv created.");
+        return matchFailed(_log, rewriter, origOp, "no any new conv created.");
     }
 
     if (newConvs.size() > 1) {
@@ -446,10 +446,9 @@ mlir::LogicalResult ConvGeneralRewriter<ConcreteOp>::matchAndRewrite(ConcreteOp 
         mlir::Value add = newConvs.front();
         for (size_t i = 1; i < newConvs.size(); i++) {
             const auto isLast = (i == newConvs.size() - 1);
-            add = rewriter.create<IE::AddOp>(takeOpLoc(origOp, "add_{0}", i), add, newConvs[i], broadcastType,
-                                             isLast ? origOp.getPostOpAttr() : nullptr,
-                                             isLast ? origOp.getClampAttr() : nullptr, origOp.getOutputPaddingAttr(),
-                                             origOp.getInputPaddingAttr())
+            add = IE::AddOp::create(rewriter, takeOpLoc(origOp, "add_{0}", i), add, newConvs[i], broadcastType,
+                                    isLast ? origOp.getPostOpAttr() : nullptr, isLast ? origOp.getClampAttr() : nullptr,
+                                    origOp.getOutputPaddingAttr(), origOp.getInputPaddingAttr())
                           ->getResult(0);
         }
         rewriter.replaceOp(origOp, add);

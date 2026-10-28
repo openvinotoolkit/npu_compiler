@@ -35,7 +35,7 @@ private:
         auto elfMain = mainOps[0];
 
         auto builder = mlir::OpBuilder::atBlockEnd(elfMain.getBody());
-        auto elfVersion = builder.create<ELF::ABIVersionOp>(builder.getUnknownLoc());
+        auto elfVersion = ELF::ABIVersionOp::create(builder, builder.getUnknownLoc());
         ELF::moveOpToSection(elfVersion, builder);
     }
 };

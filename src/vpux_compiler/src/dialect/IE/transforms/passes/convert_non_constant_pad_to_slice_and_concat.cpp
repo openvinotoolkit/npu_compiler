@@ -97,9 +97,8 @@ mlir::Value convertPerAxisForEdgePad(mlir::Value input, const int64_t padBegin, 
         auto sizes = SmallVector<int64_t>(inputShape.begin(), inputShape.end());
         offsets[padAxis.ind()] = offset;
         sizes[padAxis.ind()] = 1;
-        return rewriter
-                .create<IE::SliceOp>(appendLoc(loc, "slice_{0}_{1}_{2}", offset, locSuffix, idx), input,
-                                     getIntArrayAttr(ctx, offsets), getIntArrayAttr(ctx, sizes))
+        return IE::SliceOp::create(rewriter, appendLoc(loc, "slice_{0}_{1}_{2}", offset, locSuffix, idx), input,
+                                   getIntArrayAttr(ctx, offsets), getIntArrayAttr(ctx, sizes))
                 .getResult();
     };
 
@@ -114,7 +113,7 @@ mlir::Value convertPerAxisForEdgePad(mlir::Value input, const int64_t padBegin, 
         subSlices.push_back(sliceData(inputShape[padAxis] - 1, "edge_backward", int64_t(i)));
     }
 
-    return rewriter.create<IE::ConcatOp>(loc, subSlices, padAxis).getOutput();
+    return IE::ConcatOp::create(rewriter, loc, subSlices, padAxis).getOutput();
 }
 
 mlir::Value convertPerAxisForReflectPad(mlir::Value input, const int64_t padBegin, const int64_t padEnd,
@@ -130,9 +129,8 @@ mlir::Value convertPerAxisForReflectPad(mlir::Value input, const int64_t padBegi
         auto sizes = SmallVector<int64_t>(inputShape.begin(), inputShape.end());
         offsets[padAxis.ind()] = offset;
         sizes[padAxis.ind()] = 1;
-        return rewriter
-                .create<IE::SliceOp>(appendLoc(loc, "slice_{0}_{1}", offset, locSuffix), input,
-                                     getIntArrayAttr(ctx, offsets), getIntArrayAttr(ctx, sizes))
+        return IE::SliceOp::create(rewriter, appendLoc(loc, "slice_{0}_{1}", offset, locSuffix), input,
+                                   getIntArrayAttr(ctx, offsets), getIntArrayAttr(ctx, sizes))
                 .getResult();
     };
 
@@ -149,7 +147,7 @@ mlir::Value convertPerAxisForReflectPad(mlir::Value input, const int64_t padBegi
         subSlices.push_back(sliceData(offset, "reflect_backward"));
     }
 
-    return rewriter.create<IE::ConcatOp>(loc, subSlices, padAxis).getOutput();
+    return IE::ConcatOp::create(rewriter, loc, subSlices, padAxis).getOutput();
 }
 
 mlir::LogicalResult ConvertNonConstantPadToSliceAndConcatPass::NonConstantPadConverter::matchAndRewrite(

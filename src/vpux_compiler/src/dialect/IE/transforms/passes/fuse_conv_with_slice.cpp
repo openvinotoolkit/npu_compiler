@@ -182,6 +182,8 @@ mlir::LogicalResult FuseConvWithSlice::matchAndRewrite(IE::ConvolutionOp origOp,
     auto filter = origOp.getFilter();
     auto filterShape = getShape(filter);
     auto origBias = origOp.getBias();
+    auto origScale = origOp.getScale();
+
     for (auto sliceIdx : irange(sliceUsers.size())) {
         auto slice = sliceUsers[sliceIdx];
         const auto sliceOffsets = Shape(parseIntArrayAttr<int64_t>(slice.getStaticOffsets()));
@@ -206,10 +208,24 @@ mlir::LogicalResult FuseConvWithSlice::matchAndRewrite(IE::ConvolutionOp origOp,
                                                            origBias, getIntArrayAttr(ctx, sliceOffsets.raw()),
                                                            getIntArrayAttr(ctx, biasSizes));
         }
+
+        // slice scale
+        mlir::Value scaleSlice = nullptr;
+        if (origScale != nullptr) {
+            auto scaleShape = getShape(origScale);
+            Shape scaleOffsets(scaleShape.size());
+            scaleOffsets[Dims4D::Act::N] = sliceOffsets[Dims4D::Act::C];
+            SmallVector<int64_t> scaleSizes{sliceSizes[Dims4D::Act::C], scaleShape[Dims4D::Act::C],
+                                            scaleShape[Dims4D::Act::H], scaleShape[Dims4D::Act::W]};
+            scaleSlice = rewriter.createOrFold<IE::SliceOp>(appendLoc(origOp->getLoc(), "slice_scale_{0}", sliceIdx),
+                                                            origScale, getIntArrayAttr(ctx, scaleOffsets.raw()),
+                                                            getIntArrayAttr(ctx, scaleSizes));
+        }
+
         auto newConvLoc = takeOpLoc(slice, "as_conv");
         rewriter.replaceOp(
                 slice, cloneConvolutionOp(rewriter, origOp, slice.getResult().getType(), origOp.getInput(), filterslice,
-                                          biasSlice, origOp.getScale(), origOp.getZeroPoints(), newConvLoc));
+                                          biasSlice, scaleSlice, origOp.getZeroPoints(), newConvLoc));
     }
     nestedLogger.trace("fuse conv with slice success");
     return mlir::success();

@@ -12,10 +12,12 @@
 #include "vpux/compiler/dialect/VPU/utils/scf/scf_analysis_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/vertical_fusion/v2/vf_merge_configuration.hpp"
 #include "vpux/compiler/dialect/VPU/utils/vertical_fusion/vertical_fusion_utils.hpp"
+#include "vpux/compiler/dialect/core/IR/dynamic_attrs.hpp"
 #include "vpux/compiler/dialect/core/IR/tensor_attr.hpp"
 #include "vpux/compiler/dialect/core/types.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
+#include "vpux/utils/core/small_vector.hpp"
 
 #include <llvm/ADT/StringRef.h>
 #include <mlir/Dialect/Affine/Utils.h>
@@ -25,9 +27,11 @@
 #include <mlir/Dialect/Utils/StaticValueUtils.h>
 #include <mlir/IR/OpDefinition.h>
 #include <mlir/Interfaces/TilingInterface.h>
+#include <mlir/Support/LLVM.h>
 
-#include <array>
-
+#include <functional>
+#include <optional>
+#include <utility>
 namespace vpux::VPU {
 
 enum class TilePosition { MIDDLE = 0, END = 1, START = 2, FULLBLK = 3 };
@@ -89,22 +93,37 @@ struct SCFTileInfo {
               axis(SCFShape(shape.size(), builder.getIndexAttr(1))) {
     }
 
-    explicit SCFTileInfo(SCFShapeRef shape, BoundsRef bounds, mlir::OpBuilder& builder)
-            : shape(shape),
-              offsets(SCFShape(shape.size(), builder.getIndexAttr(0))),
-              axis(SCFShape(shape.size(), builder.getIndexAttr(1))),
-              bounds(bounds) {
-    }
-
     void printFormat(llvm::raw_ostream& stream) const {
         printTo(stream, "SCFTile [shape = {0}, offsets = {1}, axis = {2}, bounds = {3}]", shape, offsets, axis, bounds);
     }
 };
 
+// SCFTilingInfo owns its tiles/pads, so ArrayRef (non-owning view) shouldn't be used here. Each ctor
+// comes as a const&/&& pair rather than a single by-value parameter: SCFTileInfo/SmallVector<SCFTileInfo>
+// are large (Coverity PASS_BY_VALUE), and a reference stays cheap to pass regardless of the pointee size,
+// while the && overload still moves for real.
 struct SCFTilingInfo {
-    SCFTilingInfo(ArrayRef<SCFTileInfo> tilesValue): tiles(tilesValue) {
+    explicit SCFTilingInfo(const SCFTileInfo& tileValue) {
+        tiles.push_back(tileValue);
     }
-    SCFTilingInfo(ArrayRef<SCFTileInfo> tilesValue, SCFShapeRef padsValue): tiles(tilesValue), pads(padsValue) {
+    explicit SCFTilingInfo(SCFTileInfo&& tileValue) {
+        tiles.push_back(std::move(tileValue));
+    }
+    explicit SCFTilingInfo(const SCFTileInfo& tileValue, const SCFShape& padsValue): pads(padsValue) {
+        tiles.push_back(tileValue);
+    }
+    explicit SCFTilingInfo(SCFTileInfo&& tileValue, SCFShape&& padsValue): pads(std::move(padsValue)) {
+        tiles.push_back(std::move(tileValue));
+    }
+    explicit SCFTilingInfo(const SmallVector<SCFTileInfo>& tilesValue): tiles(tilesValue) {
+    }
+    explicit SCFTilingInfo(SmallVector<SCFTileInfo>&& tilesValue): tiles(std::move(tilesValue)) {
+    }
+    explicit SCFTilingInfo(const SmallVector<SCFTileInfo>& tilesValue, const SCFShape& padsValue)
+            : tiles(tilesValue), pads(padsValue) {
+    }
+    explicit SCFTilingInfo(SmallVector<SCFTileInfo>&& tilesValue, SCFShape&& padsValue)
+            : tiles(std::move(tilesValue)), pads(std::move(padsValue)) {
     }
 
     SmallVector<SCFTileInfo> tiles;
@@ -113,7 +132,7 @@ struct SCFTilingInfo {
 
 // Tracks deferred ExtractSlice replacements for skip-connections during SCF tile+fuse.
 struct PendingSliceReplacement {
-    mlir::Operation* biggestUserOp;            // The user op that requires the biggest tile for this skip connection
+    mlir::Operation* biggestUserOp{};          // The user op that requires the biggest tile for this skip connection
     mlir::Value tiledValue;                    // The value from the biggest tile
     bool biggestUserTiled = false;             // Flag to indicate if the biggest user has been tiled
     bool allUsersWithTheSameTileSize = false;  // Flag to indicate if all users have the same tile size
@@ -142,8 +161,8 @@ mlir::AffineMap getAlignValUpMap(mlir::OpBuilder& builder, int64_t alignment);
     parameters and shape and offset of output tile
 */
 std::pair<std::optional<mlir::Range>, std::optional<int64_t>> solutionForOutputRange(
-        mlir::Location loc, mlir::OpBuilder& builder, const SCFTileInfo& outputTile, Dim dim, const int64_t kernel,
-        const int64_t stride, mlir::OpFoldResult origInputSize, int64_t origOutputSize,
+        mlir::Location loc, mlir::OpBuilder& builder, const SCFTileInfo& outputTile, Dim dim, int64_t kernel,
+        int64_t stride, mlir::OpFoldResult origInputSize, int64_t origOutputSize,
         const std::pair<int64_t, int64_t>& origPadding, mlir::OpFoldResult& padBefore, mlir::OpFoldResult& padAfter);
 
 /** @brief Generate slice based on tiling information
@@ -167,8 +186,8 @@ mlir::Type extractResultType(mlir::Type origType, SCFShapeRef newShape, BoundsRe
 inline mlir::Value createQuantizedPaddingValue(mlir::Location loc, mlir::OpBuilder& builder,
                                                mlir::quant::QuantizedType qType, vpux::NDTypeInterface tiledType) {
     auto createPaddingValue = [&](mlir::Type valueType, mlir::TypedAttr attr) -> mlir::Value {
-        auto constantOp = builder.create<mlir::arith::ConstantOp>(loc, attr);
-        return builder.create<mlir::UnrealizedConversionCastOp>(loc, valueType, constantOp.getResult()).getResult(0);
+        auto constantOp = mlir::arith::ConstantOp::create(builder, loc, attr);
+        return mlir::UnrealizedConversionCastOp::create(builder, loc, valueType, constantOp.getResult()).getResult(0);
     };
 
     mlir::Value paddingValue;
@@ -248,8 +267,8 @@ mlir::Operation* castCreatedOperation(mlir::OpBuilder& builder, const SCFTileInf
 
     mlir::Type correctedTiledOutputType =
             mlir::RankedTensorType::get(staticOutputShape, generatedType.getElementType(), correctedTensorDesc);
-    return builder
-            .create<mlir::tensor::CastOp>(generatedOp.getLoc(), correctedTiledOutputType, generatedOp->getResult(0))
+    return mlir::tensor::CastOp::create(builder, generatedOp.getLoc(), correctedTiledOutputType,
+                                        generatedOp->getResult(0))
             .getOperation();
 }
 
@@ -319,11 +338,11 @@ mlir::Operation* createTiledPaddedOperation(OpGeneratorFunc opGenerator, OpTilin
     if (qType != nullptr) {
         paddingValue = createQuantizedPaddingValue(loc, builder, qType, tiledType);
     } else {
-        paddingValue = builder.create<mlir::arith::ConstantOp>(loc, builder.getZeroAttr(tiledType.getElementType()));
+        paddingValue = mlir::arith::ConstantOp::create(builder, loc, builder.getZeroAttr(tiledType.getElementType()));
     }
 
-    tiledOperands[0] = builder.create<mlir::tensor::PadOp>(loc, /*result=*/mlir::Type(), tiledInput, lows, highs,
-                                                           paddingValue, /*nofold=*/false);
+    tiledOperands[0] = mlir::tensor::PadOp::create(builder, loc, /*result=*/mlir::Type(), tiledInput, lows, highs,
+                                                   paddingValue, /*nofold=*/false);
 
     if (!mlir::cast<mlir::RankedTensorType>(tiledOperands[0].getType()).hasStaticShape() &&
         adjustedBounds.raw().empty()) {
@@ -388,19 +407,20 @@ SmallVector<mlir::Value> castOutputForInsertion(mlir::OpBuilder& builder, ArrayR
 template <class ConcreteOp>
 void correctPaddedOutput(mlir::OpBuilder& builder, ConcreteOp operation, SmallVector<mlir::OpFoldResult>& resultSizes) {
     auto padInfo = toPadInfo(operation.getPad());
-    if (padInfo.enabled() && operation->hasAttr(tilingStrategy)) {
-        auto padsByDims = padInfo.toPadByDims();
-        const auto strategy =
-                Shape(parseIntArrayAttr<int64_t>(mlir::cast<mlir::ArrayAttr>(operation->getAttr(tilingStrategy))));
-        auto tilingDims = getNonOneDim(strategy);
-        for (auto dim : tilingDims) {
-            auto sizeValue = mlir::getConstantIntValue(resultSizes[dim.ind()]);
-            if (sizeValue.has_value() && padsByDims.contains(dim.ind()) &&
-                (padsByDims[dim.ind()].first != 0 || padsByDims[dim.ind()].second != 0)) {
-                resultSizes[dim.ind()] = builder.create<mlir::arith::ConstantOp>(
-                                                        operation->getLoc(), builder.getIndexAttr(sizeValue.value()))
-                                                 .getResult();
-            }
+    if (!padInfo.enabled() || !operation->hasAttr(tilingStrategy)) {
+        return;
+    }
+    auto padsByDims = padInfo.toPadByDims();
+    const auto strategy =
+            Shape(parseIntArrayAttr<int64_t>(mlir::cast<mlir::ArrayAttr>(operation->getAttr(tilingStrategy))));
+    auto tilingDims = getNonOneDim(strategy);
+    for (auto dim : tilingDims) {
+        auto sizeValue = mlir::getConstantIntValue(resultSizes[dim.ind()]);
+        if (sizeValue.has_value() && padsByDims.contains(dim.ind()) &&
+            (padsByDims[dim.ind()].first != 0 || padsByDims[dim.ind()].second != 0)) {
+            resultSizes[dim.ind()] = mlir::arith::ConstantOp::create(builder, operation->getLoc(),
+                                                                     builder.getIndexAttr(sizeValue.value()))
+                                             .getResult();
         }
     }
 }
@@ -496,7 +516,16 @@ mlir::LogicalResult getTensorDimOpFromIndex(mlir::OpBuilder& builder, mlir::Valu
 SmallVector<mlir::Value> applyIndexBacktracking(mlir::tensor::InsertSliceOp insertSliceOp,
                                                 ArrayRef<size_t> dimsToAdjust);
 
-void restorePaddingAttribute(mlir::Operation* region, Logger log);
+void restorePaddingAttribute(mlir::Operation* region, Logger log, bool deferDynamicShapeWorkloads = false);
+
+// Translates workloads on NCE ops that restorePaddingAttribute() deferred because their shapes were still dynamic.
+// Must run after the unrolled shapes have been fully inferred, so the concrete output tile is known.
+void translateDeferredWorkloadsAfterInference(mlir::Operation* region, Logger log);
+
+// Clamps any single workload whose output tile exceeds the op's static output to that output, recomputing the input
+// tile and padding. Repairs stale bounded-shape fallback descriptors on ops not covered by padding restoration (e.g.
+// unpadded Eltwise). Must run after the unrolled shapes have been fully inferred.
+void clampOversizedWorkloadsToStaticOutput(mlir::Operation* region, Logger log);
 
 /**
  * @brief This function tries to determine if the given OpFoldResult is dependent on any of the induction variables

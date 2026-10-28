@@ -123,7 +123,7 @@ CostInfo TemporalTilingScenarioBase::calculateCostBase(mlir::Operation* op, cons
 
         auto module = op->getParentOfType<mlir::ModuleOp>();
         auto tileOp = config::getTileExecutor(module);
-        VPUX_THROW_UNLESS(tileOp != nullptr, "Failed to get NCE_Cluster information");
+        VPUX_THROW_WHEN(tileOp == nullptr, "Failed to get NCE_Cluster information");
         auto tileCount = tileOp.getCount();
 
         const auto totalMacs = tileCount * macsPerTile;

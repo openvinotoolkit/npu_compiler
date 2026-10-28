@@ -55,8 +55,8 @@ mlir::LogicalResult vpux::IE::SpaceToDepthOp::inferReturnTypeComponents(
 
     SmallVector<int64_t> outShape{outN, outC, outH, outW};
 
-    VPUX_THROW_UNLESS(!mlir::isa<Core::BoundedTensorType>(inputType), "{0} doesn't support dynamic shapes",
-                      IE::SpaceToDepthOp::getOperationName());
+    VPUX_THROW_WHEN(mlir::isa<Core::BoundedTensorType>(inputType), "{0} doesn't support dynamic shapes",
+                    IE::SpaceToDepthOp::getOperationName());
     const auto outDesc = vpux::getTensorAttr(ctx, inputType.getDimsOrder(), inputType.getMemSpace());
     inferredReturnShapes.emplace_back(outShape, inputType.getElementType(), outDesc);
 

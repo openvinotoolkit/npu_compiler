@@ -60,9 +60,7 @@ module @Depth2SpaceToTransConv {
 
         return %fq2 : tensor<1x64x32x32xf16>
 
-        // CHECK:       [[WEIGHTS:%.+]] = const.Declare tensor<64x256x2x2x!qElemType, {order = #NHWC}> =
-        // CHECK-SAME:      dense_resource<__elided__> : tensor<64x256x2x2xui8, {order = #NHWC}>,
-        // CHECK-SAME:      [#const.CastElemType<f16>, #const.Reorder<#NCHW>, #const.CastElemType<!qElemType>, #const.Reorder<#NHWC>]
+        // CHECK-DAG:   [[WEIGHTS:%.+]] = const.Declare tensor<64x256x2x2x!qElemType, {order = #NHWC}> = dense_resource<__elided__> : tensor<64x256x2x2xui8, {order = #NHWC}>, [#const.CastElemType<f16>, #const.Reorder<#NCHW>, #const.CastElemType<ui8>, #const.CastElemType<!qElemType>, #const.Reorder<#NHWC>]
 
         // CHECK:       [[PERMQUANT:%.+]] = IE.PermuteQuantize([[INPUT]]) {
         // CHECK-SAME:      dstElemType = f16,
@@ -71,23 +69,12 @@ module @Depth2SpaceToTransConv {
         // CHECK-SAME:      pads_begin = [0, 0, 0, 0],
         // CHECK-SAME:      pads_end = [0, 0, 0, 0]
         // CHECK-SAME:  } : tensor<1x256x16x16xf16> -> tensor<1x256x16x16xf16, {order = #NHWC}>
-
-        // CHECK:       [[ADD1:%.+]] = IE.Add([[PERMQUANT]], [[PERMQUANT]]) {
-        // CHECK-SAME:      auto_broadcast = #IE.auto_broadcast_type<NONE_OR_EXPLICIT>
-        // CHECK-SAME:  } :
-        // CHECK-SAME:      tensor<1x256x16x16xf16, {order = #NHWC}>,
-        // CHECK-SAME:      tensor<1x256x16x16xf16, {order = #NHWC}> ->
-        // CHECK-SAME:      tensor<1x256x16x16x!qElemType1, {order = #NHWC}>
-
-        // CHECK:       [[QUANTCAST1:%.+]] = IE.QuantizeCast([[ADD1]]) {
-        // CHECK-SAME:      dstElemType = !qElemType2
-        // CHECK-SAME:  } : tensor<1x256x16x16x!qElemType1, {order = #NHWC}> -> tensor<1x256x16x16x!qElemType2, {order = #NHWC}>
-
-
-        // CHECK:           [[CONV:%.+]] = IE.TransposedConvolution([[QUANTCAST1]], [[WEIGHTS]]) {
-        // CHECK-SAME:          dilations = [1, 1], operandSegmentSizes = array<i32: 1, 1, 0, 0>,
-        // CHECK-SAME:          pads_begin = [0, 0], pads_end = [0, 0], spatial_output_padding = [0, 0], strides = [2, 2]
-        // CHECK-SAME:      } : tensor<1x256x16x16x!qElemType2, {order = #NHWC}>, tensor<64x256x2x2x!qElemType, {order = #NHWC}> -> tensor<1x64x32x32xf16>
+        // CHECK:       [[ADD:%.+]] = IE.Add([[PERMQUANT]], [[PERMQUANT]])
+        // CHECK:       [[QUANT_CAST:%.+]] = IE.QuantizeCast([[ADD]])
+        // CHECK:       [[CONV:%.+]] = IE.TransposedConvolution([[QUANT_CAST]], [[WEIGHTS]]) {
+        // CHECK-SAME:      dilations = [1, 1], operandSegmentSizes = array<i32: 1, 1, 0, 0>,
+        // CHECK-SAME:      pads_begin = [0, 0], pads_end = [0, 0], spatial_output_padding = [0, 0], strides = [2, 2]
+        // CHECK-SAME:  } : tensor<1x256x16x16x!qElemType2, {order = #NHWC}>, tensor<64x256x2x2x!qElemType, {order = #NHWC}> -> tensor<1x64x32x32xf16>
 
         // CHECK: return [[CONV]]
     }

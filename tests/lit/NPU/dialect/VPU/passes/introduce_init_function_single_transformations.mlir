@@ -785,6 +785,37 @@ module @AddAttr {
 #-}
 
 
+// CHECK: module @ClampAttr
+module @ClampAttr {
+    net.NetworkInfo entryPoint : @main inputsInfo : {
+    } outputsInfo : {
+        DataInfo "output1" : tensor<2x3x2xf32>
+    }
+
+    func.func @main() -> tensor<2x3x2xf32> {
+        %cst = const.Declare tensor<2x3x2xf32> = dense_resource<vpux_ow_1> : tensor<2x3x2xf32>,
+            [#const.Clamp<-6.550400e+04 : f64, 6.550400e+04 : f64>]
+        return %cst : tensor<2x3x2xf32>
+    }
+
+    // CHECK:        func.func @init([[IN:%.+]]: tensor<2x3x2xf32>) -> tensor<2x3x2xf32>
+    // CHECK-NEXT:       [[RET:%.+]] = IE.Clamp([[IN]]) {max = 6.550400e+04 : f64, min = -6.550400e+04 : f64}
+    // CHECK-NEXT:       return [[RET]]
+}
+
+
+// -----
+
+
+{-#
+    dialect_resources: {
+        builtin: {
+            vpux_ow_1: "0x04000000000000000000803f0000004000004040000080400000a0400000c0400000e04000000041000010410000204100003041"
+        }
+    }
+#-}
+
+
 // CHECK: module @ZeroPadAttr
 module @ZeroPadAttr {
     net.NetworkInfo entryPoint : @main inputsInfo : {

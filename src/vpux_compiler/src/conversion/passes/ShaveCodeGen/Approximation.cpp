@@ -62,11 +62,11 @@ static std::optional<VectorShape> vectorShape(Value value) {
 //----------------------------------------------------------------------------//
 
 static inline Value f32Cst(ImplicitLocOpBuilder& builder, double value) {
-    return builder.create<arith::ConstantOp>(builder.getF32FloatAttr(value));
+    return arith::ConstantOp::create(builder, builder.getF32FloatAttr(value));
 }
 
 static inline Value i32Cst(ImplicitLocOpBuilder& builder, int32_t value) {
-    return builder.create<arith::ConstantOp>(builder.getI32IntegerAttr(value));
+    return arith::ConstantOp::create(builder, builder.getI32IntegerAttr(value));
 }
 
 //----------------------------------------------------------------------------//
@@ -83,12 +83,12 @@ static Type broadcast(Type type, std::optional<VectorShape> shape) {
 static Value broadcast(ImplicitLocOpBuilder& builder, Value value, std::optional<VectorShape> shape) {
     assert(!isa<VectorType>(value.getType()) && "must be scalar value");
     auto type = broadcast(value.getType(), shape);
-    return shape ? builder.create<BroadcastOp>(type, value) : value;
+    return shape ? BroadcastOp::create(builder, type, value) : value;
 }
 
 static Value floatCst(ImplicitLocOpBuilder& builder, float value, Type elementType) {
     assert((elementType.isF16() || elementType.isF32()) && "x must be f16 or f32 type.");
-    return builder.create<arith::ConstantOp>(builder.getFloatAttr(elementType, value));
+    return arith::ConstantOp::create(builder, builder.getFloatAttr(elementType, value));
 }
 
 //----------------------------------------------------------------------------//
@@ -121,42 +121,42 @@ mlir::LogicalResult SinAndCosApproximation<isSine, OpTy>::matchAndRewrite(OpTy o
         return broadcast(builder, value, shape);
     };
     auto mul = [&](Value a, Value b) -> Value {
-        return builder.create<arith::MulFOp>(a, b);
+        return arith::MulFOp::create(builder, a, b);
     };
     auto sub = [&](Value a, Value b) -> Value {
-        return builder.create<arith::SubFOp>(a, b);
+        return arith::SubFOp::create(builder, a, b);
     };
     auto floor = [&](Value a) {
-        return builder.create<math::FloorOp>(a);
+        return math::FloorOp::create(builder, a);
     };
 
     auto i32Vec = broadcast(builder.getI32Type(), shape);
     auto fPToSingedInteger = [&](Value a) -> Value {
-        return builder.create<arith::FPToSIOp>(i32Vec, a);
+        return arith::FPToSIOp::create(builder, i32Vec, a);
     };
 
     auto modulo4 = [&](Value a) -> Value {
-        return builder.create<arith::AndIOp>(a, bcast(i32Cst(builder, 3)));
+        return arith::AndIOp::create(builder, a, bcast(i32Cst(builder, 3)));
     };
 
     auto isEqualTo = [&](Value a, Value b) -> Value {
-        return builder.create<arith::CmpIOp>(arith::CmpIPredicate::eq, a, b);
+        return arith::CmpIOp::create(builder, arith::CmpIPredicate::eq, a, b);
     };
 
     auto isGreaterThan = [&](Value a, Value b) -> Value {
-        return builder.create<arith::CmpIOp>(arith::CmpIPredicate::sgt, a, b);
+        return arith::CmpIOp::create(builder, arith::CmpIPredicate::sgt, a, b);
     };
 
     auto select = [&](Value cond, Value t, Value f) -> Value {
-        return builder.create<arith::SelectOp>(cond, t, f);
+        return arith::SelectOp::create(builder, cond, t, f);
     };
 
     auto fmla = [&](Value a, Value b, Value c) {
-        return builder.create<math::FmaOp>(a, b, c);
+        return math::FmaOp::create(builder, a, b, c);
     };
 
     auto bitwiseOr = [&](Value a, Value b) {
-        return builder.create<arith::OrIOp>(a, b);
+        return arith::OrIOp::create(builder, a, b);
     };
 
     Value twoOverPi = bcast(f32Cst(builder, (float)TWO_OVER_PI));
@@ -238,38 +238,39 @@ LogicalResult AsinPolynomialApproximation::matchAndRewrite(math::AsinOp op, Patt
     };
 
     auto fma = [&](Value a, Value b, Value c) -> Value {
-        return builder.create<math::FmaOp>(a, b, c);
+        return math::FmaOp::create(builder, a, b, c);
     };
 
     auto mul = [&](Value a, Value b) -> Value {
-        return builder.create<arith::MulFOp>(a, b);
+        return arith::MulFOp::create(builder, a, b);
     };
 
     auto sub = [&](Value a, Value b) -> Value {
-        return builder.create<arith::SubFOp>(a, b);
+        return arith::SubFOp::create(builder, a, b);
     };
 
     auto abs = [&](Value a) -> Value {
-        return builder.create<math::AbsFOp>(a);
+        return math::AbsFOp::create(builder, a);
     };
 
     auto sqrt = [&](Value a) -> Value {
-        return builder.create<math::SqrtOp>(a);
+        return math::SqrtOp::create(builder, a);
     };
 
     auto scopy = [&](Value a, Value b) -> Value {
-        return builder.create<math::CopySignOp>(a, b);
+        return math::CopySignOp::create(builder, a, b);
     };
 
     auto sel = [&](Value a, Value b, Value c) -> Value {
-        return builder.create<arith::SelectOp>(a, b, c);
+        return arith::SelectOp::create(builder, a, b, c);
     };
 
     Value abso = abs(operand);
     Value aa = mul(operand, operand);
     Value opp = sqrt(sub(bcast(floatCst(builder, 1.0, elementType)), aa));
 
-    Value gt = builder.create<arith::CmpFOp>(arith::CmpFPredicate::OGT, aa, bcast(floatCst(builder, 0.5, elementType)));
+    Value gt =
+            arith::CmpFOp::create(builder, arith::CmpFPredicate::OGT, aa, bcast(floatCst(builder, 0.5, elementType)));
 
     Value x = sel(gt, opp, abso);
 
@@ -325,44 +326,44 @@ LogicalResult AcosPolynomialApproximation::matchAndRewrite(math::AcosOp op, Patt
     };
 
     auto fma = [&](Value a, Value b, Value c) -> Value {
-        return builder.create<math::FmaOp>(a, b, c);
+        return math::FmaOp::create(builder, a, b, c);
     };
 
     auto mul = [&](Value a, Value b) -> Value {
-        return builder.create<arith::MulFOp>(a, b);
+        return arith::MulFOp::create(builder, a, b);
     };
 
-    Value negOperand = builder.create<arith::NegFOp>(operand);
+    Value negOperand = arith::NegFOp::create(builder, operand);
     Value zero = bcast(floatCst(builder, 0.0, elementType));
     Value half = bcast(floatCst(builder, 0.5, elementType));
     Value negOne = bcast(floatCst(builder, -1.0, elementType));
-    Value selR = builder.create<arith::CmpFOp>(arith::CmpFPredicate::OGT, operand, zero);
-    Value r = builder.create<arith::SelectOp>(selR, negOperand, operand);
+    Value selR = arith::CmpFOp::create(builder, arith::CmpFPredicate::OGT, operand, zero);
+    Value r = arith::SelectOp::create(builder, selR, negOperand, operand);
     Value chkConst = bcast(floatCst(builder, -0.5625, elementType));
-    Value firstPred = builder.create<arith::CmpFOp>(arith::CmpFPredicate::OGT, r, chkConst);
+    Value firstPred = arith::CmpFOp::create(builder, arith::CmpFPredicate::OGT, r, chkConst);
 
     Value trueVal = fma(bcast(floatCst(builder, static_cast<float>(9.3282184640716537e-1), elementType)),
                         bcast(floatCst(builder, static_cast<float>(1.6839188885261840e+0), elementType)),
-                        builder.create<math::AsinOp>(r));
+                        math::AsinOp::create(builder, r));
 
-    Value falseVal = builder.create<math::SqrtOp>(fma(half, r, half));
-    falseVal = builder.create<math::AsinOp>(falseVal);
+    Value falseVal = math::SqrtOp::create(builder, fma(half, r, half));
+    falseVal = math::AsinOp::create(builder, falseVal);
     falseVal = mul(bcast(floatCst(builder, 2.0, elementType)), falseVal);
 
-    r = builder.create<arith::SelectOp>(firstPred, trueVal, falseVal);
+    r = arith::SelectOp::create(builder, firstPred, trueVal, falseVal);
 
     // Check whether the operand lies in between [-1.0, 0.0).
-    Value greaterThanNegOne = builder.create<arith::CmpFOp>(arith::CmpFPredicate::OGE, operand, negOne);
+    Value greaterThanNegOne = arith::CmpFOp::create(builder, arith::CmpFPredicate::OGE, operand, negOne);
 
-    Value lessThanZero = builder.create<arith::CmpFOp>(arith::CmpFPredicate::OLT, operand, zero);
+    Value lessThanZero = arith::CmpFOp::create(builder, arith::CmpFPredicate::OLT, operand, zero);
 
-    Value betweenNegOneZero = builder.create<arith::AndIOp>(greaterThanNegOne, lessThanZero);
+    Value betweenNegOneZero = arith::AndIOp::create(builder, greaterThanNegOne, lessThanZero);
 
     trueVal = fma(bcast(floatCst(builder, static_cast<float>(1.8656436928143307e+0), elementType)),
                   bcast(floatCst(builder, static_cast<float>(1.6839188885261840e+0), elementType)),
-                  builder.create<arith::NegFOp>(r));
+                  arith::NegFOp::create(builder, r));
 
-    Value finalVal = builder.create<arith::SelectOp>(betweenNegOneZero, trueVal, r);
+    Value finalVal = arith::SelectOp::create(builder, betweenNegOneZero, trueVal, r);
 
     rewriter.replaceOp(op, finalVal);
     return success();

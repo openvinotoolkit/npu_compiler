@@ -15,7 +15,7 @@ func.func @Fuse_AttentionDMA_LegalConfig(%arg0: tensor<1x12x3600x16xf16>, %arg1:
   return %2 : tensor<1x12x3600x16xf16>
 
   // CHECK-NOT: IE.Attention(
-  // CHECK: IE.AttentionDMA([[ARG0]], [[ARG1]], [[ARG2]]) {operandSegmentSizes = array<i32: 1, 1, 1, 0, 0, 0, 0, 0>}
+  // CHECK: IE.AttentionDMA([[ARG0]], [[ARG1]], [[ARG2]]) {operandSegmentSizes = array<i32: 1, 1, 1, 0, 0, 0, 0, 0, 0, 0>}
   // CHECK-SAME: tensor<1x12x3600x16xf16>, tensor<1x12x3600x16xf16>, tensor<1x12x16x3600xf16> -> tensor<1x12x3600x16xf16>
   // CHECK-NOT: IE.SDPA
 }
@@ -51,7 +51,7 @@ func.func @Fuse_AttentionDMA_SeqLenK_LeftAligned_Prefill(%arg0: tensor<1x40x1024
   // CHECK-NOT: IE.Greater
   // CHECK-NOT: IE.Select
   // CHECK-NOT: IE.Attention(
-  // CHECK: IE.AttentionDMA([[ARG0]], [[ARG1]], [[ARG2]], [[SEQLENK]]) {operandSegmentSizes = array<i32: 1, 1, 1, 0, 0, 0, 0, 1>}
+  // CHECK: IE.AttentionDMA([[ARG0]], [[ARG1]], [[ARG2]], [[SEQLENK]]) {operandSegmentSizes = array<i32: 1, 1, 1, 0, 0, 0, 0, 1, 0, 0>}
   // CHECK-SAME: tensor<1x40x1024x128xf16>, tensor<1x40x8192x128xf16>, tensor<1x40x128x8192xf16>, tensor<1x1xsi32> -> tensor<1x40x1024x128xf16>
   // CHECK-NOT: IE.SDPA
 }
@@ -82,7 +82,7 @@ func.func @Fuse_AttentionDMA_SeqLenK_LeftAligned_Kvcache(%arg0: tensor<1x40x1x12
   // CHECK-NOT: IE.Greater
   // CHECK-NOT: IE.Select
   // CHECK-NOT: IE.Attention(
-  // CHECK: IE.AttentionDMA([[ARG0]], [[ARG1]], [[ARG2]], [[SEQLENK]]) {operandSegmentSizes = array<i32: 1, 1, 1, 0, 0, 0, 0, 1>}
+  // CHECK: IE.AttentionDMA([[ARG0]], [[ARG1]], [[ARG2]], [[SEQLENK]]) {operandSegmentSizes = array<i32: 1, 1, 1, 0, 0, 0, 0, 1, 0, 0>}
   // CHECK-SAME: tensor<1x40x1x128xf16>, tensor<1x40x8192x128xf16>, tensor<1x40x128x8192xf16>, tensor<1x1xsi32> -> tensor<1x40x1x128xf16>
   // CHECK-NOT: IE.SDPA
 }
@@ -108,8 +108,8 @@ func.func @Fuse_AttentionDMA_SeqLenK_RightAligned(%arg0: tensor<1x40x1024x128xf1
   %ar = IE.AffineReshape(%add0) {dim_mapping = [[0, 1], [2, 3]], shape_value = [1, 1, 1, 1]} : tensor<1x1xsi64> -> tensor<1x1x1x1xsi64>
   %sub = IE.Subtract(%ar, %cstSub) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x1x1xsi64>, tensor<1x1x1x1xsi64> -> tensor<1x1x1x1xsi64>
   %bcast = IE.Broadcast(%sub, %cstShape) {mode = #IE.broadcast_type<NUMPY>} : tensor<1x1x1x1xsi64>, tensor<4xsi64> -> tensor<1x1x1024x8192xsi64>
-  %ge = IE.GreaterEqual(%bcast, %cstGE) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x1024x8192xsi64>, tensor<1x1x1x1xsi64> -> tensor<1x1x1024x8192xsi64>
-  %mask = IE.Select(%ge, %cstT, %cstF) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x1024x8192xsi64>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<1x1x1024x8192xf16>
+  %ge = IE.GreaterEqual(%bcast, %cstGE) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x1024x8192xsi64>, tensor<1x1x1x1xsi64> -> tensor<1x1x1024x8192xi8>
+  %mask = IE.Select(%ge, %cstT, %cstF) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x1024x8192xi8>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<1x1x1024x8192xf16>
 
   %att = IE.Attention(%arg0, %arg1, %arg2, %mask) {operandSegmentSizes = array<i32: 1, 1, 1, 1, 0, 0, 0>} : tensor<1x40x1024x128xf16>, tensor<1x40x8192x128xf16>, tensor<1x40x128x8192xf16>, tensor<1x1x1024x8192xf16> -> tensor<1x40x1024x128xf16>
   return %att : tensor<1x40x1024x128xf16>
@@ -118,5 +118,126 @@ func.func @Fuse_AttentionDMA_SeqLenK_RightAligned(%arg0: tensor<1x40x1024x128xf1
   // CHECK: [[MASK:%.+]] = IE.Select([[GE]]
   // CHECK: IE.Attention(
   // CHECK-NOT: IE.AttentionDMA([[ARG0]], [[ARG1]], [[ARG2]], [[MASK]]) {operandSegmentSizes = array<i32: 1, 1, 1, 1, 0, 0, 0, 0>}
+  // CHECK-NOT: IE.SDPA
+}
+
+// -----
+
+#NCWH = affine_map<(d0, d1, d2, d3) -> (d0, d1, d3, d2)>
+
+// CHECK-LABEL: @Fuse_AttentionDMA_QuantizedKV_PerTensor
+// CHECK-SAME:  ([[ARG0:%.+]]: tensor<1x40x1024x128xf16>, [[ARGK:%.+]]: tensor<1x40x8192x128xsi8>, [[ARGV:%.+]]: tensor<1x40x8192x128xsi8>, [[SEQLENK:%.+]]: tensor<1x1xsi32>)
+func.func @Fuse_AttentionDMA_QuantizedKV_PerTensor(%arg0: tensor<1x40x1024x128xf16>, %argK: tensor<1x40x8192x128xsi8>, %argV: tensor<1x40x8192x128xsi8>, %seqLenK: tensor<1x1xsi32>) -> tensor<1x40x1024x128xf16> {
+  %cst0 = const.Declare tensor<1xsi64> = dense<0> : tensor<1xsi64>
+  %cstA = const.Declare tensor<1x1x1024x1xsi64> = dense<1> : tensor<1x1x1024x1xsi64>
+  %cstB = const.Declare tensor<1x1x1x1xsi64> = dense<2> : tensor<1x1x1x1xsi64>
+  %cstC = const.Declare tensor<1x1x1x1xsi64> = dense<3> : tensor<1x1x1x1xsi64>
+  %cstT = const.Declare tensor<1x1x1x1xf16> = dense<0.0> : tensor<1x1x1x1xf16>
+  %cstF = const.Declare tensor<1x1x1x1xf16> = dense<-6.550400e+04> : tensor<1x1x1x1xf16>
+  %kScale = const.Declare tensor<1x1x1x1xf16> = dense<1.000000e-01> : tensor<1x1x1x1xf16>
+  %vScale = const.Declare tensor<1x1x1x1xf16> = dense<1.000000e-01> : tensor<1x1x1x1xf16>
+
+  %conv = IE.Convert(%seqLenK) {dstElemType = si64} : tensor<1x1xsi32> -> tensor<1x1xsi64>
+  %add0 = IE.Add(%conv, %cst0) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1xsi64>, tensor<1xsi64> -> tensor<1x1xsi64>
+  %ar = IE.AffineReshape(%add0) {dim_mapping = [[0, 1, 2], [3]], shape_value = [1, 1, 1, 1]} : tensor<1x1xsi64> -> tensor<1x1x1x1xsi64>
+  %add1 = IE.Add(%ar, %cstA) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x1x1xsi64>, tensor<1x1x1024x1xsi64> -> tensor<1x1x1024x1xsi64>
+  %add2 = IE.Add(%add1, %cstB) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x1024x1xsi64>, tensor<1x1x1x1xsi64> -> tensor<1x1x1024x1xsi64>
+  %greater = IE.Greater(%add2, %cstC) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x1024x1xsi64>, tensor<1x1x1x1xsi64> -> tensor<1x1x1024x1xi8>
+  %mask = IE.Select(%greater, %cstT, %cstF) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x1024x1xi8>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<1x1x1024x1xf16>
+
+  %kConv = IE.Convert(%argK) {dstElemType = f16} : tensor<1x40x8192x128xsi8> -> tensor<1x40x8192x128xf16>
+  %kDeq = IE.Multiply(%kConv, %kScale) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x40x8192x128xf16>, tensor<1x1x1x1xf16> -> tensor<1x40x8192x128xf16>
+
+  %vConv = IE.Convert(%argV) {dstElemType = f16} : tensor<1x40x8192x128xsi8> -> tensor<1x40x8192x128xf16>
+  %vDeq = IE.Multiply(%vConv, %vScale) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x40x8192x128xf16>, tensor<1x1x1x1xf16> -> tensor<1x40x8192x128xf16>
+  %vT = IE.Transpose(%vDeq) {order_value = #NCWH} : tensor<1x40x8192x128xf16> -> tensor<1x40x128x8192xf16>
+
+  %att = IE.Attention(%arg0, %kDeq, %vT, %mask) {operandSegmentSizes = array<i32: 1, 1, 1, 1, 0, 0, 0>} : tensor<1x40x1024x128xf16>, tensor<1x40x8192x128xf16>, tensor<1x40x128x8192xf16>, tensor<1x1x1024x1xf16> -> tensor<1x40x1024x128xf16>
+  return %att : tensor<1x40x1024x128xf16>
+
+  // CHECK-NOT: IE.Greater
+  // CHECK-NOT: IE.Select
+  // CHECK-NOT: IE.Attention(
+  // CHECK-NOT: IE.Convert
+  // CHECK-NOT: IE.Multiply
+  // CHECK: [[VT:%.+]] = IE.Transpose([[ARGV]]
+  // CHECK: IE.AttentionDMA([[ARG0]], [[ARGK]], [[VT]], [[SEQLENK]], [[KSCALE:%.+]], [[VSCALE:%.+]]) {operandSegmentSizes = array<i32: 1, 1, 1, 0, 0, 0, 0, 1, 1, 1>}
+  // CHECK-SAME: tensor<1x40x1024x128xf16>, tensor<1x40x8192x128xsi8>, tensor<1x40x128x8192xsi8>, tensor<1x1xsi32>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<1x40x1024x128xf16>
+  // CHECK-NOT: IE.SDPA
+}
+
+// -----
+
+#NCWH1 = affine_map<(d0, d1, d2, d3) -> (d0, d1, d3, d2)>
+
+// CHECK-LABEL: @Fuse_AttentionDMA_QuantizedKV_PerChannel
+// CHECK-SAME:  ([[ARG0:%.+]]: tensor<1x40x1024x128xf16>, [[ARGK:%.+]]: tensor<1x40x8192x128xsi8>, [[ARGV:%.+]]: tensor<1x40x8192x128xsi8>, [[SEQLENK:%.+]]: tensor<1x1xsi32>)
+func.func @Fuse_AttentionDMA_QuantizedKV_PerChannel(%arg0: tensor<1x40x1024x128xf16>, %argK: tensor<1x40x8192x128xsi8>, %argV: tensor<1x40x8192x128xsi8>, %seqLenK: tensor<1x1xsi32>) -> tensor<1x40x1024x128xf16> {
+  %cst0 = const.Declare tensor<1xsi64> = dense<0> : tensor<1xsi64>
+  %cstA = const.Declare tensor<1x1x1024x1xsi64> = dense<1> : tensor<1x1x1024x1xsi64>
+  %cstB = const.Declare tensor<1x1x1x1xsi64> = dense<2> : tensor<1x1x1x1xsi64>
+  %cstC = const.Declare tensor<1x1x1x1xsi64> = dense<3> : tensor<1x1x1x1xsi64>
+  %cstT = const.Declare tensor<1x1x1x1xf16> = dense<0.0> : tensor<1x1x1x1xf16>
+  %cstF = const.Declare tensor<1x1x1x1xf16> = dense<-6.550400e+04> : tensor<1x1x1x1xf16>
+  %kScale = const.Declare tensor<1x40x1x128xf16> = dense<1.000000e-01> : tensor<1x40x1x128xf16>
+  %vScale = const.Declare tensor<1x40x1x128xf16> = dense<1.000000e-01> : tensor<1x40x1x128xf16>
+
+  %conv = IE.Convert(%seqLenK) {dstElemType = si64} : tensor<1x1xsi32> -> tensor<1x1xsi64>
+  %add0 = IE.Add(%conv, %cst0) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1xsi64>, tensor<1xsi64> -> tensor<1x1xsi64>
+  %ar = IE.AffineReshape(%add0) {dim_mapping = [[0, 1, 2], [3]], shape_value = [1, 1, 1, 1]} : tensor<1x1xsi64> -> tensor<1x1x1x1xsi64>
+  %add1 = IE.Add(%ar, %cstA) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x1x1xsi64>, tensor<1x1x1024x1xsi64> -> tensor<1x1x1024x1xsi64>
+  %add2 = IE.Add(%add1, %cstB) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x1024x1xsi64>, tensor<1x1x1x1xsi64> -> tensor<1x1x1024x1xsi64>
+  %greater = IE.Greater(%add2, %cstC) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x1024x1xsi64>, tensor<1x1x1x1xsi64> -> tensor<1x1x1024x1xi8>
+  %mask = IE.Select(%greater, %cstT, %cstF) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x1024x1xi8>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<1x1x1024x1xf16>
+
+  %kConv = IE.Convert(%argK) {dstElemType = f16} : tensor<1x40x8192x128xsi8> -> tensor<1x40x8192x128xf16>
+  %kDeq = IE.Multiply(%kConv, %kScale) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x40x8192x128xf16>, tensor<1x40x1x128xf16> -> tensor<1x40x8192x128xf16>
+
+  %vConv = IE.Convert(%argV) {dstElemType = f16} : tensor<1x40x8192x128xsi8> -> tensor<1x40x8192x128xf16>
+  %vDeq = IE.Multiply(%vConv, %vScale) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x40x8192x128xf16>, tensor<1x40x1x128xf16> -> tensor<1x40x8192x128xf16>
+  %vT = IE.Transpose(%vDeq) {order_value = #NCWH1} : tensor<1x40x8192x128xf16> -> tensor<1x40x128x8192xf16>
+
+  %att = IE.Attention(%arg0, %kDeq, %vT, %mask) {operandSegmentSizes = array<i32: 1, 1, 1, 1, 0, 0, 0>} : tensor<1x40x1024x128xf16>, tensor<1x40x8192x128xf16>, tensor<1x40x128x8192xf16>, tensor<1x1x1024x1xf16> -> tensor<1x40x1024x128xf16>
+  return %att : tensor<1x40x1024x128xf16>
+
+  // CHECK-NOT: IE.Greater
+  // CHECK-NOT: IE.Select
+  // CHECK-NOT: IE.Attention(
+  // CHECK-NOT: IE.Convert
+  // CHECK-NOT: IE.Multiply
+  // CHECK: [[VT:%.+]] = IE.Transpose([[ARGV]]
+  // CHECK: IE.AttentionDMA([[ARG0]], [[ARGK]], [[VT]], [[SEQLENK]], [[KSCALE:%.+]], [[VSCALE:%.+]]) {operandSegmentSizes = array<i32: 1, 1, 1, 0, 0, 0, 0, 1, 1, 1>}
+  // CHECK-SAME: tensor<1x40x1024x128xf16>, tensor<1x40x8192x128xsi8>, tensor<1x40x128x8192xsi8>, tensor<1x1xsi32>, tensor<1x40x1x128xf16>, tensor<1x40x1x128xf16> -> tensor<1x40x1024x128xf16>
+  // CHECK-NOT: IE.SDPA
+}
+
+// -----
+
+// CHECK-LABEL: @Fuse_AttentionDMA_Sink
+// CHECK-SAME:  ([[ARG0:%.+]]: tensor<1x40x512x128xf16>, [[ARG1:%.+]]: tensor<1x10x8192x128xf16>, [[ARG2:%.+]]: tensor<1x10x128x8192xf16>, [[SEQLENK:%.+]]: tensor<1x1xsi32>, [[SINK:%.+]]: tensor<1x40x1x1xf16>)
+func.func @Fuse_AttentionDMA_Sink(%arg0: tensor<1x40x512x128xf16>, %arg1: tensor<1x10x8192x128xf16>, %arg2: tensor<1x10x128x8192xf16>, %seqLenK: tensor<1x1xsi32>, %sink: tensor<1x40x1x1xf16>) -> tensor<1x40x512x128xf16> {
+  %cst0 = const.Declare tensor<1xsi64> = dense<0> : tensor<1xsi64>
+  %cstA = const.Declare tensor<1x1x512x1xsi64> = dense<1> : tensor<1x1x512x1xsi64>
+  %cstB = const.Declare tensor<1x1x1x1xsi64> = dense<2> : tensor<1x1x1x1xsi64>
+  %cstC = const.Declare tensor<1x1x1x1xsi64> = dense<3> : tensor<1x1x1x1xsi64>
+  %cstT = const.Declare tensor<1x1x1x1xf16> = dense<0.0> : tensor<1x1x1x1xf16>
+  %cstF = const.Declare tensor<1x1x1x1xf16> = dense<-6.550400e+04> : tensor<1x1x1x1xf16>
+
+  %conv = IE.Convert(%seqLenK) {dstElemType = si64} : tensor<1x1xsi32> -> tensor<1x1xsi64>
+  %add0 = IE.Add(%conv, %cst0) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1xsi64>, tensor<1xsi64> -> tensor<1x1xsi64>
+  %ar = IE.AffineReshape(%add0) {dim_mapping = [[0, 1, 2], [3]], shape_value = [1, 1, 1, 1]} : tensor<1x1xsi64> -> tensor<1x1x1x1xsi64>
+  %add1 = IE.Add(%ar, %cstA) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x1x1xsi64>, tensor<1x1x512x1xsi64> -> tensor<1x1x512x1xsi64>
+  %add2 = IE.Add(%add1, %cstB) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x512x1xsi64>, tensor<1x1x1x1xsi64> -> tensor<1x1x512x1xsi64>
+  %greater = IE.Greater(%add2, %cstC) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x512x1xsi64>, tensor<1x1x1x1xsi64> -> tensor<1x1x512x1xi8>
+  %mask = IE.Select(%greater, %cstT, %cstF) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x512x1xi8>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<1x1x512x1xf16>
+
+  %att = IE.Attention(%arg0, %arg1, %arg2, %mask, %sink) {operandSegmentSizes = array<i32: 1, 1, 1, 1, 0, 1, 0>} : tensor<1x40x512x128xf16>, tensor<1x10x8192x128xf16>, tensor<1x10x128x8192xf16>, tensor<1x1x512x1xf16>, tensor<1x40x1x1xf16> -> tensor<1x40x512x128xf16>
+  return %att : tensor<1x40x512x128xf16>
+
+  // CHECK-NOT: IE.Greater
+  // CHECK-NOT: IE.Select
+  // CHECK-NOT: IE.Attention(
+  // CHECK: IE.AttentionDMA([[ARG0]], [[ARG1]], [[ARG2]], [[SINK]], [[SEQLENK]]) {operandSegmentSizes = array<i32: 1, 1, 1, 0, 0, 1, 0, 1, 0, 0>}
+  // CHECK-SAME: tensor<1x40x512x128xf16>, tensor<1x10x8192x128xf16>, tensor<1x10x128x8192xf16>, tensor<1x40x1x1xf16>, tensor<1x1xsi32> -> tensor<1x40x512x128xf16>
   // CHECK-NOT: IE.SDPA
 }

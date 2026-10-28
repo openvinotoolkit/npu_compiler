@@ -108,8 +108,8 @@ void PropagateSparsityCompression::safeRunOnFunc() {
 
         auto userOp = *constOp.getOutput().getUsers().begin();
         auto userGroupOp = mlir::dyn_cast<VPUIP::GroupSparseBufferOp>(userOp);
-        VPUX_THROW_UNLESS(userGroupOp != nullptr, "Expected weights user to be a VPUIP.GroupSparseBuffer op, got {0}",
-                          userOp->getName());
+        VPUX_THROW_WHEN(userGroupOp == nullptr, "Expected weights user to be a VPUIP.GroupSparseBuffer op, got {0}",
+                        userOp->getName());
         auto sparsityCompressionAttr = userGroupOp.getSparsityCompressionAttr();
 
         const auto outputType = mlir::cast<vpux::NDTypeInterface>(constOp.getType());
@@ -122,8 +122,8 @@ void PropagateSparsityCompression::safeRunOnFunc() {
 
         for (auto userOp : constOp.getOutput().getUsers()) {
             auto groupOp = mlir::dyn_cast<VPUIP::GroupSparseBufferOp>(userOp);
-            VPUX_THROW_UNLESS(groupOp != nullptr, "Expected weights user to be a VPUIP.GroupSparseBuffer op, got {0}",
-                              userOp);
+            VPUX_THROW_WHEN(groupOp == nullptr, "Expected weights user to be a VPUIP.GroupSparseBuffer op, got {0}",
+                            userOp);
             VPUX_THROW_UNLESS(sparsityCompressionAttr == groupOp.getSparsityCompressionAttr(),
                               "Mismatch between the compression scheme of constant op '{0}' and grouping op '{1}'",
                               sparsityCompressionAttr, groupOp.getSparsityCompressionAttr());

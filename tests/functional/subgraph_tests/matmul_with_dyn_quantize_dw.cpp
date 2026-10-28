@@ -178,6 +178,7 @@ TEST_P(MatMulWithDynQDWTestCommon, NPU5010_TestKindSubgraph) {
     setDefaultHardwareMode();
     run(Platform::NPU5010);
 }
+
 TEST_P(MatMulWithDynQDWTestCommon, NPU5020_TestKindSubgraph) {
     setDefaultHardwareMode();
     run(Platform::NPU5020);

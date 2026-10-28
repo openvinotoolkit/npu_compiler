@@ -111,8 +111,7 @@ public:
 
 mlir::LogicalResult ConvertConstToAttr::matchAndRewrite(IE::NonMaxSuppressionOp nmsOp,
                                                         mlir::PatternRewriter& rewriter) const {
-    if (nmsOp.getMaxOutputBoxesPerClassValue().has_value() && nmsOp.getIouThresholdValue().has_value() &&
-        nmsOp.getScoreThresholdValue().has_value() && nmsOp.getSoftNmsSigmaValue().has_value()) {
+    if (nmsOp.getMaxOutputBoxesPerClassValue().has_value() && nmsOp.getSoftNmsSigmaValue().has_value()) {
         return mlir::failure();
     }
 
@@ -122,17 +121,12 @@ mlir::LogicalResult ConvertConstToAttr::matchAndRewrite(IE::NonMaxSuppressionOp 
     }
     int64_t maxBoxesPerClassValue = maxBoxesOpt.value();
 
-    double iouThresholdValue = extractNMSAttrValue(nmsOp.getIouThreshold(), nmsOp.getIouThresholdValueAttr());
-
-    double scoreThresholdValue = extractNMSAttrValue(nmsOp.getScoreThreshold(), nmsOp.getScoreThresholdValueAttr());
-
     double softNMSSigmaValue = extractNMSAttrValue(nmsOp.getSoftNmsSigma(), nmsOp.getSoftNmsSigmaValueAttr());
 
     rewriter.replaceOpWithNewOp<IE::NonMaxSuppressionOp>(
-            nmsOp, nmsOp.getInBoxCoords(), nmsOp.getInBoxScores(), nullptr, nullptr, nullptr, nullptr,
-            nmsOp.getBoxEncoding(), nmsOp.getSortResultDescending(), rewriter.getI64IntegerAttr(maxBoxesPerClassValue),
-            rewriter.getF64FloatAttr(iouThresholdValue), rewriter.getF64FloatAttr(scoreThresholdValue),
-            rewriter.getF64FloatAttr(softNMSSigmaValue));
+            nmsOp, nmsOp.getInBoxCoords(), nmsOp.getInBoxScores(), nullptr, nmsOp.getIouThreshold(),
+            nmsOp.getScoreThreshold(), nullptr, nmsOp.getBoxEncoding(), nmsOp.getSortResultDescending(),
+            rewriter.getI64IntegerAttr(maxBoxesPerClassValue), rewriter.getF64FloatAttr(softNMSSigmaValue));
 
     return mlir::success();
 }

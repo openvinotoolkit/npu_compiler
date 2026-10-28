@@ -56,4 +56,6 @@ std::optional<mlir::AffineMap> tryToFindPermutationForPermuteCast(NDTypeInterfac
                                                                   ShapeRef outShape, mlir::MLIRContext* ctx);
 
 Dim inferDimAfterPermutation(Dim dim, const DimsOrder& srcOrder, const DimsOrder& dstOrder, mlir::AffineMap perm);
+
+bool isPermuteCastCompatible(NDTypeInterface inType, NDTypeInterface outType, const DimsOrder& dstOrder);
 }  // namespace vpux

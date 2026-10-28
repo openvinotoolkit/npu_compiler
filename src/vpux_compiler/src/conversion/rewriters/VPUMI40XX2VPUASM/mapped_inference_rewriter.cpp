@@ -142,8 +142,8 @@ VPUASM::MappedInferenceOp MappedInferenceRewriter::symbolizeMappedInference(
         managedMPISymRef = mlir::FlatSymbolRefAttr::get(managedMPISymName);
     }
 
-    return rewriter.create<VPUASM::MappedInferenceOp>(
-            op.getLoc(), symName, dmasAttr, invariantTasksAttr, variantTasksAttr, actKernelRangesAttr,
+    return VPUASM::MappedInferenceOp::create(
+            rewriter, op.getLoc(), symName, dmasAttr, invariantTasksAttr, variantTasksAttr, actKernelRangesAttr,
             actKernelInvocationsAttr, mediaTasksAttr, barrierTasksAttr, actShaveRtAttr, actShaveStacksAttr,
             managedMPISymRef, op.getDmaCountAttr(), op.getInvariantCountAttr(), op.getVariantCountAttr(),
             actKernelRangesCountAttr, actKernelInvoCountAttr, op.getMediaCountAttr(), op.getBarrierCountAttr(),
@@ -182,7 +182,7 @@ void MappedInferenceRewriter::symbolizeManagedMappedInference(VPUMI40XX::MappedI
         auto addresses = actShaveStacks.size() ? SmallVector<uint32_t>(actShaveStacks.size(), 0)
                                                : VPUASM::getCMXStackFrames(moduleOp);
         auto stackFrames =
-                rewriter.create<VPUASM::StackFrameAddrsOp>(op.getLoc(), stackFramesSymName, std::move(addresses));
+                VPUASM::StackFrameAddrsOp::create(rewriter, op.getLoc(), stackFramesSymName, std::move(addresses));
         fullStackFramesSectionName =
                 ELF::cloneSectionSymbol(moveOpToSection(stackFrames.getOperation(), *_sectionMap, rewriter),
                                         mlir::FlatSymbolRefAttr::get(stackFramesSymName));
@@ -197,9 +197,9 @@ void MappedInferenceRewriter::symbolizeManagedMappedInference(VPUMI40XX::MappedI
     mlir::SymbolRefAttr mappedInferenceVersion =
             op.getMappedInferenceVersion() ? findSym(op.getMappedInferenceVersion()) : nullptr;
 
-    auto nnRtConfig = rewriter.create<VPUASM::NNrtConfigOp>(op.getLoc(), nnrtConfigSymName, isActKernelInvocations,
-                                                            actShaveRtAttr, actShaveStacksAttr,
-                                                            fullStackFramesSectionName, dmaHwpBase, workpointCfg);
+    auto nnRtConfig = VPUASM::NNrtConfigOp::create(rewriter, op.getLoc(), nnrtConfigSymName, isActKernelInvocations,
+                                                   actShaveRtAttr, actShaveStacksAttr, fullStackFramesSectionName,
+                                                   dmaHwpBase, workpointCfg);
     auto fullNNRtConfigSectionName = moveOpToSection(nnRtConfig.getOperation(), *_sectionMap, rewriter);
     assert(fullNNRtConfigSectionName != nullptr);
 
@@ -284,13 +284,13 @@ void MappedInferenceRewriter::symbolizeManagedMappedInference(VPUMI40XX::MappedI
 
     auto dpuPvpSymName = mlir::StringAttr::get(ctx, (llvm::Twine(symName.getValue()) + "_dpuPvp").str());
     auto dpuPvpSymRef = mlir::FlatSymbolRefAttr::get(dpuPvpSymName);
-    auto dpuPvpOp = rewriter.create<VPUASM::DpuPVPOp>(op.getLoc(), dpuPvpSymName);
+    auto dpuPvpOp = VPUASM::DpuPVPOp::create(rewriter, op.getLoc(), dpuPvpSymName);
     auto dpuPvpSectionRef = moveOpToSection(dpuPvpOp.getOperation(), *_sectionMap, rewriter);
     assert(dpuPvpSectionRef != nullptr);
 
     mlir::StringAttr managedMPISymName = getManagedMappedInferenceSymbolName(ctx, symName);
-    auto managedMPI = rewriter.create<VPUASM::ManagedMappedInferenceOp>(
-            op.getLoc(), managedMPISymName, managedDmasAttr, workItems, barrierTasksAttr, bootstrapBarriers,
+    auto managedMPI = VPUASM::ManagedMappedInferenceOp::create(
+            rewriter, op.getLoc(), managedMPISymName, managedDmasAttr, workItems, barrierTasksAttr, bootstrapBarriers,
             nnRtConfigSymRef, barrierConfigurationDescs, barriersReprogrammings, op.getDmaCountAttr(), workItemCount,
             op.getBarrierCount(), finalBarrierId, bootstrapBarriersCount, bootstrapWorkItemTasksCount,
             barrierConfigurationCount, barrierReprogrammingCount, barrierConfigurationStride, actshv_used, dpu_used,

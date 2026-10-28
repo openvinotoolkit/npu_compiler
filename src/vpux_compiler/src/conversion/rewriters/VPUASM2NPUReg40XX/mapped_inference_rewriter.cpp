@@ -128,31 +128,31 @@ mlir::LogicalResult MappedInferenceRewriter::matchAndRewrite(VPUASM::MappedInfer
                       sizeof(npu40xx::nn_public::VpuMappedInference), miDesc.size());
     miDesc.copyFrom(mi);
 
-    rewriter.create<NPUReg40XX::MappedInferenceOp>(origOp->getLoc(),                           //
-                                                   origOp.getSymNameAttr(),                    //
-                                                   origOp.getDmaCountAttr(),                   //
-                                                   dmaCountDDRAttr,                            //
-                                                   dmaCountCMXAttr,                            //
-                                                   origOp.getInvariantCountAttr(),             //
-                                                   origOp.getVariantCountAttr(),               //
-                                                   origOp.getActKernelRangesCountAttr(),       //
-                                                   origOp.getActKernelInvocationsCountAttr(),  //
-                                                   origOp.getMediaCountAttr(),                 //
-                                                   origOp.getBarrierCountAttr(),               //
-                                                   origOp.getMappedInferenceVersionAttr(),     //
-                                                   origOp.getActShaveRtAttr(),                 //
-                                                   origOp.getActShaveStacksAttr(),             //
-                                                   origOp.getDmaHwpBaseAttr(),                 //
-                                                   origOp.getHwpWorkpointCfgAttr(),            //
-                                                   origOp.getManagedMappedInferenceAttr(),     //
-                                                   origOp.getDmaTasksAttr(),                   //
-                                                   origOp.getInvariantTasksAttr(),             //
-                                                   origOp.getVariantTasksAttr(),               //
-                                                   origOp.getActKernelRangesAttr(),            //
-                                                   origOp.getActKernelInvocationsAttr(),       //
-                                                   origOp.getMediaTasksAttr(),                 //
-                                                   origOp.getBarrierTasksAttr(),
-                                                   std::move(miDesc));  //
+    NPUReg40XX::MappedInferenceOp::create(rewriter, origOp->getLoc(),                 //
+                                          origOp.getSymNameAttr(),                    //
+                                          origOp.getDmaCountAttr(),                   //
+                                          dmaCountDDRAttr,                            //
+                                          dmaCountCMXAttr,                            //
+                                          origOp.getInvariantCountAttr(),             //
+                                          origOp.getVariantCountAttr(),               //
+                                          origOp.getActKernelRangesCountAttr(),       //
+                                          origOp.getActKernelInvocationsCountAttr(),  //
+                                          origOp.getMediaCountAttr(),                 //
+                                          origOp.getBarrierCountAttr(),               //
+                                          origOp.getMappedInferenceVersionAttr(),     //
+                                          origOp.getActShaveRtAttr(),                 //
+                                          origOp.getActShaveStacksAttr(),             //
+                                          origOp.getDmaHwpBaseAttr(),                 //
+                                          origOp.getHwpWorkpointCfgAttr(),            //
+                                          origOp.getManagedMappedInferenceAttr(),     //
+                                          origOp.getDmaTasksAttr(),                   //
+                                          origOp.getInvariantTasksAttr(),             //
+                                          origOp.getVariantTasksAttr(),               //
+                                          origOp.getActKernelRangesAttr(),            //
+                                          origOp.getActKernelInvocationsAttr(),       //
+                                          origOp.getMediaTasksAttr(),                 //
+                                          origOp.getBarrierTasksAttr(),
+                                          std::move(miDesc));  //
     rewriter.eraseOp(origOp);
 
     return mlir::success();

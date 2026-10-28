@@ -53,8 +53,8 @@ mlir::LogicalResult ConcatViewRewriter::matchAndRewrite(VPU::ConcatOp origOp, ml
             parseIntArrayOfArrayAttr<int64_t>(origOp.getStaticOffsets().value());
 
     const SmallVector<SmallVector<int64_t>> firstConcatOffsets = {originalOffsets[0], originalOffsets[1]};
-    auto firstConcat = rewriter.create<VPU::ConcatOp>(origOp.getLoc(), firstConcatInputs, /*per_axis=*/nullptr,
-                                                      getIntArrayOfArray(rewriter.getContext(), firstConcatOffsets));
+    auto firstConcat = VPU::ConcatOp::create(rewriter, origOp.getLoc(), firstConcatInputs, /*per_axis=*/nullptr,
+                                             getIntArrayOfArray(rewriter.getContext(), firstConcatOffsets));
 
     SmallVector<SmallVector<int64_t>> lastConcatOffsets = {SmallVector<int64_t>(originalOffsets[0].size(), 0)};
     SmallVector<mlir::Value> lastConcatInputs = {firstConcat.getOutput()};
@@ -63,9 +63,9 @@ mlir::LogicalResult ConcatViewRewriter::matchAndRewrite(VPU::ConcatOp origOp, ml
         lastConcatInputs.push_back(concatInputs[i]);
     }
 
-    auto lastConcat = rewriter.create<VPU::ConcatOp>(origOp.getLoc(), lastConcatInputs,
-                                                     /*per_axis=*/nullptr,
-                                                     getIntArrayOfArray(rewriter.getContext(), lastConcatOffsets));
+    auto lastConcat =
+            VPU::ConcatOp::create(rewriter, origOp.getLoc(), lastConcatInputs,
+                                  /*per_axis=*/nullptr, getIntArrayOfArray(rewriter.getContext(), lastConcatOffsets));
     rewriter.replaceOp(origOp, lastConcat.getOutput());
     return mlir::success();
 }

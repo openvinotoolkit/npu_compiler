@@ -1465,13 +1465,14 @@ OutputTiling getUniqueShapeTilingCandidates(mlir::Operation* op, const OutputTil
                                                                                isNCETileUnique);
                 return OutputTiling(uniqueShapeTiles.begin(), uniqueShapeTiles.end());
             })
-            .Case<VPU::NCEEltwiseOp>([&](VPU::NCEEltwiseOp) {
+            .Default([&](mlir::Operation* op) -> OutputTiling {
+                if (!op->hasTrait<VPU::EltwiseOp>()) {
+                    return origTiles;
+                }
+
                 std::set<TileInfo, TileShapeCompare> uniqueShapeTiles(origTiles.begin(), origTiles.end());
                 OutputTiling outputTiles(uniqueShapeTiles.begin(), uniqueShapeTiles.end());
                 return outputTiles;
-            })
-            .Default([&](mlir::Operation*) -> OutputTiling {
-                return origTiles;
             });
 }
 
@@ -1770,7 +1771,7 @@ bool isSupportedIsolatedTilingGRUSequence(VPU::GRUSequenceOp op, const OutputTil
     const auto results = origOp->getResults();
 
     auto tilingOp = mlir::dyn_cast<VPU::TilingBuilderOpInterface>(origOp);
-    VPUX_THROW_UNLESS(tilingOp != nullptr, "Not a tileable operation {0}", origOp->getName());
+    VPUX_THROW_WHEN(tilingOp == nullptr, "Not a tileable operation {0}", origOp->getName());
     const auto cmxAvailableBytes = vpux::VPU::getTotalCMXSize(origOp).to<Byte>().count();
 
     auto outputYType = mlir::cast<vpux::NDTypeInterface>(results[0].getType());
@@ -1819,7 +1820,7 @@ bool isSupportedIsolatedTilingGRUSequenceLastPart(VPU::GRUSequenceLastPartOp op,
     const auto results = origOp->getResults();
 
     auto tilingOp = mlir::dyn_cast<VPU::TilingBuilderOpInterface>(origOp);
-    VPUX_THROW_UNLESS(tilingOp != nullptr, "Not a tileable operation {0}", origOp->getName());
+    VPUX_THROW_WHEN(tilingOp == nullptr, "Not a tileable operation {0}", origOp->getName());
     const auto cmxAvailableBytes = vpux::VPU::getTotalCMXSize(origOp).to<Byte>().count();
 
     auto outputYType = mlir::cast<vpux::NDTypeInterface>(results[0].getType());
@@ -1919,7 +1920,7 @@ SmallVector<vpux::NDTypeInterface> getAllOperandsGatherDMAOp(VPU::GatherDMAOp or
 bool isSupportedIsolatedTilingGatherDMA(VPU::GatherDMAOp op, const OutputTiling& tiles, Logger log) {
     const auto origOp = op.getOperation();
     auto tilingOp = mlir::dyn_cast<VPU::TilingBuilderOpInterface>(origOp);
-    VPUX_THROW_UNLESS(tilingOp != nullptr, "Not a tileable operation {0}", origOp->getName());
+    VPUX_THROW_WHEN(tilingOp == nullptr, "Not a tileable operation {0}", origOp->getName());
 
     if (!origOp->hasAttr(VPU::multiClusterStrategy)) {
         const auto cmxAvailableBytes = vpux::VPU::getTotalCMXSize(origOp).to<Byte>().count();
@@ -1962,7 +1963,7 @@ bool isSupportedIsolatedTilingGatherDMA(VPU::GatherDMAOp op, const OutputTiling&
 
 bool isSupportedIsolatedTilingGeneric(mlir::Operation* origOp, const OutputTiling& firstOutputTiles, Logger log) {
     auto tilingOp = mlir::dyn_cast<VPU::TilingBuilderOpInterface>(origOp);
-    VPUX_THROW_UNLESS(tilingOp != nullptr, "Not a tileable operation {0}", origOp->getName());
+    VPUX_THROW_WHEN(tilingOp == nullptr, "Not a tileable operation {0}", origOp->getName());
 
     const auto cmxAvailableBytes = vpux::VPU::getTotalCMXSize(origOp).to<Byte>().count();
 
@@ -2031,11 +2032,11 @@ bool isSupportedIsolatedTilingDetectionOutputSort(VPU::DetectionOutputSortOp ori
     }
 
     auto tilingOp = mlir::dyn_cast<VPU::TilingBuilderOpInterface>(origOp.getOperation());
-    VPUX_THROW_UNLESS(tilingOp != nullptr, "Not a tileable operation {0}", origOp->getName());
+    VPUX_THROW_WHEN(tilingOp == nullptr, "Not a tileable operation {0}", origOp->getName());
 
     auto clusteredOp = mlir::dyn_cast<VPU::ClusteredOpInterface>(origOp.getOperation());
-    VPUX_THROW_UNLESS(clusteredOp != nullptr, "Op {0} has multiClusterStrategy but is not an ClusteredOp",
-                      origOp->getLoc());
+    VPUX_THROW_WHEN(clusteredOp == nullptr, "Op {0} has multiClusterStrategy but is not an ClusteredOp",
+                    origOp->getLoc());
 
     const auto operands = origOp->getOperands();
     const auto results = origOp->getResults();
@@ -2259,8 +2260,8 @@ SmallVector<TypeAndDistributionPair> getReduceOutputType(mlir::Operation* op,
     reduceOutputTypes.reserve(op->getNumResults() - 1);
 
     const auto axesAttr = mlir::dyn_cast_if_present<mlir::ArrayAttr>(op->getAttr("axes_value"));
-    VPUX_THROW_UNLESS(axesAttr != nullptr, "Attribute 'axes_value' must be ArrayAttr at '{0}' for op '{1}'",
-                      op->getLoc(), op->getName());
+    VPUX_THROW_WHEN(axesAttr == nullptr, "Attribute 'axes_value' must be ArrayAttr at '{0}' for op '{1}'", op->getLoc(),
+                    op->getName());
     const auto reduceAxes = parseIntArrayAttr<int64_t>(axesAttr);
     auto resultType = outputTileType.first;
     auto distributionMap = outputTileType.second;
@@ -2317,8 +2318,8 @@ SmallVector<NDTypeInterface> getReduceOutputType(mlir::Operation* op, NDTypeInte
     reduceOutputTypes.reserve(op->getNumResults() - 1);
 
     const auto axesAttr = mlir::dyn_cast_if_present<mlir::ArrayAttr>(op->getAttr("axes_value"));
-    VPUX_THROW_UNLESS(axesAttr != nullptr, "Attribute 'axes_value' must be ArrayAttr at '{0}' for op '{1}'",
-                      op->getLoc(), op->getName());
+    VPUX_THROW_WHEN(axesAttr == nullptr, "Attribute 'axes_value' must be ArrayAttr at '{0}' for op '{1}'", op->getLoc(),
+                    op->getName());
     const auto reduceAxes = parseIntArrayAttr<int64_t>(axesAttr);
 
     const auto outputTileShape = getBoundedShape(outputTileType);
@@ -2367,8 +2368,8 @@ mlir::LogicalResult getReduceOutputBuffers(mlir::Operation* op, SmallVector<Byte
     }
 
     const auto axesAttr = mlir::dyn_cast<mlir::ArrayAttr>(op->getAttr("axes_value"));
-    VPUX_THROW_UNLESS(axesAttr != nullptr, "Attribute 'axes_value' must be ArrayAttr at '{0}' for op '{1}'",
-                      op->getLoc(), op->getName());
+    VPUX_THROW_WHEN(axesAttr == nullptr, "Attribute 'axes_value' must be ArrayAttr at '{0}' for op '{1}'", op->getLoc(),
+                    op->getName());
     const auto reduceAxes = parseIntArrayAttr<int64_t>(axesAttr);
     const auto outputTileShape = outputTileType.getShape();
     auto distributedType = mlir::dyn_cast_if_present<VPU::DistributedTensorType>(outputTileType);
@@ -2427,8 +2428,8 @@ mlir::LogicalResult getReduceOutputBuffers(mlir::Operation* op, SmallVector<Byte
     const auto& [outputTileType, distributionMap] = outputDistribution;
 
     const auto axesAttr = mlir::dyn_cast<mlir::ArrayAttr>(op->getAttr("axes_value"));
-    VPUX_THROW_UNLESS(axesAttr != nullptr, "Attribute 'axes_value' must be ArrayAttr at '{0}' for op '{1}'",
-                      op->getLoc(), op->getName());
+    VPUX_THROW_WHEN(axesAttr == nullptr, "Attribute 'axes_value' must be ArrayAttr at '{0}' for op '{1}'", op->getLoc(),
+                    op->getName());
     const auto reduceAxes = parseIntArrayAttr<int64_t>(axesAttr);
 
     if (!distributionMap.contains(outputTileType)) {

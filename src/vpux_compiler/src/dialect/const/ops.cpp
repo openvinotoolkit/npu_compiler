@@ -41,7 +41,7 @@ mlir::Operation* vpux::Const::ConstDialect::materializeConstant(mlir::OpBuilder&
         return nullptr;
     }
 
-    return builder.create<Const::DeclareOp>(loc, type, mlir::cast<Const::ContentAttr>(value));
+    return Const::DeclareOp::create(builder, loc, type, mlir::cast<Const::ContentAttr>(value));
 }
 
 //

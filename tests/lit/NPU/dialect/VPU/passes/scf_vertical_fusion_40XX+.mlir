@@ -4562,3 +4562,51 @@ func.func @SkipConnectionEltwiseSegmentedLikeRegression(%arg0: tensor<1x3x540x96
 // CHECK:         VPU.NCE.Eltwise
 // CHECK-SAME:    multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>
 // CHECK:       return
+
+// -----
+
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+!qElemType = !quant.uniform<u8:f16, 7.1637320752237360E-4:146>
+
+// The convolution is tiled over the activation channel, while its weights producer holds the data in
+// filter layout, where that channel is the output channel. The tiling strategy attached to the fused
+// Dequantize must therefore be expressed in filter dimensions, otherwise the weights are sliced over
+// the input channel and the convolution ends up with a full sized filter.
+
+// CHECK-LABEL: @DequantizeWeightsTiledOverOutputChannels
+// CHECK-SAME:  [[ARG0:%.+]]: tensor<1x768x11x7xf16, {order = #NHWC}>
+func.func @DequantizeWeightsTiledOverOutputChannels(%arg0: tensor<1x768x11x7xf16, {order = #NHWC}>)
+        -> tensor<1x768x11x7xf16, {order = #NHWC}> {
+  %cst_weights = const.Declare tensor<768x768x1x1x!qElemType, {order = #NHWC}>
+      = dense<1> : tensor<768x768x1x1xui8, {order = #NHWC}>, [#const.CastElemType<!qElemType>]
+
+  %weights = VPU.Dequantize(%cst_weights) {dstElemType = f16, tilingStrategy = [2, 1, 1, 1]}
+      : tensor<768x768x1x1x!qElemType, {order = #NHWC}> -> tensor<768x768x1x1xf16, {order = #NHWC}>
+
+  %conv = VPU.NCE.Convolution(%arg0, %weights) rawFilterShape [768, 768, 1, 1] {
+      mpe_engine = #VPU.MPEEngine37XX<mode = <SCL>>,
+      pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
+      ppe = #VPU.PPEFp<mode = <NOOP>, clamp_low = -3.4028234663852886E+38 : f64,
+      clamp_high = 3.4028234663852886E+38 : f64, prelu_alpha = [1.000000e+00], adder = 0.000000e+00 : f64>,
+      resultSegmentSizes = array<i32: 1, 0, 0, 0>, strides = [1, 1], tilingStrategy = [1, 2, 1, 1]
+    } : tensor<1x768x11x7xf16, {order = #NHWC}>, tensor<768x768x1x1xf16, {order = #NHWC}>
+      -> tensor<1x768x11x7xf16, {order = #NHWC}>
+
+  return %conv : tensor<1x768x11x7xf16, {order = #NHWC}>
+}
+
+// CHECK-DAG:   [[C384:%.+]] = arith.constant 384 : index
+// CHECK-DAG:   [[C768:%.+]] = arith.constant 768 : index
+// CHECK-DAG:   [[C0:%.+]] = arith.constant 0 : index
+// CHECK-DAG:   [[CST_W:%.+]] = const.Declare tensor<768x768x1x1x!qElemType, {order = #NHWC}>
+// CHECK:       [[EMPTY:%.+]] = tensor.empty() : tensor<1x768x11x7xf16, {order = #NHWC}>
+// CHECK:       [[LOOP:%.+]] = scf.for [[IV:%.+]] = [[C0]] to [[C768]] step [[C384]] iter_args([[ITER:%.+]] = [[EMPTY]])
+// CHECK:         [[W_SLICE:%.+]] = tensor.extract_slice [[CST_W]][[[IV]], 0, 0, 0] [384, 768, 1, 1] [1, 1, 1, 1]
+// CHECK-SAME:      to tensor<384x768x1x1x!qElemType, {order = #NHWC}>
+// CHECK:         [[DQ:%.+]] = VPU.Dequantize([[W_SLICE]]) {dstElemType = f16}
+// CHECK-SAME:      -> tensor<384x768x1x1xf16, {order = #NHWC}>
+// CHECK:         [[CONV:%.+]] = VPU.NCE.Convolution([[ARG0]], [[DQ]]) rawFilterShape [384, 768, 1, 1]
+// CHECK-SAME:      -> tensor<1x384x11x7xf16, {order = #NHWC}>
+// CHECK:         [[INSERT:%.+]] = tensor.insert_slice [[CONV]] into [[ITER]][0, [[IV]], 0, 0] [1, 384, 11, 7] [1, 1, 1, 1]
+// CHECK:         scf.yield [[INSERT]] : tensor<1x768x11x7xf16, {order = #NHWC}>
+// CHECK:       return [[LOOP]] : tensor<1x768x11x7xf16, {order = #NHWC}>

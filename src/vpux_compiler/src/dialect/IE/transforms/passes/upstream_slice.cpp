@@ -310,18 +310,18 @@ mlir::LogicalResult UpstreamSlicePass::SliceUpstreamWithAffineReshape::matchAndR
     }
     mlir::Value currentValue = lhs;
     if (affineReshapeOp) {
-        auto lhsReshape = rewriter.create<IE::AffineReshapeOp>(affineReshapeOp->getLoc(), lhs,
-                                                               affineReshapeOp.getDimMappingAttr(),
-                                                               affineReshapeOp.getShapeValueAttr());
+        auto lhsReshape =
+                IE::AffineReshapeOp::create(rewriter, affineReshapeOp->getLoc(), lhs,
+                                            affineReshapeOp.getDimMappingAttr(), affineReshapeOp.getShapeValueAttr());
         currentValue = lhsReshape.getResult();
     }
-    auto lhsSlice = rewriter.create<IE::SliceOp>(origOp.getLoc(), currentValue, origOp.getStaticOffsetsAttr(),
-                                                 origOp.getStaticSizesAttr());
+    auto lhsSlice = IE::SliceOp::create(rewriter, origOp.getLoc(), currentValue, origOp.getStaticOffsetsAttr(),
+                                        origOp.getStaticSizesAttr());
     currentValue = lhsSlice.getResult();
     if (affineReshapeOp) {
-        auto lhsReshapeBack = rewriter.create<IE::AffineReshapeOp>(
-                origOp.getLoc(), currentValue, getIntArrayOfArray(getContext(), reshapeBackDim.value()),
-                newOutShapeAttr);
+        auto lhsReshapeBack =
+                IE::AffineReshapeOp::create(rewriter, origOp.getLoc(), currentValue,
+                                            getIntArrayOfArray(getContext(), reshapeBackDim.value()), newOutShapeAttr);
         currentValue = lhsReshapeBack.getResult();
     }
 
@@ -336,16 +336,17 @@ mlir::LogicalResult UpstreamSlicePass::SliceUpstreamWithAffineReshape::matchAndR
     currentValue = newEltwise->getResult(0);
     if (quantCastOp) {
         auto newQuantCast =
-                rewriter.create<IE::QuantizeCastOp>(quantCastOp->getLoc(),
-                                                    mlir::cast<vpux::NDTypeInterface>(quantCastOp.getOutput().getType())
-                                                            .changeShape(getShape(currentValue)),
-                                                    currentValue, quantCastOp.getDstElemTypeAttr());
+                IE::QuantizeCastOp::create(rewriter, quantCastOp->getLoc(),
+                                           mlir::cast<vpux::NDTypeInterface>(quantCastOp.getOutput().getType())
+                                                   .changeShape(getShape(currentValue)),
+                                           currentValue, quantCastOp.getDstElemTypeAttr());
         currentValue = newQuantCast->getResult(0);
     }
     if (affineReshapeOp) {
-        auto newLastAffineReshapeOp = rewriter.create<IE::AffineReshapeOp>(
-                origOp.getLoc(), currentValue, getIntArrayOfArray(getContext(), newLastAffineReshapeDim.value()),
-                getIntArrayAttr(getContext(), sliceOutShape));
+        auto newLastAffineReshapeOp =
+                IE::AffineReshapeOp::create(rewriter, origOp.getLoc(), currentValue,
+                                            getIntArrayOfArray(getContext(), newLastAffineReshapeDim.value()),
+                                            getIntArrayAttr(getContext(), sliceOutShape));
         currentValue = newLastAffineReshapeOp.getResult();
     }
 

@@ -4,7 +4,7 @@
 //
 
 #include "bytecode_artifacts.hpp"
-#include "npu_interpreter_runtime/virtual_machine.h"
+#include "vm_runtime/virtual_machine.h"
 
 #include <gtest/gtest.h>
 
@@ -152,7 +152,7 @@ TEST_P(VirtualMachineBackwardCompatibilityTest, ValidateArtifactAgainstCurrentVm
     ASSERT_EQ(npu_vm_new_engine(&rawEngine), NPU_VM_SUCCESS);
     ScopedEngine engine(rawEngine);
 
-    ASSERT_EQ(npu_vm_load_module(engine.get(), module.get()), NPU_VM_SUCCESS)
+    ASSERT_EQ(npu_vm_load_module(engine.get(), /*moduleParams*/ nullptr, module.get()), NPU_VM_SUCCESS)
             << "Failed to load artifact module: " << testCase.name;
 
     if (artifact.testType == TestType::ParseSuccess) {

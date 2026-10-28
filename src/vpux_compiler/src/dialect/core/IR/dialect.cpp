@@ -13,6 +13,7 @@
 
 #include <mlir/Dialect/Func/Extensions/AllExtensions.h>
 #include <mlir/Dialect/Func/IR/FuncOps.h>
+#include <mlir/IR/BuiltinDialect.h>
 #include <mlir/IR/TensorEncoding.h>
 
 using namespace vpux;
@@ -59,6 +60,33 @@ public:
             }
         }
 
+        return verifyBounds(desc, shape, emitError);
+    }
+
+private:
+    // Bounds must match the rank and be non-negative. Existing producers still leave bounds on
+    // fully static shapes or bounds that differ from static dimensions.
+    // TODO: E#233281 and E#233282 fix the producers before rejecting these cases.
+    static mlir::LogicalResult verifyBounds(vpux::TensorAttr desc, ArrayRef<int64_t> shape,
+                                            FuncRef<mlir::InFlightDiagnostic()> emitError) {
+        const auto bounds = desc.getBounds();
+        if (bounds.empty()) {
+            // A dynamic shape without bounds stays legal. Unlike a MemRefAttr, a TensorAttr may
+            // reach a pass that has no bounds to propagate yet.
+            return mlir::success();
+        }
+
+        if (bounds.size() != shape.size()) {
+            return printTo(emitError(), "TensorType bounds '{0}' do not match to shape '{1}'", bounds, shape);
+        }
+
+        for (const auto& [idx, bound] : llvm::enumerate(bounds.raw())) {
+            if (bound < 0) {
+                return printTo(emitError(), "TensorType bounds '{0}' has negative value '{1}' at dim '{2}'", bounds,
+                               bound, idx);
+            }
+        }
+
         return mlir::success();
     }
 };
@@ -77,13 +105,23 @@ void vpux::Core::CoreDialect::initialize() {
 
     addInterfaces<CoreInlinerInterface>();
     addInterfaces<ShaveBinaryResourcesCache>();
-
-    vpux::TensorAttr::attachInterface<TensorEncodingVerifier>(*getContext());
 }
 
 void vpux::Core::CoreDialect::setupExtraInterfaces(mlir::DialectRegistry& registry) {
     registry.addExtension(+[](mlir::MLIRContext*, mlir::func::FuncDialect* dialect) {
         dialect->addInterfaces<Core::UnifiedFuncInlinerInterface>();
+    });
+
+    // TensorAttr is a DictionaryAttr subclass, so it belongs to the builtin dialect and not to this
+    // one, and parsing a tensor type never loads the Core dialect. vpux-opt in turn loads a dialect
+    // only when it first parses that dialect's prefix. Attaching from initialize() would therefore
+    // leave the verifier unreachable for every type in a file that holds nothing but func and
+    // builtin ops, because the type parser only calls verifyEncoding on an encoding that already
+    // carries the interface. The MLIRContext constructor loads BuiltinDialect, and
+    // appendDialectRegistry applies an extension to a dialect that is already loaded, so attaching
+    // here lands before the first parse.
+    registry.addExtension(+[](mlir::MLIRContext* ctx, mlir::BuiltinDialect*) {
+        vpux::TensorAttr::attachInterface<TensorEncodingVerifier>(*ctx);
     });
 }
 

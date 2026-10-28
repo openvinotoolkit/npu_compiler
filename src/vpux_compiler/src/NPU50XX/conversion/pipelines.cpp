@@ -3,17 +3,18 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-#include "vpux/compiler/NPU40XX/conversion.hpp"
-#include "vpux/compiler/NPU50XX/conversion.hpp"
-#include "vpux/compiler/conversion.hpp"
-#include "vpux/compiler/dialect/ELF/transforms/passes.hpp"
-#include "vpux/compiler/dialect/VPUIPDPU/passes.hpp"
-#include "vpux/compiler/dialect/VPUMI40XX/passes.hpp"
-#include "vpux/compiler/dialect/VPURT/transforms/passes.hpp"
-#include "vpux/compiler/dialect/VPURegMapped/passes.hpp"
-#include "vpux/compiler/utils/platform_resources.hpp"
+#include <cstddef>
 
 #include <npu_40xx_nnrt.hpp>
+#include "vpux/compiler/NPU40XX/conversion.hpp"
+#include "vpux/compiler/NPU50XX/conversion.hpp"
+#include "vpux/compiler/NPU50XX/dialect/NPUReg50XX/utils.hpp"
+#include "vpux/compiler/conversion.hpp"
+#include "vpux/compiler/dialect/ELF/transforms/passes.hpp"
+#include "vpux/compiler/dialect/VPUASM/passes.hpp"
+#include "vpux/compiler/dialect/VPUIPDPU/passes.hpp"
+#include "vpux/compiler/dialect/VPUMI40XX/passes.hpp"
+#include "vpux/compiler/dialect/VPURegMapped/passes.hpp"
 
 #include <mlir/Transforms/Passes.h>
 
@@ -42,12 +43,14 @@ void vpux::arch50xx::buildLowerVPUIP2ELFPipeline(mlir::OpPassManager& pm,
              backendCompilationOptions.enableShaveDDRAccessOptimization);
 
     pm.addPass(VPUMI40XX::createAddPlatformInfoPass(log));
+    pm.addPass(
+            VPUMI40XX::createSetupTaskDescriptorConstraintsPass(NPUReg50XX::getTaskDescriptorConstraintsArgs(), log));
 
     pm.addPass(createConvertVPUIP2VPUMI40XXPass(log, backendCompilationOptions.enableMemorySideCache,
                                                 backendCompilationOptions.allocateDDRStackFrames));
     pm.addPass(VPUMI40XX::createSetupProfilingVPUMI40XXPass(backendCompilationOptions.enableDMAProfiling, log));
     pm.addPass(mlir::createCanonicalizerPass());
-    arch40xx::elfSubsetPipelineVPUMI(pm, backendCompilationOptions.workloadManagementMode,
+    arch40xx::elfSubsetPipelineVPUMI(pm, config::ArchKind::NPU50XX, backendCompilationOptions.workloadManagementMode,
                                      backendCompilationOptions.enableDumpStatisticsOfWlmOps,
                                      backendCompilationOptions.workloadManagementBarrierProgrammingMode, log);
 

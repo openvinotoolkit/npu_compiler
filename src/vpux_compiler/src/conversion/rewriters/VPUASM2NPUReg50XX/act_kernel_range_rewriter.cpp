@@ -32,9 +32,9 @@ mlir::LogicalResult ActKernelRangeRewriter::matchAndRewrite(VPUASM::ActKernelRan
     descriptor.write<Fields::kernel_entry>(kernelEntry);
     descriptor.write<Fields::code_size>(kernelTextSize);
 
-    rewriter.create<NPUReg50XX::ActKernelRangeOp>(origOp->getLoc(), origOp.getSymNameAttr(), std::move(descriptor),
-                                                  origOp.getTaskLocationAttr(), origOp.getKernelTextAttr(),
-                                                  origOp.getKernelEntryAttr());
+    NPUReg50XX::ActKernelRangeOp::create(rewriter, origOp->getLoc(), origOp.getSymNameAttr(), std::move(descriptor),
+                                         origOp.getTaskLocationAttr(), origOp.getKernelTextAttr(),
+                                         origOp.getKernelEntryAttr());
 
     _log.trace("[{0}] Got kernel '{1}' and cpu '{2}'", getDebugName(), kernelPath, config::getArch(origOp));
 

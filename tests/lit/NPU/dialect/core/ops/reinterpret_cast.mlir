@@ -12,23 +12,21 @@ func.func @FoldSubsequentCasts(%arg0: tensor<1x1xf16>) -> tensor<1x1xf16> {
     %1 = Core.ReinterpretCast(%0) : tensor<2x1xi8> -> tensor<1x1xf16>
     return %1 : tensor<1x1xf16>
 
-    // CHECK: [[VAR0:%.+]] = Core.ReinterpretCast([[ARG0]]) : tensor<1x1xf16> -> tensor<1x1xf16>
-    // CHECK: return [[VAR0]]
+    // CHECK: return [[ARG0]]
 }
 
 // -----
 
-// CHECK: func.func @NoFoldSubsequentCastsWithExtraUser([[ARG0:%.+]]: tensor<1x1xf16>)
+// CHECK: func.func @FoldSubsequentCastsWithExtraUser([[ARG0:%.+]]: tensor<1x1xf16>)
 // CHECK-SAME: -> (tensor<1x1xf16>, tensor<2x1xi8>)
-func.func @NoFoldSubsequentCastsWithExtraUser(%arg0: tensor<1x1xf16>)
+func.func @FoldSubsequentCastsWithExtraUser(%arg0: tensor<1x1xf16>)
         -> (tensor<1x1xf16>, tensor<2x1xi8>) {
     %0 = Core.ReinterpretCast(%arg0) : tensor<1x1xf16> -> tensor<2x1xi8>
     %1 = Core.ReinterpretCast(%0) : tensor<2x1xi8> -> tensor<1x1xf16>
     return %1, %0 : tensor<1x1xf16>, tensor<2x1xi8>
 
-    // CHECK: [[VAR0:%.+]] = Core.ReinterpretCast([[ARG0]]) : tensor<1x1xf16> -> tensor<2x1xi8>
-    // CHECK: [[VAR1:%.+]] = Core.ReinterpretCast([[VAR0]]) : tensor<2x1xi8> -> tensor<1x1xf16>
-    // CHECK: return [[VAR1]], [[VAR0]]
+    // CHECK-DAG: [[VAR0:%.+]] = Core.ReinterpretCast([[ARG0]]) : tensor<1x1xf16> -> tensor<2x1xi8>
+    // CHECK: return [[ARG0]], [[VAR0]]
 }
 
 // -----
@@ -99,31 +97,27 @@ func.func @DynamicShapeWithBounds(%arg0: tensor<1x256x?x16xf16>) -> tensor<1x256
 
     return %1 : tensor<1x256x?x16xf16>
 
-    // CHECK: [[VAR0:%.+]] = Core.ReinterpretCast([[ARG0]])
-    // CHECK-SAME: : tensor<1x256x?x16xf16> -> tensor<1x256x?x16xf16>
-    // CHECK: return [[VAR0]]
+    // CHECK: return [[ARG0]]
 }
 
 // -----
 
-// CHECK: func.func @NoFoldTensor([[ARG0:%.+]]: tensor<1xf16>)
+// CHECK: func.func @FoldTensor([[ARG0:%.+]]: tensor<1xf16>)
 // CHECK-SAME: -> tensor<1xf16>
-func.func @NoFoldTensor(%arg0: tensor<1xf16>) -> tensor<1xf16> {
+func.func @FoldTensor(%arg0: tensor<1xf16>) -> tensor<1xf16> {
     %0 = Core.ReinterpretCast(%arg0) : tensor<1xf16> -> tensor<1xf16>
     return %0 : tensor<1xf16>
 
-    // CHECK: [[VAR0:%.+]] = Core.ReinterpretCast([[ARG0]])
-    // CHECK: return [[VAR0]] : tensor<1xf16>
+    // CHECK: return [[ARG0]]
 }
 
 // -----
 
-// CHECK: func.func @NoFoldMemref([[ARG0:%.+]]: memref<1xf16>)
+// CHECK: func.func @FoldMemref([[ARG0:%.+]]: memref<1xf16>)
 // CHECK-SAME: -> memref<1xf16>
-func.func @NoFoldMemref(%arg0: memref<1xf16>) -> memref<1xf16> {
+func.func @FoldMemref(%arg0: memref<1xf16>) -> memref<1xf16> {
     %0 = Core.ReinterpretCast(%arg0) : memref<1xf16> -> memref<1xf16>
     return %0 : memref<1xf16>
 
-    // CHECK: [[VAR0:%.+]] = Core.ReinterpretCast([[ARG0]])
-    // CHECK: return [[VAR0]] : memref<1xf16>
+    // CHECK: return [[ARG0]]
 }

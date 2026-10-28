@@ -97,7 +97,7 @@ void vpux::VPU::configureDynamismConversionPassEnvironment(Logger& log, mlir::Mo
         VPUX_THROW_UNLESS(inputs.size() == 1, "Got wrong number of inputs : {0}", inputs.size());
         auto newLocation = appendLoc(loc, "casted");
 
-        auto castOp = builder.create<mlir::UnrealizedConversionCastOp>(newLocation, type, inputs[0]);
+        auto castOp = mlir::UnrealizedConversionCastOp::create(builder, newLocation, type, inputs[0]);
         return castOp->getResult(0);
     };
 

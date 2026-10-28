@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-#include "vpux/compiler/core/types/quantile_float/types.hpp"
+#include "vpux/compiler/core/types/quantile_types/types.hpp"
 #include "vpux/compiler/dialect/IE/IR/dialect.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
 #include "vpux/compiler/dialect/IE/utils/quantization.hpp"
@@ -59,7 +59,7 @@ mlir::LogicalResult ConvertQuantizeRewriter::matchAndRewrite(IE::QuantizeOp quan
     if (mlir::isa_and_present<mlir::quant::UniformQuantizedType, mlir::quant::UniformQuantizedPerAxisType>(
                 originDstType)) {
         const auto quantized = mlir::cast<mlir::quant::QuantizedType>(originDstType);
-        if (mlir::isa<vpux::type::QuantileType>(quantized.getStorageType())) {
+        if (mlir::isa<mlir::quant::QuantileType>(quantized.getStorageType())) {
             return mlir::failure();
         }
     }

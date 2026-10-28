@@ -57,6 +57,7 @@ mlir::Value createWeights(mlir::OpBuilder& builder, mlir::Location loc, mlir::Ty
 
 mlir::OwningOpRef<mlir::ModuleOp> createTiledConvolutionModule(mlir::MLIRContext* ctx, int numTilesH, int numTilesC,
                                                                config::Platform platform,
-                                                               bool addDdr2DdrConsumers = false);
+                                                               bool addDdr2DdrConsumers = false,
+                                                               bool addCmx2CmxCopies = false);
 
 }  // namespace vpux

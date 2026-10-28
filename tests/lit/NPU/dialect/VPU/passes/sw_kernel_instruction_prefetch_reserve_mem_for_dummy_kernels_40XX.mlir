@@ -53,22 +53,3 @@ module @SimpleGraphAddSecondResMem {
     // CHECK:              CustomReservedMemory
     // CHECK-NEXT:         config.MemoryResource 512 bytes of @CMX_NN offset 1571328
 }
-
-// -----
-
-module @SimpleGraphNotAddResMem {
-  config.Resources 1 of @NCE at 1.300000e+03 MHz
-
-  net.NetworkInfo entryPoint : @main inputsInfo : {
-    DataInfo "data" : tensor<1x16x4x4xf16>
-  } outputsInfo : {
-    DataInfo "prob" : tensor<1x16x4x4xf16>
-  }
-  func.func @main(%arg0: tensor<1x16x4x4xf16>) -> tensor<1x16x4x4xf16> {
-    return %arg0: tensor<1x16x4x4xf16>
-  }
-
-    // CHECK:     config.Resources
-    // CHECK-NOT:         ReservedMemory
-    // CHECK-NOT:         DummySWKernelsForInstructionPrefetchReservedMemory
-}

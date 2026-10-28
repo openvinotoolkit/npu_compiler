@@ -14,8 +14,8 @@ config::PipelineOptionsOp config::getPipelineOptionsOp(mlir::MLIRContext& ctx, m
     auto optionsBuilder = mlir::OpBuilder::atBlockBegin(moduleOp.getBody());
 
     if (!hasPipelineOptions) {
-        pipelineOptionsOp =
-                optionsBuilder.create<config::PipelineOptionsOp>(mlir::UnknownLoc::get(&ctx), config::PIPELINE_OPTIONS);
+        pipelineOptionsOp = config::PipelineOptionsOp::create(optionsBuilder, mlir::UnknownLoc::get(&ctx),
+                                                              config::PIPELINE_OPTIONS);
         pipelineOptionsOp.getOptions().emplaceBlock();
     }
 

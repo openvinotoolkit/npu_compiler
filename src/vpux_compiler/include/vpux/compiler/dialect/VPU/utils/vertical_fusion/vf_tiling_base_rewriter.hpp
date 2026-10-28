@@ -12,6 +12,8 @@
 #include "vpux/compiler/utils/attributes.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 
+#include <utility>
+
 namespace vpux::VPU {
 
 //
@@ -275,17 +277,16 @@ void VerticalFusionTilingRewriterBase<VFConfigType, VFSchedulingFactoryType>::ap
                                                             VFLoopTileIndexAttr::get(getContext(), index));
         }
 
-        VPUX_THROW_WHEN(currentResults.size() != resultTileVals.size(),
-                        "VF tiling expects {0} results but tiling procedure returned {1} for tile {2}",
-                        resultTileVals.size(), currentResults.size(), index);
-        VPUX_THROW_WHEN(currentTiles.size() != resultTileOffsets.size(),
-                        "VF tiling expects {0} offsets but tiling procedure returned {1} for tile {2}",
-                        resultTileOffsets.size(), currentTiles.size(), index);
-        VPUX_THROW_WHEN(currentTiles.size() != currentResults.size(),
-                        "Mismatch between tiled results ({0}) and tile offsets ({1}) for tile {2}",
-                        currentResults.size(), currentTiles.size(), index);
-
         for (const auto& [resIdx, result] : enumerate(currentResults)) {
+            VPUX_THROW_WHEN(currentResults.size() != resultTileVals.size(),
+                            "VF tiling expects {0} results but tiling procedure returned {1} for tile {2}",
+                            resultTileVals.size(), currentResults.size(), index);
+            VPUX_THROW_WHEN(currentTiles.size() != resultTileOffsets.size(),
+                            "VF tiling expects {0} offsets but tiling procedure returned {1} for tile {2}",
+                            resultTileOffsets.size(), currentTiles.size(), index);
+            VPUX_THROW_WHEN(currentTiles.size() != currentResults.size(),
+                            "Mismatch between tiled results ({0}) and tile offsets ({1}) for tile {2}",
+                            currentResults.size(), currentTiles.size(), index);
             resultTileVals[resIdx].push_back(result);
             resultTileOffsets[resIdx].push_back(currentTiles[resIdx]);
             _log.trace("  [applyLinearTiling] tile {0}, result[{1}]: resultTileOffsets = {2}", index, resIdx,
@@ -323,12 +324,11 @@ void VerticalFusionTilingRewriterBase<VFConfigType, VFSchedulingFactoryType>::ap
                     VPUX_THROW_WHEN(currentResults.size() != 1,
                                     "Tiling procedure didn't return exactly one result for view operation @ {0}",
                                     operation->getLoc());
-
                     auto* viewProducerOp = currentResults.back().getDefiningOp();
-                    VPUX_THROW_UNLESS(viewProducerOp != nullptr,
-                                      "tilingProcedure returned a non-op-defined value for viewOp at index {0};"
-                                      " cannot attach VF loop attrs",
-                                      index);
+                    VPUX_THROW_WHEN(viewProducerOp == nullptr,
+                                    "tilingProcedure returned a non-op-defined value for viewOp at index {0};"
+                                    " cannot attach VF loop attrs",
+                                    index);
                     viewProducerOp->setAttr(VF_LOOP_INDEX_ATTR_NAME, vfIndexAttr);
                     viewProducerOp->setAttr(VF_LOOP_TILE_INDEX_ATTR_NAME,
                                             VFLoopTileIndexAttr::get(getContext(), index));
@@ -339,24 +339,23 @@ void VerticalFusionTilingRewriterBase<VFConfigType, VFSchedulingFactoryType>::ap
                 VPUX_THROW_WHEN(currentResults.empty(), "Tiling procedure didn't return any result for operation @ {0}",
                                 operation->getLoc());
                 auto* producerOp = currentResults.front().getDefiningOp();
-                VPUX_THROW_UNLESS(producerOp != nullptr,
-                                  "tilingProcedure returned a non-op-defined value for operation at index {0};"
-                                  " cannot attach VF loop attrs",
-                                  index);
+                VPUX_THROW_WHEN(producerOp == nullptr,
+                                "tilingProcedure returned a non-op-defined value for operation at index {0};"
+                                " cannot attach VF loop attrs",
+                                index);
                 producerOp->setAttr(VF_LOOP_INDEX_ATTR_NAME, vfIndexAttr);
                 producerOp->setAttr(VF_LOOP_TILE_INDEX_ATTR_NAME, VFLoopTileIndexAttr::get(getContext(), index));
 
-                VPUX_THROW_WHEN(currentResults.size() != resultTileVals.size(),
-                                "VF tiling expects {0} results but tiling procedure returned {1} for tile {2}",
-                                resultTileVals.size(), currentResults.size(), index);
-                VPUX_THROW_WHEN(currentTiles.size() != resultTileOffsets.size(),
-                                "VF tiling expects {0} offsets but tiling procedure returned {1} for tile {2}",
-                                resultTileOffsets.size(), currentTiles.size(), index);
-                VPUX_THROW_WHEN(currentTiles.size() != currentResults.size(),
-                                "Mismatch between tiled results ({0}) and tile offsets ({1}) for tile {2}",
-                                currentResults.size(), currentTiles.size(), index);
-
                 if (llvm::find(config.getOutputs(), operation) != config.getOutputs().end()) {
+                    VPUX_THROW_WHEN(currentResults.size() != resultTileVals.size(),
+                                    "VF tiling expects {0} results but tiling procedure returned {1} for tile {2}",
+                                    resultTileVals.size(), currentResults.size(), index);
+                    VPUX_THROW_WHEN(currentTiles.size() != resultTileOffsets.size(),
+                                    "VF tiling expects {0} offsets but tiling procedure returned {1} for tile {2}",
+                                    resultTileOffsets.size(), currentTiles.size(), index);
+                    VPUX_THROW_WHEN(currentTiles.size() != currentResults.size(),
+                                    "Mismatch between tiled results ({0}) and tile offsets ({1}) for tile {2}",
+                                    currentResults.size(), currentTiles.size(), index);
                     for (const auto& [resIdx, result] : enumerate(currentResults)) {
                         resultTileVals[resIdx].push_back(result);
                         resultTileOffsets[resIdx].push_back(currentTiles[resIdx]);
@@ -388,6 +387,29 @@ mlir::LogicalResult VerticalFusionTilingRewriterBase<VFConfigType, VFSchedulingF
 
     auto operationStorage = std::make_unique<TilingOperationStorage>();
     auto tilingStorage = restoreTilingStorage(vfConfig, tilingStrategy, operationStorage);
+
+    DenseMap<mlir::Operation*, SmallVector<TileCoordinate>> loopTileCoordinates;
+    for (auto* op : vfConfig.getVFOperations()) {
+        OutputTiling outputTiles;
+        outputTiles.reserve(tilesLen);
+        for (auto index : irange(tilesLen)) {
+            const auto outputTiling = operationStorage->getRef(op, index);
+            VPUX_THROW_UNLESS(outputTiling.has_value(), "VF output tiling is missing for operation {0}, iteration {1}",
+                              op->getLoc(), index);
+            outputTiles.push_back(outputTiling->get().second);
+        }
+
+        auto coordinates = getTileCoordinates(outputTiles);
+        VPUX_THROW_UNLESS(coordinates.size() == static_cast<size_t>(tilesLen),
+                          "VF coordinate count {0} does not match iteration count {1}", coordinates.size(), tilesLen);
+        loopTileCoordinates[op] = std::move(coordinates);
+    }
+
+    VPUX_THROW_UNLESS(vfOp->hasAttrOfType<VFLoopIndexAttr>(VF_LOOP_INDEX_ATTR_NAME),
+                      "Op {0} does not contain an attribute {1} of type vpux::VPUIP::VFIndexAttr", vfOp->getLoc(),
+                      VF_LOOP_INDEX_ATTR_NAME);
+    auto vfIndexAttr = vfOp->getAttrOfType<VFLoopIndexAttr>(VF_LOOP_INDEX_ATTR_NAME);
+    assert(vfIndexAttr != nullptr && "vfIndexAttr is null");
 
     // resultTileVals = {{res_0_tile_0, res_0_tile_1, ...}, {res_1_tile_0, res_1_tile_1, ...}, ...}
     auto resultTileVals = SmallVector<SmallVector<mlir::Value>>(vfOp->getNumResults(), {});
@@ -481,14 +503,11 @@ mlir::LogicalResult VerticalFusionTilingRewriterBase<VFConfigType, VFSchedulingF
             copiedOp->getResult(i).setType(tiledResType);
             mapper.map(op->getResult(i), copiedOp->getResult(i));
         }
+        copiedOp->setAttr(VF_LOOP_INDEX_ATTR_NAME, vfIndexAttr);
+        copiedOp->setAttr(VF_LOOP_TILE_INDEX_ATTR_NAME, VFLoopTileIndexAttr::get(getContext(), index));
+        copiedOp->setAttr(LOOP_TILE_COORD, getTileCoordinateAttr(getContext(), loopTileCoordinates[op][index]));
         opTileResults[op][index] = currentResults;
     };
-
-    VPUX_THROW_UNLESS(vfOp->hasAttrOfType<VFLoopIndexAttr>(VF_LOOP_INDEX_ATTR_NAME),
-                      "Op {0} does not contain an attribute {1} of type vpux::VPUIP::VFIndexAttr", vfOp->getLoc(),
-                      VF_LOOP_INDEX_ATTR_NAME);
-    auto vfIndexAttr = vfOp->getAttrOfType<VFLoopIndexAttr>(VF_LOOP_INDEX_ATTR_NAME);
-    assert(vfIndexAttr != nullptr && "vfIndexAttr is null");
 
     if (vfConfig.isPipelined()) {
         applyPipelinedTiling(tilesLen, vfConfig, resultTileVals, resultTileOffsets, tilingProcedure, operationStorage,
@@ -502,8 +521,8 @@ mlir::LogicalResult VerticalFusionTilingRewriterBase<VFConfigType, VFSchedulingF
     replacements.reserve(vfOp->getNumResults());
     for (size_t i = 0; i < vfOp->getNumResults(); ++i) {
         auto concatOp =
-                rewriter.create<VPU::ConcatOp>(appendLoc(vfOp.getLoc(), "concat_{0}", i), vfOp->getResult(i).getType(),
-                                               mlir::ValueRange(resultTileVals[i]), ArrayRef(resultTileOffsets[i]));
+                VPU::ConcatOp::create(rewriter, appendLoc(vfOp.getLoc(), "concat_{0}", i), vfOp->getResult(i).getType(),
+                                      mlir::ValueRange(resultTileVals[i]), ArrayRef(resultTileOffsets[i]));
         replacements.push_back(concatOp.getResult());
     }
     rewriter.replaceOp(vfOp, replacements);

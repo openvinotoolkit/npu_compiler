@@ -51,31 +51,10 @@ void vpux::VPU::arch37xx::buildDefaultHWPipeline(mlir::OpPassManager& pm,
                                                  const VPU::arch37xx::DefaultHWOptions& options, Logger log) {
     const auto grc = getDefaultGreedyRewriteConfig();
 
-    /*
-      Memory reservation for CMX has to happen as early in VPU as possible. It is required because memory reservation
-      decreases usable CMX size which can result in different tiling decisions. If different passes see different
-      effective CMX size different failures which can be hard to diagnose can happen. Examples of such failures include:
-      - Fail during compilation if additional memory was reserved after tiling but before scheduling since tiles
-      selected by tiling pipeline won't fit CMX anymore
-      - Memory corruption if additional memory is reserved after scheduler since additional memory will overlap
-      addresses allocated by the scheduler Currently there is no validation if memory is not reserved before the first
-      call to getTotalCMXSize.
-    */
-    if (options.enableProfiling) {
-        pm.addPass(VPU::createDMATaskProfilingReserveMemPass(options.enableDMAProfiling.getValue(), log));
-    }
-
-    /*
-      Call this pass after all other memory reservation has already been done. This pass checks if there is 1KiB
-      of reserved memory at the end of CMX and extends it if some is missing. So to not waste CMX memory make sure
-      as much as possible is allocated in that 1KiB region. Exception to this rule is memory reserved for SW kernel IO
-      for such memory make sure to reserve it after this pass to allow data prefetching.
-    */
-    pm.addPass(VPU::createSWKernelDataPrefetchReserveMemPass(log));
-
-    // TODO: E#140041 enable profiling with outlining
-    if (options.enableConcatRepeatingBlockOutlining && canOutlineFromProfilingPerspective(options)) {
-        pm.addPass(VPU::createConcatRepeatingBlocksOutliningPass(options.concatRepeatingBlockOutliningSeqLength, log));
+    if (options.enableConcatRepeatingBlockOutlining) {
+        pm.addPass(VPU::createConcatRepeatingBlocksOutliningPass(options.concatRepeatingBlockOutliningSeqLength,
+                                                                 options.concatRepeatingBlockOutliningSdpaHeadThreshold,
+                                                                 log));
         pm.addPass(mlir::createCanonicalizerPass(grc));
     }
 
@@ -144,9 +123,6 @@ void vpux::VPU::arch37xx::buildReferenceSWPipeline(mlir::OpPassManager& pm,
                                                    const VPU::arch37xx::DefaultHWOptions& options, Logger log) {
     const auto grc = getDefaultGreedyRewriteConfig();
 
-    // Create DMA HWP scratch buffer
-    pm.addPass(VPU::createDMATaskProfilingReserveMemPass("false", log));
-    pm.addPass(VPU::createSWKernelDataPrefetchReserveMemPass(log));
     pm.addPass(VPU::createDetectionOutputDecompositionPass(log));
     pm.addPass(VPU::createSplitRealDFTOpsPass(log));
     pm.addPass(VPU::createSplitGRUSequencePass(log));

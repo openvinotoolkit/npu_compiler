@@ -6,10 +6,12 @@
 // RUN: vpux-opt --split-input-file --init-compiler="platform=%platform%" --low-precision %s | FileCheck %s
 // REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010
 
-!qElemType = !quant.uniform<u8:f16, 0.99607843137254903:127>
+!qElemType = !quant.uniform<u8:f16, 0.99607843160629272:127>
 !qElemType1 = !quant.uniform<i8:f16, 0.99607843137254903:-1>
-!qElemType2 = !quant.uniform<u8:f16, 1.000000e+00>
-!qElemType3 = !quant.uniform<u8:f16, 2.000000e+00>
+!qElemType2 = !quant.uniform<i8:f16, 1.000000e+00>
+!qElemType3 = !quant.uniform<i8:f16, 0.99607843160629272:-1>
+!qElemType4 = !quant.uniform<u8:f16, 1.000000e+00>
+!qElemType5 = !quant.uniform<u8:f16, 2.000000e+00>
 
 // CHECK-LABEL: @PropagateDequantizeTwiceToFuseMul
 // CHECK-SAME:      ([[INPUT:%.+]]: tensor<4096x320x1x1xf16>,
@@ -57,24 +59,24 @@ func.func @PropagateDequantizeTwiceToFuseMul(
     return %conv2 : tensor<4096x4096x1x1xf16>
 
     // CHECK-DAG: [[WEIGHTS2:%.+]] = const.Declare tensor<4096x40x1x1x!qElemType> = dense<1.000000e+01> :
-    // CHECK-SAME:  tensor<4096x40x1x1xf16>, [#const.Quantize<!qElemType1>, #const.CastElemType<!qElemType1>, #const.ConvertElemType<!qElemType>]
+    // CHECK-SAME:  tensor<4096x40x1x1xf16>, [#const.Quantize<!qElemType1>, #const.CastElemType<si8>, #const.CastElemType<!qElemType2>, #const.CastElemType<!qElemType3>, #const.ConvertElemType<!qElemType>]
 
     // CHECK:     [[CONV1:%.+]] = IE.Convolution([[INPUT]], [[WEIGHTS1]])
-    // CHECK-SAME:  tensor<4096x320x1x1xf16>, tensor<320x320x1x1xf16> -> tensor<4096x320x1x1x!qElemType2>
+    // CHECK-SAME:  tensor<4096x320x1x1xf16>, tensor<320x320x1x1xf16> -> tensor<4096x320x1x1x!qElemType4>
 
     // CHECK:     [[RESHAPE:%.+]] = IE.Reshape([[CONV1]])
 
     // CHECK:     [[TRANSPOSE:%.+]] = IE.Transpose([[RESHAPE]])
 
-    // CHECK:     [[QUANTIZECAST:%.+]] = IE.QuantizeCast([[TRANSPOSE]]) {dstElemType = !qElemType3} :
-    // CHECK-SAME:  tensor<1x8x4096x40x!qElemType2> -> tensor<1x8x4096x40x!qElemType3>
+    // CHECK:     [[QUANTIZECAST:%.+]] = IE.QuantizeCast([[TRANSPOSE]]) {dstElemType = !qElemType5} :
+    // CHECK-SAME:  tensor<1x8x4096x40x!qElemType4> -> tensor<1x8x4096x40x!qElemType5>
 
     // CHECK:     [[SLICE:%.+]] = IE.Slice [[QUANTIZECAST]]
 
     // CHECK:     [[AFFINE_RESHAPE:%.+]] = IE.AffineReshape([[SLICE]])
 
     // CHECK:     [[CONV2:%.+]] = IE.Convolution([[AFFINE_RESHAPE]], [[WEIGHTS2]])
-    // CHECK-SAME:  tensor<4096x40x1x1x!qElemType3>, tensor<4096x40x1x1x!qElemType> -> tensor<4096x4096x1x1xf16>
+    // CHECK-SAME:  tensor<4096x40x1x1x!qElemType5>, tensor<4096x40x1x1x!qElemType> -> tensor<4096x4096x1x1xf16>
 
     // CHECK:     return [[CONV2]]
 }

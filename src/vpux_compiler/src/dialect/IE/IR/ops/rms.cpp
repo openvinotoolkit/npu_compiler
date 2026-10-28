@@ -78,7 +78,7 @@ public:
             return mlir::failure();
         }
         auto newGammaConst =
-                rewriter.create<Const::DeclareOp>(gammaConstOp.getLoc(), gammaConstOp.getType(), newGammaContentAttr);
+                Const::DeclareOp::create(rewriter, gammaConstOp.getLoc(), gammaConstOp.getType(), newGammaContentAttr);
 
         // Recreate RMS op with new gamma
         rewriter.replaceOpWithNewOp<IE::RMSOp>(mulOp, rmsOp.getInput(), newGammaConst.getOutput(), rmsOp.getEpsAttr());

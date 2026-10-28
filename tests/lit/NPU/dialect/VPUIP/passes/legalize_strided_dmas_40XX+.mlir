@@ -882,3 +882,40 @@ func.func @DynamicStridesIncompatibleWriteDmas(%arg: !DDRType) -> !DDRType {
 
     return %arg : !DDRType
 }
+
+// -----
+
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+#map4 = affine_map<(d0, d1, d2, d3) -> (d2, d0, d1, d3)>
+
+!qElemType58 = !quant.uniform<i8:f16, 0.047244105488061905>
+!InputType = memref<1x2x256x4351xsi8, @DDR>
+!QuantType = memref<1x2x256x4351x!qElemType58, @DDR>
+!SubviewType = memref<1x1x256x4351x!qElemType58, {order = #NCHW, strides = [2227712, 1113856, 4351, 1]}, @DDR>
+!PermuteType = memref<256x4351x1x1x!qElemType58, {order = #NHWC}, @DDR>
+!CMXType = memref<256x4351x1x1x!qElemType58, {order = #NHWC, strides = [4352, 1, 4352, 4352]}, [@CMX_NN, 0]>
+
+net.NetworkInfo entryPoint : @DynamicStridesQuantSubViewPermuteInput inputsInfo : {
+    DataInfo "Parameter_1" : tensor<1x2x256x4351xsi8> {dynamicStrides}
+} outputsInfo : {
+    DataInfo "Result_1" : tensor<1x2x256x4351xsi8>
+}
+
+// CHECK-LABEL: func.func @DynamicStridesQuantSubViewPermuteInput
+// CHECK-SAME: [[ARG_0:%[^:]+]]: memref<1x2x256x4351xsi8, @DDR>
+func.func @DynamicStridesQuantSubViewPermuteInput(%arg0: !InputType) -> !InputType {
+    %0 = VPUIP.QuantizeCast inputs(%arg0 : !InputType) -> !QuantType
+    %1 = VPUIP.SubView %0 [0, 0, 0, 0] [1, 1, 256, 4351] : !QuantType to !SubviewType
+    %2 = VPUIP.PermuteCast {dst_order = #NHWC, mem_perm = #map4} inputs(%1 : !SubviewType) -> !PermuteType
+    %3 = memref.alloc() : !CMXType
+    %4 = VPUIP.NNDMA inputs(%2 : !PermuteType) outputs(%3 : !CMXType) -> !CMXType
+
+    // CHECK: [[QCAST:%.+]] = VPUIP.QuantizeCast inputs([[ARG_0]] : memref<1x2x256x4351xsi8, @DDR>) -> memref<1x2x256x4351x!{{[^,>]+}}, @DDR>
+    // CHECK: [[SUBVIEW:%.+]] = VPUIP.SubView [[QCAST]] [0, 0, 0, 0] [1, 1, 256, 4351] : memref<1x2x256x4351x!{{[^,>]+}}, @DDR> to memref<1x1x256x4351x!{{[^,>]+}}, {order = #NCHW, strides = [2227712, 1113856, 4351, 1]}, @DDR>
+    // CHECK: [[PERMUTE:%.+]] = VPUIP.PermuteCast {dst_order = #NHWC, mem_perm = #{{[^}]+}}} inputs([[SUBVIEW]] : memref<1x1x256x4351x!{{[^,>]+}}, {order = #NCHW, strides = [2227712, 1113856, 4351, 1]}, @DDR>) -> memref<256x4351x1x1x!{{[^,>]+}}, {order = #NHWC}, @DDR>
+    // CHECK: [[ALLOC:%.+]] = memref.alloc() : memref<256x4351x1x1x!{{[^,>]+}}, {order = #NHWC, strides = [4352, 1, 4352, 4352]}, [@CMX_NN, 0]>
+    // CHECK: VPUIP.NNDMA {stridedInput} inputs([[PERMUTE]] : memref<256x4351x1x1x!{{[^,>]+}}, {order = #NHWC}, @DDR>) outputs([[ALLOC]] : memref<256x4351x1x1x!{{[^,>]+}}, {order = #NHWC, strides = [4352, 1, 4352, 4352]}, [@CMX_NN, 0]>) -> memref<256x4351x1x1x!{{[^,>]+}}, {order = #NHWC, strides = [4352, 1, 4352, 4352]}, [@CMX_NN, 0]>
+
+    return %arg0 : !InputType
+}

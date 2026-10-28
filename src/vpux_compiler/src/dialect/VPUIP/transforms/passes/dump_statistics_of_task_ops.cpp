@@ -216,12 +216,8 @@ void addProfilingCounters(CountersVec& counters, const std::string& category) {
                  [](auto op) {
                      return isLocContainsStr(op->getLoc(), getProfSuffix("dpu"));
                  }},
-                {"ActShave",
-                 [](auto op) {
+                {"ActShave", [](auto op) {
                      return isLocContainsStr(op->getLoc(), getProfSuffix("actshave"));
-                 }},
-                {"M2I", [](auto op) {
-                     return isLocContainsStr(op->getLoc(), getProfSuffix("m2i"));
                  }}};
         for (const auto& p : profCounterCfgs) {
             nestedProfCounters.push_back(makeCounterNode(p.first, p.second));
@@ -384,12 +380,6 @@ CountersNode getSparsityCounter() {
             std::move(counters), std::move(remainedOpHandler));
 }
 
-CountersNode getM2ICounter() {
-    return makeCounterNode(VPUIP::M2ITaskOp::getOperationName().str(), [](mlir::Operation* op) {
-        return mlir::isa<VPUIP::M2ITaskOp>(op);
-    });
-}
-
 utils::OpCounterTree populateCounters(mlir::MLIRContext* ctx) {
     utils::OpCounter::HandleUnrecognizedCounter remainedOpHandler = [](mlir::Operation* op) {
         return op->getName().getIdentifier().str();
@@ -398,7 +388,6 @@ utils::OpCounterTree populateCounters(mlir::MLIRContext* ctx) {
     auto counters = getDMACounters();
     counters.push_back(getSWKernelsCounter());
     counters.push_back(getSparsityCounter());
-    counters.push_back(getM2ICounter());
 
     auto mpeModeCountersStrategy = VPUIP::getVPUIPStrategyFactory(ctx)->getCountersStrategy();
     mpeModeCountersStrategy->appendCounters(counters);

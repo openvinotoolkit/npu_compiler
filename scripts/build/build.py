@@ -435,23 +435,28 @@ def update_openvino_repo(ov_retrieve_flow: OVRetrieveFlow):
 
 
 def build_openvino(*, ov_build_flow: OVBuildFlow, build_time_stat: BuildTimeStat):
+    # create project
     os.makedirs(ov_build_flow.ov_build_dir, exist_ok=True)
-
-    # skip build if build directory is not empty
-    if (
-        len(os.listdir(ov_build_flow.ov_build_dir)) != 0
-        and ov_build_flow.force_rebuild is False
-    ):
+    if ov_build_flow.force_rebuild is True:
+        shutil.rmtree(ov_build_flow.ov_build_dir, ignore_errors=True)
         logger.info(
-            f"OpenVINO build directory {ov_build_flow.ov_build_dir} is not empty, skipping build"
+            f"OpenVINO build directory {ov_build_flow.ov_build_dir} is cleaned from previous builds"
         )
-        return
+        os.makedirs(ov_build_flow.ov_build_dir, exist_ok=True)
+    if len(os.listdir(ov_build_flow.ov_build_dir)) != 0:
+        logger.info(
+            f"OpenVINO build directory {ov_build_flow.ov_build_dir} is not empty, skipping project creation"
+        )
+    else:
+        build_time_stat.create_project_ov_sec = system_call(
+            f"cmake -S {ov_build_flow.ov_repo_dir} --preset {ov_build_flow.ov_cmake_preset}",
+            cwd=ov_build_flow.ov_build_dir,
+        )
+        logger.info(
+            f"OpenVINO project is created from preset '{ov_build_flow.ov_cmake_preset}' in the directory {ov_build_flow.ov_build_dir}"
+        )
 
-    # create project and build
-    build_time_stat.create_project_ov_sec = system_call(
-        f"cmake -S {ov_build_flow.ov_repo_dir} --preset {ov_build_flow.ov_cmake_preset}",
-        cwd=ov_build_flow.ov_build_dir,
-    )
+    # build project
     build_time_stat.build_time_ov_sec = system_call(
         f"cmake --build --preset {ov_build_flow.ov_cmake_preset} --parallel {ov_build_flow.parallel_build_num_processes}",
         cwd=ov_build_flow.ov_repo_dir,

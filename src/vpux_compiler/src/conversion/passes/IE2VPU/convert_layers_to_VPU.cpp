@@ -114,8 +114,8 @@ mlir::LogicalResult IfRewrite::matchAndRewrite(IE::IfOp origOp, mlir::PatternRew
     SmallVector<mlir::Value> branchResults;
     int64_t numInputs = thenBranchResults.size();
     for (auto i = 0; i < numInputs; i++) {
-        auto result = rewriter.create<VPU::ConditionalCopyOp>(origOp.getLoc(), outTypes[i], cond, thenBranchResults[i],
-                                                              elseBranchResults[i]);
+        auto result = VPU::ConditionalCopyOp::create(rewriter, origOp.getLoc(), outTypes[i], cond, thenBranchResults[i],
+                                                     elseBranchResults[i]);
         branchResults.push_back(result);
     }
     rewriter.replaceOp(origOp, branchResults);
@@ -197,10 +197,9 @@ mlir::LogicalResult NonMaxSuppressionRewrite::matchAndRewrite(IE::NonMaxSuppress
     const auto boundsRepAttr =
             VPU::BoundsRepresentationAttr::get(origOp.getContext(), VPU::BoundsRepresentation::BOUNDS);
     rewriter.replaceOpWithNewOp<VPU::NonMaxSuppressionOp>(
-            origOp, origOp.getInBoxCoords(), origOp.getInBoxScores(), origOp.getBoxEncodingAttr(),
-            origOp.getSortResultDescendingAttr(), origOp.getMaxOutputBoxesPerClassValueAttr(),
-            origOp.getIouThresholdValueAttr(), origOp.getScoreThresholdValueAttr(), origOp.getSoftNmsSigmaValueAttr(),
-            boundsRepAttr);
+            origOp, origOp.getInBoxCoords(), origOp.getInBoxScores(), origOp.getIouThreshold(),
+            origOp.getScoreThreshold(), origOp.getBoxEncodingAttr(), origOp.getSortResultDescendingAttr(),
+            origOp.getMaxOutputBoxesPerClassValueAttr(), origOp.getSoftNmsSigmaValueAttr(), boundsRepAttr);
 
     _log.trace("Replaced with 'VPU.NonMaxSuppressionOp'");
 
@@ -236,36 +235,36 @@ mlir::LogicalResult GRUCellRewrite::matchAndRewrite(IE::GRUCellOp origOp, mlir::
     const auto inputSize = inputShape[1];
     SmallVector<int64_t> newInputShape = {batchSize, 1, inputSize};
     const auto newInputShapeAttr = getIntArrayAttr(ctx, newInputShape);
-    auto newInput = rewriter.create<VPU::ReshapeOp>(origOp->getLoc(), origOp.getInputData(), newInputShapeAttr);
+    auto newInput = VPU::ReshapeOp::create(rewriter, origOp->getLoc(), origOp.getInputData(), newInputShapeAttr);
 
     const auto initialStateShape = getShape(origOp.getInitialHiddenState()).raw();
     const auto hiddenSize = initialStateShape[1];
     SmallVector<int64_t> newInitialStateShape = {batchSize, 1, hiddenSize};
     const auto newInitialStateShapeAttr = getIntArrayAttr(ctx, newInitialStateShape);
-    auto newInitialState =
-            rewriter.create<VPU::ReshapeOp>(origOp->getLoc(), origOp.getInitialHiddenState(), newInitialStateShapeAttr);
+    auto newInitialState = VPU::ReshapeOp::create(rewriter, origOp->getLoc(), origOp.getInitialHiddenState(),
+                                                  newInitialStateShapeAttr);
 
     SmallVector<int64_t> newWeightsShape = {1, 3 * hiddenSize, inputSize};
     const auto newWeightsShapeAttr = getIntArrayAttr(ctx, newWeightsShape);
-    auto newWeights = rewriter.create<VPU::ReshapeOp>(origOp->getLoc(), origOp.getWeights(), newWeightsShapeAttr);
+    auto newWeights = VPU::ReshapeOp::create(rewriter, origOp->getLoc(), origOp.getWeights(), newWeightsShapeAttr);
 
     SmallVector<int64_t> newReWeightsShape = {1, 3 * hiddenSize, hiddenSize};
     const auto newReWeightsShapeAttr = getIntArrayAttr(ctx, newReWeightsShape);
     auto newReWeights =
-            rewriter.create<VPU::ReshapeOp>(origOp->getLoc(), origOp.getRecurrenceWeights(), newReWeightsShapeAttr);
+            VPU::ReshapeOp::create(rewriter, origOp->getLoc(), origOp.getRecurrenceWeights(), newReWeightsShapeAttr);
 
     const auto biasesShape = getShape(origOp.getBiases()).raw();
     SmallVector<int64_t> newBiasesShape = {1, biasesShape[0]};
     const auto newBiasesShapeAttr = getIntArrayAttr(ctx, newBiasesShape);
-    auto newBiases = rewriter.create<VPU::ReshapeOp>(origOp->getLoc(), origOp.getBiases(), newBiasesShapeAttr);
+    auto newBiases = VPU::ReshapeOp::create(rewriter, origOp->getLoc(), origOp.getBiases(), newBiasesShapeAttr);
 
     const auto seqLenAttr = getIntAttr(ctx, 1);
     const auto directionAttr = IE::RNNSequenceDirectionAttr::get(ctx, IE::RNNSequenceDirection::FORWARD);
 
     auto gruSeq =
-            rewriter.create<VPU::GRUSequenceOp>(origOp->getLoc(), newInput, newInitialState, newWeights, newReWeights,
-                                                newBiases, origOp.getHiddenSizeAttr(), seqLenAttr, directionAttr,
-                                                origOp.getShouldLinearBeforeResetAttr(), origOp.getClipAttr());
+            VPU::GRUSequenceOp::create(rewriter, origOp->getLoc(), newInput, newInitialState, newWeights, newReWeights,
+                                       newBiases, origOp.getHiddenSizeAttr(), seqLenAttr, directionAttr,
+                                       origOp.getShouldLinearBeforeResetAttr(), origOp.getClipAttr());
     SmallVector<int64_t> newOutputShape = {batchSize, hiddenSize};
     const auto newOutputShapeAttr = getIntArrayAttr(ctx, newOutputShape);
     rewriter.replaceOpWithNewOp<VPU::ReshapeOp>(origOp, gruSeq.getOutputHiddenState(), newOutputShapeAttr);
@@ -388,6 +387,35 @@ mlir::LogicalResult GatedDeltaNetRewrite::matchAndRewrite(IE::GatedDeltaNetOp or
 }
 
 //
+// PadRewrite
+//
+
+mlir::LogicalResult PadRewrite::matchAndRewrite(IE::PadOp origOp, mlir::PatternRewriter& rewriter) const {
+    _log.trace("Found Pad Operation '{0}'", origOp->getLoc());
+
+    auto opWithDma = mlir::dyn_cast<IE::LayerWithDmaInterface>(origOp.getOperation());
+    if (opWithDma && opWithDma.isSupported()) {
+        // IE::PadOp stores pad_value as F64; VPU::PadDmaOp kernel blob uses F32.
+        mlir::FloatAttr padValueF32 = nullptr;
+        if (auto f64Attr = origOp.getPadValueAttrAttr()) {
+            const float v = static_cast<float>(f64Attr.getValueAsDouble());
+            padValueF32 = mlir::FloatAttr::get(mlir::Float32Type::get(rewriter.getContext()), v);
+        }
+        rewriter.replaceOpWithNewOp<VPU::PadDmaOp>(origOp, origOp.getInput(), origOp.getPadsBeginAttrAttr(),
+                                                   origOp.getPadsEndAttrAttr(), padValueF32, origOp.getModeAttr());
+        return mlir::success();
+    }
+
+    rewriter.replaceOpWithNewOp<VPU::PadOp>(
+            origOp, origOp.getInput(), origOp.getPadsBegin(), origOp.getPadsEnd(), origOp.getPadValue(),
+            origOp.getPadsBeginAttrAttr(), origOp.getPadsEndAttrAttr(), origOp.getPadValueAttrAttr(),
+            origOp.getModeAttr(), origOp.getOutputPaddingAttr(), origOp.getInputPaddingAttr(),
+            origOp.getOutputShapeAttr(), origOp.getOutputBoundsAttr(),
+            VPU::BoundsRepresentationAttr::get(rewriter.getContext(), VPU::BoundsRepresentation::BOUNDS));
+    return mlir::success();
+}
+
+//
 // AtanRewrite
 //
 
@@ -490,7 +518,7 @@ mlir::LogicalResult LSTMCellRewrite::matchAndRewrite(IE::LSTMCellOp origOp, mlir
     const auto weights = origOp.getWeights();
     const auto biases = origOp.getBiases();
     if (!weights || !biases) {
-        return matchFailed(rewriter, origOp,
+        return matchFailed(_log, rewriter, origOp,
                            "VPU::LSTMCell does not support missing weights or biases; it should have been decomposed "
                            "by the DecomposeLSTMCellPass.");
     }
@@ -509,7 +537,7 @@ mlir::LogicalResult LSTMSequenceRewrite::matchAndRewrite(IE::LSTMSequenceOp orig
                                                          mlir::PatternRewriter& rewriter) const {
     const auto weights = origOp.getWeights();
     if (weights) {
-        return matchFailed(rewriter, origOp,
+        return matchFailed(_log, rewriter, origOp,
                            "VPU::LSTMSequence does not support weights; it should have been decomposed by "
                            "the DecomposeLSTMSequencePass.");
     }
@@ -640,7 +668,8 @@ mlir::LogicalResult DynamicQuantizeRewrite::matchAndRewrite(IE::DynamicQuantizeO
     rewriter.replaceOpWithNewOp<VPU::DynamicQuantizeOp>(
             origOp,
             mlir::TypeRange{origOp.getOutput().getType(), origOp.getScale().getType(), origOp.getZeroPoint().getType()},
-            origOp.getInput(), origOp.getMin(), origOp.getMax(), origOp.getDstElemTypeAttr(), nullptr);
+            origOp.getInput(), origOp.getMin(), origOp.getMax(), origOp.getDstElemTypeAttr(), origOp.getAxesValueAttr(),
+            nullptr);
     return mlir::success();
 }
 
@@ -652,7 +681,7 @@ mlir::LogicalResult MultiplyRewrite::matchAndRewrite(IE::MultiplyOp origOp, mlir
     _log.trace("Found Multiply Operation '{0}'", origOp->getLoc());
 
     if (origOp.getScale() != nullptr) {
-        return matchFailed(rewriter, origOp, "SW eltwise Multiply does not support scales-as-input");
+        return matchFailed(_log, rewriter, origOp, "SW eltwise Multiply does not support scales-as-input");
     }
 
     rewriter.replaceOpWithNewOp<VPU::MultiplyOp>(origOp, origOp.getOutput().getType(), origOp.getInput1(),
@@ -671,7 +700,7 @@ mlir::LogicalResult AddRewrite::matchAndRewrite(IE::AddOp origOp, mlir::PatternR
     _log.trace("Found Add Operation '{0}'", origOp->getLoc());
 
     if (origOp.getScale() != nullptr) {
-        return matchFailed(rewriter, origOp, "SW eltwise Add does not support scales-as-input");
+        return matchFailed(_log, rewriter, origOp, "SW eltwise Add does not support scales-as-input");
     }
 
     constexpr int64_t RANK_4D = 4;
@@ -682,8 +711,8 @@ mlir::LogicalResult AddRewrite::matchAndRewrite(IE::AddOp origOp, mlir::PatternR
     const auto input2Type = mlir::cast<NDTypeInterface>(input2.getType());
 
     if (input1Type.getRank() != input2Type.getRank()) {
-        return matchFailed(rewriter, origOp, "The input ranks are not the same: {0} and {1}", input1Type.getRank(),
-                           input2Type.getRank());
+        return matchFailed(_log, rewriter, origOp, "The input ranks are not the same: {0} and {1}",
+                           input1Type.getRank(), input2Type.getRank());
     }
 
     auto inputRank = input1Type.getRank();
@@ -700,8 +729,8 @@ mlir::LogicalResult AddRewrite::matchAndRewrite(IE::AddOp origOp, mlir::PatternR
         input2 = reshapeTo4D(input2);
     }
     // Rewrite
-    auto newAddOp = rewriter.create<VPU::AddOp>(origOp.getLoc(), input1, input2, origOp.getAutoBroadcastAttr(),
-                                                origOp.getPostOpAttr());
+    auto newAddOp = VPU::AddOp::create(rewriter, origOp.getLoc(), input1, input2, origOp.getAutoBroadcastAttr(),
+                                       origOp.getPostOpAttr());
     if (inputRank < RANK_4D) {
         rewriter.replaceOpWithNewOp<VPU::ReshapeOp>(
                 origOp, newAddOp, getIntArrayAttr(origOp.getContext(), getShape(origOp.getOutput()).raw()));
@@ -749,7 +778,7 @@ mlir::LogicalResult FlashSDPARewrite::matchAndRewrite(IE::FlashSDPAOp origOp, ml
         auto inDimMappingAttr = getIntArrayOfArray(getContext(), inDimMapping);
 
         auto loc = appendLoc(tensor.getLoc(), "reshaped");
-        auto affineReshape = rewriter.create<VPU::AffineReshapeOp>(loc, tensor, inDimMappingAttr, newShapeAttr);
+        auto affineReshape = VPU::AffineReshapeOp::create(rewriter, loc, tensor, inDimMappingAttr, newShapeAttr);
 
         return affineReshape.getOutput();
     };
@@ -764,10 +793,10 @@ mlir::LogicalResult FlashSDPARewrite::matchAndRewrite(IE::FlashSDPAOp origOp, ml
     auto inputRunningMax = rotateShape(origOp.getInputRunningMax(), Rotate::Left);
     auto inputRunningSum = rotateShape(origOp.getInputRunningSum(), Rotate::Left);
 
-    auto newOp = rewriter.create<VPU::FlashSDPAOp>(
-            origOp->getLoc(), origOp.getQuery(), origOp.getKey(), origOp.getValue(), origOp.getInputRunningOutput(),
-            inputRunningMax, inputRunningSum, origOp.getAttentionMask(), origOp.getSourceSeqLenPadSizeAttr(),
-            origOp.getIsHeadAttr(), origOp.getIsTailAttr());
+    auto newOp = VPU::FlashSDPAOp::create(
+            rewriter, origOp->getLoc(), origOp.getQuery(), origOp.getKey(), origOp.getValue(),
+            origOp.getInputRunningOutput(), inputRunningMax, inputRunningSum, origOp.getAttentionMask(),
+            origOp.getSourceSeqLenPadSizeAttr(), origOp.getIsHeadAttr(), origOp.getIsTailAttr());
 
     auto resultRunningMax = rotateShape(newOp.getResultRunningMax(), Rotate::Right);
     auto resultRunningSum = rotateShape(newOp.getResultRunningSum(), Rotate::Right);
@@ -869,6 +898,7 @@ void ConvertLayers2VPUPass::safeRunOnFunc() {
     patterns.add<EmbeddingBagOffsetsSumRewriter>(&ctx, _log);
     patterns.add<RandomUniformRewrite>(&ctx, _log);
     patterns.add<DynamicReshapeRewrite>(&ctx, _log);
+    patterns.add<PadRewrite>(&ctx, _log);
     patterns.add<DynamicTileRewrite>(&ctx, _log);
     patterns.add<DynamicQuantizeRewrite>(&ctx, _log);
     patterns.add<AddRewrite>(&ctx, _log);

@@ -232,19 +232,19 @@ mlir::SymbolRefAttr vpux::ELF::moveOpToSection(mlir::Operation* op, SectionMappe
 
     auto createSection = [&](const ELF::SectionSignature& signature, bool memFootprint, size_t opAling) {
         if (memFootprint) {
-            auto sec = builder.create<ELF::DataSectionOp>(builder.getUnknownLoc(),
-                                                          signature.getName(),  // llvm::StringRef secName
-                                                          opAling,              // int64_t secAddrAlign
-                                                          signature.getType(),  // ELFVPUX40XX secType
-                                                          signature.getFlags()  // ELFVPUX40XX secFlags
+            auto sec = ELF::DataSectionOp::create(builder, builder.getUnknownLoc(),
+                                                  signature.getName(),  // llvm::StringRef secName
+                                                  opAling,              // int64_t secAddrAlign
+                                                  signature.getType(),  // ELFVPUX40XX secType
+                                                  signature.getFlags()  // ELFVPUX40XX secFlags
             );
 
             return mlir::cast<ELF::ElfSectionInterface>(sec.getOperation());
         } else {
             VPUX_THROW_UNLESS(mlir::dyn_cast<ELF::BufferLocationInterface>(op),
                               "Received op does not have type of BufferLocation!");
-            auto sec = builder.create<ELF::LogicalSectionOp>(
-                    builder.getUnknownLoc(),
+            auto sec = ELF::LogicalSectionOp::create(
+                    builder, builder.getUnknownLoc(),
                     signature.getName(),                                                 // llvm::StringRef secName
                     opAling,                                                             // int64_t secAddrAlign
                     signature.getType(),                                                 // ELFVPUX40XX secType
@@ -297,7 +297,7 @@ mlir::SymbolRefAttr vpux::ELF::cloneSectionSymbol(mlir::SymbolRefAttr from, mlir
 void vpux::ELF::insertELFMain(mlir::func::FuncOp netFunc) {
     // create the main ELF op alongside the netFunc
     auto mainBuilder = mlir::OpBuilder(netFunc.getOperation());
-    auto elf = mainBuilder.create<ELF::MainOp>(netFunc->getLoc());
+    auto elf = ELF::MainOp::create(mainBuilder, netFunc->getLoc());
 
     // take the body of the netFunc and put everything inside ELF Op, so we avoid clone of all OPS
     elf.getContent().takeBody(netFunc.getBody());

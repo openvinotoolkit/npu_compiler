@@ -179,6 +179,9 @@ void vpux::IE::buildInitialTransformationsPipeline(mlir::OpPassManager& pm, cons
     }
     pm.addPass(IE::createMoveMultiplyDividePostOpPass(log));
     pm.addPass(IE::createFuseNormalizeL2ToRMSPass(log));
+    if (options.enableConvertToReduceSquare) {
+        pm.addPass(IE::createFuseReduceSquarePass(log));
+    }
     pm.addPass(IE::createUnrollSDPAPatternPass(log));
     pm.addPass(IE::createShrinkMatmulGroupsPass(log));
     pm.addPass(IE::createBatchOpProcessingPipelineRewriterExecutorPass(options, log));
@@ -268,11 +271,6 @@ void vpux::IE::buildOutliningPipeline(mlir::OpPassManager& pm, const DefaultHWOp
     const auto grc = getDefaultGreedyRewriteConfig();
 
     bool isOutliningEnabled = options.functionOutlining.hasValue();
-    if (!canOutlineFromProfilingPerspective(options)) {
-        // TODO: E#140041 enable profiling with outlining
-        log.warning("Outlining was disabled due to profiling being enabled");
-        isOutliningEnabled = false;
-    }
     if (isOutliningEnabled) {
         if (options.enableLoopOutliner) {
             pm.addPass(IE::createLoopOutlinerPass(log));
@@ -352,7 +350,6 @@ void vpux::IE::buildMemPermuteProcessingPipeline(mlir::OpPassManager& pm,
 void vpux::IE::buildPostImportPipeline(mlir::OpPassManager& pm, Logger log) {
     pm.addPass(IE::createInputQuantizationRestorationPass(log));
     pm.addPass(IE::createPropagateAndCleanUpFQPass(log));
-    pm.addPass(IE::createDecomposeMatMulThroughSlicePass(log));
     pm.addPass(IE::createConvertVariadicSplitToStridedSlicePass(log));
 }
 
@@ -426,6 +423,7 @@ void vpux::IE::buildOperationConversionPipeline(mlir::OpPassManager& pm, const I
     // Resolve group quant MatMul pattern
     pm.addPass(mlir::createCSEPass());
     pm.addPass(IE::createMergeParallelFullyConnectedPass(log));
+    pm.addPass(IE::createConvertDynamicDequantizeToFakeQuantizePass(log));
 
     // this pass is added here so that every DynamicDequant op will have a quantized input.
     // For now Dequantize op can only receive quantized inputs, with the current refactoring ongoing (Deq->DynamicDeq
@@ -437,7 +435,6 @@ void vpux::IE::buildOperationConversionPipeline(mlir::OpPassManager& pm, const I
     // a temporary solution until the refactoring is completed. Ticket to address this issue:
     // TODO #E-225955
     pm.addPass(IE::createConvertDQRawDataTypeToQuantizedPass(log));
-
     pm.addPass(IE::createUnrollGroupQuantizePass(log));
     pm.addPass(IE::createUnrollFullyConnectedPass(log));
     if (options.convertDynamicDequantize) {

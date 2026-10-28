@@ -159,8 +159,16 @@ void generateWorkloads(mlir::OpBuilder& builder, VPU::NCEOpInterface origOp,
         // cluster 2: outOffsets [64, 0, 0, 0, 0] outSizes [32, 1, 16, 16, 1]
         const Shape offsets = subTensorOffset.empty() ? Shape{0, 0, 0, 0, 0} : Shape(subTensorOffset);
         auto tilePad = VPU::getPaddingAttr(builder.getContext(), 0, 0, 0, 0);
-        origOp.addWorkload(builder, origOp.getLoc(), offsets, costParams.outputShape, tilePad,
-                           VPU::MPEMode::CUBOID_16x16, getIntAttr(ctx, cluster));
+        const auto kernel = origOp.getKernelSizeVal();
+        const auto isOneByOneMatMul = mlir::isa<VPU::NCEMatMulOp>(origOp) &&
+                                      kernel[DimsGroups5D::Kernel::Y.ind()] == 1 &&
+                                      kernel[DimsGroups5D::Kernel::X.ind()] == 1;
+
+        const auto workloadMpeMode = costParams.arch == config::ArchKind::NPU50XX && isOneByOneMatMul
+                                             ? VPU::MPEMode::CUBOID_4x16
+                                             : VPU::MPEMode::CUBOID_16x16;
+        origOp.addWorkload(builder, origOp.getLoc(), offsets, costParams.outputShape, tilePad, workloadMpeMode,
+                           getIntAttr(ctx, cluster));
         return;
     } else {
         // Invariants that produce sparse activations must have the same number of channels across the variants
@@ -408,10 +416,17 @@ SmallVector<VPU::WorkloadDescriptor, 4> generateWorkloadDescriptors(
     if (costParams.outputShape.size() == 5) {
         int64_t cluster = clusterId.value_or(0);
         const Shape offsets = subTensorOffset.empty() ? Shape{0, 0, 0, 0, 0} : Shape(subTensorOffset);
+        const auto kernel = origOp.getKernelSizeVal();
+        const auto isOneByOneMatMul = mlir::isa<VPU::NCEMatMulOp>(origOp) &&
+                                      kernel[DimsGroups5D::Kernel::Y.ind()] == 1 &&
+                                      kernel[DimsGroups5D::Kernel::X.ind()] == 1;
+        const auto workloadMpeMode = costParams.arch == config::ArchKind::NPU50XX && isOneByOneMatMul
+                                             ? VPU::MPEMode::CUBOID_4x16
+                                             : VPU::MPEMode::CUBOID_16x16;
         result.push_back(VPU::WorkloadDescriptor{offsets,
                                                  costParams.outputShape,
                                                  PadInfo(0, 0, 0, 0),
-                                                 VPU::MPEMode::CUBOID_16x16,
+                                                 workloadMpeMode,
                                                  cluster,
                                                  {},
                                                  {}});
@@ -569,8 +584,8 @@ void vpux::VPU::materializeWorkloads(VPU::NCEOpInterface nceOp, mlir::OpBuilder&
             const auto outSizesAttr = mlir::DenseI64ArrayAttr::get(ctx, wl.outSizes.raw());
             const auto inOffsetsAttr = mlir::DenseI64ArrayAttr::get(ctx, wl.inOffsets.raw());
             const auto inSizesAttr = mlir::DenseI64ArrayAttr::get(ctx, wl.inSizes.raw());
-            builder.create<DPUWorkloadOp>(nceOp->getLoc(), outOffsetsAttr, outSizesAttr, inOffsetsAttr, inSizesAttr,
-                                          padAttr, VPU::MPEModeAttr::get(ctx, wl.mpeMode), clusterIdAttr);
+            DPUWorkloadOp::create(builder, nceOp->getLoc(), outOffsetsAttr, outSizesAttr, inOffsetsAttr, inSizesAttr,
+                                  padAttr, VPU::MPEModeAttr::get(ctx, wl.mpeMode), clusterIdAttr);
         } else {
             nceOp.addWorkload(builder, nceOp->getLoc(), wl.outOffsets, wl.outSizes, padAttr, wl.mpeMode, clusterIdAttr);
         }
@@ -633,7 +648,7 @@ void vpux::VPU::materializeWorkloadsDynamic(VPU::NCEOpInterface nceOp, mlir::OpB
     builder.setInsertionPoint(nceOp);
 
     auto constIndex = [&](int64_t val) -> mlir::Value {
-        return builder.create<mlir::arith::ConstantIndexOp>(loc, val);
+        return mlir::arith::ConstantIndexOp::create(builder, loc, val);
     };
 
     // Normalize supportedChannels and ensure the minimum HW channel alignment is available.
@@ -662,7 +677,7 @@ void vpux::VPU::materializeWorkloadsDynamic(VPU::NCEOpInterface nceOp, mlir::OpB
     //   remaining = remaining % (supportedChannels[i] / alignment)
     // Invariant: dynChannelCount is always a multiple of alignment (VPU_CHANNEL_ALIGNMENT = 16)
     // because NCE ops require aligned channel counts. The division is exact; no remainder is dropped.
-    mlir::Value kVal = builder.create<mlir::arith::DivUIOp>(loc, dynChannelCount, constIndex(alignment));
+    mlir::Value kVal = mlir::arith::DivUIOp::create(builder, loc, dynChannelCount, constIndex(alignment));
 
     SmallVector<mlir::Value> phaseEnds;  // cumulative sum
     mlir::Value remaining = kVal;
@@ -671,9 +686,9 @@ void vpux::VPU::materializeWorkloadsDynamic(VPU::NCEOpInterface nceOp, mlir::OpB
     for (auto channelSize : validChannels) {
         int64_t units = channelSize / alignment;
         auto unitsVal = constIndex(units);
-        auto count = builder.create<mlir::arith::DivUIOp>(loc, remaining, unitsVal);
-        remaining = builder.create<mlir::arith::RemUIOp>(loc, remaining, unitsVal);
-        cumulativeCount = builder.create<mlir::arith::AddIOp>(loc, cumulativeCount, count);
+        auto count = mlir::arith::DivUIOp::create(builder, loc, remaining, unitsVal);
+        remaining = mlir::arith::RemUIOp::create(builder, loc, remaining, unitsVal);
+        cumulativeCount = mlir::arith::AddIOp::create(builder, loc, cumulativeCount, count);
         phaseEnds.push_back(cumulativeCount);
     }
 
@@ -697,8 +712,8 @@ void vpux::VPU::materializeWorkloadsDynamic(VPU::NCEOpInterface nceOp, mlir::OpB
     builder.setInsertionPointToEnd(&workloadRegion.front());
 
     // scf.for %i = 0 to %totalWorkloads step 1 iter_args(%chOffset = 0) -> index
-    auto forOp = builder.create<mlir::scf::ForOp>(
-            loc, c0, totalWorkloads, c1, mlir::ValueRange{c0},
+    auto forOp = mlir::scf::ForOp::create(
+            builder, loc, c0, totalWorkloads, c1, mlir::ValueRange{c0},
             [&](mlir::OpBuilder& bodyBuilder, mlir::Location bodyLoc, mlir::Value iv, mlir::ValueRange iterArgs) {
                 mlir::Value chOffset = iterArgs[0];
 
@@ -709,9 +724,9 @@ void vpux::VPU::materializeWorkloadsDynamic(VPU::NCEOpInterface nceOp, mlir::OpB
                 //   ...
                 mlir::Value chSize = channelSizeConstants.back();
                 for (int64_t p = static_cast<int64_t>(validChannels.size()) - 2; p >= 0; --p) {
-                    auto cmp = bodyBuilder.create<mlir::arith::CmpIOp>(bodyLoc, mlir::arith::CmpIPredicate::ult, iv,
-                                                                       phaseEnds[p]);
-                    chSize = bodyBuilder.create<mlir::arith::SelectOp>(bodyLoc, cmp, channelSizeConstants[p], chSize);
+                    auto cmp = mlir::arith::CmpIOp::create(bodyBuilder, bodyLoc, mlir::arith::CmpIPredicate::ult, iv,
+                                                           phaseEnds[p]);
+                    chSize = mlir::arith::SelectOp::create(bodyBuilder, bodyLoc, cmp, channelSizeConstants[p], chSize);
                 }
 
                 // Build OpFoldResult arrays for the DPU.Workload
@@ -736,14 +751,14 @@ void vpux::VPU::materializeWorkloadsDynamic(VPU::NCEOpInterface nceOp, mlir::OpB
                             bodyBuilder.getIndexAttr(inN), mlir::OpFoldResult(chSize), bodyBuilder.getIndexAttr(inH),
                             bodyBuilder.getIndexAttr(inW)};
 
-                    bodyBuilder.create<DPUWorkloadOp>(bodyLoc, outOffsets, outSizes, inOffsets, inSizes, padOFR,
-                                                      mpeMode, clusterIdAttr);
+                    DPUWorkloadOp::create(bodyBuilder, bodyLoc, outOffsets, outSizes, inOffsets, inSizes, padOFR,
+                                          mpeMode, clusterIdAttr);
                 } else {
-                    bodyBuilder.create<DPUWorkloadOp>(bodyLoc, outOffsets, outSizes, padOFR, mpeMode, clusterIdAttr);
+                    DPUWorkloadOp::create(bodyBuilder, bodyLoc, outOffsets, outSizes, padOFR, mpeMode, clusterIdAttr);
                 }
 
-                auto nextOffset = bodyBuilder.create<mlir::arith::AddIOp>(bodyLoc, chOffset, chSize);
-                bodyBuilder.create<mlir::scf::YieldOp>(bodyLoc, mlir::ValueRange{nextOffset.getResult()});
+                auto nextOffset = mlir::arith::AddIOp::create(bodyBuilder, bodyLoc, chOffset, chSize);
+                mlir::scf::YieldOp::create(bodyBuilder, bodyLoc, mlir::ValueRange{nextOffset.getResult()});
             });
 
     // CollectLoops / FullUnrollSCFLoopPass skips it —
@@ -788,7 +803,9 @@ void vpux::VPU::correctWorkloadDescriptors(VPU::NCEOpInterface nceOp, SmallVecto
     auto* op = nceOp.getOperation();
     const auto& strategyFactory = VPU::getVPUStrategyFactory(ctx);
 
-    // NCEPermute corrections are intentionally omitted
+    // NCEPermute-specific corrections (dropping the workload H/W padding and the expanded-channel padding) are not
+    // applied to the descriptors here. They are handled by the CorrectNCEWorkloads pass, which runs later in the
+    // pipeline on the already materialized VPU::DPUWorkloadOp operations.
     const bool isDepthwise = isDepthwiseOp(op);
 
     // Build supported channels list
@@ -981,7 +998,7 @@ void backInferWorkload(VPU::NCEOpInterface nceOp, VPU::WorkloadDescriptor& wl, S
 
     // Spatial back-inference using inputForOutputDim.
     // Note on bounded sizes: in the SCF flow `fullInputHeight`/`fullInputWidth` are the bounded
-    // (max-iteration) input dims taken from the op's operand type. The output workloads
+    // (max-iteration) input dims provided by the caller. The output workloads
     // (wl.outOffsets/outSizes) are also generated against the bounded output shape, so both sides
     // of inputForOutputDim live in the same max-bounds frame and the clamped input range is
     // consistent. Only the channel dimension is iteration-dynamic in this flow (patched up by
@@ -1019,11 +1036,14 @@ void backInferWorkload(VPU::NCEOpInterface nceOp, VPU::WorkloadDescriptor& wl, S
 }  // namespace
 
 void vpux::VPU::backInferInputWorkloads(VPU::NCEOpInterface nceOp, SmallVector<WorkloadDescriptor, 4>& workloads,
-                                        Logger log) {
+                                        Logger log, ShapeRef explicitFullInputShape) {
     auto* op = nceOp.getOperation();
 
     const auto inputType = mlir::cast<vpux::NDTypeInterface>(op->getOperand(0).getType());
-    const auto fullInputShape = inputType.getShape();
+    const auto fullInputShape = explicitFullInputShape.empty() ? inputType.getShape() : explicitFullInputShape;
+    VPUX_THROW_WHEN(fullInputShape.isDynamic(),
+                    "Cannot back-infer input workloads for op at '{0}' from a dynamic input shape {1}", op->getLoc(),
+                    fullInputShape);
 
     for (auto& wl : workloads) {
         backInferWorkload(nceOp, wl, fullInputShape);

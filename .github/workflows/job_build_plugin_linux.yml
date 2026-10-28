@@ -114,7 +114,7 @@ jobs:
         with:
           repository: ${{ steps.versions.outputs.openvino-repository }}
           path: ${{ env.OPENVINO_REPO }}
-          submodules: true
+          submodules: recursive
           ref: ${{ steps.versions.outputs.openvino-sha }}
 
       - name: Clone NPU Compiler

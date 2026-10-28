@@ -50,9 +50,9 @@ struct UnifiedFuncInlinerInterface final : public mlir::DialectInlinerInterface 
         static_assert(std::is_base_of_v<mlir::DialectInlinerInterface, DispatchedDialectInlinerInterfaceT>);
 
         auto funcDialect = getContext()->getLoadedDialect<mlir::func::FuncDialect>();
-        VPUX_THROW_UNLESS(funcDialect != nullptr,
-                          "MLIR's func dialect has not been loaded. Make sure to add the func dialect "
-                          "as a dependency using 'let dependentDialects = ...'!");
+        VPUX_THROW_WHEN(funcDialect == nullptr,
+                        "MLIR's func dialect has not been loaded. Make sure to add the func dialect "
+                        "as a dependency using 'let dependentDialects = ...'!");
 
         auto dialectInterface = std::make_unique<DispatchedDialectInlinerInterfaceT>(funcDialect);
         // Prefer getTypeID() over using an instance of AttrT because not all dialects have been completely loaded
@@ -72,15 +72,15 @@ private:
 template <class AttrT, class DispatchedDialectInlinerInterfaceT>
 void registerDispatchedInlinerInterface(mlir::MLIRContext* context) {
     auto funcDialect = context->getLoadedDialect<mlir::func::FuncDialect>();
-    VPUX_THROW_UNLESS(funcDialect != nullptr,
-                      "MLIR's func dialect has not been loaded. Make sure to add the func dialect "
-                      "as a dependency using 'let dependentDialects = ...'!");
+    VPUX_THROW_WHEN(funcDialect == nullptr,
+                    "MLIR's func dialect has not been loaded. Make sure to add the func dialect "
+                    "as a dependency using 'let dependentDialects = ...'!");
 
     auto interface = funcDialect->getRegisteredInterface<Core::UnifiedFuncInlinerInterface>();
-    VPUX_THROW_UNLESS(interface != nullptr,
-                      "'Core::UnifiedFuncInlinerInterface' has not been loaded. Make sure that the 'Core' dialect is a "
-                      "dependency of this dialect and adds 'Core::UnifiedFuncInlinerInterface' as an extension to the "
-                      "'func' dialect!");
+    VPUX_THROW_WHEN(interface == nullptr,
+                    "'Core::UnifiedFuncInlinerInterface' has not been loaded. Make sure that the 'Core' dialect is a "
+                    "dependency of this dialect and adds 'Core::UnifiedFuncInlinerInterface' as an extension to the "
+                    "'func' dialect!");
 
     interface->registerDispatchedInlinerInterface<AttrT, DispatchedDialectInlinerInterfaceT>();
 }

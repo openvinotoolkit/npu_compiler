@@ -82,9 +82,9 @@ mlir::LogicalResult IE::generalRewrite(mlir::Operation* origOp, mlir::PatternRew
         const auto outShape = outputType.getShape();
         auto offsets = calcOutputSliceOffset(origOp, outPadsEnd);
 
-        auto sliceOp = rewriter.create<IE::SliceOp>(takeOpLoc(newOp, "slice_out"), origOp->getResult(0).getType(),
-                                                    newOp->getResult(0), getIntArrayAttr(ctx, offsets),
-                                                    getIntArrayAttr(ctx, outShape));
+        auto sliceOp =
+                IE::SliceOp::create(rewriter, takeOpLoc(newOp, "slice_out"), origOp->getResult(0).getType(),
+                                    newOp->getResult(0), getIntArrayAttr(ctx, offsets), getIntArrayAttr(ctx, outShape));
         rewriter.replaceOp(origOp, sliceOp.getResult());
     }
 
@@ -135,11 +135,11 @@ mlir::LogicalResult IE::MaxPoolRewriter::matchAndRewrite(IE::MaxPoolOp origOp, m
             }
         }
 
-        return rewriter.create<IE::MaxPoolOp>(takeOpLoc(origOp, "expanded"), newOutputType, expandedInput, paddedScale,
-                                              origOp.getKernelSize(), origOp.getStrides(), origOp.getPadsBegin(),
-                                              origOp.getPadsEnd(), origOp.getRoundingType(), origOp.getPostOpAttr(),
-                                              origOp.getClampAttr(), origOp.getStaticScaleAttr(), outputPaddingAttr,
-                                              inputPaddingAttr);
+        return IE::MaxPoolOp::create(rewriter, takeOpLoc(origOp, "expanded"), newOutputType, expandedInput, paddedScale,
+                                     origOp.getKernelSize(), origOp.getStrides(), origOp.getPadsBegin(),
+                                     origOp.getPadsEnd(), origOp.getRoundingType(), origOp.getPostOpAttr(),
+                                     origOp.getClampAttr(), origOp.getStaticScaleAttr(), outputPaddingAttr,
+                                     inputPaddingAttr);
     };
 
     return generalRewrite(origOp, rewriter, opCreator, IE::extractMeaningfulOutput, _log.nest());
@@ -198,11 +198,11 @@ mlir::LogicalResult IE::ConvolutionRewriter::matchAndRewrite(IE::ConvolutionOp o
         auto [inputPaddingAttr, outputPaddingAttr] =
                 getPaddingAttributes(origOp, expandedInput, inChanPadEnd, outPadAfter);
 
-        return rewriter.create<IE::ConvolutionOp>(takeOpLoc(origOp, "expanded"), newOutputType, expandedInput,
-                                                  paddedFilter, paddedBiases, paddedScale, origOp.getZeroPoints(),
-                                                  origOp.getStrides(), origOp.getPadsBegin(), origOp.getPadsEnd(),
-                                                  origOp.getDilations(), origOp.getPostOpAttr(), origOp.getClampAttr(),
-                                                  origOp.getStaticScaleAttr(), outputPaddingAttr, inputPaddingAttr);
+        return IE::ConvolutionOp::create(rewriter, takeOpLoc(origOp, "expanded"), newOutputType, expandedInput,
+                                         paddedFilter, paddedBiases, paddedScale, origOp.getZeroPoints(),
+                                         origOp.getStrides(), origOp.getPadsBegin(), origOp.getPadsEnd(),
+                                         origOp.getDilations(), origOp.getPostOpAttr(), origOp.getClampAttr(),
+                                         origOp.getStaticScaleAttr(), outputPaddingAttr, inputPaddingAttr);
     };
 
     const auto calcOutputSliceOffset = [&](mlir::Operation*, ShapeRef outPadsEnd) -> SmallVector<int64_t> {
@@ -390,8 +390,8 @@ mlir::LogicalResult IE::GroupConvolutionRewriter::matchAndRewrite(IE::GroupConvo
         auto [inputPaddingAttr, outputPaddingAttr] =
                 getPaddingAttributes(origOp, expandedInput, inChanPadEnd, outPadAfter);
 
-        return rewriter.create<IE::GroupConvolutionOp>(
-                takeOpLoc(origOp, "expanded"), newOutputType, expandedInput, paddedFilter, paddedBiases,
+        return IE::GroupConvolutionOp::create(
+                rewriter, takeOpLoc(origOp, "expanded"), newOutputType, expandedInput, paddedFilter, paddedBiases,
                 origOp.getStrides(), origOp.getPadsBegin(), origOp.getPadsEnd(), origOp.getDilations(),
                 getIntAttr(getContext(), newConvOutShape[Dims4D::Act::C]), origOp.getPostOpAttr(),
                 origOp.getClampAttr(), outputPaddingAttr, inputPaddingAttr);
@@ -437,8 +437,8 @@ mlir::LogicalResult IE::InterpolateRewriter::matchAndRewrite(IE::InterpolateOp o
         auto [inputPaddingAttr, outputPaddingAttr] =
                 getPaddingAttributes(origOp, expandedInput, inChanPadEnd, outPadAfter);
 
-        return rewriter.create<IE::InterpolateOp>(
-                takeOpLoc(origOp, "expanded"), newOutputType, expandedInput, sizesInput, origOp.getScales(),
+        return IE::InterpolateOp::create(
+                rewriter, takeOpLoc(origOp, "expanded"), newOutputType, expandedInput, sizesInput, origOp.getScales(),
                 origOp.getAxes(), sizesAttr, origOp.getScalesAttrAttr(), origOp.getAxesAttrAttr(),
                 origOp.getTileOffsetAttrAttr(), origOp.getInitialInputDimsAttrAttr(),
                 origOp.getInitialOutputDimsAttrAttr(), origOp.getAttrAttr(), outputPaddingAttr, inputPaddingAttr);
@@ -491,11 +491,11 @@ mlir::LogicalResult IE::TransposedConvolutionRewriter::matchAndRewrite(IE::Trans
         auto [inputPaddingAttr, outputPaddingAttr] =
                 getPaddingAttributes(origOp, expandedInput, inChanPadEnd, outPadAfter);
 
-        return rewriter.create<IE::TransposedConvolutionOp>(
-                takeOpLoc(origOp, "expanded"), newOutputType, expandedInput, paddedFilter, origOp.getOutputShape(),
-                paddedBiases, origOp.getStrides(), origOp.getPadsBegin(), origOp.getPadsEnd(), origOp.getDilations(),
-                origOp.getSpatialOutputPaddingAttr(), origOp.getPostOpAttr(), origOp.getClampAttr(), outputPaddingAttr,
-                inputPaddingAttr);
+        return IE::TransposedConvolutionOp::create(
+                rewriter, takeOpLoc(origOp, "expanded"), newOutputType, expandedInput, paddedFilter,
+                origOp.getOutputShape(), paddedBiases, origOp.getStrides(), origOp.getPadsBegin(), origOp.getPadsEnd(),
+                origOp.getDilations(), origOp.getSpatialOutputPaddingAttr(), origOp.getPostOpAttr(),
+                origOp.getClampAttr(), outputPaddingAttr, inputPaddingAttr);
     };
 
     const auto calcOutputSliceOffset = [&](mlir::Operation*, ShapeRef outPadsEnd) -> SmallVector<int64_t> {
@@ -524,11 +524,11 @@ mlir::LogicalResult IE::PadRewriter::matchAndRewrite(IE::PadOp origOp, mlir::Pat
         auto [inputPaddingAttr, outputPaddingAttr] =
                 getPaddingAttributes(origOp, expandedInput, inChanPadEnd, outPadAfter);
 
-        return rewriter.create<IE::PadOp>(takeOpLoc(origOp, "expanded"), newOutputType, expandedInput,
-                                          origOp.getPadsBegin(), origOp.getPadsEnd(), origOp.getPadValue(),
-                                          origOp.getPadsBeginAttrAttr(), origOp.getPadsEndAttrAttr(),
-                                          origOp.getPadValueAttrAttr(), origOp.getModeAttr(), outputPaddingAttr,
-                                          inputPaddingAttr, origOp.getOutputShapeAttr(), origOp.getOutputBoundsAttr());
+        return IE::PadOp::create(rewriter, takeOpLoc(origOp, "expanded"), newOutputType, expandedInput,
+                                 origOp.getPadsBegin(), origOp.getPadsEnd(), origOp.getPadValue(),
+                                 origOp.getPadsBeginAttrAttr(), origOp.getPadsEndAttrAttr(),
+                                 origOp.getPadValueAttrAttr(), origOp.getModeAttr(), outputPaddingAttr,
+                                 inputPaddingAttr, origOp.getOutputShapeAttr(), origOp.getOutputBoundsAttr());
     };
 
     const auto calcOutputSliceOffset = [&](mlir::Operation*, ShapeRef outPadsEnd) -> SmallVector<int64_t> {
@@ -572,11 +572,11 @@ mlir::LogicalResult IE::AvgPoolRewriter::matchAndRewrite(IE::AvgPoolOp origOp, m
             }
         }
 
-        return rewriter.create<IE::AvgPoolOp>(takeOpLoc(origOp, "expanded"), newOutputType, expandedInput, paddedScale,
-                                              origOp.getKernelSize(), origOp.getStrides(), origOp.getPadsBegin(),
-                                              origOp.getPadsEnd(), origOp.getRoundingType(), origOp.getExcludePads(),
-                                              origOp.getPostOpAttr(), origOp.getClampAttr(),
-                                              origOp.getStaticScaleAttr(), outputPaddingAttr, inputPaddingAttr);
+        return IE::AvgPoolOp::create(rewriter, takeOpLoc(origOp, "expanded"), newOutputType, expandedInput, paddedScale,
+                                     origOp.getKernelSize(), origOp.getStrides(), origOp.getPadsBegin(),
+                                     origOp.getPadsEnd(), origOp.getRoundingType(), origOp.getExcludePads(),
+                                     origOp.getPostOpAttr(), origOp.getClampAttr(), origOp.getStaticScaleAttr(),
+                                     outputPaddingAttr, inputPaddingAttr);
     };
 
     return generalRewrite(origOp, rewriter, opCreator, IE::extractMeaningfulOutput, _log.nest());
@@ -592,9 +592,9 @@ mlir::LogicalResult IE::SoftMaxRewriter::matchAndRewrite(IE::SoftMaxOp origOp, m
     const auto opCreator = [&](mlir::Value expandedInput, int64_t inChanPadEnd,
                                int64_t outChanPadsEnd) -> mlir::Operation* {
         _log.trace("Expand SoftMax with pad {0} in {1} out", inChanPadEnd, outChanPadsEnd);
-        return rewriter.create<IE::SoftMaxOp>(takeOpLoc(origOp, "expanded"), expandedInput, origOp.getAxisIndAttr(),
-                                              getIntAttr(rewriter.getContext(), inChanPadEnd),
-                                              origOp.getDstElemTypeAttr(), origOp.getMaskAwareAttr());
+        return IE::SoftMaxOp::create(rewriter, takeOpLoc(origOp, "expanded"), expandedInput, origOp.getAxisIndAttr(),
+                                     getIntAttr(rewriter.getContext(), inChanPadEnd), origOp.getDstElemTypeAttr(),
+                                     origOp.getMaskAwareAttr());
     };
 
     return generalRewrite(origOp, rewriter, opCreator, IE::extractMeaningfulOutput, _log.nest());
@@ -693,9 +693,9 @@ mlir::LogicalResult IE::AttentionRewriter::matchAndRewrite(IE::AttentionOp origO
         }
     }
 
-    auto attention = rewriter.create<IE::AttentionOp>(
-            takeOpLoc(origOp, "expanded"), expandedInQ, expandedInK, expandedInV, paddedAttentionMask,
-            origOp.getInputScale(), paddedSink, paddedBias, getIntAttr(rewriter.getContext(), inSPad));
+    auto attention = IE::AttentionOp::create(rewriter, takeOpLoc(origOp, "expanded"), expandedInQ, expandedInK,
+                                             expandedInV, paddedAttentionMask, origOp.getInputScale(), paddedSink,
+                                             paddedBias, getIntAttr(rewriter.getContext(), inSPad));
 
     if (inEvPad) {
         _log.trace("Slice Attention output with padding {0}", inEvPad);
@@ -773,10 +773,10 @@ mlir::LogicalResult vpux::IE::FlashSDPARewriter::matchAndRewrite(IE::FlashSDPAOp
         paddedAttentionMask = expand(origOp.getAttentionMask(), attentionMaskPadsEnd, "attention_mask");
     }
 
-    auto newOp = rewriter.create<IE::FlashSDPAOp>(
-            takeOpLoc(origOp, "expanded"), paddedQuery, paddedKey, paddedValue, paddedRunningOutput,
-            origOp.getInputRunningMax(), origOp.getInputRunningSum(), paddedAttentionMask, origOp.getIsHeadAttr(),
-            origOp.getIsTailAttr(), getIntAttr(rewriter, sourceSeqLenPad));
+    auto newOp = IE::FlashSDPAOp::create(rewriter, takeOpLoc(origOp, "expanded"), paddedQuery, paddedKey, paddedValue,
+                                         paddedRunningOutput, origOp.getInputRunningMax(), origOp.getInputRunningSum(),
+                                         paddedAttentionMask, origOp.getIsHeadAttr(), origOp.getIsTailAttr(),
+                                         getIntAttr(rewriter, sourceSeqLenPad));
 
     if (vEmbeddingPad == 0) {
         _log.trace("Output channels are already aligned");

@@ -576,15 +576,19 @@ def VPU_AttentionDMAOp :
 
     let arguments = (ins
         RankedTensorOf<[F16, F32]>:$inputQ,
-        RankedTensorOf<[F16, F32]>:$inputK,
-        RankedTensorOf<[F16, F32]>:$inputV,
+        RankedTensorOf<[F16, F32, SI8]>:$inputK,
+        RankedTensorOf<[F16, F32, SI8]>:$inputV,
         Optional<RankedTensorOf<[F16, F32, Bool8]>>:$inputMask,
         Optional<RankedTensorOf<[F16, F32]>>:$inputScale,
         Optional<RankedTensorOf<[F16, F32]>>:$inputSink,
         Optional<RankedTensorOf<[F16, F32]>>:$inputBias,
         AnyTypeOf<[AnyRankedTensor, VPU_DistributedTensor]>:$aux_buffer,
         Optional<AnyTypeOf<[RankedTensorOf<[SI32]>, VPU_DistributedTensor]>>:$seqLenK,
+        Optional<RankedTensorOf<[F16, F32]>>:$k_scale,
+        Optional<RankedTensorOf<[F16, F32]>>:$v_scale,
         OptionalAttr<IntAttr>:$padSizeS,
+        OptionalAttr<IntAttr>:$localWindowSize,
+        UnitAttr:$smoothSoftmax,
         OptionalAttr<VPU_MultiClusterStrategyAttr>:$multiClusterStrategy
     );
 
@@ -608,7 +612,11 @@ def VPU_AttentionDMAOp :
             "::mlir::Value":$inputSink,
             "::mlir::Value":$inputBias,
             "::mlir::Value":$seqLenK,
-            "::mlir::IntegerAttr":$padSizeS
+            "::mlir::Value":$k_scale,
+            "::mlir::Value":$v_scale,
+            "::mlir::IntegerAttr":$padSizeS,
+            "::mlir::IntegerAttr":$localWindowSize,
+            "::mlir::UnitAttr":$smoothSoftmax
         )>
     ];
 }
@@ -682,14 +690,14 @@ def VPU_NonMaxSuppressionOp :
     let arguments = (ins
         3DTensorOf<[F16, F32]>:$in_box_coords,
         3DTensorOf<[F16, F32]>:$in_box_scores,
+        1DTensorOf<[F16, F32]>:$iou_threshold,
+        1DTensorOf<[F16, F32]>:$score_threshold,
         AnyTypeOf<[AnyRankedTensor, VPU_DistributedTensor]>:$dataBuffer,
 
         IE_BoxEncodingTypeAttr:$box_encoding,
         UnitAttr:$sort_result_descending,
 
         OptionalAttr<IntAttr>:$max_output_boxes_per_class_value,
-        OptionalAttr<F64Attr>:$iou_threshold_value,
-        OptionalAttr<F64Attr>:$score_threshold_value,
         OptionalAttr<F64Attr>:$soft_nms_sigma_value,
 
         DefaultValuedAttr<VPU_BoundsRepresentationAttr, "vpux::VPU::BoundsRepresentation::BOUNDS">:$bounds_representation
@@ -705,11 +713,11 @@ def VPU_NonMaxSuppressionOp :
         OpBuilder<(ins
             "mlir::Value":$inBoxCoords,
             "mlir::Value":$inBoxScores,
+            "mlir::Value":$iouThreshold,
+            "mlir::Value":$scoreThreshold,
             "IE::BoxEncodingTypeAttr":$boxEncoding,
             "mlir::UnitAttr":$sortResultDescending,
             "mlir::IntegerAttr":$maxOutputBoxesPerClassValue,
-            "mlir::FloatAttr":$iouThresholdValue,
-            "mlir::FloatAttr":$scoreThresholdValue,
             "mlir::FloatAttr":$softNmsSigmaValue,
             "vpux::VPU::BoundsRepresentationAttr":$boundsRepresentation
         )>
@@ -1365,6 +1373,66 @@ def VPU_LogSoftmaxPeakOp :
             "::mlir::TypeAttr":$dstElemType
         )>
     ];
+}
+
+def VPU_GroupQuantCorrectionOp :
+        VPU_LayerOp<
+            "GroupQuantCorrection",
+            [
+                DeclareOpInterfaceMethods<VPU_SWOpInterface>,
+                DeclareOpInterfaceMethods<VPU_TilingBuilderOpInterface>,
+                DeclareOpInterfaceMethods<VPU_ClusteredOpInterface, ["isOperationSplitOverBatchCompatible",
+                                                                     "isOperationSplitOverKernelCompatible"]>,
+                DeclareOpInterfaceMethods<VPU_VerticalFusionOpInterface>,
+                DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface, ["reifyResultShapes"]>
+            ]
+        > {
+    let summary = "GroupQuantCorrection applies per-group quantization correction to MatMul";
+
+    let description = [{
+        MatMul computes the product using fp16 activations and ui2 weights, and applies neither scale
+        nor zero-point correction. This kernel applies the remaining correction:
+
+            output = scale[g] * (act_out[g] - reduce_sum(act_in[g]) * zp[g])
+
+        where reduce_sum(act_in[g]) is the sum of activation elements within group g.
+
+        Limitations:
+        - Supports only UI2 zero point and weights
+        - Supports both FP16 & FP32 scales
+
+        Operands:
+        - `act_out` : stacked per-group MatMul outputs; [G, OC, 1, 1]
+        - `act_in`  : original fp16 activation (before MatMul); [G, 1, 1, GS]
+        - `scales`  : per-group per-channel scale factors; [G, OC, 1, 1]
+        - `zp`      : per-group per-channel zero points; [G, OC, 1, 1]
+            where G = number of groups, GS = group size, OC = output channels
+
+        Result:
+        - `output` : corrected result; [G, OC, 1, 1]
+    }];
+
+    let arguments = (ins
+        AnyTypeOf<[4DTensorOf<[F16]>, VPU_DistributedTensor]>:$act_out,
+        AnyTypeOf<[4DTensorOf<[F16]>, VPU_DistributedTensor]>:$act_in,
+        AnyTypeOf<[4DTensorOf<[F16, F32]>, VPU_DistributedTensor]>:$scales,
+        AnyTypeOf<[4DTensorOf<[UI2]>, VPU_DistributedTensor]>:$zp,
+
+        OptionalAttr<VPU_MultiClusterStrategyAttr>:$multiClusterStrategy
+    );
+
+    let results = (outs
+        AnyTypeOf<[4DTensorOf<[F16]>, VPU_DistributedTensor]>:$output
+    );
+
+    let elemComparisonModes = [IE_TypeComparisonMode_ALLOW_DISTRIBUTED_OUTPUT];
+
+    let extraClassDeclaration = [{
+        bool fitIntoCMX(::llvm::ArrayRef<vpux::NDTypeInterface> buffers, Byte reservedMem);
+        bool fitIntoCMX(::llvm::ArrayRef<vpux::NDTypeInterface> buffers);
+    }] # baseExtraClassDeclaration;
+
+    let hasVerifier = 1;
 }
 
 #endif

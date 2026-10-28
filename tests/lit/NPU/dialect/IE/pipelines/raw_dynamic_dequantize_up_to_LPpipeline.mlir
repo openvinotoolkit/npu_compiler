@@ -6,8 +6,6 @@
 // RUN: vpux-opt --split-input-file --init-compiler="platform=%platform%" --initial-low-precision-transformations --initial-transformations --adjust-precision --operation-conversion --adjust-for-vpu --scaleshift-processing --convert-const-dynamic-dequantize-to-dequantize %s | FileCheck %s
 // REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010
 
-// Test is AI generated :)
-
 // Batched MatMul with a raw si4 DynamicDequantize weight chain.
 // Runs all registered IE pipeline stages up to (not including) --low-precision:
 //   initial-low-precision-transformations → initial-transformations → adjust-precision →
@@ -65,14 +63,16 @@ module @BatchedMatMulRawDynDeqPipeline {
         // CHECK-SAME{LITERAL}:  {dim_mapping = [[0], [0], [0], [1, 2, 3]], shape_value = [1, 256, 1, 1]} : tensor<1x1x1x256xf16> -> tensor<1x256x1x1xf16>
         // CHECK:       [[W_0_4D:%.+]] = IE.AffineReshape([[W_DQ_0]])
         // CHECK-SAME{LITERAL}:  {dim_mapping = [[0], [0], [1, 2, 3]], shape_value = [128, 256, 1, 1]} : tensor<1x128x256xf16> -> tensor<128x256x1x1xf16>
-        // CHECK:       [[CONV_0:%.+]] = IE.Convolution([[IN_0_4D]], [[W_0_4D]]) {dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]} : tensor<1x256x1x1xf16>, tensor<128x256x1x1xf16> -> tensor<1x128x1x1xf16>
+        // CHECK:       [[CONV_0:%.+]] = IE.Convolution([[IN_0_4D]], [[W_0_4D]]) {dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]
+        // CHECK-SAME:  tensor<1x256x1x1xf16>, tensor<128x256x1x1xf16> -> tensor<1x128x1x1xf16>
 
         // Input 1 reshaped for Conv and weights reshaped to 4D
         // CHECK:       [[IN_1_4D:%.+]] = IE.AffineReshape([[IN_1]])
         // CHECK-SAME{LITERAL}:  {dim_mapping = [[0], [0], [0], [1, 2, 3]], shape_value = [1, 256, 1, 1]} : tensor<1x1x1x256xf16> -> tensor<1x256x1x1xf16>
         // CHECK:       [[W_1_4D:%.+]] = IE.AffineReshape([[W_DQ_1]])
         // CHECK-SAME{LITERAL}:  {dim_mapping = [[0], [0], [1, 2, 3]], shape_value = [128, 256, 1, 1]} : tensor<1x128x256xf16> -> tensor<128x256x1x1xf16>
-        // CHECK:       [[CONV_1:%.+]] = IE.Convolution([[IN_1_4D]], [[W_1_4D]]) {dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]} : tensor<1x256x1x1xf16>, tensor<128x256x1x1xf16> -> tensor<1x128x1x1xf16>
+        // CHECK:       [[CONV_1:%.+]] = IE.Convolution([[IN_1_4D]], [[W_1_4D]]) {dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]
+        // CHECK-SAME:  tensor<1x256x1x1xf16>, tensor<128x256x1x1xf16> -> tensor<1x128x1x1xf16>
 
         // Outputs reshaped and concatenated back to original batch shape
         // CHECK:       [[OUT_0:%.+]] = IE.AffineReshape([[CONV_0]])

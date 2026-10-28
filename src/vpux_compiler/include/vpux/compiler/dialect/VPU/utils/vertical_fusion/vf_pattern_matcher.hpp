@@ -6,6 +6,7 @@
 #pragma once
 
 #include "vpux/compiler/dialect/VPU/IR/ops/internal.hpp"
+#include "vpux/compiler/utils/options.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 
 #include <mlir/IR/PatternMatch.h>
@@ -22,23 +23,24 @@ public:
 
     virtual mlir::FailureOr<VPU::VerticalFusionOp> tryMerge(VPU::VerticalFusionOp rootOp, mlir::RewriterBase& rewriter,
                                                             const std::unique_ptr<VPU::LayerVPUNNCost>& costFunction,
-                                                            Logger log) const = 0;
+                                                            VFMergeCostMode costMode, Logger log) const = 0;
     virtual StringRef getPatternName() const = 0;
 
 protected:
     mlir::Operation* getSingleInnerOp(VPU::VerticalFusionOp vfOp) const;
-    VPU::VerticalFusionOp getSingleVFUser(VPU::VerticalFusionOp vfOp) const;
+    VPU::VerticalFusionOp getUniqUser(VPU::VerticalFusionOp vfOp) const;
 };
 
 class VFPatternMatcher {
 public:
-    VFPatternMatcher(Logger log);
+    VFPatternMatcher(VFMergeCostMode costMode, Logger log);
 
     void addPattern(std::unique_ptr<VFPattern> pattern);
     bool applyPatterns(mlir::func::FuncOp func, mlir::RewriterBase& rewriter) const;
 
 private:
     SmallVector<std::unique_ptr<VFPattern>> _patterns;
+    VFMergeCostMode _costMode = VFMergeCostMode::PERFORMANCE;
     Logger _log;
 };
 

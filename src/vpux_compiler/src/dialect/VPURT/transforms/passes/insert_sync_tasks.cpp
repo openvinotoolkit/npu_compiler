@@ -83,12 +83,12 @@ void InsertSyncTasksPass::safeRunOnFunc() {
     // Create new barriers that will mark the start and end of schedule
     // in this function. Those barriers will be produced/consumed by sync tasks
     builder.setInsertionPoint(firstBarrierInsertionPoint);
-    auto newStartBarrier = builder.create<VPURT::DeclareVirtualBarrierOp>(
-            mlir::NameLoc::get(mlir::StringAttr::get(ctx, "start_barrier")));
+    auto newStartBarrier = VPURT::DeclareVirtualBarrierOp::create(
+            builder, mlir::NameLoc::get(mlir::StringAttr::get(ctx, "start_barrier")));
 
     builder.setInsertionPointAfter(lastBarrierInsertionPoint);
-    auto newEndBarrier = builder.create<VPURT::DeclareVirtualBarrierOp>(
-            mlir::NameLoc::get(mlir::StringAttr::get(ctx, "end_barrier")));
+    auto newEndBarrier = VPURT::DeclareVirtualBarrierOp::create(
+            builder, mlir::NameLoc::get(mlir::StringAttr::get(ctx, "end_barrier")));
 
     // Create dummy input and output buffer that will hold value of size 0
     auto inBuffer = VPUIP::createDummyBuffer(builder, bufferInsertionPoint);

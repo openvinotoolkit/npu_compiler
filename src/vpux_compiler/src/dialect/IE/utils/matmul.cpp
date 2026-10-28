@@ -10,6 +10,7 @@
 #include "vpux/compiler/dialect/config/IR/resources.hpp"
 #include "vpux/compiler/dialect/config/constraints.hpp"
 #include "vpux/compiler/utils/analysis.hpp"
+#include "vpux/compiler/utils/types.hpp"
 #include "vpux/utils/core/numeric.hpp"
 
 #include <mlir/Dialect/Quant/IR/QuantTypes.h>
@@ -17,6 +18,20 @@
 
 namespace vpux {
 namespace IE {
+
+namespace {
+
+int64_t predictElemTypeSizeInBits(mlir::Type type) {
+    auto ctx = type.getContext();
+    if (mlir::isa<mlir::FloatType>(type)) {
+        // Assuming conversion to FP16 in ConvertPrecisionToFP pass
+        return getElemTypeSize(mlir::Float16Type::get(ctx)).to<Bit>().count();
+    } else {
+        return getElemTypeSize(type).to<Bit>().count();
+    }
+}
+
+}  // namespace
 
 int64_t getExpandedCMXUsagePerGroup(IE::MatMulOp matmulOp, ShapeRef input1Shape, ShapeRef input2Shape) {
     VPUX_THROW_UNLESS(input1Shape.size() == 3 && input2Shape.size() == 3,
@@ -38,25 +53,32 @@ int64_t getExpandedCMXUsagePerGroup(IE::MatMulOp matmulOp, ShapeRef input1Shape,
     // OC dimension must be expanded to be multiple of 16
 
     const auto input1ElementType = mlir::cast<vpux::NDTypeInterface>(matmulOp.getInput1().getType()).getElementType();
-    const auto outputElementType = mlir::cast<vpux::NDTypeInterface>(matmulOp.getOutput().getType()).getElementType();
     const int64_t inputChannelAlignment = VPU::NCEInvariant::getAlignment(input1ElementType);
-    const int64_t outputChannelAlignment = VPU::NCEInvariant::getAlignment(outputElementType);
-    constexpr auto float16Size = sizeof(type::float16);
-    constexpr auto int32Size = sizeof(int32_t);
     const auto sizeOfICE = alignValUp(sizeofIC, inputChannelAlignment);
-    const auto sizeOfOCE = alignValUp(sizeofOC, outputChannelAlignment);
-    const auto input1Size = vpux::details::calcTotalShapeSize(input1Shape) * float16Size * sizeOfICE / sizeofIC /
-                            input1Shape[Dims3D::Act::B];
+    const auto input1ElemSizeBits = predictElemTypeSizeInBits(input1ElementType);
+    const auto input1SizeBits = vpux::details::calcTotalShapeSize(input1Shape) * input1ElemSizeBits * sizeOfICE /
+                                sizeofIC / input1Shape[Dims3D::Act::B];
+    const auto input1SizeBytes = input1SizeBits / CHAR_BIT;
+
     // To cover transpose case without conditional we multiply all then remove expanded dimension
-    const auto input2Size = sizeOfICE * sizeOfOCE * float16Size;
+    const auto outputElementType = mlir::cast<vpux::NDTypeInterface>(matmulOp.getOutput().getType()).getElementType();
+    const int64_t outputChannelAlignment = VPU::NCEInvariant::getAlignment(outputElementType);
+    const auto sizeOfOCE = alignValUp(sizeofOC, outputChannelAlignment);
+    const auto input2ElementType = mlir::cast<vpux::NDTypeInterface>(matmulOp.getInput2().getType()).getElementType();
+    const auto input2ElemSizeBits = predictElemTypeSizeInBits(input2ElementType);
+    const auto input2SizeBits = sizeOfICE * sizeOfOCE * input2ElemSizeBits;
+    const auto input2SizeBytes = input2SizeBits / CHAR_BIT;
 
     const auto sizeH = transposeA ? input1Shape[Dim(2)] : input1Shape[Dim(1)];
-    const auto outputSize = sizeH * sizeOfOCE * float16Size;
+    const auto outputSizeBits = sizeH * sizeOfOCE * predictElemTypeSizeInBits(outputElementType);
+    const auto outputSizeBytes = outputSizeBits / CHAR_BIT;
 
-    const auto weightTableSize = sizeOfOCE * VPUIP::NCEInvariant::WEIGHT_TABLE_NUM_ELEMENTS_PER_OC * int32Size;
+    constexpr auto int32SizeBytes = sizeof(int32_t);
+    const auto weightTableSizeBytes =
+            sizeOfOCE * VPUIP::NCEInvariant::WEIGHT_TABLE_NUM_ELEMENTS_PER_OC * int32SizeBytes;
 
     // Calculation is not totally accurate, we are not considering if input2 is being duplicated instead of being tiled
-    return input1Size + input2Size + outputSize + weightTableSize;
+    return input1SizeBytes + input2SizeBytes + outputSizeBytes + weightTableSizeBytes;
 }
 
 bool isGroupBiggerThanTileCount(IE::MatMulOp matmulOp, ShapeRef inputShape) {

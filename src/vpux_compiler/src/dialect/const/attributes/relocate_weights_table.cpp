@@ -304,7 +304,7 @@ Const::Content vpux::Const::RelocateWeightsTableAttr::transform(vpux::Const::Con
         const auto numElems = to_small_vector(getWeightsCompression().getNumElems().getValues<int64_t>());
         VPUX_THROW_UNLESS(numElems.size() >= static_cast<size_t>(validOC) + channelOffset,
                           "Invalid weights compression with {0} elements for {1} channels", numElems.size(), validOC);
-        VPUX_THROW_UNLESS(getWeightsElemBitSize() != nullptr, "Missing weights element type attribute");
+        VPUX_THROW_WHEN(getWeightsElemBitSize() == nullptr, "Missing weights element type attribute");
         const auto weightsElemBitSize = getWeightsElemBitSize().getInt();
         const auto alignment = (getWeightsCompression().getAlignment() != nullptr)
                                        ? getWeightsCompression().getAlignment().getInt()

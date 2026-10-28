@@ -17,8 +17,6 @@ add_npu_library(npu_compiler_dialect_vpumi40xx
         npu_logger
       PRIVATE
         npu_elf
-        # E#98178: remove dependency on firmware headers
-        npu_40xx_firmware_headers
         npu_compiler_dialect_vpuip_utils
         npu_compiler_dialect_vpu_utils
         npu_compiler_dialect_config

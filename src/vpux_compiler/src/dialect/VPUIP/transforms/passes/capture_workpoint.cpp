@@ -34,12 +34,12 @@ void insertCaptureDma(mlir::OpBuilder& builder, int64_t profOutputId, size_t dst
 
     const auto loc = mlir::NameLoc::get(mlir::StringAttr::get(ctx, profiling::PROFILING_WORKPOINT_READ_ATTR));
     // Create declaration for source buffer which corresponds to HW register with free-running counter
-    auto hwRegOp = builder.create<VPURT::DeclareBufferOp>(loc, hwTimerType, VPURT::BufferSection::Register,
-                                                          VPUIP::HW_PLL_WORKPOINT_ABSOLUTE_ADDR);
+    auto hwRegOp = VPURT::DeclareBufferOp::create(builder, loc, hwTimerType, VPURT::BufferSection::Register,
+                                                  VPUIP::HW_PLL_WORKPOINT_ABSOLUTE_ADDR);
 
     const auto profilingOutputType = vpux::getMemRefType(hwTimerType.getShape(), hwTimerType.getElementType());
-    auto dstBufProfResultOp = builder.create<VPURT::DeclareBufferOp>(
-            loc, profilingOutputType, VPURT::BufferSection::ProfilingOutput, profOutputId, dstDdrOffset);
+    auto dstBufProfResultOp = VPURT::DeclareBufferOp::create(
+            builder, loc, profilingOutputType, VPURT::BufferSection::ProfilingOutput, profOutputId, dstDdrOffset);
 
     const auto port = 0;
     // Since the payload is copied into the final destination in DDR, no barriers are needed, so it may be inserted
@@ -77,7 +77,7 @@ void CaptureWorkpointPass::safeRunOnModule() {
     // Update network output information to have also new pll profiling result
     auto profilingResult = addNewProfilingOutput(ctx, func, netInfo, outputResult, profiling::ExecutorType::WORKPOINT);
     auto returnOp = mlir::dyn_cast_or_null<mlir::func::ReturnOp>(func.getBody().front().getTerminator());
-    VPUX_THROW_UNLESS(returnOp != nullptr, "No ReturnOp was found");
+    VPUX_THROW_WHEN(returnOp == nullptr, "No ReturnOp was found");
     builder.setInsertionPoint(returnOp);
     returnOp.getOperandsMutable().append(profilingResult);
 

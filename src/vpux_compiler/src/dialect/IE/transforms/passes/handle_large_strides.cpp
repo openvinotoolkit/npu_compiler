@@ -97,8 +97,9 @@ mlir::LogicalResult generalSplitter(mlir::Operation* origOp, mlir::PatternRewrit
 
             const auto loc = appendLoc(origOp->getLoc(), "slice {0}, {1}", i, j);
 
-            mlir::Operation* slicedInput = rewriter.create<IE::SliceOp>(
-                    loc, origOp->getOperand(0), getIntArrayAttr(ctx, offsets.raw()), getIntArrayAttr(ctx, sliceShape));
+            mlir::Operation* slicedInput =
+                    IE::SliceOp::create(rewriter, loc, origOp->getOperand(0), getIntArrayAttr(ctx, offsets.raw()),
+                                        getIntArrayAttr(ctx, sliceShape));
 
             // TODO: temporary FQ propagation
             if (inputFQ != nullptr) {
@@ -127,7 +128,7 @@ mlir::LogicalResult generalSplitter(mlir::Operation* origOp, mlir::PatternRewrit
 
         if (!wSliced.empty()) {
             auto loc = takeOpLoc(origOp, "concat_{0}", i);
-            hSliced.push_back(wSliced.size() != 1 ? rewriter.create<IE::ConcatOp>(loc, wSliced, Dims4D::Act::W)
+            hSliced.push_back(wSliced.size() != 1 ? IE::ConcatOp::create(rewriter, loc, wSliced, Dims4D::Act::W)
                                                   : wSliced.front());
         }
     }
@@ -208,10 +209,10 @@ mlir::LogicalResult GroupConvGeneralRewriter::matchAndRewrite(IE::GroupConvoluti
             ArrayRef({filterShape[Dims4D::Filter::KX], filterShape[Dims4D::Filter::KY]}), origOp.getPadsBegin(),
             origOp.getPadsEnd(),
             [&](mlir::Location loc, mlir::Value input, OperationPart part) -> mlir::Operation* {
-                return rewriter.create<IE::GroupConvolutionOp>(
-                        loc, input, origOp.getFilter(), origOp.getBias(), part.strides, part.padBegin, part.padEnd,
-                        origOp.getDilations(), origOp.getGroupsAttr(), origOp.getPostOpAttr(), origOp.getClampAttr(),
-                        origOp.getOutputPaddingAttr(), origOp.getInputPaddingAttr());
+                return IE::GroupConvolutionOp::create(
+                        rewriter, loc, input, origOp.getFilter(), origOp.getBias(), part.strides, part.padBegin,
+                        part.padEnd, origOp.getDilations(), origOp.getGroupsAttr(), origOp.getPostOpAttr(),
+                        origOp.getClampAttr(), origOp.getOutputPaddingAttr(), origOp.getInputPaddingAttr());
             },
             _log.nest());
 }
@@ -243,10 +244,10 @@ mlir::LogicalResult MaxPoolGeneralRewriter::matchAndRewrite(IE::MaxPoolOp origOp
             origOp, rewriter, origOp.getStrides(), ArrayRef({kernelSz[1], kernelSz[0]}), origOp.getPadsBegin(),
             origOp.getPadsEnd(),
             [&](mlir::Location loc, mlir::Value input, OperationPart part) -> mlir::Operation* {
-                return rewriter.create<IE::MaxPoolOp>(
-                        loc, input, origOp.getScale(), origOp.getKernelSize(), part.strides, part.padBegin, part.padEnd,
-                        origOp.getRoundingType(), origOp.getPostOpAttr(), origOp.getClampAttr(),
-                        origOp.getStaticScaleAttr(), origOp.getOutputPaddingAttr(), origOp.getInputPaddingAttr());
+                return IE::MaxPoolOp::create(rewriter, loc, input, origOp.getScale(), origOp.getKernelSize(),
+                                             part.strides, part.padBegin, part.padEnd, origOp.getRoundingType(),
+                                             origOp.getPostOpAttr(), origOp.getClampAttr(), origOp.getStaticScaleAttr(),
+                                             origOp.getOutputPaddingAttr(), origOp.getInputPaddingAttr());
             },
             _log.nest());
 }
@@ -297,11 +298,11 @@ mlir::LogicalResult AvgPoolGeneralRewriter::matchAndRewrite(IE::AvgPoolOp origOp
             origOp, rewriter, origOp.getStrides(), ArrayRef({kernelSz[1], kernelSz[0]}), origOp.getPadsBegin(),
             origOp.getPadsEnd(),
             [&](mlir::Location loc, mlir::Value input, OperationPart part) -> mlir::Operation* {
-                return rewriter.create<IE::AvgPoolOp>(
-                        loc, input, origOp.getScale(), origOp.getKernelSize(), part.strides, part.padBegin, part.padEnd,
-                        origOp.getRoundingTypeAttr(), origOp.getExcludePadsAttr(), origOp.getPostOpAttr(),
-                        origOp.getClampAttr(), origOp.getStaticScaleAttr(), origOp.getOutputPaddingAttr(),
-                        origOp.getInputPaddingAttr());
+                return IE::AvgPoolOp::create(rewriter, loc, input, origOp.getScale(), origOp.getKernelSize(),
+                                             part.strides, part.padBegin, part.padEnd, origOp.getRoundingTypeAttr(),
+                                             origOp.getExcludePadsAttr(), origOp.getPostOpAttr(), origOp.getClampAttr(),
+                                             origOp.getStaticScaleAttr(), origOp.getOutputPaddingAttr(),
+                                             origOp.getInputPaddingAttr());
             },
             _log.nest());
 }
@@ -476,8 +477,8 @@ mlir::LogicalResult GroupConvMPOptimizationRewriter::matchAndRewrite(IE::GroupCo
     return opWithMaxPoolOptimization(
             origOp, rewriter, origOp.getStrides(),
             [&](mlir::Location loc, mlir::Value input, mlir::ArrayAttr strides) -> mlir::Operation* {
-                return rewriter.create<IE::GroupConvolutionOp>(
-                        loc, input, origOp.getFilter(), origOp.getBias(), strides, origOp.getPadsBegin(),
+                return IE::GroupConvolutionOp::create(
+                        rewriter, loc, input, origOp.getFilter(), origOp.getBias(), strides, origOp.getPadsBegin(),
                         origOp.getPadsEnd(), origOp.getDilations(), origOp.getGroupsAttr(), origOp.getPostOpAttr(),
                         origOp.getClampAttr(), origOp.getOutputPaddingAttr(), origOp.getInputPaddingAttr());
             },
@@ -513,10 +514,10 @@ mlir::LogicalResult MaxPoolMPOptimizationRewriter::matchAndRewrite(IE::MaxPoolOp
     return opWithMaxPoolOptimization(
             origOp, rewriter, origOp.getStrides(),
             [&](mlir::Location loc, mlir::Value input, mlir::ArrayAttr strides) -> mlir::Operation* {
-                return rewriter.create<IE::MaxPoolOp>(
-                        loc, input, origOp.getScale(), origOp.getKernelSize(), strides, origOp.getPadsBegin(),
-                        origOp.getPadsEnd(), origOp.getRoundingType(), origOp.getPostOpAttr(), origOp.getClampAttr(),
-                        origOp.getStaticScaleAttr(), origOp.getOutputPaddingAttr(), origOp.getInputPaddingAttr());
+                return IE::MaxPoolOp::create(rewriter, loc, input, origOp.getScale(), origOp.getKernelSize(), strides,
+                                             origOp.getPadsBegin(), origOp.getPadsEnd(), origOp.getRoundingType(),
+                                             origOp.getPostOpAttr(), origOp.getClampAttr(), origOp.getStaticScaleAttr(),
+                                             origOp.getOutputPaddingAttr(), origOp.getInputPaddingAttr());
             },
             _log.nest());
 }
@@ -569,11 +570,11 @@ mlir::LogicalResult AvgPoolMPOptimizationRewriter::matchAndRewrite(IE::AvgPoolOp
     return opWithMaxPoolOptimization(
             origOp, rewriter, origOp.getStrides(),
             [&](mlir::Location loc, mlir::Value input, mlir::ArrayAttr strides) -> mlir::Operation* {
-                return rewriter.create<IE::AvgPoolOp>(
-                        loc, input, origOp.getScale(), origOp.getKernelSize(), strides, origOp.getPadsBegin(),
-                        origOp.getPadsEnd(), origOp.getRoundingTypeAttr(), origOp.getExcludePadsAttr(),
-                        origOp.getPostOpAttr(), origOp.getClampAttr(), origOp.getStaticScaleAttr(),
-                        origOp.getOutputPaddingAttr(), origOp.getInputPaddingAttr());
+                return IE::AvgPoolOp::create(rewriter, loc, input, origOp.getScale(), origOp.getKernelSize(), strides,
+                                             origOp.getPadsBegin(), origOp.getPadsEnd(), origOp.getRoundingTypeAttr(),
+                                             origOp.getExcludePadsAttr(), origOp.getPostOpAttr(), origOp.getClampAttr(),
+                                             origOp.getStaticScaleAttr(), origOp.getOutputPaddingAttr(),
+                                             origOp.getInputPaddingAttr());
             },
             _log.nest());
 }

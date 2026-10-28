@@ -32,9 +32,9 @@ mlir::memref::AllocOp replaceAllocWithSubview(mlir::Value value, mlir::memref::S
         return nullptr;
     }
     builder.setInsertionPointAfter(allocOp);
-    auto newSubviewOp = builder.create<mlir::memref::SubViewOp>(subviewOp.getLoc(), subviewOp.getSource(),
-                                                                subviewOp.getMixedOffsets(), subviewOp.getMixedSizes(),
-                                                                subviewOp.getMixedStrides());
+    auto newSubviewOp = mlir::memref::SubViewOp::create(builder, subviewOp.getLoc(), subviewOp.getSource(),
+                                                        subviewOp.getMixedOffsets(), subviewOp.getMixedSizes(),
+                                                        subviewOp.getMixedStrides());
     allocOp.getResult().replaceAllUsesWith(newSubviewOp.getResult());
     return allocOp;
 }
@@ -162,8 +162,8 @@ void OptimizeMemRefCopiesPass::safeRunOnFunc() {
         for (auto subviewOp : subviewOps) {
             builder.setInsertionPointAfter(subviewOp);
             auto newSubview =
-                    builder.create<mlir::memref::SubViewOp>(subviewOp.getLoc(), dst, subviewOp.getMixedOffsets(),
-                                                            subviewOp.getMixedSizes(), subviewOp.getMixedStrides());
+                    mlir::memref::SubViewOp::create(builder, subviewOp.getLoc(), dst, subviewOp.getMixedOffsets(),
+                                                    subviewOp.getMixedSizes(), subviewOp.getMixedStrides());
             subviewOp.getResult().replaceAllUsesWith(newSubview.getResult());
             subviewOp.erase();
         }

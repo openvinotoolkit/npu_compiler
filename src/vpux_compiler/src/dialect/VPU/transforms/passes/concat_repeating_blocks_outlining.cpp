@@ -4,7 +4,9 @@
 //
 
 #include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/activation.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/data_movement.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/dpu.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops_interfaces.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
 #include "vpux/compiler/dialect/VPU/utils/outlining_utils.hpp"
@@ -45,19 +47,24 @@ using InputBranch = std::unordered_map<size_t, SmallVector<mlir::Operation*>>;
 class ConcatOutliner final {
 private:
     int64_t _minSeqLength;
+    int64_t _sdpaHeadThreshold;
     bool _singleFunctionPerConcat;
     bool _wrapMainIntoCallOps = true;
     Logger _log;
 
 public:
-    ConcatOutliner(int64_t minSeqLength, bool singleFunctionPerConcat, const Logger& log)
-            : _minSeqLength(minSeqLength), _singleFunctionPerConcat(singleFunctionPerConcat), _log(log) {
+    ConcatOutliner(int64_t minSeqLength, int64_t sdpaHeadThreshold, bool singleFunctionPerConcat, const Logger& log)
+            : _minSeqLength(minSeqLength),
+              _sdpaHeadThreshold(sdpaHeadThreshold),
+              _singleFunctionPerConcat(singleFunctionPerConcat),
+              _log(log) {
     }
 
     SmallVector<OutliningInstance> getOutliningInstances(mlir::func::FuncOp funcOp) {
         SmallVector<OutliningInstance> outliningInstances;
 
         const auto& concatOps = funcOp.getOps<VPU::ConcatOp>();
+        SmallVector<SmallVector<InputBranch>> inputBranchesVec;
         for (const auto& concatOp : concatOps) {
             _log.trace("Got {0} at '{1}", concatOp->getName(), concatOp->getLoc());
 
@@ -66,7 +73,17 @@ public:
                 _log.nest().trace("The input branches are not valid for outlining. Skipping operation");
                 continue;
             }
-            _log.nest().trace("Creating outlining instance");
+
+            inputBranchesVec.push_back(std::move(inputBranches));
+        }
+
+        if (!isBeneficialForConcatRepeatingBlocksOutlining(inputBranchesVec)) {
+            _log.nest().trace("Outlining is not beneficial for the found input branches. Skipping outlining");
+            return {};
+        }
+
+        _log.nest().trace("Creating outlining instance");
+        for (auto& inputBranches : inputBranchesVec) {
             auto outliningInstance = createOutliningInstance(inputBranches);
             outliningInstances.push_back(outliningInstance);
         }
@@ -82,6 +99,42 @@ public:
     }
 
 private:
+    bool isBeneficialForConcatRepeatingBlocksOutlining(const SmallVector<SmallVector<InputBranch>>& inputBranches) {
+        const auto isSDPASoftMax = [](VPU::SoftMaxOp softMaxOp) {
+            const auto inputOp = softMaxOp.getInput().getDefiningOp();
+            if (!mlir::isa_and_present<VPU::NCEConvolutionOp>(inputOp)) {
+                return false;
+            }
+
+            return llvm::any_of(softMaxOp->getUsers(), [](mlir::Operation* userOp) {
+                return mlir::isa_and_present<VPU::NCEConvolutionOp>(userOp);
+            });
+        };
+
+        const auto isSDPAPattern = [&](const InputBranch& inputBranch) {
+            for (const auto& [_, levelOps] : inputBranch) {
+                for (auto op : levelOps) {
+                    auto softMaxOp = mlir::dyn_cast_if_present<VPU::SoftMaxOp>(op);
+                    if (softMaxOp != nullptr && isSDPASoftMax(softMaxOp)) {
+                        return true;
+                    }
+                }
+            }
+
+            return false;
+        };
+
+        const auto allConcatsMatchSmallSDPAPattern = llvm::all_of(inputBranches, [&](const auto& branches) {
+            return checked_cast<int64_t>(branches.size()) <= _sdpaHeadThreshold &&
+                   llvm::all_of(branches, isSDPAPattern);
+        });
+        if (allConcatsMatchSmallSDPAPattern) {
+            return false;
+        }
+
+        return true;
+    }
+
     /**
      * @brief Find the input branches of the concat operation if they have the same structure
      * @details Iterates over every input branch of the concat and collects the parts that are identical across all
@@ -428,10 +481,12 @@ class ConcatRepeatingBlocksOutliningPass final :
         public VPU::impl::ConcatRepeatingBlocksOutliningBase<ConcatRepeatingBlocksOutliningPass> {
 private:
     int64_t _minSeqLength = 1;
+    int64_t _sdpaHeadThreshold = 2;
     bool _singleFunctionPerConcat = true;
 
 public:
-    explicit ConcatRepeatingBlocksOutliningPass(int64_t minSeqLength, const Logger& log): _minSeqLength(minSeqLength) {
+    explicit ConcatRepeatingBlocksOutliningPass(int64_t minSeqLength, int64_t sdpaHeadThreshold, const Logger& log)
+            : _minSeqLength(minSeqLength), _sdpaHeadThreshold(sdpaHeadThreshold) {
         Base::initLogger(log, Base::getArgumentName());
     }
 
@@ -441,6 +496,9 @@ public:
         }
         if (minSeqLength.hasValue()) {
             _minSeqLength = minSeqLength.getValue();
+        }
+        if (sdpaHeadThreshold.hasValue()) {
+            _sdpaHeadThreshold = sdpaHeadThreshold.getValue();
         }
         if (singleFunctionPerConcat.hasValue()) {
             _singleFunctionPerConcat = singleFunctionPerConcat.getValue();
@@ -454,7 +512,7 @@ private:
         auto mainFuncOp = net::getMainFunc(moduleOp);
 
         _log.debug("Searching for outlining instances around concat operations");
-        ConcatOutliner outliner(_minSeqLength, _singleFunctionPerConcat, _log);
+        ConcatOutliner outliner(_minSeqLength, _sdpaHeadThreshold, _singleFunctionPerConcat, _log);
         const auto outliningInstances = outliner.getOutliningInstances(mainFuncOp);
         if (outliningInstances.empty()) {
             _log.debug("Found no candidate instances");
@@ -615,7 +673,7 @@ private:
                 const auto funcType = mlir::FunctionType::get(ctx, ArrayRef(funcsInfo[targetIdx][sliceIdx].inputTypes),
                                                               ArrayRef(funcsInfo[targetIdx][sliceIdx].outputTypes));
                 auto func =
-                        builder.create<mlir::func::FuncOp>(funcLoc, funcsInfo[targetIdx][sliceIdx].funcName, funcType);
+                        mlir::func::FuncOp::create(builder, funcLoc, funcsInfo[targetIdx][sliceIdx].funcName, funcType);
                 func.setNested();
 
                 auto builder = mlir::OpBuilder::atBlockEnd(func.addEntryBlock());
@@ -643,7 +701,7 @@ private:
                 }
                 const auto returnLoc =
                         appendLoc(mainFuncOp.getLoc(), "concat{0}_input{1}_return", targetIdx + 1, sliceIdx + 1);
-                builder.create<mlir::func::ReturnOp>(returnLoc, funcOutputFromSlices);
+                mlir::func::ReturnOp::create(builder, returnLoc, funcOutputFromSlices);
             }
         }
     }
@@ -677,9 +735,8 @@ private:
                 }
 
                 const auto callLoc = appendLoc(mainFuncOp.getLoc(), "fn{0}_call{1}", targetIdx + 1, sliceIdx);
-                auto newCall =
-                        builder.create<mlir::func::CallOp>(callLoc, funcsInfo[targetIdx][sliceIdx].funcName,
-                                                           funcsInfo[targetIdx][sliceIdx].outputTypes, newInputs);
+                auto newCall = mlir::func::CallOp::create(builder, callLoc, funcsInfo[targetIdx][sliceIdx].funcName,
+                                                          funcsInfo[targetIdx][sliceIdx].outputTypes, newInputs);
                 for (const auto& res : newCall.getResults()) {
                     size_t idx = res.getResultNumber();
                     oldToNewArgMap[slice.outputs[idx]] = res;
@@ -714,6 +771,7 @@ private:
 //
 
 std::unique_ptr<mlir::Pass> vpux::VPU::createConcatRepeatingBlocksOutliningPass(int64_t minSeqLength,
+                                                                                int64_t sdpaHeadThreshold,
                                                                                 const Logger& log) {
-    return std::make_unique<ConcatRepeatingBlocksOutliningPass>(minSeqLength, log);
+    return std::make_unique<ConcatRepeatingBlocksOutliningPass>(minSeqLength, sdpaHeadThreshold, log);
 }

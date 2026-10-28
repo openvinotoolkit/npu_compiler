@@ -1933,3 +1933,163 @@ func.func @NotOptimizeSliceConcatExpandThroughViewLikeOpsIncompatibleConcatExpan
    // CHECK:               [[EXPAND:%.+]] = IE.Expand([[PERMUTECAST3]]) {pads_begin = [0, 0, 0, 0], pads_end = [0, 0, 3, 0]} : tensor<1x1x1731x64xf16, {order = #NHWC}> -> tensor<1x1x1734x64xf16, {order = #NHWC}>
    // CHECK:                return [[EXPAND]]
 }
+
+// -----
+
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+
+// CHECK-LABEL: @OptimizeSliceViewLikeChainExpand_PermuteCastAffineReshape
+// CHECK-SAME:        [[INPUT:%arg[0-9]]]: tensor<1x1504x3x64xf16, {order = #NHWC}>
+func.func @OptimizeSliceViewLikeChainExpand_PermuteCastAffineReshape(%arg0: tensor<1x1504x3x64xf16, {order = #NHWC}>) -> tensor<1x192x1504x1xf16> {
+   // Slice on logical dim C (mem dim 3 in NHWC): 1504 -> 1500
+   // PermuteCast identity mem_perm reinterprets layout
+   // AffineReshape merges dims 1,2 and splits dim 3
+   // Expand pads dim 2: 1500 -> 1504
+   // Optimization: enlarge Slice by 4 on C-axis, propagate through chain, eliminate Expand
+   %0 = IE.Slice %arg0 [0, 0, 0, 0] [1, 1500, 3, 64] : tensor<1x1504x3x64xf16, {order = #NHWC}> to tensor<1x1500x3x64xf16, {order = #NHWC}>
+   %1 = IE.PermuteCast(%0) {dst_order = #NCHW, mem_perm = #NCHW} : tensor<1x1500x3x64xf16, {order = #NHWC}> -> tensor<1x3x64x1500xf16>
+   %2 = IE.AffineReshape(%1) {dim_mapping = [[0], [1], [1], [2, 3]], shape_value = [1, 192, 1500, 1]} : tensor<1x3x64x1500xf16> -> tensor<1x192x1500x1xf16>
+   %3 = IE.Expand(%2) {pads_begin = [0, 0, 0, 0], pads_end = [0, 0, 4, 0]} : tensor<1x192x1500x1xf16> -> tensor<1x192x1504x1xf16>
+
+   return %3 : tensor<1x192x1504x1xf16>
+
+   // Enlarged Slice becomes identity (size = source) and is canonicalized away
+   // CHECK-NOT:    IE.Slice
+   // CHECK-NOT:    IE.Expand
+   // CHECK:        [[PERMUTECAST:%.+]] = IE.PermuteCast([[INPUT]]) {dst_order = #NCHW, mem_perm = #NCHW} : tensor<1x1504x3x64xf16, {order = #NHWC}> -> tensor<1x3x64x1504xf16>
+   // CHECK:        [[RESHAPE:%.+]] = IE.ShapeCast {shape = [1, 192, 1504, 1]} inputs([[PERMUTECAST]] : tensor<1x3x64x1504xf16>) -> tensor<1x192x1504x1xf16>
+   // CHECK:        return [[RESHAPE]]
+}
+
+// -----
+
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+
+// CHECK-LABEL: @OptimizeSliceViewLikeChainExpand_NotEnoughRoom
+// CHECK-SAME:        [[INPUT:%arg[0-9]]]: tensor<1x1502x3x64xf16, {order = #NHWC}>
+func.func @OptimizeSliceViewLikeChainExpand_NotEnoughRoom(%arg0: tensor<1x1502x3x64xf16, {order = #NHWC}>) -> tensor<1x192x1504x1xf16> {
+   // Source has 1502 on C-axis, slice takes 1500, but enlarging by 4 would need 1504 > 1502
+   %0 = IE.Slice %arg0 [0, 0, 0, 0] [1, 1500, 3, 64] : tensor<1x1502x3x64xf16, {order = #NHWC}> to tensor<1x1500x3x64xf16, {order = #NHWC}>
+   %1 = IE.PermuteCast(%0) {dst_order = #NCHW, mem_perm = #NCHW} : tensor<1x1500x3x64xf16, {order = #NHWC}> -> tensor<1x3x64x1500xf16>
+   %2 = IE.AffineReshape(%1) {dim_mapping = [[0], [1], [1], [2, 3]], shape_value = [1, 192, 1500, 1]} : tensor<1x3x64x1500xf16> -> tensor<1x192x1500x1xf16>
+   %3 = IE.Expand(%2) {pads_begin = [0, 0, 0, 0], pads_end = [0, 0, 4, 0]} : tensor<1x192x1500x1xf16> -> tensor<1x192x1504x1xf16>
+
+   return %3 : tensor<1x192x1504x1xf16>
+
+   // Pattern should NOT match: source (1502) cannot cover the full extent (need 1504)
+   // CHECK:        [[SLICE:%.+]] = IE.Slice [[INPUT]] [0, 0, 0, 0] [1, 1500, 3, 64]
+   // CHECK:        [[PERMUTECAST:%.+]] = IE.PermuteCast([[SLICE]]) {dst_order = #NCHW, mem_perm = #NCHW} : tensor<1x1500x3x64xf16, {order = #NHWC}> -> tensor<1x3x64x1500xf16>
+   // CHECK:        [[RESHAPE:%.+]] = IE.AffineReshape([[PERMUTECAST]])
+   // CHECK-SAME{LITERAL}:    {dim_mapping = [[0], [1], [1], [2, 3]], shape_value = [1, 192, 1500, 1]} : tensor<1x3x64x1500xf16> -> tensor<1x192x1500x1xf16>
+   // CHECK:        [[EXPAND:%.+]] = IE.Expand([[RESHAPE]]) {pads_begin = [0, 0, 0, 0], pads_end = [0, 0, 4, 0]} : tensor<1x192x1500x1xf16> -> tensor<1x192x1504x1xf16>
+   // CHECK:        return [[EXPAND]]
+}
+
+// -----
+
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+
+// CHECK-LABEL: @OptimizeSliceViewLikeChainExpand_NotFullSourceExtent
+// CHECK-SAME:        [[INPUT:%arg[0-9]]]: tensor<1x1508x3x64xf16, {order = #NHWC}>
+func.func @OptimizeSliceViewLikeChainExpand_NotFullSourceExtent(%arg0: tensor<1x1508x3x64xf16, {order = #NHWC}>) -> tensor<1x192x1504x1xf16> {
+   // Source has 1508 on C-axis, slice takes 1500, enlarging by 4 gives 1504 which fits
+   // but 1504 != 1508 so enlarged Slice does NOT cover the full source extent
+   %0 = IE.Slice %arg0 [0, 0, 0, 0] [1, 1500, 3, 64] : tensor<1x1508x3x64xf16, {order = #NHWC}> to tensor<1x1500x3x64xf16, {order = #NHWC}>
+   %1 = IE.PermuteCast(%0) {dst_order = #NCHW, mem_perm = #NCHW} : tensor<1x1500x3x64xf16, {order = #NHWC}> -> tensor<1x3x64x1500xf16>
+   %2 = IE.AffineReshape(%1) {dim_mapping = [[0], [1], [1], [2, 3]], shape_value = [1, 192, 1500, 1]} : tensor<1x3x64x1500xf16> -> tensor<1x192x1500x1xf16>
+   %3 = IE.Expand(%2) {pads_begin = [0, 0, 0, 0], pads_end = [0, 0, 4, 0]} : tensor<1x192x1500x1xf16> -> tensor<1x192x1504x1xf16>
+
+   return %3 : tensor<1x192x1504x1xf16>
+
+   // Pattern should NOT match: enlarged Slice (1504) does not cover full source (1508)
+   // CHECK:        [[SLICE:%.+]] = IE.Slice [[INPUT]] [0, 0, 0, 0] [1, 1500, 3, 64]
+   // CHECK:        [[PERMUTECAST:%.+]] = IE.PermuteCast([[SLICE]]) {dst_order = #NCHW, mem_perm = #NCHW} : tensor<1x1500x3x64xf16, {order = #NHWC}> -> tensor<1x3x64x1500xf16>
+   // CHECK:        [[RESHAPE:%.+]] = IE.AffineReshape([[PERMUTECAST]])
+   // CHECK-SAME{LITERAL}:    {dim_mapping = [[0], [1], [1], [2, 3]], shape_value = [1, 192, 1500, 1]} : tensor<1x3x64x1500xf16> -> tensor<1x192x1500x1xf16>
+   // CHECK:        [[EXPAND:%.+]] = IE.Expand([[RESHAPE]]) {pads_begin = [0, 0, 0, 0], pads_end = [0, 0, 4, 0]} : tensor<1x192x1500x1xf16> -> tensor<1x192x1504x1xf16>
+   // CHECK:        return [[EXPAND]]
+}
+
+// -----
+
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+
+// CHECK-LABEL: @OptimizeSliceViewLikeChainExpand_NonZeroOffset
+// CHECK-SAME:        [[INPUT:%arg[0-9]]]: tensor<1x1504x3x64xf16, {order = #NHWC}>
+func.func @OptimizeSliceViewLikeChainExpand_NonZeroOffset(%arg0: tensor<1x1504x3x64xf16, {order = #NHWC}>) -> tensor<1x192x1504x1xf16> {
+   // Slice offset is non-zero (4), so enlarged Slice [4:1504] does not start at 0
+   %0 = IE.Slice %arg0 [0, 4, 0, 0] [1, 1500, 3, 64] : tensor<1x1504x3x64xf16, {order = #NHWC}> to tensor<1x1500x3x64xf16, {order = #NHWC}>
+   %1 = IE.PermuteCast(%0) {dst_order = #NCHW, mem_perm = #NCHW} : tensor<1x1500x3x64xf16, {order = #NHWC}> -> tensor<1x3x64x1500xf16>
+   %2 = IE.AffineReshape(%1) {dim_mapping = [[0], [1], [1], [2, 3]], shape_value = [1, 192, 1500, 1]} : tensor<1x3x64x1500xf16> -> tensor<1x192x1500x1xf16>
+   %3 = IE.Expand(%2) {pads_begin = [0, 0, 0, 0], pads_end = [0, 0, 4, 0]} : tensor<1x192x1500x1xf16> -> tensor<1x192x1504x1xf16>
+
+   return %3 : tensor<1x192x1504x1xf16>
+
+   // Pattern should NOT match: slice offset is non-zero, enlarged Slice is still a subview
+   // CHECK:        [[SLICE:%.+]] = IE.Slice [[INPUT]] [0, 4, 0, 0] [1, 1500, 3, 64]
+   // CHECK:        [[PERMUTECAST:%.+]] = IE.PermuteCast([[SLICE]]) {dst_order = #NCHW, mem_perm = #NCHW} : tensor<1x1500x3x64xf16, {order = #NHWC}> -> tensor<1x3x64x1500xf16>
+   // CHECK:        [[RESHAPE:%.+]] = IE.AffineReshape([[PERMUTECAST]])
+   // CHECK-SAME{LITERAL}:    {dim_mapping = [[0], [1], [1], [2, 3]], shape_value = [1, 192, 1500, 1]} : tensor<1x3x64x1500xf16> -> tensor<1x192x1500x1xf16>
+   // CHECK:        [[EXPAND:%.+]] = IE.Expand([[RESHAPE]]) {pads_begin = [0, 0, 0, 0], pads_end = [0, 0, 4, 0]} : tensor<1x192x1500x1xf16> -> tensor<1x192x1504x1xf16>
+   // CHECK:        return [[EXPAND]]
+}
+
+// -----
+
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+#NHCW = affine_map<(d0, d1, d2, d3) -> (d0, d2, d1, d3)>
+
+// CHECK-LABEL: @OptimizeSliceViewLikeChainExpand_SingleViewLikeNotMatched
+// CHECK-SAME:        [[INPUT:%arg[0-9]]]: tensor<1x1504x20x16xf16, {order = #NHWC}>
+func.func @OptimizeSliceViewLikeChainExpand_SingleViewLikeNotMatched(%arg0: tensor<1x1504x20x16xf16, {order = #NHWC}>) -> tensor<1x16x20x1502xf16, {order = #NHCW}> {
+   // Only one view-like op (PermuteCast): handled by OptimizeSlicePermuteCastExpand, not this pattern
+   %0 = IE.Slice %arg0 [0, 0, 0, 0] [1, 1500, 20, 16] : tensor<1x1504x20x16xf16, {order = #NHWC}> to tensor<1x1500x20x16xf16, {order = #NHWC}>
+   %1 = IE.PermuteCast(%0) {dst_order = #NHCW, mem_perm = #NCHW} : tensor<1x1500x20x16xf16, {order = #NHWC}> -> tensor<1x16x20x1500xf16, {order = #NHCW}>
+   %2 = IE.Expand(%1) {pads_begin = [0, 0, 0, 0], pads_end = [0, 0, 0, 2]} : tensor<1x16x20x1500xf16, {order = #NHCW}> -> tensor<1x16x20x1502xf16, {order = #NHCW}>
+
+   return %2 : tensor<1x16x20x1502xf16, {order = #NHCW}>
+
+   // This triggers OptimizeSlicePermuteCastExpand (single PermuteCast), not the chain pattern
+   // CHECK:        [[SLICE:%.+]] = IE.Slice [[INPUT]] [0, 0, 0, 0] [1, 1502, 20, 16] : tensor<1x1504x20x16xf16, {order = #NHWC}> to tensor<1x1502x20x16xf16, {order = #NHWC}>
+   // CHECK:        [[PERMUTECAST:%.+]] = IE.PermuteCast([[SLICE]]) {dst_order = #NHCW, mem_perm = #NCHW} : tensor<1x1502x20x16xf16, {order = #NHWC}> -> tensor<1x16x20x1502xf16, {order = #NHCW}>
+   // CHECK:        return [[PERMUTECAST]]
+}
+
+// -----
+
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+#HNWC = affine_map<(d0, d1, d2, d3) -> (d2, d0, d3, d1)>
+
+!qElemType = !quant.uniform<f8E4M3FN:f16, 0.032154855983597894>
+!qElemType1 = !quant.uniform<f8E4M3FN:f16, 0.012785908366952623>
+
+// CHECK: [[QELEMTYPE0:!.+]] = !quant.uniform<f8E4M3FN:f16, 0.032154855983597894>
+// CHECK: [[QELEMTYPE1:!.+]] = !quant.uniform<f8E4M3FN:f16, 0.012785908366952623>
+
+// CHECK: @OptimizeSliceViewLikeChainExpand_QuantizeCast
+// CHECK-SAME:        [[INPUT:%arg[0-9]]]: tensor<1x48x1024x4x!qElemType, {order = #NHWC}>
+func.func @OptimizeSliceViewLikeChainExpand_QuantizeCast(%arg0: tensor<1x48x1024x4x!qElemType, {order = #NHWC}>) -> tensor<1x48x4096x1x!qElemType1, {order = #NHWC}> {
+   %0 = IE.Slice %arg0 [0, 0, 0, 0] [1, 40, 1024, 4] : tensor<1x48x1024x4x!qElemType, {order = #NHWC}> to tensor<1x40x1024x4x!qElemType, {order = #NHWC}>
+   %1 = IE.AffineReshape(%0) {dim_mapping = [[0], [1], [2], [2, 3]], shape_value = [1, 40, 4096, 1]} : tensor<1x40x1024x4x!qElemType, {order = #NHWC}> -> tensor<1x40x4096x1x!qElemType, {order = #NHWC}>
+   %2 = IE.PermuteCast(%1) {dst_order = #HNWC, mem_perm = #NCHW} : tensor<1x40x4096x1x!qElemType, {order = #NHWC}> -> tensor<4096x40x1x1x!qElemType, {order = #HNWC}>
+   %3 = IE.QuantizeCast(%2) {dstElemType = !qElemType1} : tensor<4096x40x1x1x!qElemType, {order = #HNWC}> -> tensor<4096x40x1x1x!qElemType1, {order = #HNWC}>
+   %4 = IE.PermuteCast(%3) {dst_order = #NHWC, mem_perm = #NCHW} : tensor<4096x40x1x1x!qElemType1, {order = #HNWC}> -> tensor<1x40x4096x1x!qElemType1, {order = #NHWC}>
+   %5 = IE.Expand(%4) {pads_begin = [0, 0, 0, 0], pads_end = [0, 8, 0, 0]} : tensor<1x40x4096x1x!qElemType1, {order = #NHWC}> -> tensor<1x48x4096x1x!qElemType1, {order = #NHWC}>
+
+   return %5 : tensor<1x48x4096x1x!qElemType1, {order = #NHWC}>
+
+   // CHECK-NOT:    IE.Slice
+   // CHECK-NOT:    IE.Expand
+   // CHECK: [[PERMUTECAST0:%.+]] = IE.PermuteCast([[INPUT]]) {dst_order = #NCHW, mem_perm = #NCHW} : tensor<1x48x1024x4x[[QELEMTYPE0]], {order = #NHWC}> -> tensor<1x1024x4x48x[[QELEMTYPE0]]>
+   // CHECK: [[SHAPECAST:%.+]] = IE.ShapeCast {shape = [1, 4096, 1, 48]} inputs([[PERMUTECAST0]] : tensor<1x1024x4x48x[[QELEMTYPE0]]>) -> tensor<1x4096x1x48x[[QELEMTYPE0]]>
+   // CHECK: [[PERMUTECAST1:%.+]] = IE.PermuteCast([[SHAPECAST]]) {dst_order = #NHWC, mem_perm = #NCHW} : tensor<1x4096x1x48x[[QELEMTYPE0]]> -> tensor<1x48x4096x1x[[QELEMTYPE0]], {order = #NHWC}>
+   // CHECK: [[QUANTIZECAST:%.+]] = IE.QuantizeCast([[PERMUTECAST1]]) {dstElemType = [[QELEMTYPE1]]} : tensor<1x48x4096x1x[[QELEMTYPE0]], {order = #NHWC}> -> tensor<1x48x4096x1x[[QELEMTYPE1]], {order = #NHWC}>
+
+   // CHECK: return [[QUANTIZECAST]]
+}

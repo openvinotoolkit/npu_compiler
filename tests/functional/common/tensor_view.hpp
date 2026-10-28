@@ -31,7 +31,7 @@ template <typename ElementType, int DimSize>
 class TensorView {
 private:
     TensorView(ElementType* data, ov::Shape shape): _data{data}, _shape{std::move(shape)} {
-        VPUX_THROW_UNLESS(_data != nullptr, "Tensor data pointer is null");
+        VPUX_THROW_WHEN(_data == nullptr, "Tensor data pointer is null");
     }
 
 public:

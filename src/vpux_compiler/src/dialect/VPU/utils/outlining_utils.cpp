@@ -119,8 +119,8 @@ void VPU::removeUnusedConstantOutputs(mlir::ModuleOp moduleOp, ArrayRef<SmallVec
             // Update call operation
             mlir::OpBuilder builder(callOp->getContext());
             builder.setInsertionPoint(callOp);
-            auto newCall =
-                    builder.create<mlir::func::CallOp>(callOp.getLoc(), funcName, newOutputTypes, callOp.getOperands());
+            auto newCall = mlir::func::CallOp::create(builder, callOp.getLoc(), funcName, newOutputTypes,
+                                                      callOp.getOperands());
 
             // Replace old call results with new ones (only for non-removed outputs)
             for (size_t i = 0; i < callOp.getNumResults(); ++i) {

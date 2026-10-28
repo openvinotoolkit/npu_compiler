@@ -122,8 +122,8 @@ void SetTargetIndependentPassOptionsPass::safeRunOnModule() {
         if (hasPipelineOption) {
             continue;
         }
-        optionsBuilder.create<config::OptionOp>(optionsBuilder.getUnknownLoc(), mlir::StringAttr::get(ctx, name),
-                                                attribute);
+        config::OptionOp::create(optionsBuilder, optionsBuilder.getUnknownLoc(), mlir::StringAttr::get(ctx, name),
+                                 attribute);
     }
 }
 

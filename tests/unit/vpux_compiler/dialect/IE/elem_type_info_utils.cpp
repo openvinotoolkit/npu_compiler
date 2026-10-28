@@ -34,6 +34,11 @@ mlir::quant::UniformQuantizedPerAxisType composeElementType(const std::vector<in
                                                          127);
 }
 
+// TODO(E#229663): GCC 15+ false-positive on inlined recursive std::vector<uint32_t> copy/insert.
+#if defined(__GNUC__) && !defined(__clang__) && __GNUC__ >= 15
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Warray-bounds"
+#endif
 std::vector<std::vector<uint32_t>> insertDim(const std::vector<uint32_t>& order, const uint32_t rank) {
     std::vector<std::vector<uint32_t>> result;
     // Value is equal to rank - 1 because, for example, for rank 2 permutations are
@@ -48,6 +53,9 @@ std::vector<std::vector<uint32_t>> insertDim(const std::vector<uint32_t>& order,
     }
     return result;
 }
+#if defined(__GNUC__) && !defined(__clang__) && __GNUC__ >= 15
+#pragma GCC diagnostic pop
+#endif
 
 std::vector<std::vector<uint32_t>> generateOrders(const size_t rank) {
     std::vector<std::vector<uint32_t>> result;

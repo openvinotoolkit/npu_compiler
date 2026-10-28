@@ -234,6 +234,7 @@ struct NCEClusterTaskParams {
     VPU::MPEEngineAttr mpeEngineAttr = nullptr;
     VPU::EltwiseTypeAttr eltwiseType = nullptr;
     TilingLoopIndexAttr tilingLoopIndex = nullptr;
+    TileCoordinateAttr loopTileCoord = nullptr;
     VFLoopIndexAttr vfLoopIndex = nullptr;
     VFLoopTileIndexAttr vfLoopTileIndex = nullptr;
     VPU::S2DD2SConfigAttr s2dD2sConfig = nullptr;
@@ -246,7 +247,7 @@ SmallVector<mlir::Value> createNCEClusterTask(mlir::OpBuilder& rewriter, mlir::L
         mlir::Value sparsityMap = nullptr;
         mlir::Value seTable = nullptr;
         if (value != nullptr && mlir::isa<vpux::VPUIP::SparseBufferType>(value.getType())) {
-            auto ungroupedOp = rewriter.create<VPUIP::UngroupSparseBufferOp>(loc, value);
+            auto ungroupedOp = VPUIP::UngroupSparseBufferOp::create(rewriter, loc, value);
             data = ungroupedOp.getData();
             sparsityMap = ungroupedOp.getSparsityMap();
             seTable = ungroupedOp.getStorageElementTable();
@@ -266,8 +267,8 @@ SmallVector<mlir::Value> createNCEClusterTask(mlir::OpBuilder& rewriter, mlir::L
         reduceMinMaxTensor.push_back(outputs.reduceMinMaxTensor);
     }
 
-    auto nceClusterTask = rewriter.create<VPUIP::NCEClusterTaskOp>(
-            loc, inputData, inputSparsityMap, inputSETable, weightsData, weightsSparsityMap,
+    auto nceClusterTask = VPUIP::NCEClusterTaskOp::create(
+            rewriter, loc, inputData, inputSparsityMap, inputSETable, weightsData, weightsSparsityMap,
             params.weights.weightsTable,
             /*weight_table_data_ptr=*/params.weights.weightTableDataPtr, /*weight_table_sp_ptr=*/nullptr,
             params.weights.weightTableScale, params.weights.weightTableBias,
@@ -295,8 +296,8 @@ SmallVector<mlir::Value> createNCEClusterTask(mlir::OpBuilder& rewriter, mlir::L
 
     SmallVector<mlir::Value> results;
     if (nceClusterTask.getOutputSparsityMap() != nullptr) {
-        auto groupedOp = rewriter.create<VPUIP::GroupSparseBufferOp>(loc, nceClusterTask.getOutput(),
-                                                                     nceClusterTask.getOutputSparsityMap());
+        auto groupedOp = VPUIP::GroupSparseBufferOp::create(rewriter, loc, nceClusterTask.getOutput(),
+                                                            nceClusterTask.getOutputSparsityMap());
         results.push_back(groupedOp.getOutput());
     } else {
         if (nceClusterTask.getOutput()) {
@@ -306,6 +307,9 @@ SmallVector<mlir::Value> createNCEClusterTask(mlir::OpBuilder& rewriter, mlir::L
 
     if (params.tilingLoopIndex != nullptr) {
         nceClusterTask->setAttr(TILING_LOOP_INDEX_ATTR_NAME, params.tilingLoopIndex);
+    }
+    if (params.loopTileCoord != nullptr) {
+        nceClusterTask->setAttr(LOOP_TILE_COORD, params.loopTileCoord);
     }
     if (params.vfLoopIndex != nullptr) {
         nceClusterTask->setAttr(VF_LOOP_INDEX_ATTR_NAME, params.vfLoopIndex);
@@ -499,8 +503,10 @@ mlir::LogicalResult vpux::bufferizeOp(mlir::MLIRContext* ctx, VPU::NCEConvolutio
     params.cmSpPattern = cmSpPattern;
     params.mpeEngineAttr = origOp.getMpeEngineAttr();
     params.tilingLoopIndex = loopAttributes.tilingLoopIndex;
+    params.loopTileCoord = loopAttributes.loopTileCoord;
     params.vfLoopIndex = loopAttributes.vfLoopIndex;
     params.vfLoopTileIndex = loopAttributes.vfLoopTileIndex;
+    params.s2dD2sConfig = origOp.getS2dd2sConfigAttr();
 
     auto nceOp = createNCEClusterTask(rewriter, origOp->getLoc(), params, log);
 
@@ -557,6 +563,7 @@ mlir::LogicalResult vpux::bufferizeOp(mlir::MLIRContext* /*ctx*/, VPU::NCEMaxPoo
     params.dpuCostAttr = dpuCostAttr;
     params.mpeEngineAttr = mpeEngineAttr;
     params.tilingLoopIndex = loopAttributes.tilingLoopIndex;
+    params.loopTileCoord = loopAttributes.loopTileCoord;
     params.vfLoopIndex = loopAttributes.vfLoopIndex;
     params.vfLoopTileIndex = loopAttributes.vfLoopTileIndex;
     params.s2dD2sConfig = origOp.getS2dd2sConfigAttr();
@@ -616,6 +623,7 @@ mlir::LogicalResult vpux::bufferizeOp(mlir::MLIRContext* /*ctx*/, VPU::NCEAverag
     params.smallKernelOptimization = isSmallKernelOptimization;
     params.mpeEngineAttr = mpeEngineAttr;
     params.tilingLoopIndex = loopAttributes.tilingLoopIndex;
+    params.loopTileCoord = loopAttributes.loopTileCoord;
     params.vfLoopIndex = loopAttributes.vfLoopIndex;
     params.vfLoopTileIndex = loopAttributes.vfLoopTileIndex;
     auto nceOp = createNCEClusterTask(rewriter, origOp->getLoc(), params, log);
@@ -687,6 +695,7 @@ mlir::LogicalResult vpux::bufferizeOp(mlir::MLIRContext* ctx, VPU::NCEDepthConvo
     params.smallKernelOptimization = isSmallKernelOptimization;
     params.mpeEngineAttr = mpeEngineAttr;
     params.tilingLoopIndex = loopAttributes.tilingLoopIndex;
+    params.loopTileCoord = loopAttributes.loopTileCoord;
     params.vfLoopIndex = loopAttributes.vfLoopIndex;
     params.vfLoopTileIndex = loopAttributes.vfLoopTileIndex;
     auto nceOp = createNCEClusterTask(rewriter, origOp->getLoc(), params, log);
@@ -751,6 +760,7 @@ mlir::LogicalResult vpux::bufferizeOp(mlir::MLIRContext* ctx, VPU::NCEInterpolat
     params.dpuCostAttr = dpuCostAttr;
     params.mpeEngineAttr = mpeEngineAttr;
     params.tilingLoopIndex = loopAttributes.tilingLoopIndex;
+    params.loopTileCoord = loopAttributes.loopTileCoord;
     params.vfLoopIndex = loopAttributes.vfLoopIndex;
     params.vfLoopTileIndex = loopAttributes.vfLoopTileIndex;
     auto nceOp = createNCEClusterTask(rewriter, newLoc, params, log);
@@ -811,6 +821,7 @@ mlir::LogicalResult vpux::bufferizeOp(mlir::MLIRContext* /*ctx*/, VPU::NCEEltwis
     params.mpeEngineAttr = mpeEngineAttr;
     params.eltwiseType = origOp.getOpTypeAttr();
     params.tilingLoopIndex = loopAttributes.tilingLoopIndex;
+    params.loopTileCoord = loopAttributes.loopTileCoord;
     params.vfLoopIndex = loopAttributes.vfLoopIndex;
     params.vfLoopTileIndex = loopAttributes.vfLoopTileIndex;
     auto nceOp = createNCEClusterTask(rewriter, origOp->getLoc(), params, log);
@@ -867,6 +878,7 @@ mlir::LogicalResult vpux::bufferizeOp(mlir::MLIRContext* ctx, VPU::NCEReduceOp o
     params.dpuCostAttr = dpuCostAttr;
     params.mpeEngineAttr = mpeEngineAttr;
     params.tilingLoopIndex = loopAttributes.tilingLoopIndex;
+    params.loopTileCoord = loopAttributes.loopTileCoord;
     params.vfLoopIndex = loopAttributes.vfLoopIndex;
     params.vfLoopTileIndex = loopAttributes.vfLoopTileIndex;
     auto nceOp = createNCEClusterTask(rewriter, origOp->getLoc(), params, log);
@@ -900,8 +912,8 @@ mlir::LogicalResult vpux::bufferizeOp(mlir::MLIRContext* ctx, VPU::NCECompressCo
             mlir::cast<vpux::NDTypeInterface>(newArgs.getFilter().getType()).getElementType());
 
     const auto finalShape = SmallVector<int64_t>({filterShape[Dims4D::Filter::OC], channelAlignValue, KY, KX});
-    auto shapeCastWeightsOp = rewriter.create<VPUIP::ShapeCastOp>(origOp->getLoc(), newArgs.getFilter(),
-                                                                  getIntArrayAttr(origOp.getContext(), finalShape));
+    auto shapeCastWeightsOp = VPUIP::ShapeCastOp::create(rewriter, origOp->getLoc(), newArgs.getFilter(),
+                                                         getIntArrayAttr(origOp.getContext(), finalShape));
     //
     // Prepare output buffer for DPU
     //
@@ -929,7 +941,7 @@ mlir::LogicalResult vpux::bufferizeOp(mlir::MLIRContext* ctx, VPU::NCECompressCo
         isSuperdense = true;
     }
     auto inputShapeCastOp =
-            rewriter.create<VPUIP::ShapeCastOp>(origOp->getLoc(), newArgs.getInput(), finalInputShapeAttr);
+            VPUIP::ShapeCastOp::create(rewriter, origOp->getLoc(), newArgs.getInput(), finalInputShapeAttr);
     const bool inputChannelsCompression = true;
 
     const auto mpeEngineAttr = origOp.getMpeEngineAttr();
@@ -948,6 +960,7 @@ mlir::LogicalResult vpux::bufferizeOp(mlir::MLIRContext* ctx, VPU::NCECompressCo
     params.inputChannelsCompression = inputChannelsCompression;
     params.mpeEngineAttr = mpeEngineAttr;
     params.tilingLoopIndex = loopAttributes.tilingLoopIndex;
+    params.loopTileCoord = loopAttributes.loopTileCoord;
     params.vfLoopIndex = loopAttributes.vfLoopIndex;
     params.vfLoopTileIndex = loopAttributes.vfLoopTileIndex;
     auto nceOp = createNCEClusterTask(rewriter, origOp->getLoc(), params, log);
@@ -972,8 +985,8 @@ mlir::LogicalResult vpux::bufferizeOp(mlir::MLIRContext* ctx, VPU::NCEPermuteOp 
         log.trace("Got '{0}' Multi Tile at '{1}'", origOp->getName(), origOp->getLoc());
 
         auto clusteredOp = mlir::dyn_cast<VPU::ClusteredOpInterface>(origOp.getOperation());
-        VPUX_THROW_UNLESS(clusteredOp != nullptr, "Operation '{0}' cannot be converted to VPU::ClusteredOpInterface",
-                          origOp);
+        VPUX_THROW_WHEN(clusteredOp == nullptr, "Operation '{0}' cannot be converted to VPU::ClusteredOpInterface",
+                        origOp);
 
         const auto loc = origOp.getLoc();
         const auto copyDistTensorAttr = copyDistTensorType.getDistribution();
@@ -989,7 +1002,7 @@ mlir::LogicalResult vpux::bufferizeOp(mlir::MLIRContext* ctx, VPU::NCEPermuteOp 
         // ViewOp Input
         // Reshape to NxWxCxH
         // Layout change to NHWC
-        auto inputViewOp = rewriter.create<VPUIP::ViewOp>(castLoc, outBufferTypeInViewOp, newArgs.getInput());
+        auto inputViewOp = VPUIP::ViewOp::create(rewriter, castLoc, outBufferTypeInViewOp, newArgs.getInput());
 
         // Manual update output type
         auto outType = mlir::cast<NDTypeInterface>(origOp.getOutput().getType());
@@ -1043,6 +1056,7 @@ mlir::LogicalResult vpux::bufferizeOp(mlir::MLIRContext* ctx, VPU::NCEPermuteOp 
         params.isNCEPermute = true;
         params.mpeEngineAttr = mpeEngineAttr;
         params.tilingLoopIndex = loopAttributes.tilingLoopIndex;
+        params.loopTileCoord = loopAttributes.loopTileCoord;
         params.vfLoopIndex = loopAttributes.vfLoopIndex;
         params.vfLoopTileIndex = loopAttributes.vfLoopTileIndex;
         auto nceOpResult = createNCEClusterTask(rewriter, origOp->getLoc(), params, log);
@@ -1051,8 +1065,8 @@ mlir::LogicalResult vpux::bufferizeOp(mlir::MLIRContext* ctx, VPU::NCEPermuteOp 
         // Reshape to NxCxHxW
         // Layout change to NHWC
 
-        auto outputViewOp = rewriter.create<VPUIP::ViewOp>(
-                origOp.getLoc(), vpux::getBufferType(origOp.getResult().getType()), nceOpResult[0]);
+        auto outputViewOp = VPUIP::ViewOp::create(rewriter, origOp.getLoc(),
+                                                  vpux::getBufferType(origOp.getResult().getType()), nceOpResult[0]);
 
         mlir::bufferization::replaceOpWithBufferizedValues(rewriter, origOp, outputViewOp.getResult());
 
@@ -1073,7 +1087,7 @@ mlir::LogicalResult vpux::bufferizeOp(mlir::MLIRContext* ctx, VPU::NCEPermuteOp 
     const auto targetInOutOrder = DimsOrder::NHWC;
     inType = inType.changeShape(ShapeRef(targetShape));
     inType = inType.changeDimsOrder(targetInOutOrder);
-    auto viewOpIn = rewriter.create<VPUIP::ViewOp>(origOp.getLoc(), inType, newArgs.getInput());
+    auto viewOpIn = VPUIP::ViewOp::create(rewriter, origOp.getLoc(), inType, newArgs.getInput());
 
     auto ppeAttr = origOp.getPpeAttr();
     const auto& modeAdapter = ppeConfig.getFactoryAs<vpux::VPU::IPpeAdapterMode>();
@@ -1125,6 +1139,7 @@ mlir::LogicalResult vpux::bufferizeOp(mlir::MLIRContext* ctx, VPU::NCEPermuteOp 
     params.isNCEPermute = true;
     params.mpeEngineAttr = mpeEngineAttr;
     params.tilingLoopIndex = loopAttributes.tilingLoopIndex;
+    params.loopTileCoord = loopAttributes.loopTileCoord;
     params.vfLoopIndex = loopAttributes.vfLoopIndex;
     params.vfLoopTileIndex = loopAttributes.vfLoopTileIndex;
     auto nceOp = createNCEClusterTask(rewriter, origOp->getLoc(), params, log);
@@ -1134,7 +1149,7 @@ mlir::LogicalResult vpux::bufferizeOp(mlir::MLIRContext* ctx, VPU::NCEPermuteOp 
     // Layout change to NHWC
     auto viewOpOutType = mlir::cast<vpux::NDTypeInterface>(nceOp[0].getType()).changeDimsOrder(targetInOutOrder);
     viewOpOutType = viewOpOutType.changeShape(getShape(origOp.getOutput()));
-    auto viewOpOut = rewriter.create<VPUIP::ViewOp>(origOp.getLoc(), viewOpOutType, nceOp[0]);
+    auto viewOpOut = VPUIP::ViewOp::create(rewriter, origOp.getLoc(), viewOpOutType, nceOp[0]);
     SmallVector<mlir::Value> results;
     results.push_back(viewOpOut.getResult());
     if (nceOp.size() > 1) {
@@ -1196,6 +1211,7 @@ mlir::LogicalResult vpux::bufferizeOp(mlir::MLIRContext* ctx, VPU::NCEMatMulOp o
     params.dpuCostAttr = dpuCostAttr;
     params.mpeEngineAttr = origOp.getMpeEngineAttr();
     params.tilingLoopIndex = loopAttributes.tilingLoopIndex;
+    params.loopTileCoord = loopAttributes.loopTileCoord;
     params.vfLoopIndex = loopAttributes.vfLoopIndex;
     params.vfLoopTileIndex = loopAttributes.vfLoopTileIndex;
     auto nceOp = createNCEClusterTask(rewriter, origOp->getLoc(), params, log);

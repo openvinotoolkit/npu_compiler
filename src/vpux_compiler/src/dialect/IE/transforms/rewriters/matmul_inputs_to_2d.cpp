@@ -14,6 +14,7 @@
 #include "vpux/compiler/dialect/IE/utils/dynamic_dequantize_utils.hpp"
 #include "vpux/compiler/dialect/IE/utils/matmul.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/convolution.hpp"
+#include "vpux/compiler/dialect/VPU/utils/manual_strategy_utils.hpp"
 #include "vpux/compiler/dynamic_rewriter/dynamic_rewriter_factory.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
@@ -85,16 +86,17 @@ static SmallVector<mlir::Value> sliceTensor(const mlir::Value tensorToSplit, con
             Shape sliceSizes = tensorShape.raw();
             sliceSizes[channelDim] = 1;
             auto staticSizesAttr = getIntArrayAttr(rewriter.getContext(), sliceSizes);
-            auto newSubViewOp = rewriter.create<IE::SliceOp>(appendLoc(location, "{0}_slice_{1}", tensorName, sliceIdx),
-                                                             tensorToSplit, staticOffsetsAttr, staticSizesAttr);
+            auto newSubViewOp =
+                    IE::SliceOp::create(rewriter, appendLoc(location, "{0}_slice_{1}", tensorName, sliceIdx),
+                                        tensorToSplit, staticOffsetsAttr, staticSizesAttr);
 
-            auto rhs2d = rewriter.create<IE::ReshapeOp>(appendLoc(location, "{0}_reshape_{1}", tensorName, sliceIdx),
-                                                        newSubViewOp, rhsShape2DAttr);
+            auto rhs2d = IE::ReshapeOp::create(rewriter, appendLoc(location, "{0}_reshape_{1}", tensorName, sliceIdx),
+                                               newSubViewOp, rhsShape2DAttr);
             weightSlices.push_back(rhs2d);
         }
     } else {
-        auto rhs2d = rewriter.create<IE::ReshapeOp>(appendLoc(location, "{0}_reshape", tensorName), tensorToSplit,
-                                                    rhsShape2DAttr);
+        auto rhs2d = IE::ReshapeOp::create(rewriter, appendLoc(location, "{0}_reshape", tensorName), tensorToSplit,
+                                           rhsShape2DAttr);
         weightSlices.push_back(rhs2d);
     }
 
@@ -246,29 +248,27 @@ SmallVector<mlir::Value> sliceDequantizeGatherChain(DequantizeGatherChainInfo& c
             auto gatherOp = chainInfo.inputGatherOp;
             Shape indexOffset = {sliceIdx * height};
             Shape indexSize = {height};
-            auto indexSlice = rewriter.create<IE::SliceOp>(
-                    appendLoc(location, "{0}_input_idx_slice_{1}", tensorName, sliceIdx), gatherOp.getIndices(),
-                    getIntArrayAttr(ctx, indexOffset), getIntArrayAttr(ctx, indexSize));
+            auto indexSlice = IE::SliceOp::create(
+                    rewriter, appendLoc(location, "{0}_input_idx_slice_{1}", tensorName, sliceIdx),
+                    gatherOp.getIndices(), getIntArrayAttr(ctx, indexOffset), getIntArrayAttr(ctx, indexSize));
             auto perBatchGather =
-                    rewriter.create<IE::GatherOp>(appendLoc(location, "{0}_input_gather_{1}", tensorName, sliceIdx),
-                                                  gatherOp.getInput(), indexSlice.getOutput(), gatherOp.getAxisValue(),
-                                                  gatherOp.getBatchDims(), gatherOp.getIndicesRankAttr());
+                    IE::GatherOp::create(rewriter, appendLoc(location, "{0}_input_gather_{1}", tensorName, sliceIdx),
+                                         gatherOp.getInput(), indexSlice.getOutput(), gatherOp.getAxisValue(),
+                                         gatherOp.getBatchDims(), gatherOp.getIndicesRankAttr());
             Shape perBatchShape = getShape(chainInfo.inputGatherAffineReshapeOp.getOutput()).raw();
             perBatchShape[Dim(0)] = 1;
-            currentValue = rewriter.create<IE::AffineReshapeOp>(
-                                           appendLoc(location, "{0}_input_reshape_{1}", tensorName, sliceIdx),
-                                           perBatchGather.getResult(),
-                                           chainInfo.inputGatherAffineReshapeOp.getDimMappingAttr(),
-                                           getIntArrayAttr(ctx, perBatchShape))
+            currentValue = IE::AffineReshapeOp::create(
+                                   rewriter, appendLoc(location, "{0}_input_reshape_{1}", tensorName, sliceIdx),
+                                   perBatchGather.getResult(), chainInfo.inputGatherAffineReshapeOp.getDimMappingAttr(),
+                                   getIntArrayAttr(ctx, perBatchShape))
                                    .getOutput();
         } else {
             Shape sliceOffsets = {sliceIdx, 0, 0};
             Shape sliceSizes = {1, height, width};
-            currentValue =
-                    rewriter.create<IE::SliceOp>(appendLoc(location, "{0}_input_slice_{1}", tensorName, sliceIdx),
-                                                 inputToSlice, getIntArrayAttr(ctx, sliceOffsets),
-                                                 getIntArrayAttr(ctx, sliceSizes))
-                            .getOutput();
+            currentValue = IE::SliceOp::create(
+                                   rewriter, appendLoc(location, "{0}_input_slice_{1}", tensorName, sliceIdx),
+                                   inputToSlice, getIntArrayAttr(ctx, sliceOffsets), getIntArrayAttr(ctx, sliceSizes))
+                                   .getOutput();
         }
 
         // Slice scale if it has batch dimension
@@ -279,9 +279,9 @@ SmallVector<mlir::Value> sliceDequantizeGatherChain(DequantizeGatherChainInfo& c
             scaleSliceOffsets.front() = sliceIdx;
             Shape scaleSliceSizes = scaleShape.raw();
             scaleSliceSizes.front() = 1;
-            scaleSlice = rewriter.create<IE::SliceOp>(appendLoc(location, "{0}_scale_slice_{1}", tensorName, sliceIdx),
-                                                      dequantizeScale, getIntArrayAttr(ctx, scaleSliceOffsets),
-                                                      getIntArrayAttr(ctx, scaleSliceSizes));
+            scaleSlice = IE::SliceOp::create(rewriter, appendLoc(location, "{0}_scale_slice_{1}", tensorName, sliceIdx),
+                                             dequantizeScale, getIntArrayAttr(ctx, scaleSliceOffsets),
+                                             getIntArrayAttr(ctx, scaleSliceSizes));
         }
 
         // Slice zero-point if present and has batch dimension
@@ -293,16 +293,16 @@ SmallVector<mlir::Value> sliceDequantizeGatherChain(DequantizeGatherChainInfo& c
                 zpSliceOffsets.front() = sliceIdx;
                 Shape zpSliceSizes = zpShape.raw();
                 zpSliceSizes.front() = 1;
-                zpSlice = rewriter.create<IE::SliceOp>(appendLoc(location, "{0}_zp_slice_{1}", tensorName, sliceIdx),
-                                                       zpSlice, getIntArrayAttr(ctx, zpSliceOffsets),
-                                                       getIntArrayAttr(ctx, zpSliceSizes));
+                zpSlice = IE::SliceOp::create(rewriter, appendLoc(location, "{0}_zp_slice_{1}", tensorName, sliceIdx),
+                                              zpSlice, getIntArrayAttr(ctx, zpSliceOffsets),
+                                              getIntArrayAttr(ctx, zpSliceSizes));
             }
         }
 
         // Create sliced DynamicDequantize
-        auto dequantSlice = rewriter.create<IE::DynamicDequantizeOp>(
-                appendLoc(location, "{0}_dequant_slice_{1}", tensorName, sliceIdx), currentValue, scaleSlice, zpSlice,
-                chainInfo.dequantizeOp.getDstElemType());
+        auto dequantSlice = IE::DynamicDequantizeOp::create(
+                rewriter, appendLoc(location, "{0}_dequant_slice_{1}", tensorName, sliceIdx), currentValue, scaleSlice,
+                zpSlice, chainInfo.dequantizeOp.getDstElemType());
         if (chainInfo.dequantizeOp->hasAttr(IE::SYNTHETIC_DYN_DEQUANT_ATTR)) {
             dequantSlice->setAttr(IE::SYNTHETIC_DYN_DEQUANT_ATTR,
                                   chainInfo.dequantizeOp->getAttr(IE::SYNTHETIC_DYN_DEQUANT_ATTR));
@@ -313,16 +313,16 @@ SmallVector<mlir::Value> sliceDequantizeGatherChain(DequantizeGatherChainInfo& c
         // Apply Convert if present in original chain
         if (chainInfo.hasConvert()) {
             auto convertSlice =
-                    rewriter.create<IE::ConvertOp>(appendLoc(location, "{0}_convert_slice_{1}", tensorName, sliceIdx),
-                                                   currentValue, chainInfo.convertOp.getDstElemType());
+                    IE::ConvertOp::create(rewriter, appendLoc(location, "{0}_convert_slice_{1}", tensorName, sliceIdx),
+                                          currentValue, chainInfo.convertOp.getDstElemType());
             currentValue = convertSlice.getOutput();
         }
 
         // Reshape to 2D [H, W]
         Shape shape2D = {height, width};
         auto reshapeSlice =
-                rewriter.create<IE::ReshapeOp>(appendLoc(location, "{0}_reshape_slice_{1}", tensorName, sliceIdx),
-                                               currentValue, getIntArrayAttr(ctx, shape2D));
+                IE::ReshapeOp::create(rewriter, appendLoc(location, "{0}_reshape_slice_{1}", tensorName, sliceIdx),
+                                      currentValue, getIntArrayAttr(ctx, shape2D));
 
         resultSlices.push_back(reshapeSlice.getOutput());
     }
@@ -339,9 +339,9 @@ mlir::Value createGroupConvSlice(mlir::PatternRewriter& rewriter, mlir::Value in
     Shape sliceSizes = inputShape.raw();
     sliceSizes[Dim(0)] = groups;
 
-    return rewriter.create<IE::SliceOp>(appendLoc(loc, "{0}_slice_{1}", name, groupIdx), input,
-                                        getIntArrayAttr(rewriter.getContext(), sliceOffsets),
-                                        getIntArrayAttr(rewriter.getContext(), sliceSizes));
+    return IE::SliceOp::create(rewriter, appendLoc(loc, "{0}_slice_{1}", name, groupIdx), input,
+                               getIntArrayAttr(rewriter.getContext(), sliceOffsets),
+                               getIntArrayAttr(rewriter.getContext(), sliceSizes));
 }
 
 // Convert MatMul to GroupConvolutions
@@ -390,11 +390,11 @@ std::optional<mlir::Value> convertMatMulToGroupConvolutions(IE::MatMulOp matmulO
 
     // Reshape inputs
     Shape inputGroupConvShape = {totalBatches, inputH, inputW};
-    auto inputReshapeOp = rewriter.create<IE::ReshapeOp>(appendLoc(loc, "input_groupConv_reshape"), input1,
-                                                         getIntArrayAttr(ctx, inputGroupConvShape));
+    auto inputReshapeOp = IE::ReshapeOp::create(rewriter, appendLoc(loc, "input_groupConv_reshape"), input1,
+                                                getIntArrayAttr(ctx, inputGroupConvShape));
     Shape weightsGroupConvShape = {totalBatches, weightsH, weightsW};
-    auto weightsReshapeOp = rewriter.create<IE::ReshapeOp>(appendLoc(loc, "weights_groupConv_reshape"), input2,
-                                                           getIntArrayAttr(ctx, weightsGroupConvShape));
+    auto weightsReshapeOp = IE::ReshapeOp::create(rewriter, appendLoc(loc, "weights_groupConv_reshape"), input2,
+                                                  getIntArrayAttr(ctx, weightsGroupConvShape));
 
     // Process each group with GroupConvolution
     SmallVector<mlir::Value> groupResults;
@@ -407,19 +407,18 @@ std::optional<mlir::Value> convertMatMulToGroupConvolutions(IE::MatMulOp matmulO
                                                  loc, "input");
 
         Shape newInputSliceShape = {1, groups, inputH, inputW};
-        auto newInputSliceOp = rewriter.create<IE::ReshapeOp>(appendLoc(loc, "input_slice_reshape_{0}", idx),
-                                                              inputSliceOp, getIntArrayAttr(ctx, newInputSliceShape));
+        auto newInputSliceOp = IE::ReshapeOp::create(rewriter, appendLoc(loc, "input_slice_reshape_{0}", idx),
+                                                     inputSliceOp, getIntArrayAttr(ctx, newInputSliceShape));
 
         auto weightsSliceOp = createGroupConvSlice(rewriter, weightsReshapeOp.getOutput(), idx, groups,
                                                    weightsGroupConvShape, loc, "weights");
 
         Shape newWeightsSliceShape = {groups, 1, weightsH, weightsW};
-        auto newWeightsSliceOp =
-                rewriter.create<IE::ReshapeOp>(appendLoc(loc, "weights_slice_reshape_{0}", idx), weightsSliceOp,
-                                               getIntArrayAttr(ctx, newWeightsSliceShape));
+        auto newWeightsSliceOp = IE::ReshapeOp::create(rewriter, appendLoc(loc, "weights_slice_reshape_{0}", idx),
+                                                       weightsSliceOp, getIntArrayAttr(ctx, newWeightsSliceShape));
 
-        auto groupConvOp = rewriter.create<IE::GroupConvolutionOp>(
-                appendLoc(loc, "group_conv_{0}", idx), newInputSliceOp, newWeightsSliceOp,
+        auto groupConvOp = IE::GroupConvolutionOp::create(
+                rewriter, appendLoc(loc, "group_conv_{0}", idx), newInputSliceOp, newWeightsSliceOp,
                 /*bias=*/nullptr, getIntArrayAttr(ctx, SmallVector<int64_t>{1, 1}),
                 getIntArrayAttr(ctx, SmallVector<int64_t>{0, 0}), getIntArrayAttr(ctx, SmallVector<int64_t>{0, 0}),
                 getIntArrayAttr(ctx, SmallVector<int64_t>{1, 1}), rewriter.getI64IntegerAttr(groups),
@@ -430,12 +429,12 @@ std::optional<mlir::Value> convertMatMulToGroupConvolutions(IE::MatMulOp matmulO
     }
 
     // Concat all GroupConvolution results along channel dimension
-    auto concatOp = rewriter.create<IE::ConcatOp>(appendLoc(loc, "group_concat"), groupResults, Dims4D::Act::C);
+    auto concatOp = IE::ConcatOp::create(rewriter, appendLoc(loc, "group_concat"), groupResults, Dims4D::Act::C);
 
     // Final reshape
     auto finalShape = getShape(matmulOp.getOutput());
-    return rewriter.create<IE::ReshapeOp>(appendLoc(loc, "final_reshape"), concatOp.getOutput(),
-                                          getIntArrayAttr(ctx, finalShape));
+    return IE::ReshapeOp::create(rewriter, appendLoc(loc, "final_reshape"), concatOp.getOutput(),
+                                 getIntArrayAttr(ctx, finalShape));
 }
 
 mlir::LogicalResult MatMulOpConverter::matchAndRewrite(IE::MatMulOp matmulOp, mlir::PatternRewriter& rewriter) const {
@@ -457,8 +456,8 @@ mlir::LogicalResult MatMulOpConverter::matchAndRewrite(IE::MatMulOp matmulOp, ml
             std::iter_swap(perm.end() - 1, perm.end() - 2);
             const auto orderAttr =
                     mlir::AffineMapAttr::get(mlir::AffineMap::getPermutationMap(perm, matmulOp->getContext()));
-            input2 = rewriter.create<IE::TransposeOp>(takeOpLoc(matmulOp, "input_b_transpose"), input2, nullptr,
-                                                      orderAttr)
+            input2 = IE::TransposeOp::create(rewriter, takeOpLoc(matmulOp, "input_b_transpose"), input2, nullptr,
+                                             orderAttr)
                              .getOutput();
             rewriter.replaceOp(matmulOp, cloneMatMulOp(rewriter, matmulOp, matmulOp.getInput1(), input2, false, false));
             return mlir::success();
@@ -523,11 +522,17 @@ mlir::LogicalResult MatMulOpConverter::matchAndRewrite(IE::MatMulOp matmulOp, ml
     }
 
     SmallVector<mlir::Value> matmulSlices;
+    const auto hasGatherDynamicDequantize = dequantChain.has_value();
+    const auto module = matmulOp->getParentOfType<mlir::ModuleOp>();
+    const auto tilingLoopIndex = (hasGatherDynamicDequantize && module != nullptr) ? getNextTilingLoopIndex(module) : 0;
     for (size_t sliceIdx = 0; sliceIdx < activationSlices.size(); sliceIdx++) {
         auto lhs2d = activationSlices[sliceIdx];
         auto rhs2d = weightSlices[weightSlices.size() == 1 ? 0 : sliceIdx];
         auto op = cloneMatMulOp(rewriter, matmulOp, lhs2d, rhs2d);
         op->setLoc(takeOpLoc(matmulOp, "slice_{0}", sliceIdx));
+        if (hasGatherDynamicDequantize) {
+            op->setAttr(TILING_LOOP_INDEX_ATTR_NAME, TilingLoopIndexAttr::get(getContext(), tilingLoopIndex));
+        }
 
         matmulSlices.push_back(op->getResult(0));
     }
@@ -536,7 +541,7 @@ mlir::LogicalResult MatMulOpConverter::matchAndRewrite(IE::MatMulOp matmulOp, ml
                     input1Shape, input2Shape);
 
     auto newOp = matmulSlices.size() != 1
-                         ? rewriter.create<IE::ConcatOp>(takeOpLoc(matmulOp, "slice_gather"), matmulSlices, 0)
+                         ? IE::ConcatOp::create(rewriter, takeOpLoc(matmulOp, "slice_gather"), matmulSlices, 0)
                          : matmulSlices.front();
 
     const auto outShape4D = getShape(matmulOp.getOutput());
@@ -760,8 +765,8 @@ mlir::LogicalResult SwapInputsConverter::matchAndRewrite(IE::MatMulOp matmulOp, 
     auto newTransposeB = transposeA ? false : true;
     auto newTransposeA = transposeB ? false : true;
 
-    auto in2ReshapeOp =
-            rewriter.create<IE::ReshapeOp>(matmulOp->getLoc(), matmulOp.getInput1(), getIntArrayAttr(ctx, newIn1Shape));
+    auto in2ReshapeOp = IE::ReshapeOp::create(rewriter, matmulOp->getLoc(), matmulOp.getInput1(),
+                                              getIntArrayAttr(ctx, newIn1Shape));
 
     auto newMatMulOp = cloneMatMulOp(rewriter, matmulOp, matmulOp.getInput2(), in2ReshapeOp.getOutput(), newTransposeA,
                                      newTransposeB);

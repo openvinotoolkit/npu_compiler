@@ -5,11 +5,14 @@
 
 #include "vpux/compiler/core/attributes/stride_reqs.hpp"
 
-#include "vpux/compiler/dialect/VPURT/IR/types.hpp"
-#include "vpux/compiler/utils/types.hpp"
+#include "vpux/compiler/core/attributes/dim.hpp"
+#include "vpux/compiler/core/attributes/dims_order.hpp"
+#include "vpux/compiler/core/attributes/shape.hpp"
+#include "vpux/compiler/core/attributes/strides.hpp"
 
 #include "vpux/utils/core/numeric.hpp"
 #include "vpux/utils/core/range.hpp"
+#include "vpux/utils/core/string_ref.hpp"
 
 #include <algorithm>
 
@@ -248,7 +251,7 @@ bool vpux::StrideReqsRef::checkStrides(vpux::NDTypeInterface type) const {
 
 bool vpux::StrideReqsRef::checkStrides(mlir::Value val) const {
     const auto type = mlir::dyn_cast_or_null<vpux::NDTypeInterface>(val.getType());
-    VPUX_THROW_UNLESS(type != nullptr, "Value '{0}' has non vpux::NDTypeInterface '{1}'", val, val.getType());
+    VPUX_THROW_WHEN(type == nullptr, "Value '{0}' has non vpux::NDTypeInterface '{1}'", val, val.getType());
     return checkStrides(type);
 }
 

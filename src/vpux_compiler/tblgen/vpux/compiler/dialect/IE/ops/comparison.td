@@ -75,14 +75,14 @@ def IE_GreaterEqualOp :
     let summary = "InferenceEngine GreaterEqual layer";
 
     let arguments = (ins
-        RankedTensorOf<[F16, F32, F64, SI32, SI64]>:$input1,
-        RankedTensorOf<[F16, F32, F64, SI32, SI64]>:$input2,
+        RankedTensorOf<[F16, F32, F64, SI32, SI64, Bool8]>:$input1,
+        RankedTensorOf<[F16, F32, F64, SI32, SI64, Bool8]>:$input2,
 
         IE_AutoBroadcastTypeAttr:$auto_broadcast
     );
 
     let results = (outs
-        RankedTensorOf<[F16, F32, F64, SI32, SI64]>:$output
+        RankedTensorOf<[Bool8]>:$output
     );
 }
 

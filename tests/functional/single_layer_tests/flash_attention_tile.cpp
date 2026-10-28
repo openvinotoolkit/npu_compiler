@@ -14,6 +14,7 @@
 #include <pretty_test_arguments.hpp>
 #include <vpu_ov2_layer_test.hpp>
 
+#include <cmath>
 #include <limits>
 #include <memory>
 #include <random>
@@ -36,7 +37,9 @@ PRETTY_PARAM(VEmbeddingSize, BoundedDim);   // Ev
 // Broadcasted     - [1, 1, L, S]
 // ZeroBroadcasted - [1, 1, L, S], filled with zeros
 // Full            - [1, H, L, S]
-enum struct Mask { Absent, Broadcasted, ZeroBroadcasted, Full };
+// Fp16MinFullLine - [1, 1, L, S], random query rows masked over their whole length at fp16 lowest.
+// NegInfFullLine  - same, masked with -inf (see nanToZeroCopy for how such a row is compared).
+enum struct Mask { Absent, Broadcasted, ZeroBroadcasted, Full, Fp16MinFullLine, NegInfFullLine };
 PRETTY_PARAM(AttentionMask, Mask);
 
 PRETTY_PARAM(IsHead, bool);
@@ -95,6 +98,38 @@ ov::Tensor scaleTensorCopy(const ov::Tensor& src, float factor) {
     return dst;
 }
 
+// Real LLMs build additive attention masks with torch.finfo(float16).min as often as with -inf. It
+// is also the value the compiler seeds the running max with (see generate_inputs).
+const auto FP16_LOWEST = static_cast<float>(std::numeric_limits<ov::float16>::lowest());
+
+// Return a copy of `src` with every NaN replaced by zero.
+//
+// For a query row that -inf masks completely the reference divides 0/0 and yields NaN, while the
+// kernel keeps the row at exactly zero. Comparing against zero asserts that contract, and a NaN
+// that escapes the kernel still shows up as a mismatch.
+ov::Tensor nanToZeroCopy(const ov::Tensor& src) {
+    ov::Tensor dst(src.get_element_type(), src.get_shape());
+    const size_t n = src.get_size();
+
+    if (src.get_element_type() == ov::element::f16) {
+        const auto* from = src.data<const ov::float16>();
+        auto* to = dst.data<ov::float16>();
+        for (size_t i = 0; i < n; ++i) {
+            to[i] = std::isnan(static_cast<float>(from[i])) ? ov::float16(0) : from[i];
+        }
+    } else if (src.get_element_type() == ov::element::f32) {
+        const auto* from = src.data<const float>();
+        auto* to = dst.data<float>();
+        for (size_t i = 0; i < n; ++i) {
+            to[i] = std::isnan(from[i]) ? 0.0f : from[i];
+        }
+    } else {
+        OPENVINO_ASSERT(false, "nanToZeroCopy supports only f16/f32 tensors");
+    }
+
+    return dst;
+}
+
 template <typename Derived>
 class FlashAttentionTileLayerTestBase : public VpuOv2LayerTest {
 protected:
@@ -114,21 +149,19 @@ protected:
             inputs.insert({modelInputs[i].get_node_shared_ptr(), tensor});
         }
 
-        // Generate initial running out/max/sum constants
+        // Generate initial running out/max/sum constants. The running max is seeded with fp16
+        // lowest rather than -inf, matching the constant the compiler builds (see the NOTE at
+        // reduceMaxMacro in sw_runtime_kernels/kernels/src/flash_sdpa.cpp).
         for (int i = 3; i < 6; i++) {
             const auto inputType = modelInputs[i].get_element_type();
             const auto isRunningMaxTensor = (i == 4);
+            const auto tensorValue = isRunningMaxTensor ? FP16_LOWEST : 0.f;
 
             auto tensor = ov::Tensor(inputType, targetInputStaticShapes[i]);
             if (inputType == ov::element::f16) {
-                const ov::float16 tensorValue =
-                        isRunningMaxTensor ? ov::float16(-std::numeric_limits<float>::infinity()) : ov::float16(0);
-                auto data = tensor.data<ov::float16>();
-                std::fill_n(data, tensor.get_size(), tensorValue);
+                std::fill_n(tensor.data<ov::float16>(), tensor.get_size(), ov::float16(tensorValue));
             } else {
-                const auto tensorValue = isRunningMaxTensor ? -std::numeric_limits<float>::infinity() : 0.f;
-                auto data = tensor.data<float>();
-                std::fill_n(data, tensor.get_size(), tensorValue);
+                std::fill_n(tensor.data<float>(), tensor.get_size(), tensorValue);
             }
 
             inputs.insert({modelInputs[i].get_node_shared_ptr(), tensor});
@@ -137,7 +170,6 @@ protected:
         // Generate attention mask
         if (hasAttentionMask) {
             std::uniform_real_distribution<float> dist(0.0f, 1.0f);
-            const auto sparsity = 0.3f;
             const auto isAllZeroMask = (attentionMask == Mask::ZeroBroadcasted);
 
             const auto attentionMaskIdx = 6;
@@ -145,26 +177,31 @@ protected:
             const auto inputType = modelInputs[attentionMaskIdx].get_element_type();
             auto tensor = ov::Tensor(inputType, targetInputStaticShapes[attentionMaskIdx]);
             const auto size = tensor.get_size();
+            const auto cols = targetInputStaticShapes[attentionMaskIdx].back();
+
+            // A full-line mask draws once per query row (50/50) instead of once per element, so a
+            // masked row has no visible key at all - what the block-cache cascade hands a tile
+            // covering an unused KV-cache block.
+            const auto fullLine = (attentionMask == Mask::Fp16MinFullLine || attentionMask == Mask::NegInfFullLine);
+            const auto sparsity = fullLine ? 0.5f : 0.3f;
+            const auto drawStride = fullLine ? cols : 1;
+            const auto maskedValue =
+                    (attentionMask == Mask::Fp16MinFullLine) ? FP16_LOWEST : -std::numeric_limits<float>::infinity();
+
+            auto value = 0.f;
+            const auto fill = [&](auto* data) {
+                for (size_t i = 0; i < size; i++) {
+                    if (!isAllZeroMask && i % drawStride == 0) {
+                        value = dist(rng) < sparsity ? maskedValue : 0.f;
+                    }
+                    data[i] = value;
+                }
+            };
 
             if (inputType == ov::element::f16) {
-                auto data = tensor.data<ov::float16>();
-                if (isAllZeroMask) {
-                    std::fill_n(data, size, ov::float16(0));
-                } else {
-                    for (size_t i = 0; i < size; i++) {
-                        data[i] = dist(rng) < sparsity ? ov::float16(-std::numeric_limits<float>::infinity())
-                                                       : ov::float16(0);
-                    }
-                }
+                fill(tensor.data<ov::float16>());
             } else {
-                auto data = tensor.data<float>();
-                if (isAllZeroMask) {
-                    std::fill_n(data, size, 0.0f);
-                } else {
-                    for (size_t i = 0; i < size; i++) {
-                        data[i] = dist(rng) < sparsity ? -std::numeric_limits<float>::infinity() : 0.0f;
-                    }
-                }
+                fill(tensor.data<float>());
             }
 
             inputs.insert({modelInputs[attentionMaskIdx].get_node_shared_ptr(), tensor});
@@ -192,8 +229,15 @@ protected:
             cmpActual[0] = scaleTensorCopy(actual[0], FLASH_SDPA_MM1_NORM);
         }
 
+        std::vector<ov::Tensor> cmpExpected{expected.begin(), expected.end()};
+        if (attentionMask == Mask::NegInfFullLine) {
+            for (auto& tensor : cmpExpected) {
+                tensor = nanToZeroCopy(tensor);
+            }
+        }
+
         auto check = [&](size_t i, double absThreshold, double relThreshold) {
-            auto result = ov::test::utils::compareTensors(expected[i], cmpActual[i], absThreshold, relThreshold);
+            auto result = ov::test::utils::compareTensors(cmpExpected[i], cmpActual[i], absThreshold, relThreshold);
 
             auto warning = ov::test::utils::formatExpectedAnomalyWarning(result, names[i]);
             if (!warning.empty()) {
@@ -283,7 +327,8 @@ public:
         if (attentionMask.value() == Mask::Full) {
             auto attentionMaskShape = generateTestShape(heads.value(), targetSeqLen.value(), sourceSeqLen.value());
             inputShapes.push_back(attentionMaskShape);
-        } else if (attentionMask.value() == Mask::Broadcasted || attentionMask.value() == Mask::ZeroBroadcasted) {
+        } else if (attentionMask.value() != Mask::Absent) {
+            // Every remaining variant is broadcasted over heads
             auto attentionMaskShape = generateTestShape(1, targetSeqLen.value(), sourceSeqLen.value());
             inputShapes.push_back(attentionMaskShape);
         }
@@ -317,7 +362,8 @@ public:
         if (attentionMask.value() == Mask::Full) {
             auto attentionMaskShape = generateTestShape(qHeads.value(), targetSeqLen.value(), sourceSeqLen.value());
             inputShapes.push_back(attentionMaskShape);
-        } else if (attentionMask.value() == Mask::Broadcasted || attentionMask.value() == Mask::ZeroBroadcasted) {
+        } else if (attentionMask.value() != Mask::Absent) {
+            // Every remaining variant is broadcasted over heads
             auto attentionMaskShape = generateTestShape(1, targetSeqLen.value(), sourceSeqLen.value());
             inputShapes.push_back(attentionMaskShape);
         }
@@ -457,6 +503,32 @@ INSTANTIATE_TEST_SUITE_P(smoke_Gemma_prefill, FlashAttentionTileGQALayerTest,
                                             ::testing::Values(IsHead{false}),              //
                                             ::testing::Values(IsTail{true})                //
                                             ),                                             //
+                         PrintTestCaseName());
+
+INSTANTIATE_TEST_SUITE_P(smoke_Phi_4_mini_prefill, FlashAttentionTileGQALayerTest,
+                         ::testing::Combine(::testing::Values(QHeads{24}),                   //
+                                            ::testing::Values(KVHeads{8}),                   //
+                                            ::testing::Values(SourceSeqLen{1024}),           //
+                                            ::testing::Values(TargetSeqLen{1024}),           //
+                                            ::testing::Values(QKEmbeddingSize{128}),         //
+                                            ::testing::Values(VEmbeddingSize{128}),          //
+                                            ::testing::Values(AttentionMask{Mask::Absent}),  //
+                                            ::testing::Values(IsHead{false}),                //
+                                            ::testing::Values(IsTail{false})                 //
+                                            ),                                               //
+                         PrintTestCaseName());
+
+INSTANTIATE_TEST_SUITE_P(smoke_FullLineMask, FlashAttentionTileMHALayerTest,
+                         ::testing::Combine(::testing::Values(Heads{32}),            //
+                                            ::testing::Values(SourceSeqLen{1024}),   //
+                                            ::testing::Values(TargetSeqLen{1024}),   //
+                                            ::testing::Values(QKEmbeddingSize{96}),  //
+                                            ::testing::Values(VEmbeddingSize{96}),   //
+                                            ::testing::ValuesIn(std::vector<AttentionMask>{Mask::Fp16MinFullLine,
+                                                                                           Mask::NegInfFullLine}),  //
+                                            ::testing::ValuesIn(std::vector<IsHead>{true, false}),                  //
+                                            ::testing::Values(IsTail{true})                                         //
+                                            ),                                                                      //
                          PrintTestCaseName());
 
 }  // namespace ov::test

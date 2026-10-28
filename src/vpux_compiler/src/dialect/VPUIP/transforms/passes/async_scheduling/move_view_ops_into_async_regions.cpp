@@ -74,7 +74,8 @@ mlir::LogicalResult AsyncRegionRewriter::matchAndRewrite(mlir::async::ExecuteOp 
 
     const auto outerDeps = getOuterViewLikeDeps(bodyBlock);
     if (outerDeps.empty()) {
-        return matchFailed(rewriter, execOp, "The 'async.execute' inner region has no outer view-like dependencies");
+        return matchFailed(_log, rewriter, execOp,
+                           "The 'async.execute' inner region has no outer view-like dependencies");
     }
 
     mlir::OpBuilder::InsertionGuard guard(rewriter);

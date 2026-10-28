@@ -41,19 +41,19 @@
 // CHECK-SAME:  ([[BOX_COORDS:%.+]]: tensor<3x100x4xf16>, [[BOX_SCORES:%.+]]: tensor<3x5x100xf16>)
 func.func @nms_static_inputs(%box_coords: tensor<3x100x4xf16>, %box_scores: tensor<3x5x100xf16>) ->
         (tensor<300x3xsi32>, tensor<300x3xf16>, tensor<1xsi32>) {
-    %sel_idx, %sel_scores, %valid = IE.NonMaxSuppression(%box_coords, %box_scores) {
+    %iou_threshold = const.Declare tensor<1xf16> = dense<5.000000e-01> : tensor<1xf16>
+    %score_threshold = const.Declare tensor<1xf16> = dense<3.000000e-01> : tensor<1xf16>
+    %sel_idx, %sel_scores, %valid = IE.NonMaxSuppression(%box_coords, %box_scores, %iou_threshold, %score_threshold) {
             box_encoding = #IE.box_encoding_type<CENTER>,
-            iou_threshold_value = 5.000000e-01 : f64,
             max_output_boxes_per_class_value = 20 : i64,
-            operandSegmentSizes = array<i32: 1, 1, 0, 0, 0, 0>,
-            score_threshold_value = 3.000000e-01 : f64,
+            operandSegmentSizes = array<i32: 1, 1, 0, 1, 1, 0>,
             soft_nms_sigma_value = 0.000000e+00 : f64
-        } : tensor<3x100x4xf16>, tensor<3x5x100xf16>
+        } : tensor<3x100x4xf16>, tensor<3x5x100xf16>, tensor<1xf16>, tensor<1xf16>
           -> tensor<300x3xsi32>, tensor<300x3xf16>, tensor<1xsi32>
     return %sel_idx, %sel_scores, %valid : tensor<300x3xsi32>, tensor<300x3xf16>, tensor<1xsi32>
 
     // Static inputs produce a static output shape.
-    // CHECK: [[SEL_IDX:%.+]], [[SEL_SCORES:%.+]], [[VALID:%.+]] = IE.NonMaxSuppression([[BOX_COORDS]], [[BOX_SCORES]])
+    // CHECK: [[SEL_IDX:%.+]], [[SEL_SCORES:%.+]], [[VALID:%.+]] = IE.NonMaxSuppression([[BOX_COORDS]], [[BOX_SCORES]]
     // CHECK-SAME: -> tensor<300x3xsi32>, tensor<300x3xf16>, tensor<1xsi32>
     // CHECK: return [[SEL_IDX]], [[SEL_SCORES]], [[VALID]] : tensor<300x3xsi32>, tensor<300x3xf16>, tensor<1xsi32>
 }
@@ -77,15 +77,16 @@ func.func @nms_dynamic_inputs(
         (tensor<?x3xsi32, {bounds = #const.OpaqueI64Elements<[200, 3]> : tensor<2xsi64>, order = #NC}>,
          tensor<?x3xf16,  {bounds = #const.OpaqueI64Elements<[200, 3]> : tensor<2xsi64>, order = #NC}>,
          tensor<1xsi32>) {
-    %sel_idx, %sel_scores, %valid = IE.NonMaxSuppression(%box_coords, %box_scores) {
+    %iou_threshold = const.Declare tensor<1xf16> = dense<5.000000e-01> : tensor<1xf16>
+    %score_threshold = const.Declare tensor<1xf16> = dense<3.000000e-01> : tensor<1xf16>
+    %sel_idx, %sel_scores, %valid = IE.NonMaxSuppression(%box_coords, %box_scores, %iou_threshold, %score_threshold) {
             box_encoding = #IE.box_encoding_type<CENTER>,
-            iou_threshold_value = 5.000000e-01 : f64,
             max_output_boxes_per_class_value = 20 : i64,
-            operandSegmentSizes = array<i32: 1, 1, 0, 0, 0, 0>,
-            score_threshold_value = 3.000000e-01 : f64,
+            operandSegmentSizes = array<i32: 1, 1, 0, 1, 1, 0>,
             soft_nms_sigma_value = 0.000000e+00 : f64
         } : tensor<?x?x4xf16, {bounds = #const.OpaqueI64Elements<[2, 100, 4]> : tensor<3xsi64>, order = #CHW}>,
-            tensor<?x5x?xf16,  {bounds = #const.OpaqueI64Elements<[2, 5, 100]> : tensor<3xsi64>, order = #CHW}>
+            tensor<?x5x?xf16,  {bounds = #const.OpaqueI64Elements<[2, 5, 100]> : tensor<3xsi64>, order = #CHW}>,
+            tensor<1xf16>, tensor<1xf16>
           -> tensor<?x3xsi32, {bounds = #const.OpaqueI64Elements<[200, 3]> : tensor<2xsi64>, order = #NC}>,
              tensor<?x3xf16,  {bounds = #const.OpaqueI64Elements<[200, 3]> : tensor<2xsi64>, order = #NC}>,
              tensor<1xsi32>
@@ -94,7 +95,7 @@ func.func @nms_dynamic_inputs(
           tensor<?x3xf16,  {bounds = #const.OpaqueI64Elements<[200, 3]> : tensor<2xsi64>, order = #NC}>,
           tensor<1xsi32>
 
-    // CHECK: IE.NonMaxSuppression([[BOX_COORDS]], [[BOX_SCORES]])
+    // CHECK: IE.NonMaxSuppression([[BOX_COORDS]], [[BOX_SCORES]]
     // CHECK-SAME: -> tensor<?x3xsi32, {bounds = #const.OpaqueI64Elements<[200, 3]> : tensor<2xsi64>, order = #NC}>,
     // CHECK-SAME:    tensor<?x3xf16, {bounds = #const.OpaqueI64Elements<[200, 3]> : tensor<2xsi64>, order = #NC}>,
     // CHECK-SAME:    tensor<1xsi32>
@@ -113,14 +114,14 @@ func.func @nms_max_output_clamped_to_num_boxes(
         %box_coords: tensor<1x100x4xf16>,
         %box_scores: tensor<1x2x100xf16>) ->
         (tensor<200x3xsi32>, tensor<200x3xf16>, tensor<1xsi32>) {
-    %sel_idx, %sel_scores, %valid = IE.NonMaxSuppression(%box_coords, %box_scores) {
+    %iou_threshold = const.Declare tensor<1xf16> = dense<5.000000e-01> : tensor<1xf16>
+    %score_threshold = const.Declare tensor<1xf16> = dense<3.000000e-01> : tensor<1xf16>
+    %sel_idx, %sel_scores, %valid = IE.NonMaxSuppression(%box_coords, %box_scores, %iou_threshold, %score_threshold) {
             box_encoding = #IE.box_encoding_type<CENTER>,
-            iou_threshold_value = 5.000000e-01 : f64,
             max_output_boxes_per_class_value = 200 : i64,
-            operandSegmentSizes = array<i32: 1, 1, 0, 0, 0, 0>,
-            score_threshold_value = 3.000000e-01 : f64,
+            operandSegmentSizes = array<i32: 1, 1, 0, 1, 1, 0>,
             soft_nms_sigma_value = 0.000000e+00 : f64
-        } : tensor<1x100x4xf16>, tensor<1x2x100xf16>
+        } : tensor<1x100x4xf16>, tensor<1x2x100xf16>, tensor<1xf16>, tensor<1xf16>
           -> tensor<200x3xsi32>, tensor<200x3xf16>, tensor<1xsi32>
     return %sel_idx, %sel_scores, %valid : tensor<200x3xsi32>, tensor<200x3xf16>, tensor<1xsi32>
 
@@ -141,14 +142,14 @@ func.func @nms_scores_elem_type_propagated_f32(
         %box_coords: tensor<1x50x4xf32>,
         %box_scores: tensor<1x1x50xf32>) ->
         (tensor<10x3xsi32>, tensor<10x3xf32>, tensor<1xsi32>) {
-    %sel_idx, %sel_scores, %valid = IE.NonMaxSuppression(%box_coords, %box_scores) {
+    %iou_threshold = const.Declare tensor<1xf16> = dense<5.000000e-01> : tensor<1xf16>
+    %score_threshold = const.Declare tensor<1xf16> = dense<3.000000e-01> : tensor<1xf16>
+    %sel_idx, %sel_scores, %valid = IE.NonMaxSuppression(%box_coords, %box_scores, %iou_threshold, %score_threshold) {
             box_encoding = #IE.box_encoding_type<CORNER>,
-            iou_threshold_value = 5.000000e-01 : f64,
             max_output_boxes_per_class_value = 10 : i64,
-            operandSegmentSizes = array<i32: 1, 1, 0, 0, 0, 0>,
-            score_threshold_value = 3.000000e-01 : f64,
+            operandSegmentSizes = array<i32: 1, 1, 0, 1, 1, 0>,
             soft_nms_sigma_value = 0.000000e+00 : f64
-        } : tensor<1x50x4xf32>, tensor<1x1x50xf32>
+        } : tensor<1x50x4xf32>, tensor<1x1x50xf32>, tensor<1xf16>, tensor<1xf16>
           -> tensor<10x3xsi32>, tensor<10x3xf32>, tensor<1xsi32>
     return %sel_idx, %sel_scores, %valid : tensor<10x3xsi32>, tensor<10x3xf32>, tensor<1xsi32>
 
@@ -161,12 +162,15 @@ func.func @nms_scores_elem_type_propagated_f32(
 
 ///---
 /// Case 5: Optional scalar inputs provided as const tensors.
-/// ConvertConstToAttr canonicalization folds them into attributes.
-/// The output shape calculation must use the folded attribute value.
+/// ConvertConstToAttr folds max_output_boxes_per_class/soft_nms_sigma into attributes;
+/// iou_threshold/score_threshold always stay as tensor operands (act-shave reads them
+/// from a buffer, never from an attribute), so their const.Declare ops are preserved.
+/// The output shape calculation must use the folded max_output_boxes_per_class value.
 /// output[0] = batches(1) * classes(3) * min(num_boxes(50), max_output(15)) = 45
 ///---
 
 // CHECK-LABEL: func.func @nms_const_scalars_canonicalized_to_attrs
+// CHECK-SAME:  ([[BOX_COORDS:%.+]]: tensor<1x50x4xf16>, [[BOX_SCORES:%.+]]: tensor<1x3x50xf16>)
 func.func @nms_const_scalars_canonicalized_to_attrs(
         %box_coords: tensor<1x50x4xf16>,
         %box_scores: tensor<1x3x50xf16>) ->
@@ -185,10 +189,11 @@ func.func @nms_const_scalars_canonicalized_to_attrs(
           -> tensor<45x3xsi32>, tensor<45x3xf16>, tensor<1xsi32>
     return %sel_idx, %sel_scores, %valid : tensor<45x3xsi32>, tensor<45x3xf16>, tensor<1xsi32>
 
-    // After canonicalization, const scalar operands are folded into attributes.
+    // After canonicalization, only max_boxes/soft_sigma consts fold away; iou/score remain.
     // Static inputs → static output shape.
-    // CHECK-NOT: const.Declare
-    // CHECK: IE.NonMaxSuppression
+    // CHECK-DAG: [[IOU:%.+]] = const.Declare tensor<1xf32> = dense<5.000000e-01> : tensor<1xf32>
+    // CHECK-DAG: [[SCORE:%.+]] = const.Declare tensor<1xf32> = dense<3.000000e-01> : tensor<1xf32>
+    // CHECK: IE.NonMaxSuppression([[BOX_COORDS]], [[BOX_SCORES]], [[IOU]], [[SCORE]])
     // CHECK-SAME: max_output_boxes_per_class_value = 15
     // CHECK-SAME: -> tensor<45x3xsi32>, tensor<45x3xf16>, tensor<1xsi32>
 }
@@ -205,14 +210,14 @@ func.func @nms_large_single_class(
         %box_coords: tensor<1x128x4xf32>,
         %box_scores: tensor<1x1x128xf32>) ->
         (tensor<100x3xsi32>, tensor<100x3xf32>, tensor<1xsi32>) {
-    %sel_idx, %sel_scores, %valid = IE.NonMaxSuppression(%box_coords, %box_scores) {
+    %iou_threshold = const.Declare tensor<1xf16> = dense<5.000000e-01> : tensor<1xf16>
+    %score_threshold = const.Declare tensor<1xf16> = dense<3.999023437500e-01> : tensor<1xf16>
+    %sel_idx, %sel_scores, %valid = IE.NonMaxSuppression(%box_coords, %box_scores, %iou_threshold, %score_threshold) {
             box_encoding = #IE.box_encoding_type<CORNER>,
-            iou_threshold_value = 5.000000e-01 : f64,
             max_output_boxes_per_class_value = 100 : i64,
-            operandSegmentSizes = array<i32: 1, 1, 0, 0, 0, 0>,
-            score_threshold_value = 3.999023437500e-01 : f64,
+            operandSegmentSizes = array<i32: 1, 1, 0, 1, 1, 0>,
             soft_nms_sigma_value = 0.000000e+00 : f64
-        } : tensor<1x128x4xf32>, tensor<1x1x128xf32>
+        } : tensor<1x128x4xf32>, tensor<1x1x128xf32>, tensor<1xf16>, tensor<1xf16>
           -> tensor<100x3xsi32>, tensor<100x3xf32>, tensor<1xsi32>
     return %sel_idx, %sel_scores, %valid : tensor<100x3xsi32>, tensor<100x3xf32>, tensor<1xsi32>
 
@@ -240,15 +245,16 @@ func.func @nms_max_output_zero_means_no_limit(
         (tensor<?x3xsi32, {bounds = #const.OpaqueI64Elements<[1917, 3]> : tensor<2xsi64>, order = #NC}>,
          tensor<?x3xf16,  {bounds = #const.OpaqueI64Elements<[1917, 3]> : tensor<2xsi64>, order = #NC}>,
          tensor<1xsi32>) {
-    %sel_idx, %sel_scores, %valid = IE.NonMaxSuppression(%box_coords, %box_scores) {
+    %iou_threshold = const.Declare tensor<1xf16> = dense<6.000000e-01> : tensor<1xf16>
+    %score_threshold = const.Declare tensor<1xf16> = dense<0.000000e+00> : tensor<1xf16>
+    %sel_idx, %sel_scores, %valid = IE.NonMaxSuppression(%box_coords, %box_scores, %iou_threshold, %score_threshold) {
             box_encoding = #IE.box_encoding_type<CORNER>,
-            iou_threshold_value = 6.000000e-01 : f64,
             max_output_boxes_per_class_value = 0 : i64,
-            operandSegmentSizes = array<i32: 1, 1, 0, 0, 0, 0>,
-            score_threshold_value = 0.000000e+00 : f64,
+            operandSegmentSizes = array<i32: 1, 1, 0, 1, 1, 0>,
             soft_nms_sigma_value = 0.000000e+00 : f64
         } : tensor<1x?x4xf16, {bounds = #const.OpaqueI64Elements<[1, 1917, 4]> : tensor<3xsi64>, order = #CHW}>,
-            tensor<1x1x?xf16, {bounds = #const.OpaqueI64Elements<[1, 1, 1917]> : tensor<3xsi64>, order = #CHW}>
+            tensor<1x1x?xf16, {bounds = #const.OpaqueI64Elements<[1, 1, 1917]> : tensor<3xsi64>, order = #CHW}>,
+            tensor<1xf16>, tensor<1xf16>
           -> tensor<?x3xsi32, {bounds = #const.OpaqueI64Elements<[1917, 3]> : tensor<2xsi64>, order = #NC}>,
              tensor<?x3xf16,  {bounds = #const.OpaqueI64Elements<[1917, 3]> : tensor<2xsi64>, order = #NC}>,
              tensor<1xsi32>

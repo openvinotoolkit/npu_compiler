@@ -7,9 +7,11 @@
 #include "vpux/compiler/core/tiling.hpp"
 #include "vpux/compiler/dialect/IE/utils/slice_utils.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/control_flow.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/data_movement.hpp"
 #include "vpux/compiler/dialect/VPU/utils/distributed_tensor_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/explicit_distribution_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/manual_strategy_utils.hpp"
+#include "vpux/compiler/dialect/VPU/utils/sw_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/vertical_fusion/v1/vertical_fusion_config.hpp"
 #include "vpux/compiler/dialect/VPU/utils/vertical_fusion/v2/vertical_fusion_config.hpp"
 #include "vpux/compiler/dialect/VPU/utils/vertical_fusion/vf_axis_increment.hpp"
@@ -29,10 +31,11 @@ using namespace vpux;
 using namespace VPU;
 
 TilingStorage vpux::VPU::restoreTilingRegions(VPU::VerticalFusionOp vfOp, Logger log,
-                                              const TilingOperationStorage::UPtr& opStorage) {
+                                              const TilingOperationStorage::UPtr& opStorage,
+                                              bool enableOutputTileAdjustmentForSW) {
     auto storage = calculateTilingRegions(
             vfOp, ArrayRef(parseIntArrayAttr<int64_t>(mlir::cast<mlir::ArrayAttr>(vfOp.getTilingStrategy()))), log,
-            opStorage);
+            opStorage, enableOutputTileAdjustmentForSW);
 
     VPUX_THROW_WHEN(mlir::failed(storage), "Restored tiling {0} of operation {1} is incorrect",
                     vfOp.getTilingStrategy(), vfOp);
@@ -42,7 +45,8 @@ TilingStorage vpux::VPU::restoreTilingRegions(VPU::VerticalFusionOp vfOp, Logger
 
 mlir::FailureOr<TilingStorage> vpux::VPU::calculateTilingRegions(VPU::VerticalFusionOp vfOp, const OutputTiling& tiles,
                                                                  Logger log,
-                                                                 const TilingOperationStorage::UPtr& opStorage) {
+                                                                 const TilingOperationStorage::UPtr& opStorage,
+                                                                 bool enableOutputTileAdjustmentForSW) {
     auto termination = vfOp.getBody()->getTerminator();
 
     if (termination == nullptr) {
@@ -59,12 +63,13 @@ mlir::FailureOr<TilingStorage> vpux::VPU::calculateTilingRegions(VPU::VerticalFu
         return mlir::failure();
     }
 
-    return calculateTilingRegions(lastOp, tiles, log, opStorage);
+    return calculateTilingRegions(lastOp, tiles, log, opStorage, {}, enableOutputTileAdjustmentForSW);
 }
 
 mlir::FailureOr<TilingStorage> vpux::VPU::calculateTilingRegions(VPU::VerticalFusionOp vfOp,
                                                                  ArrayRef<int64_t> tilingStrategy, Logger log,
-                                                                 const TilingOperationStorage::UPtr& opStorage) {
+                                                                 const TilingOperationStorage::UPtr& opStorage,
+                                                                 bool enableOutputTileAdjustmentForSW) {
     const auto outputShape = getShape(vfOp->getResult(0));
     const auto strategy = Shape(tilingStrategy);
 
@@ -73,13 +78,14 @@ mlir::FailureOr<TilingStorage> vpux::VPU::calculateTilingRegions(VPU::VerticalFu
         return mlir::failure();
     }
 
-    return calculateTilingRegions(vfOp, tiles.value(), log, opStorage);
+    return calculateTilingRegions(vfOp, tiles.value(), log, opStorage, enableOutputTileAdjustmentForSW);
 }
 
 mlir::FailureOr<TilingStorage> vpux::VPU::calculateTilingRegions(mlir::Operation* operation, const OutputTiling& tiles,
                                                                  Logger log,
                                                                  const TilingOperationStorage::UPtr& opStorage,
-                                                                 const llvm::SetVector<mlir::Operation*>& fusedOps) {
+                                                                 const llvm::SetVector<mlir::Operation*>& fusedOps,
+                                                                 bool enableOutputTileAdjustmentForSW) {
     TilingStorage storage;
 
     // Work queue of (output value, tile, tileNumber)
@@ -121,6 +127,48 @@ mlir::FailureOr<TilingStorage> vpux::VPU::calculateTilingRegions(mlir::Operation
                     }
                 }
 
+                if (enableOutputTileAdjustmentForSW && mlir::isa<VPU::SWOpInterface>(currentOp)) {
+                    /*
+                    Some SW ops have alignment requirements when tiled. In certain scenarios, the compiler cannot find
+                    a valid tiling strategy that satisfies those requirements, so the SW op's output tile must be
+                    adjusted. For example, consider the following subgraph:
+
+                        D2S_0(blockSize = 2)
+                        [1, 32, 800, 1280]
+                             |
+                        NCE.Eltwise
+                        [1, 32, 800, 1280]
+                             |
+                        Conv(Kernel = [3, 3], Stride=[1, 1], Padding = [1, 1, 1, 1])
+                        [1, 16, 800, 1280]
+                             |
+                        D2S_1(blocksize = 2)
+                        [1, 4, 1600, 2560]
+
+                    The D2S ops require H/W alignment of 2, while the convolution has an input halo because of its
+                    kernel size. Consequently, D2S_1 requires the convolution's output tiles to be aligned to 2 on
+                    the spatial dimensions. This can prevent the convolution's input tiles from satisfying D2S_0's
+                    alignment requirement. If the subgraph uses the tiling strategy [1, 1, 4, 1], the adjusted tiles
+                    are as follows:
+
+                    +------+----------------------------+-----------------------------+--------------------------- +
+                    | Tile | Conv output                | Conv input                  | D2S_0 output               |
+                    +------+----------------------------+-----------------------------+----------------------------+
+                    | 0    | shape:  [1, 16, 200, 1280] | shape:  [1, 32, 201, 1280]  | shape:  [1, 32, 202, 1280] |
+                    |      | offset: [0, 0, 0, 0]       | offset: [0, 0, 0, 0]        | offset: [0, 0, 0, 0]       |
+                    | 1    | shape:  [1, 16, 200, 1280] | shape:  [1, 32, 201, 1280]  | shape:  [1, 32, 204, 1280] |
+                    |      | offset: [0, 0, 200, 0]     | offset: [0, 0, 199, 0]      | offset: [0, 0, 198, 0]     |
+                    | 2    | shape:  [1, 16, 200, 1280] | shape:  [1, 32, 201, 1280]  | shape:  [1, 32, 204, 1280] |
+                    |      | offset: [0, 0, 400, 0]     | offset: [0, 0, 399, 0]      | offset: [0, 0, 398, 0]     |
+                    | 3    | shape:  [1, 16, 200, 1280] | shape:  [1, 32, 201, 1280]  | shape:  [1, 32, 202, 1280] |
+                    |      | offset: [0, 0, 600, 0]     | offset: [0, 0, 599, 0]      | offset: [0, 0, 598, 0]     |
+                    +------+----------------------------+-----------------------------+----------------------------+
+
+                    After VF unrolling, slice ops are inserted in the sequence D2S_0 -> Slice -> Eltwise -> Conv ->
+                    D2S_1. The slices are then further optimized into CMX2CMX copies by the copy optimization pass.
+                    */
+                    correctTilingInfo(mainOutputTile, currentOp);
+                }
                 inputTiling = tilingBuilderOp.backInferTileInfo(mainOutputTile, log);
                 if (opStorage != nullptr && !inputTiling.tiles.empty()) {
                     auto& allValues = opStorage->gatherValue(currentOp);
@@ -513,7 +561,7 @@ VPU::VerticalFusionOp vpux::VPU::fuseOpsInBlock(mlir::OpBuilder& rewriter, VPU::
         copyOps(prevOperations);
         copyOps(vfOp.getBody()->getOperations() | transformed(getOpPointer));
 
-        builder.create<VPU::YieldOp>(loc, newResults);
+        VPU::YieldOp::create(builder, loc, newResults);
     };
 
     SmallVector<mlir::Value> newOperands(prevOperands.begin(), prevOperands.end());
@@ -550,8 +598,8 @@ VPU::VerticalFusionOp vpux::VPU::fuseOpsInBlock(mlir::OpBuilder& rewriter, VPU::
         tilingInfo = vfOp.getTilingStrategy();
     }
     mlir::UnitAttr isManualConfiguredAttr = isManualConfigured ? mlir::UnitAttr::get(vfOp.getContext()) : nullptr;
-    return rewriter.create<VPU::VerticalFusionOp>(vfOp.getLoc(), vfOp->getResultTypes(), newOperands, bodyBuilder,
-                                                  tilingInfo, isManualConfiguredAttr);
+    return VPU::VerticalFusionOp::create(rewriter, vfOp.getLoc(), vfOp->getResultTypes(), newOperands, bodyBuilder,
+                                         tilingInfo, isManualConfiguredAttr);
 }
 
 VPU::VerticalFusionOp vpux::VPU::fuseOpsInBlock(mlir::RewriterBase& rewriter, ArrayRef<VPU::VerticalFusionOp> ops,
@@ -696,15 +744,15 @@ VPU::VerticalFusionOp vpux::VPU::fuseSingleViewOpsChainInBlock(mlir::OpBuilder& 
             }
         }
 
-        builder.create<VPU::YieldOp>(loc, newResults);
+        VPU::YieldOp::create(builder, loc, newResults);
     };
 
     if (tilingInfo == nullptr) {
         tilingInfo = vfOp.getTilingStrategy();
     }
     mlir::UnitAttr isManualConfiguredAttr = isManualConfigured ? mlir::UnitAttr::get(vfOp.getContext()) : nullptr;
-    return rewriter.create<VPU::VerticalFusionOp>(vfOp.getLoc(), vfOp->getResultTypes(), newOperands, bodyBuilder,
-                                                  tilingInfo, isManualConfiguredAttr);
+    return VPU::VerticalFusionOp::create(rewriter, vfOp.getLoc(), vfOp->getResultTypes(), newOperands, bodyBuilder,
+                                         tilingInfo, isManualConfiguredAttr);
 }
 
 bool vpux::VPU::isSpatialTiling(ArrayRef<int64_t> strategy) {

@@ -4,7 +4,7 @@
 //
 
 #include "vpux/compiler/ShaveCodeGen/passes.hpp"
-#include "vpux/compiler/dialect/VPUIP/utils/sw_utils.hpp"
+#include "vpux/compiler/dialect/IE/IR/ops/specialized.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 #include "vpux/utils/logger/logger.hpp"
 
@@ -42,13 +42,10 @@ public:
     }
 
 private:
-    void safeRunOnModule() final;
+    void safeRunOnFunc() final;
 };
 
-void ShaveKernelSimplifyPass::safeRunOnModule() {
-    auto moduleOp = getOperation();
-    auto swModule = VPUIP::getVPUSWModule(moduleOp, _log);
-
+void ShaveKernelSimplifyPass::safeRunOnFunc() {
     auto& ctx = getContext();
     mlir::RewritePatternSet patterns(&ctx);
     mlir::linalg::populateBubbleUpExtractSliceOpPatterns(patterns);
@@ -63,10 +60,16 @@ void ShaveKernelSimplifyPass::safeRunOnModule() {
     mlir::linalg::FillOp::getCanonicalizationPatterns(patterns, &ctx);
     mlir::linalg::GenericOp::getCanonicalizationPatterns(patterns, &ctx);
 
-    if (failed(mlir::applyPatternsGreedily(swModule, std::move(patterns), getDefaultGreedyRewriteConfig()))) {
-        return signalPassFailure();
-    }
-    return;
+    const mlir::FrozenRewritePatternSet frozenPatterns(std::move(patterns));
+
+    getOperation()->walk<mlir::WalkOrder::PreOrder>([&](IE::CodeGenCapsuleOp capsuleOp) -> mlir::WalkResult {
+        if (failed(mlir::applyPatternsGreedily(capsuleOp, frozenPatterns, getDefaultGreedyRewriteConfig()))) {
+            signalPassFailure();
+            return mlir::WalkResult::interrupt();
+        }
+        // Avoid walking the capsule contents.
+        return mlir::WalkResult::skip();
+    });
 }
 
 }  // namespace

@@ -438,6 +438,13 @@
             "configurePreset": "developer-build-fast-release"
         },
         {
+            "name": "developer-build-fast-relwithdebinfo",
+            "inherits": [
+                "_ccache-build"
+            ],
+            "configurePreset": "developer-build-fast-relwithdebinfo"
+        },
+        {
             "name": "developer-build-fast-profiling",
             "inherits": [
                 "_ccache-build"
@@ -464,6 +471,27 @@
                 "_ccache-build"
             ],
             "configurePreset": "developer-build-fast-debug"
+        },
+        {
+            "name": "developer-build-debug",
+            "inherits": [
+                "_ccache-build"
+            ],
+            "configurePreset": "developer-build-debug"
+        },
+        {
+            "name": "developer-build-release",
+            "inherits": [
+                "_ccache-build"
+            ],
+            "configurePreset": "developer-build-release"
+        },
+        {
+            "name": "developer-build-relwithdebinfo",
+            "inherits": [
+                "_ccache-build"
+            ],
+            "configurePreset": "developer-build-relwithdebinfo"
         },
         {
             "name": "ov-npu-developer-debug",

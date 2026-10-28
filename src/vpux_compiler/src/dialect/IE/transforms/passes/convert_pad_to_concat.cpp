@@ -141,8 +141,8 @@ mlir::LogicalResult ReplacePadWithConstAndConcat::matchAndRewrite(IE::PadOp orig
         addPaddingConstForConcat(appendLoc(origPadOp->getLoc(), "pad_end_{0}", reversedAxis), constShape, padsEndValue,
                                  valueRange, padsBeginValue[reversedAxis] + inputShape[reversedAxis], reversedAxis);
 
-        auto concat = rewriter.create<IE::ConcatOp>(takeOpLoc(origPadOp, "concat_{0}", reversedAxis), valueRange,
-                                                    reversedAxis);
+        auto concat = IE::ConcatOp::create(rewriter, takeOpLoc(origPadOp, "concat_{0}", reversedAxis), valueRange,
+                                           reversedAxis);
         _log.nest().trace("Insert ConcatOp {0}", concat.getLoc());
         midInput = concat.getOutput();
     }

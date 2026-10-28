@@ -9,6 +9,7 @@
 #include "vpux/compiler/dialect/IE/IR/ops/data_movement.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/data_type.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/eltwise.hpp"
+#include "vpux/compiler/dialect/IE/IR/ops/normalization.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/shape_manipulation.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/specialized.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
@@ -257,28 +258,45 @@ void trackBackRootOp(IE::AttentionOp attentionOp, PatternOps& patternOps) {
         // Continue tracking back root op for not interrupt VF or copy optimization
         walkThroughSupportedOps(patternOps.opsOnPathQ.back().op->getOperand(0), patternOps.rootOps, rootDimQ, rootDimQ,
                                 /*allowMultiUses*/ true);
+        auto rootMVNOp = patternOps.rootOps.empty()
+                                 ? nullptr
+                                 : patternOps.rootOps.back().op->getOperand(0).getDefiningOp<IE::MVN6Op>();
+        if (rootMVNOp != nullptr && rootMVNOp.getAxesValue().has_value()) {
+            const auto axes = parseIntArrayAttr<int64_t>(rootMVNOp.getAxesValue().value());
+            if (llvm::all_of(axes, [&](int64_t axis) {
+                    return axis > rootDimQ.ind();
+                })) {
+                patternOps.rootOps.push_back(PathOp{rootMVNOp, rootDimQ, rootDimQ});
+            }
+        }
     }
 
     return;
 }
 
-bool isBeneficialForExpandAttention(IE::AttentionOp attentionOp) {
-    // A slight regression occurs with the 1T configuration because inserting a concatOp before the rootOp might break
-    // the VF. Disabling this optimization for 1T config serves as a workaround.
-    // Track E#225307
-    auto module = attentionOp->getParentOfType<mlir::ModuleOp>();
+bool isBeneficialForExpandAttention(ArrayRef<PathOp> rootOps) {
+    if (rootOps.empty()) {
+        return false;
+    }
+
+    auto rootOp = rootOps.back().op;
+
+    // A slight regression occurs with the 1T configuration but it can not be reproduced locally.
+    auto module = rootOp->getParentOfType<mlir::ModuleOp>();
     const auto numClusters = config::getTileExecutor(module).getCount();
-    return numClusters != 1;
+    if (numClusters == 1) {
+        return false;
+    }
+
+    // The inserted Concat is placed before the root op and may break VF between the root op and its parent.
+    // However, once the parent op has multiple users, the VF doesn't happen and this optimization could be safe.
+    return !rootOp->getOperand(0).hasOneUse();
 }
 
 void expandAttention(IE::AttentionOp attentionOp) {
     PatternOps patternOps;
     trackBackRootOp(attentionOp, patternOps);
-    if (patternOps.rootOps.empty()) {
-        return;
-    }
-
-    if (!isBeneficialForExpandAttention(attentionOp)) {
+    if (!isBeneficialForExpandAttention(patternOps.rootOps)) {
         return;
     }
 
@@ -303,9 +321,8 @@ void expandAttention(IE::AttentionOp attentionOp) {
     const auto zeroPadding =
             Const::createDenseConst(rewriter, appendLoc(rootOp.op->getLoc(), "attention_pad"), padType, 0.0f);
     const SmallVector<mlir::Value> concatInputs{rootInput, zeroPadding};
-    auto paddedRoot =
-            rewriter.create<IE::ConcatOp>(appendLoc(rootOp.op->getLoc(), "expand_attention_root"), concatInputs,
-                                          getIntAttr(rewriter.getContext(), rootOp.inputDim.ind()));
+    auto paddedRoot = IE::ConcatOp::create(rewriter, appendLoc(rootOp.op->getLoc(), "expand_attention_root"),
+                                           concatInputs, getIntAttr(rewriter.getContext(), rootOp.inputDim.ind()));
 
     auto rebuildOp = [&](PathOp pathOp, mlir::Value input, Dim inputPaddedDim) -> std::pair<mlir::Value, Dim> {
         VPUX_THROW_UNLESS(pathOp.inputDim == inputPaddedDim,
@@ -359,9 +376,10 @@ void expandAttention(IE::AttentionOp attentionOp) {
 
     rewriter.setInsertionPoint(attentionOp);
     auto padSizeAttr = getIntAttr(rewriter.getContext(), padSize);
-    auto newAttentionOp = rewriter.create<IE::AttentionOp>(
-            appendLoc(attentionOp.getLoc(), "expanded"), paddedQ, paddedK, paddedV, attentionOp.getInputMask(),
-            attentionOp.getInputScale(), attentionOp.getInputSink(), attentionOp.getInputBias(), padSizeAttr);
+    auto newAttentionOp =
+            IE::AttentionOp::create(rewriter, appendLoc(attentionOp.getLoc(), "expanded"), paddedQ, paddedK, paddedV,
+                                    attentionOp.getInputMask(), attentionOp.getInputScale(), attentionOp.getInputSink(),
+                                    attentionOp.getInputBias(), padSizeAttr);
 
     auto outputVal = newAttentionOp.getOutput();
     auto origShape = getShape(attentionOp.getOutput());
@@ -373,17 +391,16 @@ void expandAttention(IE::AttentionOp attentionOp) {
             origShape = getShape(postTranspose.getOutput());
             rewriter.setInsertionPointAfter(newAttentionOp);
             auto newPostTranspose =
-                    rewriter.create<IE::TransposeOp>(appendLoc(postTranspose.getLoc(), "expanded"), outputVal,
-                                                     postTranspose.getOrder(), postTranspose.getOrderValueAttr());
+                    IE::TransposeOp::create(rewriter, appendLoc(postTranspose.getLoc(), "expanded"), outputVal,
+                                            postTranspose.getOrder(), postTranspose.getOrderValueAttr());
             outputVal = newPostTranspose.getOutput();
         }
     }
 
     const auto offsets = SmallVector<int64_t>(origShape.size(), 0);
     rewriter.setInsertionPointAfterValue(outputVal);
-    auto sliceOp =
-            rewriter.create<IE::SliceOp>(appendLoc(newAttentionOp->getLoc(), "_post_slice"), outputVal,
-                                         getIntArrayAttr(rewriter, offsets), getIntArrayAttr(rewriter, origShape));
+    auto sliceOp = IE::SliceOp::create(rewriter, appendLoc(newAttentionOp->getLoc(), "_post_slice"), outputVal,
+                                       getIntArrayAttr(rewriter, offsets), getIntArrayAttr(rewriter, origShape));
     rewriter.replaceAllOpUsesWith(opToReplace, sliceOp.getOutput());
     rewriter.eraseOp(opToReplace);
 }

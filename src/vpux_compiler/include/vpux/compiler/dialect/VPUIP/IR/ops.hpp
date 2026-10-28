@@ -53,7 +53,7 @@ VPUIP::PPETaskOp NCEClusterTaskOp::addPPETask(mlir::OpBuilder& builder, Args&&..
     mlir::OpBuilder::InsertionGuard guard(builder);
     builder.setInsertionPointToEnd(&getPpe().front());
 
-    return builder.create<VPUIP::PPETaskOp>(getLoc(), std::forward<Args>(args)...);
+    return VPUIP::PPETaskOp::create(builder, getLoc(), std::forward<Args>(args)...);
 }
 
 }  // namespace VPUIP

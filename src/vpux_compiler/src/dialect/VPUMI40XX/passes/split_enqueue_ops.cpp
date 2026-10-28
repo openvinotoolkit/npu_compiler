@@ -71,8 +71,8 @@ void SplitEnqueueOpsPass::safeRunOnFunc() {
                 breakPointDetected = true;
                 auto breakingPoint = taskOp;
 
-                auto newEnque = builder.create<VPURegMapped::EnqueueOp>(
-                        start.getLoc(), enqueueOp.getType(), prevEnqueue, enqueueOp.getBarrier(),
+                auto newEnque = VPURegMapped::EnqueueOp::create(
+                        builder, start.getLoc(), enqueueOp.getType(), prevEnqueue, enqueueOp.getBarrier(),
                         /*previousTaskIdxOnSameBarrier*/ nullptr, enqueueOp.getTaskType(), start.getResult(),
                         breakingPoint.getResult());
                 start = mlir::cast<VPURegMapped::TaskOpInterface>(breakingPoint).getNextTask();
@@ -91,8 +91,8 @@ void SplitEnqueueOpsPass::safeRunOnFunc() {
         // If breakpoint was detected at least once. Old enqueue is no longer valid and replace it with
         // one that will properly take int oaccount already created ones
         if (breakPointDetected) {
-            auto lastNewEnq = builder.create<VPURegMapped::EnqueueOp>(
-                    start.getLoc(), enqueueOp.getType(), prevEnqueue, enqueueOp.getBarrier(),
+            auto lastNewEnq = VPURegMapped::EnqueueOp::create(
+                    builder, start.getLoc(), enqueueOp.getType(), prevEnqueue, enqueueOp.getBarrier(),
                     /*previousTaskIdxOnSameBarrier*/ nullptr, enqueueOp.getTaskType(), start.getResult(),
                     end.getResult());
 

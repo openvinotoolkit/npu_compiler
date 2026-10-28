@@ -90,8 +90,8 @@ void MoveKernelResultsToArgumentsPass::safeRunOnModule() {
         for (auto it : terminator->getOpOperands() | indexed) {
             auto correspondentInput = block->getArgument(insertionPoint + it.index());
             auto opOperand = &it.value();
-            auto mat = builder.create<mlir::bufferization::MaterializeInDestinationOp>(loc, opOperand->get(),
-                                                                                       correspondentInput);
+            auto mat = mlir::bufferization::MaterializeInDestinationOp::create(builder, loc, opOperand->get(),
+                                                                               correspondentInput);
             // Set writable and restrict attributes to enable empty tensor elimination and possibly other
             // optimizations. The result buffer is clearly writable and restrict is correct because result
             // buffers should not alias other arguments.
@@ -99,7 +99,7 @@ void MoveKernelResultsToArgumentsPass::safeRunOnModule() {
             mat.setRestrict(true);
         }
 
-        builder.create<mlir::func::ReturnOp>(loc, mlir::ValueRange{});
+        mlir::func::ReturnOp::create(builder, loc, mlir::ValueRange{});
         terminator->erase();
 
         func.setType(mlir::FunctionType::get(&ctx, inputs, {}));

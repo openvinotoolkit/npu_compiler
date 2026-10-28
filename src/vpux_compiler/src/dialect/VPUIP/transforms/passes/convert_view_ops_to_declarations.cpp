@@ -40,7 +40,7 @@ class ViewLikeRewrite final : public mlir::OpInterfaceRewritePattern<mlir::ViewL
 public:
     ViewLikeRewrite(mlir::MLIRContext* ctx, const AliasesInfo* aliasInfo, Logger log)
             : mlir::OpInterfaceRewritePattern<mlir::ViewLikeOpInterface>(ctx), _aliasInfo(aliasInfo), _log(log) {
-        VPUX_THROW_UNLESS(_aliasInfo != nullptr, "Got NULL pointer for AliasesInfo in ViewLikeRewrite");
+        VPUX_THROW_WHEN(_aliasInfo == nullptr, "Got NULL pointer for AliasesInfo in ViewLikeRewrite");
     }
 
 public:
@@ -180,7 +180,7 @@ mlir::LogicalResult ViewLikeRewrite::matchAndRewrite(mlir::ViewLikeOpInterface o
     if (!mlir::isa<Core::ReinterpretCastOp, VPUIP::GenericReshapeOp, VPUIP::SubViewOp, VPUIP::PermuteCastOp,
                    VPUIP::QuantizeCastOp, VPUIP::DistributedCastOp, VPUIP::NonDistributedCastOp, VPUIP::ShapeCastOp,
                    VPUIP::StubOp, VPUIP::ViewOp, VPUIP::ExtractFlatSliceOp>(origOp.getOperation())) {
-        return matchFailed(rewriter, origOp, "Unknown view-like operation '{0}'", origOp->getName());
+        return matchFailed(_log, rewriter, origOp, "Unknown view-like operation '{0}'", origOp->getName());
     }
 
     _log.trace("Found view-like Operation '{0}'", origOp->getLoc());

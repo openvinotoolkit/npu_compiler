@@ -66,7 +66,7 @@ mlir::LogicalResult TransposeToPermuteCast::TransposeOpConverter::matchAndRewrit
     const auto numDims = checked_cast<unsigned>(origOutOrder.numDims());
     const auto memPerm =
             mlir::AffineMapAttr::get(mlir::AffineMap::getMinorIdentityMap(numDims, numDims, rewriter.getContext()));
-    auto permuteCast = rewriter.create<IE::PermuteCastOp>(origOp->getLoc(), transposeIn, dstOrder, memPerm);
+    auto permuteCast = IE::PermuteCastOp::create(rewriter, origOp->getLoc(), transposeIn, dstOrder, memPerm);
     rewriter.replaceOpWithNewOp<IE::ReorderOp>(
             origOp, permuteCast.getOutput(), mlir::AffineMapAttr::get(origOutOrder.toAffineMap(rewriter.getContext())));
 

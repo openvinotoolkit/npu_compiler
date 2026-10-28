@@ -29,18 +29,22 @@ func.func @ApplyTilingNCEConv(%arg0: tensor<1x32x64x64xf16, {order = #NHWC}>) ->
     // CHECK-SAME:      : tensor<1x32x64x64xf16, {order = #NHWC}> to tensor<1x32x33x64xf16, {order = #NHWC}>
 
     // CHECK:        [[OUTPUT_TILE0:%.+]] = VPU.NCE.Convolution([[ACTIVATION_TILE_0]], [[FILTER]]) rawFilterShape [256, 32, 3, 3] {
+    // CHECK-SAME:          loop_tile_coord = {axes = array<i64: 2>, indices = array<i64: 0>}
     // CHECK-SAME:          pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 0 : i64>
     // CHECK-SAME:          ppe = #VPU.PPEStub<>,
     // CHECK-SAME:          strides = [1, 1]
+    // CHECK-SAME:          tiling_loop_index = 0 : i64
     // CHECK-SAME:          -> tensor<1x256x32x64xf16, {order = #NHWC}>
 
     // CHECK:        [[ACTIVATION_TILE_1:%.+]] = VPU.Slice [[INPUT]] [0, 0, 31, 0] [1, 32, 33, 64]
     // CHECK-SAME:      : tensor<1x32x64x64xf16, {order = #NHWC}> to tensor<1x32x33x64xf16, {order = #NHWC}>
 
     // CHECK:        [[OUTPUT_TILE1:%.+]] = VPU.NCE.Convolution([[ACTIVATION_TILE_1]], [[FILTER]]) rawFilterShape [256, 32, 3, 3] {
+    // CHECK-SAME:          loop_tile_coord = {axes = array<i64: 2>, indices = array<i64: 1>}
     // CHECK-SAME:          pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 0 : i64, bottom = 1 : i64>
     // CHECK-SAME:          ppe = #VPU.PPEStub<>,
     // CHECK-SAME:          strides = [1, 1]
+    // CHECK-SAME:          tiling_loop_index = 0 : i64
     // CHECK-SAME:          -> tensor<1x256x32x64xf16, {order = #NHWC}>
 
     // Concat
@@ -905,7 +909,7 @@ func.func @TilePadOverHeightWidth(%arg0: tensor<1x3x580x580xf16>) -> tensor<1x16
     // CHECK:        [[SLICE0:%.+]] = VPU.Slice [[INPUT]] [0, 0, 0, 0] [1, 3, 190, 190]
     // CHECK-SAME:      : tensor<1x3x580x580xf16> to tensor<1x3x190x190xf16>
     // CHECK:        [[PAD0:%.+]] = VPU.Pad([[SLICE0]])
-    // CHECK-SAME:      {mode = #IE.pad_mode<CONSTANT>, pad_value_attr = 0.000000e+00 : f64,
+    // CHECK-SAME:      {loop_tile_coord = {axes = array<i64: 2, 3>, indices = array<i64: 0, 0>}, mode = #IE.pad_mode<CONSTANT>, pad_value_attr = 0.000000e+00 : f64,
     // CHECK-SAME:      pads_begin_attr = [0, 0, 10, 10], pads_end_attr = [0, 13, 0, 0], tiling_loop_index = 0 : i64}
     // CHECK-SAME:      : tensor<1x3x190x190xf16> -> tensor<1x16x200x200xf16>
 
@@ -914,7 +918,7 @@ func.func @TilePadOverHeightWidth(%arg0: tensor<1x3x580x580xf16>) -> tensor<1x16
     // CHECK:        [[SLICE1:%.+]] = VPU.Slice [[INPUT]] [0, 0, 0, 190] [1, 3, 190, 200]
     // CHECK-SAME:      : tensor<1x3x580x580xf16> to tensor<1x3x190x200xf16>
     // CHECK:        [[PAD1:%.+]] = VPU.Pad([[SLICE1]])
-    // CHECK-SAME:      {mode = #IE.pad_mode<CONSTANT>, pad_value_attr = 0.000000e+00 : f64,
+    // CHECK-SAME:      {loop_tile_coord = {axes = array<i64: 2, 3>, indices = array<i64: 0, 1>}, mode = #IE.pad_mode<CONSTANT>, pad_value_attr = 0.000000e+00 : f64,
     // CHECK-SAME:      pads_begin_attr = [0, 0, 10, 0], pads_end_attr = [0, 13, 0, 0], tiling_loop_index = 0 : i64}
     // CHECK-SAME:      : tensor<1x3x190x200xf16> -> tensor<1x16x200x200xf16>
 
@@ -923,7 +927,7 @@ func.func @TilePadOverHeightWidth(%arg0: tensor<1x3x580x580xf16>) -> tensor<1x16
     // CHECK:        [[SLICE2:%.+]] = VPU.Slice [[INPUT]] [0, 0, 0, 390] [1, 3, 190, 190]
     // CHECK-SAME:      : tensor<1x3x580x580xf16> to tensor<1x3x190x190xf16>
     // CHECK:        [[PAD2:%.+]] = VPU.Pad([[SLICE2]])
-    // CHECK-SAME:      {mode = #IE.pad_mode<CONSTANT>, pad_value_attr = 0.000000e+00 : f64,
+    // CHECK-SAME:      {loop_tile_coord = {axes = array<i64: 2, 3>, indices = array<i64: 0, 2>}, mode = #IE.pad_mode<CONSTANT>, pad_value_attr = 0.000000e+00 : f64,
     // CHECK-SAME:      pads_begin_attr = [0, 0, 10, 0], pads_end_attr = [0, 13, 0, 10], tiling_loop_index = 0 : i64}
     // CHECK-SAME:      : tensor<1x3x190x190xf16> -> tensor<1x16x200x200xf16>
 
@@ -932,7 +936,7 @@ func.func @TilePadOverHeightWidth(%arg0: tensor<1x3x580x580xf16>) -> tensor<1x16
     // CHECK:        [[SLICE3:%.+]] = VPU.Slice [[INPUT]] [0, 0, 190, 0] [1, 3, 200, 190]
     // CHECK-SAME:      : tensor<1x3x580x580xf16> to tensor<1x3x200x190xf16>
     // CHECK:        [[PAD3:%.+]] = VPU.Pad([[SLICE3]])
-    // CHECK-SAME:      {mode = #IE.pad_mode<CONSTANT>, pad_value_attr = 0.000000e+00 : f64,
+    // CHECK-SAME:      {loop_tile_coord = {axes = array<i64: 2, 3>, indices = array<i64: 1, 0>}, mode = #IE.pad_mode<CONSTANT>, pad_value_attr = 0.000000e+00 : f64,
     // CHECK-SAME:      pads_begin_attr = [0, 0, 0, 10], pads_end_attr = [0, 13, 0, 0], tiling_loop_index = 0 : i64}
     // CHECK-SAME:      : tensor<1x3x200x190xf16> -> tensor<1x16x200x200xf16>
 
@@ -942,7 +946,7 @@ func.func @TilePadOverHeightWidth(%arg0: tensor<1x3x580x580xf16>) -> tensor<1x16
     // CHECK:        [[SLICE4:%.+]] = VPU.Slice [[INPUT]] [0, 0, 190, 190] [1, 3, 200, 200]
     // CHECK-SAME:      : tensor<1x3x580x580xf16> to tensor<1x3x200x200xf16>
     // CHECK:        [[PAD4:%.+]] = VPU.Pad([[SLICE4]])
-    // CHECK-SAME:      {mode = #IE.pad_mode<CONSTANT>, pad_value_attr = 0.000000e+00 : f64,
+    // CHECK-SAME:      {loop_tile_coord = {axes = array<i64: 2, 3>, indices = array<i64: 1, 1>}, mode = #IE.pad_mode<CONSTANT>, pad_value_attr = 0.000000e+00 : f64,
     // CHECK-SAME:      pads_begin_attr = [0, 0, 0, 0], pads_end_attr = [0, 13, 0, 0], tiling_loop_index = 0 : i64}
     // CHECK-SAME:      : tensor<1x3x200x200xf16> -> tensor<1x16x200x200xf16>
 
@@ -951,7 +955,7 @@ func.func @TilePadOverHeightWidth(%arg0: tensor<1x3x580x580xf16>) -> tensor<1x16
     // CHECK:        [[SLICE5:%.+]] = VPU.Slice [[INPUT]] [0, 0, 190, 390] [1, 3, 200, 190]
     // CHECK-SAME:      : tensor<1x3x580x580xf16> to tensor<1x3x200x190xf16>
     // CHECK:        [[PAD5:%.+]] = VPU.Pad([[SLICE5]])
-    // CHECK-SAME:      {mode = #IE.pad_mode<CONSTANT>, pad_value_attr = 0.000000e+00 : f64,
+    // CHECK-SAME:      {loop_tile_coord = {axes = array<i64: 2, 3>, indices = array<i64: 1, 2>}, mode = #IE.pad_mode<CONSTANT>, pad_value_attr = 0.000000e+00 : f64,
     // CHECK-SAME:      pads_begin_attr = [0, 0, 0, 0], pads_end_attr = [0, 13, 0, 10], tiling_loop_index = 0 : i64}
     // CHECK-SAME:      : tensor<1x3x200x190xf16> -> tensor<1x16x200x200xf16>
 
@@ -960,7 +964,7 @@ func.func @TilePadOverHeightWidth(%arg0: tensor<1x3x580x580xf16>) -> tensor<1x16
     // CHECK:        [[SLICE6:%.+]] = VPU.Slice [[INPUT]] [0, 0, 390, 0] [1, 3, 190, 190]
     // CHECK-SAME:      : tensor<1x3x580x580xf16> to tensor<1x3x190x190xf16>
     // CHECK:        [[PAD6:%.+]] = VPU.Pad([[SLICE6]])
-    // CHECK-SAME:      {mode = #IE.pad_mode<CONSTANT>, pad_value_attr = 0.000000e+00 : f64,
+    // CHECK-SAME:      {loop_tile_coord = {axes = array<i64: 2, 3>, indices = array<i64: 2, 0>}, mode = #IE.pad_mode<CONSTANT>, pad_value_attr = 0.000000e+00 : f64,
     // CHECK-SAME:      pads_begin_attr = [0, 0, 0, 10], pads_end_attr = [0, 13, 10, 0], tiling_loop_index = 0 : i64}
     // CHECK-SAME:      : tensor<1x3x190x190xf16> -> tensor<1x16x200x200xf16>
 
@@ -969,7 +973,7 @@ func.func @TilePadOverHeightWidth(%arg0: tensor<1x3x580x580xf16>) -> tensor<1x16
     // CHECK:        [[SLICE7:%.+]] = VPU.Slice [[INPUT]] [0, 0, 390, 190] [1, 3, 190, 200]
     // CHECK-SAME:      : tensor<1x3x580x580xf16> to tensor<1x3x190x200xf16>
     // CHECK:        [[PAD7:%.+]] = VPU.Pad([[SLICE7]])
-    // CHECK-SAME:      {mode = #IE.pad_mode<CONSTANT>, pad_value_attr = 0.000000e+00 : f64,
+    // CHECK-SAME:      {loop_tile_coord = {axes = array<i64: 2, 3>, indices = array<i64: 2, 1>}, mode = #IE.pad_mode<CONSTANT>, pad_value_attr = 0.000000e+00 : f64,
     // CHECK-SAME:      pads_begin_attr = [0, 0, 0, 0], pads_end_attr = [0, 13, 10, 0], tiling_loop_index = 0 : i64}
     // CHECK-SAME:      : tensor<1x3x190x200xf16> -> tensor<1x16x200x200xf16>
 
@@ -978,7 +982,7 @@ func.func @TilePadOverHeightWidth(%arg0: tensor<1x3x580x580xf16>) -> tensor<1x16
     // CHECK:        [[SLICE8:%.+]] = VPU.Slice [[INPUT]] [0, 0, 390, 390] [1, 3, 190, 190]
     // CHECK-SAME:      : tensor<1x3x580x580xf16> to tensor<1x3x190x190xf16>
     // CHECK:        [[PAD8:%.+]] = VPU.Pad([[SLICE8]])
-    // CHECK-SAME:      {mode = #IE.pad_mode<CONSTANT>, pad_value_attr = 0.000000e+00 : f64,
+    // CHECK-SAME:      {loop_tile_coord = {axes = array<i64: 2, 3>, indices = array<i64: 2, 2>}, mode = #IE.pad_mode<CONSTANT>, pad_value_attr = 0.000000e+00 : f64,
     // CHECK-SAME:      pads_begin_attr = [0, 0, 0, 0], pads_end_attr = [0, 13, 10, 10], tiling_loop_index = 0 : i64}
     // CHECK-SAME:      : tensor<1x3x190x190xf16> -> tensor<1x16x200x200xf16>
 
@@ -1005,31 +1009,31 @@ func.func @ApplyTilingConvertSubByteInput(%arg0: tensor<1x1x1333x1777xui4>) -> t
     return %0 : tensor<1x1x1333x1777xf16>
 
     // CHECK:   [[SLICE0:%.+]] = VPU.Slice [[INPUT]] [0, 0, 0, 0] [1, 1, 446, 594]
-    // CHECK:   [[CONVERT0:%.+]] = VPU.Convert([[SLICE0]]) {dstElemType = f16, tiling_loop_index = 0 : i64}
+    // CHECK:   [[CONVERT0:%.+]] = VPU.Convert([[SLICE0]]) {dstElemType = f16, loop_tile_coord = {axes = array<i64: 2, 3>, indices = array<i64: 0, 0>}, tiling_loop_index = 0 : i64}
 
     // CHECK:   [[SLICE1:%.+]] = VPU.Slice [[INPUT]] [0, 0, 0, 594] [1, 1, 446, 594]
-    // CHECK:   [[CONVERT1:%.+]] = VPU.Convert([[SLICE1]]) {dstElemType = f16, tiling_loop_index = 0 : i64}
+    // CHECK:   [[CONVERT1:%.+]] = VPU.Convert([[SLICE1]]) {dstElemType = f16, loop_tile_coord = {axes = array<i64: 2, 3>, indices = array<i64: 0, 1>}, tiling_loop_index = 0 : i64}
 
     // CHECK:   [[SLICE2:%.+]] = VPU.Slice [[INPUT]] [0, 0, 0, 1188] [1, 1, 446, 589]
-    // CHECK:   [[CONVERT2:%.+]] = VPU.Convert([[SLICE2]]) {dstElemType = f16, tiling_loop_index = 0 : i64}
+    // CHECK:   [[CONVERT2:%.+]] = VPU.Convert([[SLICE2]]) {dstElemType = f16, loop_tile_coord = {axes = array<i64: 2, 3>, indices = array<i64: 0, 2>}, tiling_loop_index = 0 : i64}
 
     // CHECK:   [[SLICE3:%.+]] = VPU.Slice [[INPUT]] [0, 0, 446, 0] [1, 1, 446, 594]
-    // CHECK:   [[CONVERT3:%.+]] = VPU.Convert([[SLICE3]]) {dstElemType = f16, tiling_loop_index = 0 : i64}
+    // CHECK:   [[CONVERT3:%.+]] = VPU.Convert([[SLICE3]]) {dstElemType = f16, loop_tile_coord = {axes = array<i64: 2, 3>, indices = array<i64: 1, 0>}, tiling_loop_index = 0 : i64}
 
     // CHECK:   [[SLICE4:%.+]] = VPU.Slice [[INPUT]] [0, 0, 446, 594] [1, 1, 446, 594]
-    // CHECK:   [[CONVERT4:%.+]] = VPU.Convert([[SLICE4]]) {dstElemType = f16, tiling_loop_index = 0 : i64}
+    // CHECK:   [[CONVERT4:%.+]] = VPU.Convert([[SLICE4]]) {dstElemType = f16, loop_tile_coord = {axes = array<i64: 2, 3>, indices = array<i64: 1, 1>}, tiling_loop_index = 0 : i64}
 
     // CHECK:   [[SLICE5:%.+]] = VPU.Slice [[INPUT]] [0, 0, 446, 1188] [1, 1, 446, 589]
-    // CHECK:   [[CONVERT5:%.+]] = VPU.Convert([[SLICE5]]) {dstElemType = f16, tiling_loop_index = 0 : i64}
+    // CHECK:   [[CONVERT5:%.+]] = VPU.Convert([[SLICE5]]) {dstElemType = f16, loop_tile_coord = {axes = array<i64: 2, 3>, indices = array<i64: 1, 2>}, tiling_loop_index = 0 : i64}
 
     // CHECK:   [[SLICE6:%.+]] = VPU.Slice [[INPUT]] [0, 0, 892, 0] [1, 1, 441, 594]
-    // CHECK:   [[CONVERT6:%.+]] = VPU.Convert([[SLICE6]]) {dstElemType = f16, tiling_loop_index = 0 : i64}
+    // CHECK:   [[CONVERT6:%.+]] = VPU.Convert([[SLICE6]]) {dstElemType = f16, loop_tile_coord = {axes = array<i64: 2, 3>, indices = array<i64: 2, 0>}, tiling_loop_index = 0 : i64}
 
     // CHECK:   [[SLICE7:%.+]] = VPU.Slice [[INPUT]] [0, 0, 892, 594] [1, 1, 441, 594]
-    // CHECK:   [[CONVERT7:%.+]] = VPU.Convert([[SLICE7]]) {dstElemType = f16, tiling_loop_index = 0 : i64}
+    // CHECK:   [[CONVERT7:%.+]] = VPU.Convert([[SLICE7]]) {dstElemType = f16, loop_tile_coord = {axes = array<i64: 2, 3>, indices = array<i64: 2, 1>}, tiling_loop_index = 0 : i64}
 
     // CHECK:   [[SLICE8:%.+]] = VPU.Slice [[INPUT]] [0, 0, 892, 1188] [1, 1, 441, 589]
-    // CHECK:   [[CONVERT8:%.+]] = VPU.Convert([[SLICE8]]) {dstElemType = f16, tiling_loop_index = 0 : i64}
+    // CHECK:   [[CONVERT8:%.+]] = VPU.Convert([[SLICE8]]) {dstElemType = f16, loop_tile_coord = {axes = array<i64: 2, 3>, indices = array<i64: 2, 2>}, tiling_loop_index = 0 : i64}
 
     // CHECK:   [[CONCAT:%.+]] = VPU.Concat([[CONVERT0]], [[CONVERT1]], [[CONVERT2]], [[CONVERT3]], [[CONVERT4]], [[CONVERT5]], [[CONVERT6]], [[CONVERT7]], [[CONVERT8]])
 
@@ -1047,31 +1051,31 @@ func.func @ApplyTilingConvertNotSubByteInput(%arg0: tensor<1x1x1333x1777xui8>) -
     return %0 : tensor<1x1x1333x1777xf16>
 
     // CHECK:   [[SLICE0:%.+]] = VPU.Slice [[INPUT]] [0, 0, 0, 0] [1, 1, 445, 593]
-    // CHECK:   [[CONVERT0:%.+]] = VPU.Convert([[SLICE0]]) {dstElemType = f16, tiling_loop_index = 0 : i64}
+    // CHECK:   [[CONVERT0:%.+]] = VPU.Convert([[SLICE0]]) {dstElemType = f16, loop_tile_coord = {axes = array<i64: 2, 3>, indices = array<i64: 0, 0>}, tiling_loop_index = 0 : i64}
 
     // CHECK:   [[SLICE1:%.+]] = VPU.Slice [[INPUT]] [0, 0, 0, 593] [1, 1, 445, 592]
-    // CHECK:   [[CONVERT1:%.+]] = VPU.Convert([[SLICE1]]) {dstElemType = f16, tiling_loop_index = 0 : i64}
+    // CHECK:   [[CONVERT1:%.+]] = VPU.Convert([[SLICE1]]) {dstElemType = f16, loop_tile_coord = {axes = array<i64: 2, 3>, indices = array<i64: 0, 1>}, tiling_loop_index = 0 : i64}
 
     // CHECK:   [[SLICE2:%.+]] = VPU.Slice [[INPUT]] [0, 0, 0, 1185] [1, 1, 445, 592]
-    // CHECK:   [[CONVERT2:%.+]] = VPU.Convert([[SLICE2]]) {dstElemType = f16, tiling_loop_index = 0 : i64}
+    // CHECK:   [[CONVERT2:%.+]] = VPU.Convert([[SLICE2]]) {dstElemType = f16, loop_tile_coord = {axes = array<i64: 2, 3>, indices = array<i64: 0, 2>}, tiling_loop_index = 0 : i64}
 
     // CHECK:   [[SLICE3:%.+]] = VPU.Slice [[INPUT]] [0, 0, 445, 0] [1, 1, 444, 593]
-    // CHECK:   [[CONVERT3:%.+]] = VPU.Convert([[SLICE3]]) {dstElemType = f16, tiling_loop_index = 0 : i64}
+    // CHECK:   [[CONVERT3:%.+]] = VPU.Convert([[SLICE3]]) {dstElemType = f16, loop_tile_coord = {axes = array<i64: 2, 3>, indices = array<i64: 1, 0>}, tiling_loop_index = 0 : i64}
 
     // CHECK:   [[SLICE4:%.+]] = VPU.Slice [[INPUT]] [0, 0, 445, 593] [1, 1, 444, 592]
-    // CHECK:   [[CONVERT4:%.+]] = VPU.Convert([[SLICE4]]) {dstElemType = f16, tiling_loop_index = 0 : i64}
+    // CHECK:   [[CONVERT4:%.+]] = VPU.Convert([[SLICE4]]) {dstElemType = f16, loop_tile_coord = {axes = array<i64: 2, 3>, indices = array<i64: 1, 1>}, tiling_loop_index = 0 : i64}
 
     // CHECK:   [[SLICE5:%.+]] = VPU.Slice [[INPUT]] [0, 0, 445, 1185] [1, 1, 444, 592]
-    // CHECK:   [[CONVERT5:%.+]] = VPU.Convert([[SLICE5]]) {dstElemType = f16, tiling_loop_index = 0 : i64}
+    // CHECK:   [[CONVERT5:%.+]] = VPU.Convert([[SLICE5]]) {dstElemType = f16, loop_tile_coord = {axes = array<i64: 2, 3>, indices = array<i64: 1, 2>}, tiling_loop_index = 0 : i64}
 
     // CHECK:   [[SLICE6:%.+]] = VPU.Slice [[INPUT]] [0, 0, 889, 0] [1, 1, 444, 593]
-    // CHECK:   [[CONVERT6:%.+]] = VPU.Convert([[SLICE6]]) {dstElemType = f16, tiling_loop_index = 0 : i64}
+    // CHECK:   [[CONVERT6:%.+]] = VPU.Convert([[SLICE6]]) {dstElemType = f16, loop_tile_coord = {axes = array<i64: 2, 3>, indices = array<i64: 2, 0>}, tiling_loop_index = 0 : i64}
 
     // CHECK:   [[SLICE7:%.+]] = VPU.Slice [[INPUT]] [0, 0, 889, 593] [1, 1, 444, 592]
-    // CHECK:   [[CONVERT7:%.+]] = VPU.Convert([[SLICE7]]) {dstElemType = f16, tiling_loop_index = 0 : i64}
+    // CHECK:   [[CONVERT7:%.+]] = VPU.Convert([[SLICE7]]) {dstElemType = f16, loop_tile_coord = {axes = array<i64: 2, 3>, indices = array<i64: 2, 1>}, tiling_loop_index = 0 : i64}
 
     // CHECK:   [[SLICE8:%.+]] = VPU.Slice [[INPUT]] [0, 0, 889, 1185] [1, 1, 444, 592]
-    // CHECK:   [[CONVERT8:%.+]] = VPU.Convert([[SLICE8]]) {dstElemType = f16, tiling_loop_index = 0 : i64}
+    // CHECK:   [[CONVERT8:%.+]] = VPU.Convert([[SLICE8]]) {dstElemType = f16, loop_tile_coord = {axes = array<i64: 2, 3>, indices = array<i64: 2, 2>}, tiling_loop_index = 0 : i64}
 
     // CHECK:   [[CONCAT:%.+]] = VPU.Concat([[CONVERT0]], [[CONVERT1]], [[CONVERT2]], [[CONVERT3]], [[CONVERT4]], [[CONVERT5]], [[CONVERT6]], [[CONVERT7]], [[CONVERT8]])
 
@@ -1098,17 +1102,17 @@ func.func @ApplyTilingConvU4Weights(%arg0: tensor<1x32x64x64xf16, {order = #NHWC
 
     // CHECK:   [[WEIGHTS:%.+]] = const.Declare tensor<256x32x3x3x!qElemType, {order = #NHWC}> = dense<1.000000e+00> : tensor<256x32x3x3xf16>, [#const.CastElemType<ui4>, #const.CastElemType<!qElemType>, #const.Reorder<#NHWC>]
     // CHECK:   [[SLICE0:%.+]] = VPU.Slice [[INPUT]] [0, 0, 0, 0] [1, 32, 23, 64]
-    // CHECK:   [[CONV0:%.+]] = VPU.NCE.Convolution([[SLICE0]], [[WEIGHTS]]) rawFilterShape [256, 32, 3, 3] {pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 0 : i64>, ppe = #VPU.PPEStub<>,
+    // CHECK:   [[CONV0:%.+]] = VPU.NCE.Convolution([[SLICE0]], [[WEIGHTS]]) rawFilterShape [256, 32, 3, 3] {loop_tile_coord = {axes = array<i64: 2>, indices = array<i64: 0>}, pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 0 : i64>, ppe = #VPU.PPEStub<>,
     // CHECK-SAME: strides = [1, 1], tiling_loop_index = 0 : i64}
     // CHECK-SAME:   -> tensor<1x256x22x64xf16, {order = #NHWC}>
 
     // CHECK:   [[SLICE1:%.+]] = VPU.Slice [[INPUT]] [0, 0, 21, 0] [1, 32, 23, 64]
-    // CHECK:   [[CONV1:%.+]] = VPU.NCE.Convolution([[SLICE1]], [[WEIGHTS]]) rawFilterShape [256, 32, 3, 3] {pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEStub<>,
+    // CHECK:   [[CONV1:%.+]] = VPU.NCE.Convolution([[SLICE1]], [[WEIGHTS]]) rawFilterShape [256, 32, 3, 3] {loop_tile_coord = {axes = array<i64: 2>, indices = array<i64: 1>}, pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEStub<>,
     // CHECK-SAME: strides = [1, 1], tiling_loop_index = 0 : i64}
     // CHECK-SAME:   -> tensor<1x256x21x64xf16, {order = #NHWC}>
 
     // CHECK:   [[SLICE2:%.+]] = VPU.Slice [[INPUT]] [0, 0, 42, 0] [1, 32, 22, 64]
-    // CHECK:   [[CONV2:%.+]] = VPU.NCE.Convolution([[SLICE2]], [[WEIGHTS]]) rawFilterShape [256, 32, 3, 3] {pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 0 : i64, bottom = 1 : i64>, ppe = #VPU.PPEStub<>,
+    // CHECK:   [[CONV2:%.+]] = VPU.NCE.Convolution([[SLICE2]], [[WEIGHTS]]) rawFilterShape [256, 32, 3, 3] {loop_tile_coord = {axes = array<i64: 2>, indices = array<i64: 2>}, pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 0 : i64, bottom = 1 : i64>, ppe = #VPU.PPEStub<>,
     // CHECK-SAME: strides = [1, 1], tiling_loop_index = 0 : i64}
     // CHECK-SAME:   -> tensor<1x256x21x64xf16, {order = #NHWC}>
 
@@ -1136,11 +1140,11 @@ func.func @TileGatherDMA(%arg0: tensor<880x960xf16>, %arg1: tensor<1x880xsi32>) 
     // CHECK:       [[CONVERT:%.+]] = VPU.Convert([[SHAPE_CAST]]) {dstElemType = i64} : tensor<880x1xsi32> -> tensor<880x1xi64>
     // CHECK:       [[SLICE1:%.+]] = VPU.Slice [[INPUT_0]] [0, 0] [880, 480] : tensor<880x960xf16> to tensor<880x480xf16>
     // CHECK:       [[GATHER_DMA1:%.+]] = VPU.GatherDMA([[SLICE1]], [[CONVERT]]) {
-    // CHECK-SAME:          axis_value = 0 : i64, batch_dims = 0 : i64, tiling_loop_index = 0 : i64} : tensor<880x480xf16>, tensor<880x1xi64> -> tensor<880x480xf16>
+    // CHECK-SAME:          axis_value = 0 : i64, batch_dims = 0 : i64, loop_tile_coord = {axes = array<i64: 1>, indices = array<i64: 0>}, tiling_loop_index = 0 : i64} : tensor<880x480xf16>, tensor<880x1xi64> -> tensor<880x480xf16>
 
     // CHECK:       [[SLICE2:%.+]] = VPU.Slice [[INPUT_0]] [0, 480] [880, 480] : tensor<880x960xf16> to tensor<880x480xf16>
     // CHECK:       [[GATHER_DMA2:%.+]] = VPU.GatherDMA([[SLICE2]], [[CONVERT]]) {
-    // CHECK-SAME:          axis_value = 0 : i64, batch_dims = 0 : i64, tiling_loop_index = 0 : i64} : tensor<880x480xf16>, tensor<880x1xi64> -> tensor<880x480xf16>
+    // CHECK-SAME:          axis_value = 0 : i64, batch_dims = 0 : i64, loop_tile_coord = {axes = array<i64: 1>, indices = array<i64: 1>}, tiling_loop_index = 0 : i64} : tensor<880x480xf16>, tensor<880x1xi64> -> tensor<880x480xf16>
     // CHECK:       [[CONCAT:%.+]] = VPU.Concat([[GATHER_DMA1]], [[GATHER_DMA2]]) {
     // CHECK-SAME{LITERAL}:          static_offsets = [[0, 0], [0, 480]]} : tensor<880x480xf16>, tensor<880x480xf16> -> tensor<880x960xf16>
     // CHECK:       [[AFFINE_RESHAPE:%.+]] = VPU.AffineReshape([[CONCAT]]) {
@@ -1159,13 +1163,13 @@ func.func @ApplyTilingConvertSubByteInput(%arg0: tensor<1x930x24x128xui4>) -> te
     %0 = VPU.MemPermute(%arg0) {dst_order = #NHWC, mem_perm = #NHWC, tilingStrategy = [1, 2, 1, 1]} : tensor<1x930x24x128xui4> -> tensor<1x930x24x128xui4, {order = #NHWC}>
     return %0 : tensor<1x930x24x128xui4, {order = #NHWC}>
 
-    // CHECK:   [[SLICE0:%.+]] = VPU.Slice [[INPUT]] [0, 0, 0, 0] [1, 480, 24, 128]
+    // CHECK:   [[SLICE0:%.+]] = VPU.Slice [[INPUT]] [0, 0, 0, 0] [1, 466, 24, 128]
     // CHECK:   [[PERMUTE0:%.+]] = VPU.MemPermute([[SLICE0]])
-    // CHECK-SAME{LITERAL}:      {dst_order = #NHWC, mem_perm = #NHWC, tiling_loop_index = 0 : i64}
+    // CHECK-SAME:      {dst_order = #NHWC, loop_tile_coord = {axes = array<i64: 1>, indices = array<i64: 0>}, mem_perm = #NHWC, tiling_loop_index = 0 : i64}
 
-    // CHECK:   [[SLICE1:%.+]] = VPU.Slice [[INPUT]] [0, 480, 0, 0] [1, 450, 24, 128]
+    // CHECK:   [[SLICE1:%.+]] = VPU.Slice [[INPUT]] [0, 466, 0, 0] [1, 464, 24, 128]
     // CHECK:   [[PERMUTE1:%.+]] = VPU.MemPermute([[SLICE1]])
-    // CHECK-SAME{LITERAL}:      {dst_order = #NHWC, mem_perm = #NHWC, tiling_loop_index = 0 : i64}
+    // CHECK-SAME:      {dst_order = #NHWC, loop_tile_coord = {axes = array<i64: 1>, indices = array<i64: 1>}, mem_perm = #NHWC, tiling_loop_index = 0 : i64}
 
     // CHECK:   [[CONCAT:%.+]] = VPU.Concat([[PERMUTE0]], [[PERMUTE1]])
 
@@ -1198,12 +1202,12 @@ func.func @ApplyTilingAvgPool5D(%arg0: tensor<1x24x8x56x56xf32>) -> tensor<1x24x
     // CHECK:               [[SLICE_0:%.+]] = VPU.Slice [[INPUT_AFFINE_RESHAPE2]] [0, 0, 0, 0, 0] [1, 24, 4, 56, 56]
     // CHECK-SAME:              tensor<1x24x8x56x56xf16> to tensor<1x24x4x56x56xf16>
     // CHECK:               [[AVG_POOL_0:%.+]] = VPU.AvgPool([[SLICE_0]])
-    // CHECK-SAME{LITERAL}:      exclude_pads, kernel_size = [2, 1, 1], pads_begin = [0, 0, 0], pads_end = [0, 0, 0], rounding_type = #IE.rounding_type<FLOOR>, strides = [2, 1, 1]
+    // CHECK-SAME{LITERAL}:      exclude_pads, kernel_size = [2, 1, 1], loop_tile_coord = {axes = array<i64: 2>, indices = array<i64: 0>}, pads_begin = [0, 0, 0], pads_end = [0, 0, 0], rounding_type = #IE.rounding_type<FLOOR>, strides = [2, 1, 1], tiling_loop_index = 0 : i64
     // CHECK-SAME:               tensor<1x24x4x56x56xf16> -> tensor<1x24x2x56x56xf16>
     // CHECK:               [[SLICE_1:%.+]] = VPU.Slice [[INPUT_AFFINE_RESHAPE2]] [0, 0, 4, 0, 0] [1, 24, 4, 56, 56]
     // CHECK-SAME:              tensor<1x24x8x56x56xf16> to tensor<1x24x4x56x56xf16>
     // CHECK:               [[AVG_POOL_1:%.+]] = VPU.AvgPool([[SLICE_1]])
-    // CHECK-SAME{LITERAL}:      exclude_pads, kernel_size = [2, 1, 1], pads_begin = [0, 0, 0], pads_end = [0, 0, 0], rounding_type = #IE.rounding_type<FLOOR>, strides = [2, 1, 1]
+    // CHECK-SAME{LITERAL}:      exclude_pads, kernel_size = [2, 1, 1], loop_tile_coord = {axes = array<i64: 2>, indices = array<i64: 1>}, pads_begin = [0, 0, 0], pads_end = [0, 0, 0], rounding_type = #IE.rounding_type<FLOOR>, strides = [2, 1, 1], tiling_loop_index = 0 : i64
     // CHECK-SAME:               tensor<1x24x4x56x56xf16> -> tensor<1x24x2x56x56xf16>
     // CHECK:               [[CONCAT:%.+]] = VPU.Concat([[AVG_POOL_0]], [[AVG_POOL_1]])
     // CHECK-SAME{LITERAL}:     {static_offsets = [[0, 0, 0, 0, 0], [0, 0, 2, 0, 0]]}
@@ -1246,11 +1250,11 @@ func.func @DequantizeConstant(%arg0: tensor<1x512x5x5xf16, {order = #NHWC}>) -> 
     // CHECK-DAG:   [[WEIGHTS2:%.+]] = const.Declare tensor<352x512x1x1x!qElemType, {order = #NHWC}> = dense<1.000000e+00> : tensor<1024x512x1x1xf16>, [#const.SubView<[352, 0, 0, 0], [352, 512, 1, 1]>, #const.CastElemType<ui8>, #const.CastElemType<!qElemType>, #const.Reorder<#NHWC>]
     // CHECK-DAG:   [[WEIGHTS3:%.+]] = const.Declare tensor<320x512x1x1x!qElemType, {order = #NHWC}> = dense<1.000000e+00> : tensor<1024x512x1x1xf16>, [#const.SubView<[704, 0, 0, 0], [320, 512, 1, 1]>, #const.CastElemType<ui8>, #const.CastElemType<!qElemType>, #const.Reorder<#NHWC>]
     // CHECK:       [[DEQUANT1:%.+]] = VPU.Dequantize([[WEIGHTS1]])
-    // CHECK-SAME:              {dstElemType = f16, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>, tiling_loop_index = 0 : i64} : tensor<352x512x1x1x!qElemType, {order = #NHWC}> -> tensor<352x512x1x1xf16, {order = #NHWC}>
+    // CHECK-SAME:              {dstElemType = f16, loop_tile_coord = {axes = array<i64: 0>, indices = array<i64: 0>}, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>, tiling_loop_index = 0 : i64} : tensor<352x512x1x1x!qElemType, {order = #NHWC}> -> tensor<352x512x1x1xf16, {order = #NHWC}>
     // CHECK:       [[DEQUANT2:%.+]] = VPU.Dequantize([[WEIGHTS2]])
-    // CHECK-SAME:              {dstElemType = f16, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>, tiling_loop_index = 0 : i64} : tensor<352x512x1x1x!qElemType, {order = #NHWC}> -> tensor<352x512x1x1xf16, {order = #NHWC}>
+    // CHECK-SAME:              {dstElemType = f16, loop_tile_coord = {axes = array<i64: 0>, indices = array<i64: 1>}, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>, tiling_loop_index = 0 : i64} : tensor<352x512x1x1x!qElemType, {order = #NHWC}> -> tensor<352x512x1x1xf16, {order = #NHWC}>
     // CHECK:       [[DEQUANT3:%.+]] = VPU.Dequantize([[WEIGHTS3]])
-    // CHECK-SAME:              {dstElemType = f16, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>, tiling_loop_index = 0 : i64} : tensor<320x512x1x1x!qElemType, {order = #NHWC}> -> tensor<320x512x1x1xf16, {order = #NHWC}>
+    // CHECK-SAME:              {dstElemType = f16, loop_tile_coord = {axes = array<i64: 0>, indices = array<i64: 2>}, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>, tiling_loop_index = 0 : i64} : tensor<320x512x1x1x!qElemType, {order = #NHWC}> -> tensor<320x512x1x1xf16, {order = #NHWC}>
 
     // CHECK:       [[CONCAT:%.+]] = VPU.Concat([[DEQUANT1]], [[DEQUANT2]], [[DEQUANT3]])
 
@@ -1316,25 +1320,25 @@ func.func @ApplyTilingReverse(%arg0: tensor<512x512x3x3xf16>) -> tensor<512x512x
     return %0 : tensor<512x512x3x3xf16>
 
     // CHECK:   [[SLICE0:%.+]] = VPU.Slice [[INPUT]] [0, 0, 0, 0] [74, 512, 3, 3]
-    // CHECK:   [[REVERSE0:%.+]] = VPU.Reverse([[SLICE0]]) {axis_value = [2, 3], mode = #IE.reverse_mode<INDEX>, tiling_loop_index = 0 : i64}
+    // CHECK:   [[REVERSE0:%.+]] = VPU.Reverse([[SLICE0]]) {axis_value = [2, 3], loop_tile_coord = {axes = array<i64: 0>, indices = array<i64: 0>}, mode = #IE.reverse_mode<INDEX>, tiling_loop_index = 0 : i64
 
     // CHECK:   [[SLICE1:%.+]] = VPU.Slice [[INPUT]] [74, 0, 0, 0] [73, 512, 3, 3]
-    // CHECK:   [[REVERSE1:%.+]] = VPU.Reverse([[SLICE1]]) {axis_value = [2, 3], mode = #IE.reverse_mode<INDEX>, tiling_loop_index = 0 : i64}
+    // CHECK:   [[REVERSE1:%.+]] = VPU.Reverse([[SLICE1]]) {axis_value = [2, 3], loop_tile_coord = {axes = array<i64: 0>, indices = array<i64: 1>}, mode = #IE.reverse_mode<INDEX>, tiling_loop_index = 0 : i64
 
     // CHECK:   [[SLICE2:%.+]] = VPU.Slice [[INPUT]] [147, 0, 0, 0] [73, 512, 3, 3]
-    // CHECK:   [[REVERSE2:%.+]] = VPU.Reverse([[SLICE2]]) {axis_value = [2, 3], mode = #IE.reverse_mode<INDEX>, tiling_loop_index = 0 : i64}
+    // CHECK:   [[REVERSE2:%.+]] = VPU.Reverse([[SLICE2]]) {axis_value = [2, 3], loop_tile_coord = {axes = array<i64: 0>, indices = array<i64: 2>}, mode = #IE.reverse_mode<INDEX>, tiling_loop_index = 0 : i64
 
     // CHECK:   [[SLICE3:%.+]] = VPU.Slice [[INPUT]] [220, 0, 0, 0] [73, 512, 3, 3]
-    // CHECK:   [[REVERSE3:%.+]] = VPU.Reverse([[SLICE3]]) {axis_value = [2, 3], mode = #IE.reverse_mode<INDEX>, tiling_loop_index = 0 : i64}
+    // CHECK:   [[REVERSE3:%.+]] = VPU.Reverse([[SLICE3]]) {axis_value = [2, 3], loop_tile_coord = {axes = array<i64: 0>, indices = array<i64: 3>}, mode = #IE.reverse_mode<INDEX>, tiling_loop_index = 0 : i64
 
     // CHECK:   [[SLICE4:%.+]] = VPU.Slice [[INPUT]] [293, 0, 0, 0] [73, 512, 3, 3]
-    // CHECK:   [[REVERSE4:%.+]] = VPU.Reverse([[SLICE4]]) {axis_value = [2, 3], mode = #IE.reverse_mode<INDEX>, tiling_loop_index = 0 : i64}
+    // CHECK:   [[REVERSE4:%.+]] = VPU.Reverse([[SLICE4]]) {axis_value = [2, 3], loop_tile_coord = {axes = array<i64: 0>, indices = array<i64: 4>}, mode = #IE.reverse_mode<INDEX>, tiling_loop_index = 0 : i64
 
     // CHECK:   [[SLICE5:%.+]] = VPU.Slice [[INPUT]] [366, 0, 0, 0] [73, 512, 3, 3]
-    // CHECK:   [[REVERSE5:%.+]] = VPU.Reverse([[SLICE5]]) {axis_value = [2, 3], mode = #IE.reverse_mode<INDEX>, tiling_loop_index = 0 : i64}
+    // CHECK:   [[REVERSE5:%.+]] = VPU.Reverse([[SLICE5]]) {axis_value = [2, 3], loop_tile_coord = {axes = array<i64: 0>, indices = array<i64: 5>}, mode = #IE.reverse_mode<INDEX>, tiling_loop_index = 0 : i64
 
     // CHECK:   [[SLICE6:%.+]] = VPU.Slice [[INPUT]] [439, 0, 0, 0] [73, 512, 3, 3]
-    // CHECK:   [[REVERSE6:%.+]] = VPU.Reverse([[SLICE6]]) {axis_value = [2, 3], mode = #IE.reverse_mode<INDEX>, tiling_loop_index = 0 : i64}
+    // CHECK:   [[REVERSE6:%.+]] = VPU.Reverse([[SLICE6]]) {axis_value = [2, 3], loop_tile_coord = {axes = array<i64: 0>, indices = array<i64: 6>}, mode = #IE.reverse_mode<INDEX>, tiling_loop_index = 0 : i64
 
     // CHECK:   [[CONCAT:%.+]] = VPU.Concat([[REVERSE0]], [[REVERSE1]], [[REVERSE2]], [[REVERSE3]], [[REVERSE4]], [[REVERSE5]], [[REVERSE6]])
     // CHECK-SAME{LITERAL}:     {static_offsets = [[0, 0, 0, 0], [74, 0, 0, 0], [147, 0, 0, 0], [220, 0, 0, 0], [293, 0, 0, 0], [366, 0, 0, 0], [439, 0, 0, 0]]}
@@ -1487,62 +1491,62 @@ func.func @ApplyTilingErfInv(%arg0: tensor<1x1024x1x4096xf16>) -> tensor<1x1024x
 
     // CHECK:       [[SLICE0:%.+]] = VPU.Slice [[INPUT]] [0, 0, 0, 0] [1, 1024, 1, 342]
     // CHECK-SAME:      : tensor<1x1024x1x4096xf16> to tensor<1x1024x1x342xf16>
-    // CHECK:       [[ERF0:%.+]] = VPU.ErfInv([[SLICE0]]) {tiling_loop_index = 0 : i64}
+    // CHECK:       [[ERF0:%.+]] = VPU.ErfInv([[SLICE0]]) {loop_tile_coord = {axes = array<i64: 3>, indices = array<i64: 0>}, tiling_loop_index = 0 : i64}
     // CHECK-SAME:      : tensor<1x1024x1x342xf16> -> tensor<1x1024x1x342xf16>
 
     // CHECK:       [[SLICE1:%.+]] = VPU.Slice [[INPUT]] [0, 0, 0, 342] [1, 1024, 1, 342]
     // CHECK-SAME:      : tensor<1x1024x1x4096xf16> to tensor<1x1024x1x342xf16>
-    // CHECK:       [[ERF1:%.+]] = VPU.ErfInv([[SLICE1]]) {tiling_loop_index = 0 : i64}
+    // CHECK:       [[ERF1:%.+]] = VPU.ErfInv([[SLICE1]]) {loop_tile_coord = {axes = array<i64: 3>, indices = array<i64: 1>}, tiling_loop_index = 0 : i64}
     // CHECK-SAME:      : tensor<1x1024x1x342xf16> -> tensor<1x1024x1x342xf16>
 
     // CHECK:       [[SLICE2:%.+]] = VPU.Slice [[INPUT]] [0, 0, 0, 684] [1, 1024, 1, 342]
     // CHECK-SAME:      : tensor<1x1024x1x4096xf16> to tensor<1x1024x1x342xf16>
-    // CHECK:       [[ERF2:%.+]] = VPU.ErfInv([[SLICE2]]) {tiling_loop_index = 0 : i64}
+    // CHECK:       [[ERF2:%.+]] = VPU.ErfInv([[SLICE2]]) {loop_tile_coord = {axes = array<i64: 3>, indices = array<i64: 2>}, tiling_loop_index = 0 : i64}
     // CHECK-SAME:      : tensor<1x1024x1x342xf16> -> tensor<1x1024x1x342xf16>
 
     // CHECK:       [[SLICE3:%.+]] = VPU.Slice [[INPUT]] [0, 0, 0, 1026] [1, 1024, 1, 342]
     // CHECK-SAME:      : tensor<1x1024x1x4096xf16> to tensor<1x1024x1x342xf16>
-    // CHECK:       [[ERF3:%.+]] = VPU.ErfInv([[SLICE3]]) {tiling_loop_index = 0 : i64}
+    // CHECK:       [[ERF3:%.+]] = VPU.ErfInv([[SLICE3]]) {loop_tile_coord = {axes = array<i64: 3>, indices = array<i64: 3>}, tiling_loop_index = 0 : i64}
     // CHECK-SAME:      : tensor<1x1024x1x342xf16> -> tensor<1x1024x1x342xf16>
 
     // CHECK:       [[SLICE4:%.+]] = VPU.Slice [[INPUT]] [0, 0, 0, 1368] [1, 1024, 1, 341]
     // CHECK-SAME:      : tensor<1x1024x1x4096xf16> to tensor<1x1024x1x341xf16>
-    // CHECK:       [[ERF4:%.+]] = VPU.ErfInv([[SLICE4]]) {tiling_loop_index = 0 : i64}
+    // CHECK:       [[ERF4:%.+]] = VPU.ErfInv([[SLICE4]]) {loop_tile_coord = {axes = array<i64: 3>, indices = array<i64: 4>}, tiling_loop_index = 0 : i64}
     // CHECK-SAME:      : tensor<1x1024x1x341xf16> -> tensor<1x1024x1x341xf16>
 
     // CHECK:       [[SLICE5:%.+]] = VPU.Slice [[INPUT]] [0, 0, 0, 1709] [1, 1024, 1, 341]
     // CHECK-SAME:      : tensor<1x1024x1x4096xf16> to tensor<1x1024x1x341xf16>
-    // CHECK:       [[ERF5:%.+]] = VPU.ErfInv([[SLICE5]]) {tiling_loop_index = 0 : i64}
+    // CHECK:       [[ERF5:%.+]] = VPU.ErfInv([[SLICE5]]) {loop_tile_coord = {axes = array<i64: 3>, indices = array<i64: 5>}, tiling_loop_index = 0 : i64}
     // CHECK-SAME:      : tensor<1x1024x1x341xf16> -> tensor<1x1024x1x341xf16>
 
     // CHECK:       [[SLICE6:%.+]] = VPU.Slice [[INPUT]] [0, 0, 0, 2050] [1, 1024, 1, 341]
     // CHECK-SAME:      : tensor<1x1024x1x4096xf16> to tensor<1x1024x1x341xf16>
-    // CHECK:       [[ERF6:%.+]] = VPU.ErfInv([[SLICE6]]) {tiling_loop_index = 0 : i64}
+    // CHECK:       [[ERF6:%.+]] = VPU.ErfInv([[SLICE6]]) {loop_tile_coord = {axes = array<i64: 3>, indices = array<i64: 6>}, tiling_loop_index = 0 : i64}
     // CHECK-SAME:      : tensor<1x1024x1x341xf16> -> tensor<1x1024x1x341xf16>
 
     // CHECK:       [[SLICE7:%.+]] = VPU.Slice [[INPUT]] [0, 0, 0, 2391] [1, 1024, 1, 341]
     // CHECK-SAME:      : tensor<1x1024x1x4096xf16> to tensor<1x1024x1x341xf16>
-    // CHECK:       [[ERF7:%.+]] = VPU.ErfInv([[SLICE7]]) {tiling_loop_index = 0 : i64}
+    // CHECK:       [[ERF7:%.+]] = VPU.ErfInv([[SLICE7]]) {loop_tile_coord = {axes = array<i64: 3>, indices = array<i64: 7>}, tiling_loop_index = 0 : i64}
     // CHECK-SAME:      : tensor<1x1024x1x341xf16> -> tensor<1x1024x1x341xf16>
 
     // CHECK:       [[SLICE8:%.+]] = VPU.Slice [[INPUT]] [0, 0, 0, 2732] [1, 1024, 1, 341]
     // CHECK-SAME:      : tensor<1x1024x1x4096xf16> to tensor<1x1024x1x341xf16>
-    // CHECK:       [[ERF8:%.+]] = VPU.ErfInv([[SLICE8]]) {tiling_loop_index = 0 : i64}
+    // CHECK:       [[ERF8:%.+]] = VPU.ErfInv([[SLICE8]]) {loop_tile_coord = {axes = array<i64: 3>, indices = array<i64: 8>}, tiling_loop_index = 0 : i64}
     // CHECK-SAME:      : tensor<1x1024x1x341xf16> -> tensor<1x1024x1x341xf16>
 
     // CHECK:       [[SLICE9:%.+]] = VPU.Slice [[INPUT]] [0, 0, 0, 3073] [1, 1024, 1, 341]
     // CHECK-SAME:      : tensor<1x1024x1x4096xf16> to tensor<1x1024x1x341xf16>
-    // CHECK:       [[ERF9:%.+]] = VPU.ErfInv([[SLICE9]]) {tiling_loop_index = 0 : i64}
+    // CHECK:       [[ERF9:%.+]] = VPU.ErfInv([[SLICE9]]) {loop_tile_coord = {axes = array<i64: 3>, indices = array<i64: 9>}, tiling_loop_index = 0 : i64}
     // CHECK-SAME:      : tensor<1x1024x1x341xf16> -> tensor<1x1024x1x341xf16>
 
     // CHECK:       [[SLICE10:%.+]] = VPU.Slice [[INPUT]] [0, 0, 0, 3414] [1, 1024, 1, 341]
     // CHECK-SAME:      : tensor<1x1024x1x4096xf16> to tensor<1x1024x1x341xf16>
-    // CHECK:       [[ERF10:%.+]] = VPU.ErfInv([[SLICE10]]) {tiling_loop_index = 0 : i64}
+    // CHECK:       [[ERF10:%.+]] = VPU.ErfInv([[SLICE10]]) {loop_tile_coord = {axes = array<i64: 3>, indices = array<i64: 10>}, tiling_loop_index = 0 : i64}
     // CHECK-SAME:      : tensor<1x1024x1x341xf16> -> tensor<1x1024x1x341xf16>
 
     // CHECK:       [[SLICE11:%.+]] = VPU.Slice [[INPUT]] [0, 0, 0, 3755] [1, 1024, 1, 341]
     // CHECK-SAME:      : tensor<1x1024x1x4096xf16> to tensor<1x1024x1x341xf16>
-    // CHECK:       [[ERF11:%.+]] = VPU.ErfInv([[SLICE11]]) {tiling_loop_index = 0 : i64}
+    // CHECK:       [[ERF11:%.+]] = VPU.ErfInv([[SLICE11]]) {loop_tile_coord = {axes = array<i64: 3>, indices = array<i64: 11>}, tiling_loop_index = 0 : i64}
     // CHECK-SAME:      : tensor<1x1024x1x341xf16> -> tensor<1x1024x1x341xf16>
 
     // CHECK:       [[OUTPUT:%.+]] = VPU.Concat([[ERF0]], [[ERF1]], [[ERF2]], [[ERF3]], [[ERF4]], [[ERF5]], [[ERF6]], [[ERF7]], [[ERF8]], [[ERF9]], [[ERF10]], [[ERF11]])

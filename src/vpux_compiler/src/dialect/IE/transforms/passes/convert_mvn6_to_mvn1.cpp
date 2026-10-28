@@ -138,7 +138,7 @@ mlir::LogicalResult ConvertMVN6ToMVN1::matchAndRewrite(IE::MVN6Op origOp, mlir::
         }
         const auto transposeLoc = appendLoc(origOp->getLoc(), "transpose_mvn_in");
         rewriter.setInsertionPoint(origOp);
-        transposeIn = rewriter.create<IE::TransposeOp>(transposeLoc, origOp.getInput(), nullptr, transposeOrder);
+        transposeIn = IE::TransposeOp::create(rewriter, transposeLoc, origOp.getInput(), nullptr, transposeOrder);
         inputShapeVal = mlir::cast<vpux::NDTypeInterface>(transposeIn.getOutput().getType()).getShape().raw();
         axesAttr.clear();
         axesAttr.push_back(inputShapeSize - 1);
@@ -241,8 +241,8 @@ mlir::LogicalResult ConvertMVN6ToMVN1::matchAndRewrite(IE::MVN6Op origOp, mlir::
             auto si32Type = mlir::IntegerType::get(rewriter.getContext(), 32, mlir::IntegerType::Signed);
             auto shapeType = mlir::RankedTensorType::get({static_cast<int64_t>(newShapeValues.size())}, si32Type);
             auto shapeAttr = mlir::DenseElementsAttr::get(shapeType, llvm::ArrayRef<int32_t>(newShapeValues));
-            auto shapeConst = rewriter.create<vpux::Const::DeclareOp>(origLoc, shapeType,
-                                                                      vpux::Const::ContentAttr::get(shapeAttr));
+            auto shapeConst = vpux::Const::DeclareOp::create(rewriter, origLoc, shapeType,
+                                                             vpux::Const::ContentAttr::get(shapeAttr));
 
             auto reshapeInputShapeAttr = rewriter.getI64ArrayAttr(newInShape.raw());
             auto reshapeInputBoundsAttr = rewriter.getI64ArrayAttr(newBounds);
@@ -253,13 +253,13 @@ mlir::LogicalResult ConvertMVN6ToMVN1::matchAndRewrite(IE::MVN6Op origOp, mlir::
                                                                      ndType.getMemSpace(), /*Bounds=*/{}, {}),
                                                  vpux::BoundsRef(newBounds));
 
-            reshapeInput = rewriter.create<IE::DynamicReshapeOp>(dynamicReshapeInLoc, newType, reshapeInputSource,
-                                                                 shapeConst.getOutput(), reshapeInputShapeAttr,
-                                                                 reshapeInputBoundsAttr, nullptr)
+            reshapeInput = IE::DynamicReshapeOp::create(rewriter, dynamicReshapeInLoc, newType, reshapeInputSource,
+                                                        shapeConst.getOutput(), reshapeInputShapeAttr,
+                                                        reshapeInputBoundsAttr, nullptr)
                                    .getOutput();
 
             auto mvnOp =
-                    rewriter.create<IE::MVNOp>(mvnLoc, reshapeInput, acrossChannelsAttr, normVarianceAttr, epsAttr);
+                    IE::MVNOp::create(rewriter, mvnLoc, reshapeInput, acrossChannelsAttr, normVarianceAttr, epsAttr);
 
             auto inputShapeValues = IE::replaceDynamicDimsWithValue<int32_t>(to_small_vector(inputShape), -1);
 
@@ -267,32 +267,32 @@ mlir::LogicalResult ConvertMVN6ToMVN1::matchAndRewrite(IE::MVN6Op origOp, mlir::
                     mlir::RankedTensorType::get({static_cast<int64_t>(inputShapeValues.size())}, si32Type);
             auto finalShapeAttr =
                     mlir::DenseElementsAttr::get(finalShapeType, llvm::ArrayRef<int32_t>(inputShapeValues));
-            auto finalShapeConst = rewriter.create<vpux::Const::DeclareOp>(
-                    origLoc, finalShapeType, vpux::Const::ContentAttr::get(finalShapeAttr));
+            auto finalShapeConst = vpux::Const::DeclareOp::create(rewriter, origLoc, finalShapeType,
+                                                                  vpux::Const::ContentAttr::get(finalShapeAttr));
             auto finalOutputShapeAttr = rewriter.getI64ArrayAttr(inputShapeVal);
             auto finalOutputBoundsAttr = rewriter.getI64ArrayAttr(bounds);
 
-            reshapeOutput = rewriter.create<IE::DynamicReshapeOp>(dynamicReshapeOutLoc, inType, mvnOp.getOutput(),
-                                                                  finalShapeConst.getOutput(), finalOutputShapeAttr,
-                                                                  finalOutputBoundsAttr, nullptr)
+            reshapeOutput = IE::DynamicReshapeOp::create(rewriter, dynamicReshapeOutLoc, inType, mvnOp.getOutput(),
+                                                         finalShapeConst.getOutput(), finalOutputShapeAttr,
+                                                         finalOutputBoundsAttr, nullptr)
                                     .getOutput();
 
         } else {
-            auto staticReshapeInput = rewriter.create<IE::ReshapeOp>(origLoc, reshapeInputSource,
-                                                                     getIntArrayAttr(getContext(), newInShape))
+            auto staticReshapeInput = IE::ReshapeOp::create(rewriter, origLoc, reshapeInputSource,
+                                                            getIntArrayAttr(getContext(), newInShape))
                                               .getOutput();
 
-            auto mvnOp = rewriter.create<IE::MVNOp>(origLoc, staticReshapeInput, acrossChannelsAttr, normVarianceAttr,
-                                                    epsAttr);
+            auto mvnOp = IE::MVNOp::create(rewriter, origLoc, staticReshapeInput, acrossChannelsAttr, normVarianceAttr,
+                                           epsAttr);
 
-            reshapeOutput = rewriter.create<IE::ReshapeOp>(origLoc, mvnOp.getOutput(),
-                                                           getIntArrayAttr(getContext(), inputShapeVal))
+            reshapeOutput = IE::ReshapeOp::create(rewriter, origLoc, mvnOp.getOutput(),
+                                                  getIntArrayAttr(getContext(), inputShapeVal))
                                     .getOutput();
         }
 
         if (needsTranspose) {
             auto transposeOut =
-                    rewriter.create<IE::TransposeOp>(transposeLoc, reshapeOutput, nullptr, inverseTransposeOrder);
+                    IE::TransposeOp::create(rewriter, transposeLoc, reshapeOutput, nullptr, inverseTransposeOrder);
             rewriter.replaceOp(origOp, transposeOut.getOutput());
         } else {
             rewriter.replaceOp(origOp, reshapeOutput);

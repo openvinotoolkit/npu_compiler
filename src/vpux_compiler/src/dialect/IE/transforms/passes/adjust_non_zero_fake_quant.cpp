@@ -99,18 +99,18 @@ mlir::LogicalResult AdjustFakeQuant::matchAndRewrite(IE::FakeQuantizeOp fakeQuan
 
     mlir::Value newFqOut;
     if (inLowValue > 0) {
-        newFqOut = rewriter.create<IE::FakeQuantizeOp>(
-                                   takeOpLoc(fakeQuantizeOp, "as_fakequantize"), fakeQuantizeOp.getInput(),
-                                   zeroConstInput, fakeQuantizeOp.getInputHigh(), zeroConstOutput,
-                                   fakeQuantizeOp.getOutputHigh(), fakeQuantizeOp.getLevelsAttr(),
-                                   fakeQuantizeOp.getLowFpTypeAttr(), fakeQuantizeOp.getAutoBroadcastAttr())
+        newFqOut = IE::FakeQuantizeOp::create(rewriter, takeOpLoc(fakeQuantizeOp, "as_fakequantize"),
+                                              fakeQuantizeOp.getInput(), zeroConstInput, fakeQuantizeOp.getInputHigh(),
+                                              zeroConstOutput, fakeQuantizeOp.getOutputHigh(),
+                                              fakeQuantizeOp.getLevelsAttr(), fakeQuantizeOp.getLowFpTypeAttr(),
+                                              fakeQuantizeOp.getAutoBroadcastAttr())
                            .getOutput();
     } else if (inHighValue < 0) {
-        newFqOut = rewriter.create<IE::FakeQuantizeOp>(
-                                   takeOpLoc(fakeQuantizeOp, "as_fakequantize"), fakeQuantizeOp.getInput(),
-                                   fakeQuantizeOp.getInputLow(), zeroConstInput, fakeQuantizeOp.getOutputLow(),
-                                   zeroConstOutput, fakeQuantizeOp.getLevelsAttr(), fakeQuantizeOp.getLowFpTypeAttr(),
-                                   fakeQuantizeOp.getAutoBroadcastAttr())
+        newFqOut = IE::FakeQuantizeOp::create(rewriter, takeOpLoc(fakeQuantizeOp, "as_fakequantize"),
+                                              fakeQuantizeOp.getInput(), fakeQuantizeOp.getInputLow(), zeroConstInput,
+                                              fakeQuantizeOp.getOutputLow(), zeroConstOutput,
+                                              fakeQuantizeOp.getLevelsAttr(), fakeQuantizeOp.getLowFpTypeAttr(),
+                                              fakeQuantizeOp.getAutoBroadcastAttr())
                            .getOutput();
     } else {
         VPUX_THROW("FakeQuant min max does not meet requirement");

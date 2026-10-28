@@ -154,3 +154,92 @@ mlir::FailureOr<SmallVector<Dim>> VPU::remapDimsThroughInputPermuteCast(mlir::fu
 
     return remappedDims;
 }
+
+std::optional<VPU::MemPermuteAlignmentInfo> VPU::getMemPermuteAlignmentInfo(NDTypeInterface inType,
+                                                                            NDTypeInterface outType,
+                                                                            mlir::AffineMap memPerm) {
+    const auto elemBitWidth = static_cast<int64_t>(outType.getElemTypeSize().count());
+    if (elemBitWidth >= CHAR_BIT) {
+        return std::nullopt;
+    }
+
+    const auto outShape = getBoundedShape(outType);
+    const auto inShape = getBoundedShape(inType);
+    const auto outOrder = outType.getDimsOrder();
+    const auto inOrder = inType.getDimsOrder();
+    const auto rank = static_cast<int64_t>(outOrder.numDims());
+
+    auto permInvMap = mlir::inversePermutation(memPerm);
+    SmallVector<int64_t> permInv(rank);
+    for (int64_t i = 0; i < rank; ++i) {
+        permInv[i] = static_cast<int64_t>(mlir::cast<mlir::AffineDimExpr>(permInvMap.getResult(i)).getPosition());
+    }
+
+    SmallVector<int64_t> outInnerProducts(rank, 1);
+    for (int64_t pos = rank - 2; pos >= 0; --pos) {
+        outInnerProducts[pos] = outInnerProducts[pos + 1] * outShape[outOrder.dimAt(pos + 1)];
+    }
+    SmallVector<int64_t> inInnerProducts(rank, 1);
+    for (int64_t pos = rank - 2; pos >= 0; --pos) {
+        inInnerProducts[pos] = inInnerProducts[pos + 1] * inShape[inOrder.dimAt(pos + 1)];
+    }
+
+    return MemPermuteAlignmentInfo{
+            elemBitWidth, rank, outOrder, std::move(permInv), std::move(outInnerProducts), std::move(inInnerProducts)};
+}
+
+std::optional<VPU::MemPermuteAlignmentInfo> VPU::getMemPermuteAlignmentInfo(VPU::MemPermuteOp memPermuteOp) {
+    auto inType = mlir::cast<vpux::NDTypeInterface>(memPermuteOp.getInput().getType());
+    auto outType = mlir::cast<vpux::NDTypeInterface>(memPermuteOp.getOutput().getType());
+    return getMemPermuteAlignmentInfo(inType, outType, memPermuteOp.getMemPerm());
+}
+
+int64_t VPU::MemPermuteAlignmentInfo::getAlignmentForMemPos(int64_t memPos) const {
+    const auto outPlaneBits = outInnerProducts[memPos] * elemBitWidth;
+    const auto inPlaneBits = inInnerProducts[permInv[memPos]] * elemBitWidth;
+    if (outPlaneBits % CHAR_BIT == 0 && inPlaneBits % CHAR_BIT == 0) {
+        return 1;
+    }
+    const auto outAlign = CHAR_BIT / std::gcd(outPlaneBits, static_cast<int64_t>(CHAR_BIT));
+    const auto inAlign = CHAR_BIT / std::gcd(inPlaneBits, static_cast<int64_t>(CHAR_BIT));
+    return std::lcm(outAlign, inAlign);
+}
+
+bool VPU::doesMemPermuteNeedAlignment(VPU::MemPermuteOp memPermuteOp) {
+    auto info = getMemPermuteAlignmentInfo(memPermuteOp);
+    if (!info) {
+        return false;
+    }
+
+    for (int64_t pos = 0; pos < info->rank; ++pos) {
+        if (info->getAlignmentForMemPos(pos) > 1) {
+            return true;
+        }
+    }
+    return false;
+}
+
+std::optional<SmallVector<int64_t>> VPU::getSubbyteAlignmentForMemPermute(VPU::MemPermuteOp memPermuteOp,
+                                                                          ShapeRef divisors) {
+    auto info = getMemPermuteAlignmentInfo(memPermuteOp);
+    if (!info) {
+        return std::nullopt;
+    }
+
+    SmallVector<int64_t> alignment(divisors.size(), 1);
+    bool needsAlignment = false;
+    for (int64_t pos = 0; pos < info->rank; ++pos) {
+        const auto outDim = info->outOrder.dimAt(pos);
+        if (divisors[outDim] <= 1) {
+            continue;
+        }
+
+        const auto align = info->getAlignmentForMemPos(pos);
+        if (align > 1) {
+            alignment[outDim.ind()] = align;
+            needsAlignment = true;
+        }
+    }
+
+    return needsAlignment ? std::optional(alignment) : std::nullopt;
+}

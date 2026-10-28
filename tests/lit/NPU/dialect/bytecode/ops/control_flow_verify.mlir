@@ -16,8 +16,8 @@ bytecode.type_section @type_section {
 }
 bytecode.func_section @func_section {
     bytecode.func @je_valid @string_section::@fn_name @type_section::@fn_type {
-        %lhs = bytecode.virtual_general_register
-        %rhs = bytecode.virtual_general_register
+        %lhs = bytecode.virtual_value_register
+        %rhs = bytecode.virtual_value_register
         bytecode.je %lhs, %rhs, ^trueDest, ^falseDest
       ^falseDest:
         bytecode.ret
@@ -39,8 +39,8 @@ bytecode.type_section @type_section {
 }
 bytecode.func_section @func_section {
     bytecode.func @je_invalid @string_section::@fn_name @type_section::@fn_type {
-        %lhs = bytecode.virtual_general_register
-        %rhs = bytecode.virtual_general_register
+        %lhs = bytecode.virtual_value_register
+        %rhs = bytecode.virtual_value_register
         // expected-error @+1 {{falseDest must be the physically next block in the region}}
         bytecode.je %lhs, %rhs, ^trueDest, ^falseDest
       ^trueDest:
@@ -63,8 +63,8 @@ bytecode.type_section @type_section {
 }
 bytecode.func_section @func_section {
     bytecode.func @jne_valid @string_section::@fn_name @type_section::@fn_type {
-        %lhs = bytecode.virtual_general_register
-        %rhs = bytecode.virtual_general_register
+        %lhs = bytecode.virtual_value_register
+        %rhs = bytecode.virtual_value_register
         bytecode.jne %lhs, %rhs, ^trueDest, ^falseDest
       ^falseDest:
         bytecode.ret
@@ -86,8 +86,8 @@ bytecode.type_section @type_section {
 }
 bytecode.func_section @func_section {
     bytecode.func @jne_invalid @string_section::@fn_name @type_section::@fn_type {
-        %lhs = bytecode.virtual_general_register
-        %rhs = bytecode.virtual_general_register
+        %lhs = bytecode.virtual_value_register
+        %rhs = bytecode.virtual_value_register
         // expected-error @+1 {{falseDest must be the physically next block in the region}}
         bytecode.jne %lhs, %rhs, ^trueDest, ^falseDest
       ^trueDest:
@@ -110,8 +110,8 @@ bytecode.type_section @type_section {
 }
 bytecode.func_section @func_section {
     bytecode.func @je_self_loop_valid @string_section::@fn_name @type_section::@fn_type {
-        %lhs = bytecode.virtual_general_register
-        %rhs = bytecode.virtual_general_register
+        %lhs = bytecode.virtual_value_register
+        %rhs = bytecode.virtual_value_register
         bytecode.jmp ^loop_body
       ^loop_body:
         bytecode.add.i64 %lhs, %lhs, %rhs
@@ -134,8 +134,8 @@ bytecode.type_section @type_section {
 }
 bytecode.func_section @func_section {
     bytecode.func @je_self_loop_invalid @string_section::@fn_name @type_section::@fn_type {
-        %lhs = bytecode.virtual_general_register
-        %rhs = bytecode.virtual_general_register
+        %lhs = bytecode.virtual_value_register
+        %rhs = bytecode.virtual_value_register
         bytecode.jmp ^loop_body
       ^loop_body:
         // expected-error @+1 {{trueDest self-loop with no serializable predecessor produces a zero PC-relative offset}}
@@ -157,8 +157,8 @@ bytecode.type_section @type_section {
 }
 bytecode.func_section @func_section {
     bytecode.func @jne_self_loop_invalid @string_section::@fn_name @type_section::@fn_type {
-        %lhs = bytecode.virtual_general_register
-        %rhs = bytecode.virtual_general_register
+        %lhs = bytecode.virtual_value_register
+        %rhs = bytecode.virtual_value_register
         bytecode.jmp ^loop_body
       ^loop_body:
         // expected-error @+1 {{trueDest self-loop with no serializable predecessor produces a zero PC-relative offset}}

@@ -107,8 +107,8 @@ void SplitNNDMARewriter::createTiles(VPUIP::NNDMAOp nndmaOp, mlir::PatternRewrit
     const auto dmaMaxNumPlanes = dmaEngineLimits.getMaxNumPlanes() - 1;
 
     const auto desiredPlanesPerTileAmount = (dmaMaxLength / singlePlaneSize.count());
-    VPUX_THROW_UNLESS(desiredPlanesPerTileAmount != 0,
-                      "Couldn't split a NNDMAOp with single plane size greater than plane size limit");
+    VPUX_THROW_WHEN(desiredPlanesPerTileAmount == 0,
+                    "Couldn't split a NNDMAOp with single plane size greater than plane size limit");
 
     auto numPlanesPerTile = std::min(desiredPlanesPerTileAmount, dmaMaxNumPlanes);
 
@@ -121,8 +121,8 @@ void SplitNNDMARewriter::createTiles(VPUIP::NNDMAOp nndmaOp, mlir::PatternRewrit
 
     auto inputDeclBuff = nndmaOp.getInput().getDefiningOp<VPURT::DeclareBufferOp>();
     auto outputDeclBuff = nndmaOp.getOutputBuff().getDefiningOp<VPURT::DeclareBufferOp>();
-    VPUX_THROW_UNLESS(inputDeclBuff != nullptr && outputDeclBuff != nullptr,
-                      "Can't get input or output buffer of NNDMAOp '{0}'", nndmaOp->getLoc());
+    VPUX_THROW_WHEN(inputDeclBuff == nullptr || outputDeclBuff == nullptr,
+                    "Can't get input or output buffer of NNDMAOp '{0}'", nndmaOp->getLoc());
 
     Byte inputOffset{inputDeclBuff.getByteOffset()};
     Byte outputOffset{outputDeclBuff.getByteOffset()};

@@ -24,6 +24,12 @@ static bool checkIfUsersFakeQuantize(mlir::Operation* op) {
 }
 
 bool checkForQuantization(mlir::Operation* op, mlir::Type type) {
+    // Either a shaped type or element type
+    auto ndType = mlir::dyn_cast<vpux::NDTypeInterface>(type);
+    if (ndType != nullptr) {
+        type = ndType.getElementType();
+    }
+
     // since FusePostOps is called also after LowPrecisionPipeline
     const auto isQuantizedElemType = mlir::isa<mlir::quant::QuantizedType>(type);
 
@@ -43,28 +49,34 @@ bool checkForQuantization(mlir::Operation* op, mlir::Operation* postOp) {
     return (isFakeQuantizeOpOutput && isFakeQuantizeOpInput) || isQuantizedElemType;
 }
 
-bool hasPerChannelQuantizedOutput(mlir::Operation* op) {
-    for (auto user : op->getUsers()) {
-        auto fq = mlir::dyn_cast<IE::FakeQuantizeOp>(user);
-        if (fq == nullptr) {
-            continue;
-        }
+namespace {
 
-        auto inLow = fq.getInputLow().getDefiningOp<Const::DeclareOp>();
-        auto inHigh = fq.getInputHigh().getDefiningOp<Const::DeclareOp>();
-        auto outLow = fq.getOutputLow().getDefiningOp<Const::DeclareOp>();
-        auto outHigh = fq.getOutputHigh().getDefiningOp<Const::DeclareOp>();
-        VPUX_THROW_WHEN(inLow == nullptr || inHigh == nullptr || outLow == nullptr || outHigh == nullptr,
-                        "Got FakeQuantize with non-constant parameters, loc: {0}", fq->getLoc());
-
-        if (!inLow.getContentAttr().isSplat() || !inHigh.getContentAttr().isSplat() ||
-            !outLow.getContentAttr().isSplat() || !outHigh.getContentAttr().isSplat()) {
-            return true;
-        }
+bool isPerChannelFakeQuantize(mlir::Operation* op) {
+    auto fq = mlir::dyn_cast<IE::FakeQuantizeOp>(op);
+    if (fq == nullptr) {
+        return false;
     }
 
-    return false;
-};
+    auto inLow = fq.getInputLow().getDefiningOp<Const::DeclareOp>();
+    auto inHigh = fq.getInputHigh().getDefiningOp<Const::DeclareOp>();
+    auto outLow = fq.getOutputLow().getDefiningOp<Const::DeclareOp>();
+    auto outHigh = fq.getOutputHigh().getDefiningOp<Const::DeclareOp>();
+    VPUX_THROW_WHEN(inLow == nullptr || inHigh == nullptr || outLow == nullptr || outHigh == nullptr,
+                    "Got FakeQuantize with non-constant parameters, loc: {0}", fq->getLoc());
+
+    return !inLow.getContentAttr().isSplat() || !inHigh.getContentAttr().isSplat() ||
+           !outLow.getContentAttr().isSplat() || !outHigh.getContentAttr().isSplat();
+}
+
+}  // namespace
+
+bool hasPerChannelQuantizedOutput(mlir::Operation* op) {
+    return llvm::any_of(op->getUsers(), isPerChannelFakeQuantize);
+}
+
+bool hasPerChannelQuantizedOutput(mlir::Value output) {
+    return llvm::any_of(output.getUsers(), isPerChannelFakeQuantize);
+}
 
 }  // namespace VPU
 }  // namespace vpux

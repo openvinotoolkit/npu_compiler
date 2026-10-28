@@ -4,6 +4,9 @@
 //
 
 #include "vpux/compiler/dialect/IE/transforms/passes/propagate_and_fuse_quantize_dequantize.hpp"
+#include "vpux/compiler/core/attributes/dims_order.hpp"
+#include "vpux/compiler/dialect/IE/IR/ops/data_type.hpp"
+#include "vpux/compiler/dialect/IE/IR/ops/specialized.hpp"
 #include "vpux/compiler/dialect/IE/interfaces/strategies.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
 
@@ -12,10 +15,13 @@
 #include "vpux/compiler/dialect/IE/utils/quantization.hpp"
 #include "vpux/compiler/dialect/config/utils/config_option_utils.hpp"
 
-#include "vpux/compiler/core/types/quantile_float/types.hpp"
+#include "vpux/compiler/core/types/quantile_types/types.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
+#include "vpux/compiler/dialect/core/interfaces/type_interfaces.hpp"
+#include "vpux/compiler/utils/permute_utils.hpp"
 #include "vpux/compiler/utils/types.hpp"
 
+#include <llvm/ADT/TypeSwitch.h>
 #include <mlir/Dialect/Quant/IR/Quant.h>
 #include <mlir/Transforms/GreedyPatternRewriteDriver.h>
 
@@ -32,13 +38,13 @@ namespace {
 std::optional<double> getMultiplierFromUser(IE::DequantizeOp dequantizeOp) {
     auto userOp = *dequantizeOp.getOutput().getUsers().begin();
     mlir::Value constInput;
-    if (auto multiplyOp = mlir::dyn_cast<IE::MultiplyOp>(userOp)) {
+    if (auto multiplyOp = mlir::dyn_cast_if_present<IE::MultiplyOp>(userOp)) {
         if (multiplyOp.getPostOp() || multiplyOp.getClamp()) {
             return std::nullopt;
         }
         constInput =
                 multiplyOp.getInput1() == dequantizeOp.getOutput() ? multiplyOp.getInput2() : multiplyOp.getInput1();
-    } else if (auto dwConvOp = mlir::dyn_cast<IE::GroupConvolutionOp>(userOp)) {
+    } else if (auto dwConvOp = mlir::dyn_cast_if_present<IE::GroupConvolutionOp>(userOp)) {
         if (dwConvOp.getBias() || dwConvOp.getPostOp() || dwConvOp.getClamp()) {
             return std::nullopt;
         }
@@ -61,7 +67,7 @@ std::optional<double> getMultiplierFromUser(IE::DequantizeOp dequantizeOp) {
         return std::nullopt;
     }
 
-    auto constOp = mlir::dyn_cast_or_null<Const::DeclareOp>(constInput.getDefiningOp());
+    auto constOp = mlir::dyn_cast_if_present<Const::DeclareOp>(constInput.getDefiningOp());
     if (constOp == nullptr || !IE::isBaseContentSplat(constOp)) {
         return std::nullopt;
     }
@@ -71,7 +77,7 @@ std::optional<double> getMultiplierFromUser(IE::DequantizeOp dequantizeOp) {
 
 bool isValidToPropagateQuantize(mlir::Operation* op, bool seOpsEnabled, mlir::Type& quantizedElemType, Logger log) {
     const auto isSameQuantize = [&](mlir::Operation* user) {
-        if (auto currentQuantize = mlir::dyn_cast<IE::QuantizeOp>(user)) {
+        if (auto currentQuantize = mlir::dyn_cast_if_present<IE::QuantizeOp>(user)) {
             return currentQuantize.getDstElemType() == quantizedElemType;
         }
 
@@ -81,7 +87,7 @@ bool isValidToPropagateQuantize(mlir::Operation* op, bool seOpsEnabled, mlir::Ty
         log.trace("{0}", msg.str());
     };
     // 1. Check the prevOp is ElemTypeInfoOp
-    auto elemTypeInfoOp = mlir::dyn_cast<IE::ElemTypeInfoOpInterface>(op);
+    auto elemTypeInfoOp = mlir::dyn_cast_if_present<IE::ElemTypeInfoOpInterface>(op);
     if (!elemTypeInfoOp) {
         log.trace("Not an ElemTypeInfoOp {0}", op->getResult(0));
         return false;
@@ -197,7 +203,7 @@ mlir::LogicalResult FuseDequantizeWithMultiplier::matchAndRewrite(IE::Dequantize
         auto scales = perTensorUniformType.getScale();
         scales *= multiplier;
         if (const auto quantileStorageType =
-                    mlir::dyn_cast<vpux::type::QuantileType>(perTensorUniformType.getStorageType())) {
+                    mlir::dyn_cast<mlir::quant::QuantileType>(perTensorUniformType.getStorageType())) {
             dstType = mlir::quant::UniformQuantizedType::get(
                     perTensorUniformType.getFlags(), quantileStorageType, perTensorUniformType.getExpressedType(),
                     scales, perTensorUniformType.getZeroPoint(), perTensorUniformType.getStorageTypeMin(),
@@ -216,7 +222,7 @@ mlir::LogicalResult FuseDequantizeWithMultiplier::matchAndRewrite(IE::Dequantize
             return x * multiplier;
         });
         if (const auto quantileStorageType =
-                    mlir::dyn_cast<vpux::type::QuantileType>(perAxisUniformType.getStorageType())) {
+                    mlir::dyn_cast<mlir::quant::QuantileType>(perAxisUniformType.getStorageType())) {
             dstType = mlir::quant::UniformQuantizedPerAxisType::get(
                     perAxisUniformType.getFlags(), quantileStorageType, perAxisUniformType.getExpressedType(),
                     newScales, perAxisUniformType.getZeroPoints(), perAxisUniformType.getQuantizedDimension(),
@@ -232,10 +238,10 @@ mlir::LogicalResult FuseDequantizeWithMultiplier::matchAndRewrite(IE::Dequantize
         return matchFailed(_log, rewriter, dequantizeOp, "unsupported quantize type");
     }
 
-    auto quantizeCastOp = rewriter.create<IE::QuantizeCastOp>(appendLoc(dequantizeOp.getLoc(), "quantizecast"),
-                                                              dequantizeOp.getInput(), dstType);
-    auto newDequantizeOp = rewriter.create<IE::DequantizeOp>(appendLoc(dequantizeOp.getLoc(), "dequantize"),
-                                                             quantizeCastOp.getOutput(), dequantizeOp.getDstElemType());
+    auto quantizeCastOp = IE::QuantizeCastOp::create(rewriter, appendLoc(dequantizeOp.getLoc(), "quantizecast"),
+                                                     dequantizeOp.getInput(), dstType);
+    auto newDequantizeOp = IE::DequantizeOp::create(rewriter, appendLoc(dequantizeOp.getLoc(), "dequantize"),
+                                                    quantizeCastOp.getOutput(), dequantizeOp.getDstElemType());
     auto userOp = *dequantizeOp.getOutput().getUsers().begin();
     rewriter.replaceOp(userOp, newDequantizeOp.getOutput());
     return mlir::success();
@@ -285,7 +291,7 @@ mlir::LogicalResult PropagateQuantize::matchAndRewrite(IE::QuantizeOp origOp, ml
     auto firstElemTypeInfoOp = mlir::dyn_cast<IE::ElemTypeInfoOpInterface>(firstUser);
     for (auto [idx, operand] : llvm::enumerate(firstElemTypeInfoOp->getOpOperands())) {
         auto newLoc = appendLoc(firstElemTypeInfoOp->getLoc(), "propagated_Quantize '{0}'", idx);
-        auto newQuantize = rewriter.create<IE::QuantizeOp>(newLoc, operand.get(), quantizedElemType);
+        auto newQuantize = IE::QuantizeOp::create(rewriter, newLoc, operand.get(), quantizedElemType);
         // Update input of Operation. NewQuant -> current Op.
         operand.set(newQuantize.getOutput());
     }
@@ -327,6 +333,196 @@ mlir::LogicalResult PropagateQuantize::matchAndRewrite(IE::QuantizeOp origOp, ml
     rewriter.finalizeOpModification(lastElemTypeInfoOp);
     _log.trace("Successfully propagated QuantizeOp.");
     return mlir::success();
+}
+
+// PropagateDynamicDequantize
+
+namespace {
+// Adjusts a cloned SliceOp so it correctly slices a broadcast-compatible scale tensor: dims where
+// the scale is broadcast (size 1) get offset 0 and size 1, other dims keep the offset/size copied
+// from the original (activation-side) Slice this op was cloned from.
+void adjustClonedSliceForScaleShape(IE::SliceOp sliceOp, ShapeRef scaleShape) {
+    auto offsets = parseIntArrayAttr<int64_t>(sliceOp.getStaticOffsets());
+    auto sizes = parseIntArrayAttr<int64_t>(sliceOp.getStaticSizes());
+    VPUX_THROW_UNLESS(offsets.size() == scaleShape.size(), "Slice rank '{0}' does not match scale rank '{1}'",
+                      offsets.size(), scaleShape.size());
+    for (auto idx : irange(sizes.size())) {
+        if (scaleShape[Dim(idx)] == 1) {
+            offsets[idx] = 0;
+            sizes[idx] = 1;
+        }
+    }
+    auto* ctx = sliceOp->getContext();
+    sliceOp->setAttr("static_offsets", getIntArrayAttr(ctx, offsets));
+    sliceOp->setAttr("static_sizes", getIntArrayAttr(ctx, sizes));
+}
+
+// Predicts the scale shape after propagating (without cloning any IR) through one hop of the
+// activation chain, mirroring the transformations mapNonActivationInput applies for real. This
+// keeps the scale-shape tracker used by isValidToPropagateDequant in sync with the multi-hop
+// chain, instead of always comparing against the original (un-transformed) scale shape.
+// Returns std::nullopt if the hop cannot be propagated onto the scale path.
+std::optional<Shape> computeNextScaleShape(mlir::Operation* hopOp, ShapeRef currentScaleShape,
+                                           const DimsOrder& scaleDimsOrder) {
+    return mlir::TypeSwitch<mlir::Operation*, std::optional<Shape>>(hopOp)
+            .Case<IE::AffineReshapeOp>([&](IE::AffineReshapeOp affineReshapeOp) -> std::optional<Shape> {
+                const auto newScaleShape = computeShapeValueFromAffineReshape(affineReshapeOp, currentScaleShape);
+                if (!newScaleShape.has_value()) {
+                    return std::nullopt;
+                }
+                // The reshape must preserve the total number of scale elements. A mismatch means a
+                // group dimension is being merged with a non-group dimension, which is semantically
+                // invalid for per-group DynamicDequantize.
+                const auto origElems = vpux::details::calcTotalShapeSize(currentScaleShape.raw());
+                const auto newElems = vpux::details::calcTotalShapeSize(newScaleShape.value());
+                if (origElems != newElems) {
+                    return std::nullopt;
+                }
+                return Shape(newScaleShape.value());
+            })
+            .Case<IE::TransposeOp>([&](IE::TransposeOp transposeOp) -> std::optional<Shape> {
+                if (!transposeOp.getOrderValue().has_value()) {
+                    return std::nullopt;
+                }
+                const auto perm = DimsOrder::fromAffineMap(transposeOp.getOrderValue().value());
+                if (static_cast<size_t>(perm.numDims()) != currentScaleShape.size()) {
+                    return std::nullopt;
+                }
+                Shape newScaleShape(currentScaleShape.size());
+                for (auto idx : irange(perm.numDims())) {
+                    newScaleShape[Dim(idx)] = currentScaleShape[perm.dimAt(idx)];
+                }
+                return newScaleShape;
+            })
+            .Case<IE::PermuteCastOp>([&](IE::PermuteCastOp permuteCastOp) -> std::optional<Shape> {
+                // PermuteCastOp is always a trivial permutation (view-like, no data movement), so
+                // treating the scale's own layout as matching its tracked logical dim order, the
+                // output shape can be derived directly from mem_perm/dst_order the same way
+                // IE::PermuteCastOp::inferReturnTypeComponents does for the activation path.
+                const auto dstOrder = DimsOrder::fromAffineMap(permuteCastOp.getDstOrder());
+                if (static_cast<size_t>(dstOrder.numDims()) != currentScaleShape.size()) {
+                    return std::nullopt;
+                }
+
+                const auto& srcOrder = scaleDimsOrder;
+                const auto scaleShapeInMemOrder = srcOrder.toMemoryOrder(currentScaleShape);
+
+                // Match IE::PermuteCastOp verification: the mem-permutation must be trivial for the scale too.
+                if (!vpux::isTrivialPermute(scaleShapeInMemOrder, permuteCastOp.getMemPerm())) {
+                    return std::nullopt;
+                }
+
+                const auto scaleShapePermutedInMemOrder =
+                        vpux::applyPerm(scaleShapeInMemOrder, permuteCastOp.getMemPerm());
+                return Shape(dstOrder.toLogicalOrder(scaleShapePermutedInMemOrder).raw());
+            })
+            .Case<IE::SliceOp>([&](IE::SliceOp sliceOp) -> std::optional<Shape> {
+                const auto sizes = parseIntArrayAttr<int64_t>(sliceOp.getStaticSizes());
+                if (currentScaleShape.size() != sizes.size()) {
+                    return std::nullopt;
+                }
+                Shape newScaleShape(currentScaleShape.raw());
+                for (auto idx : irange(sizes.size())) {
+                    if (currentScaleShape[Dim(idx)] != 1) {
+                        newScaleShape[Dim(idx)] = sizes[idx];
+                    }
+                }
+                return newScaleShape;
+            })
+            .Default([&](mlir::Operation*) -> std::optional<Shape> {
+                // Other ElemTypeInfoOpInterface ops may change the scale shape.
+                // Avoid propagating.
+                return std::nullopt;
+            });
+}
+}  // namespace
+
+void PropagateDynamicDequantize::mapNonActivationInput(IE::DynamicDequantizeOp op, mlir::Operation* crtUser,
+                                                       mlir::IRMapping& mapper, mlir::PatternRewriter& rewriter,
+                                                       NonActivationState& state) const {
+    if (op.getScale() == nullptr) {
+        return;
+    }
+    VPUX_THROW_WHEN(state.secondaryValue == nullptr, "Scale-path value was not initialized for '{0}'", op);
+
+    // Clone this hop onto the scale path starting from the scale value produced by the previous
+    // hop (or the original scale for the first hop), not from the original scale directly -
+    // otherwise multi-hop chains would re-derive every hop from the un-transformed scale shape.
+    const auto currentScaleValue = state.secondaryValue;
+    const auto currentScaleShape = getBoundedShape(currentScaleValue);
+    mapper.map(crtUser->getOperand(0), currentScaleValue);
+    auto scaleCurrentUser = rewriter.clone(*crtUser, mapper);
+    extendOpLoc(scaleCurrentUser, "scale");
+    if (mlir::isa<IE::AffineReshapeOp>(scaleCurrentUser)) {
+        auto newShapeValue = computeShapeValueFromAffineReshape(mlir::cast<IE::AffineReshapeOp>(scaleCurrentUser),
+                                                                currentScaleShape);
+        // newShapeValue is guaranteed valid: isValidToPropagateDequantize pre-checked this.
+        scaleCurrentUser->setAttr("shape_value", getIntArrayAttr(op->getContext(), newShapeValue.value()));
+    } else if (auto slice = mlir::dyn_cast_if_present<IE::SliceOp>(scaleCurrentUser)) {
+        adjustClonedSliceForScaleShape(slice, currentScaleShape);
+    }
+    vpux::inferReturnTypes(scaleCurrentUser, vpux::InferShapedTypeMode::ALL);
+
+    state.secondaryValue = scaleCurrentUser->getResult(0);
+
+    mapper.clear();
+    mapper.map(op.getScale(), state.secondaryValue);
+}
+
+mlir::LogicalResult PropagateDynamicDequantize::validateOpParams(IE::DynamicDequantizeOp op,
+                                                                 mlir::PatternRewriter& rewriter,
+                                                                 NonActivationState& state) const {
+    if (op.getZp() != nullptr) {
+        return matchFailed(_log, rewriter, op,
+                           "Only support unrolled DynamicDequantizeOp without zero point, but got one");
+    }
+
+    auto scale = op.getScale();
+    if (scale == nullptr) {
+        return mlir::success();
+    }
+
+    // Reset the scale-path state: it evolves hop-by-hop for the duration of this match.
+    state.secondaryValue = scale;
+    state.secondaryShape = getBoundedShape(scale).toValues();
+
+    auto numOfNonOneDims = getNonOneDim(getBoundedShape(scale));
+    auto hasOneUseDynamicDequantizeOp = op->hasOneUse();
+    auto childOp = *(op->getUsers().begin());
+    if ((numOfNonOneDims.size() != 1 || !hasOneUseDynamicDequantizeOp) &&
+        mlir::isa_and_present<IE::TransposeOp>(childOp)) {
+        return matchFailed(_log, rewriter, op, "Only support unrolled DynamicDequantizeOp, but got {0}",
+                           numOfNonOneDims);
+    }
+
+    return mlir::success();
+}
+
+bool PropagateDynamicDequantize::isValidToPropagateDequant(IE::DynamicDequantizeOp op, mlir::Operation* nextUser,
+                                                           NonActivationState& state) const {
+    auto origDstElemType = op.getDstElemType();
+    auto quantizedElemType = mlir::cast<vpux::NDTypeInterface>(op.getInput().getType()).getElementType();
+    if (!isValidToPropagateDequantize<IE::DynamicDequantizeOp>(nextUser, _seOpsEnabled, quantizedElemType,
+                                                               origDstElemType, _log)) {
+        return false;
+    }
+
+    if (op.getScale() == nullptr) {
+        return true;
+    }
+
+    // Verify the CURRENT (possibly already hop-transformed) scale shape can be propagated through
+    // this hop before modifying IR, and advance the state so subsequent hops in the same chain
+    // are checked against the up-to-date scale shape rather than the original one.
+    const auto scaleDimsOrder = mlir::cast<NDTypeInterface>(op.getScale().getType()).getDimsOrder();
+    const auto newScaleShape = computeNextScaleShape(nextUser, state.secondaryShape, scaleDimsOrder);
+    if (!newScaleShape.has_value()) {
+        _log.trace("Scale shape cannot be propagated through {0}", nextUser);
+        return false;
+    }
+    state.secondaryShape = newScaleShape.value();
+
+    return true;
 }
 
 }  // namespace vpux::IE

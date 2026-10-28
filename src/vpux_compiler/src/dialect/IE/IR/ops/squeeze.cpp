@@ -117,8 +117,8 @@ mlir::LogicalResult vpux::IE::SqueezeOp::inferReturnTypeComponents(
             outShape.push_back(inShape[inInd]);
         }
     }
-    VPUX_THROW_UNLESS(!mlir::isa<Core::BoundedTensorType>(inType), "{0} doesn't support dynamic shapes",
-                      IE::SqueezeOp::getOperationName());
+    VPUX_THROW_WHEN(mlir::isa<Core::BoundedTensorType>(inType), "{0} doesn't support dynamic shapes",
+                    IE::SqueezeOp::getOperationName());
     const auto outDesc = vpux::getTensorAttr(
             ctx, vpux::VPU::inferSqueezeOutputLayout(inOrder.toPermutation(), axes.value(), inShape),
             vpux::getMemorySpace(inType));
@@ -137,7 +137,7 @@ mlir::OpFoldResult vpux::IE::SqueezeOp::fold(FoldAdaptor adaptor) {
         return getInput();
     }
 
-    VPUX_THROW_UNLESS(!operands.empty(), "Wrong number of operands : {0}", operands.size());
+    VPUX_THROW_WHEN(operands.empty(), "Wrong number of operands : {0}", operands.size());
 
     if (const auto attr = mlir::dyn_cast_or_null<Const::ContentAttr>(operands[0])) {
         return static_cast<Const::ContentAttr>(attr).transform().reshape(getShape(getOutput())).get();
@@ -170,7 +170,7 @@ mlir::LogicalResult FuseWithReshape::matchAndRewrite(IE::SqueezeOp origOp, mlir:
     }
     const auto outputShape = origOp.getType().getShape();
     const auto outputShapeAttr = getIntArrayAttr(getContext(), outputShape);
-    auto reshapeOp = rewriter.create<IE::ReshapeOp>(origOp->getLoc(), prevOp->getOperand(0), outputShapeAttr);
+    auto reshapeOp = IE::ReshapeOp::create(rewriter, origOp->getLoc(), prevOp->getOperand(0), outputShapeAttr);
     auto outLink = reshapeOp.getOutput();
     auto currentOutType = mlir::dyn_cast<vpux::NDTypeInterface>(origOp.getOutput().getType());
     auto newOutType = mlir::dyn_cast<vpux::NDTypeInterface>(reshapeOp.getOutput().getType());
@@ -179,8 +179,8 @@ mlir::LogicalResult FuseWithReshape::matchAndRewrite(IE::SqueezeOp origOp, mlir:
     // Reshape op is not aware of Layout. Add layout if necessary.
     if (currentOutDimOrder != newOutDimOrder) {
         auto permutation = getPermutationFromOrders(newOutDimOrder, currentOutDimOrder, origOp.getContext());
-        auto permuteCast = rewriter.create<IE::PermuteCastOp>(
-                origOp->getLoc(), reshapeOp.getOutput(),
+        auto permuteCast = IE::PermuteCastOp::create(
+                rewriter, origOp->getLoc(), reshapeOp.getOutput(),
                 mlir::AffineMapAttr::get(DimsOrder::fromValue(origOp.getOutput()).toAffineMap(origOp.getContext())),
                 mlir::AffineMapAttr::get(permutation));
         outLink = permuteCast.getOutput();

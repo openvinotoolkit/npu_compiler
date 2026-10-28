@@ -68,7 +68,7 @@ ExpandConstKind getExpandConstKind(mlir::Type elemType) {
     }
 
     const auto qType = mlir::dyn_cast<mlir::quant::QuantizedType>(elemType);
-    VPUX_THROW_UNLESS(qType != nullptr, "Unsupported Expand input type '{0}'", elemType);
+    VPUX_THROW_WHEN(qType == nullptr, "Unsupported Expand input type '{0}'", elemType);
 
     const auto storageType = qType.getStorageType();
     if (storageType.isInteger(8)) {
@@ -166,7 +166,7 @@ mlir::Value ConvertExpandPass::applyPadding(const int64_t padAxis, const int64_t
     std::copy(inSubViewOffsets.begin(), inSubViewOffsets.end(), std::back_inserter(subViewOffsets));
 
     auto constantOp = constantBuffer.getDefiningOp<Const::DeclareOp>();
-    VPUX_THROW_UNLESS(constantOp != nullptr, "Can not get constant Op");
+    VPUX_THROW_WHEN(constantOp == nullptr, "Can not get constant Op");
 
     const auto constShapeType = mlir::cast<vpux::NDTypeInterface>(constantOp.getOutput().getType());
     const auto constOuputShape = constShapeType.getShape();
@@ -182,8 +182,8 @@ mlir::Value ConvertExpandPass::applyPadding(const int64_t padAxis, const int64_t
     const auto constSubviewOffset = SmallVector<int64_t>(1, 0);
     const auto constSubviewShape = SmallVector<int64_t>(1, subViewShape.totalSize());
     auto constSubView =
-            builder.create<VPUIP::SubViewOp>(appendLoc(location, "constant_subview_{0}_{1}", padAxis, padValue),
-                                             constantOp, constSubviewOffset, constSubviewShape);
+            VPUIP::SubViewOp::create(builder, appendLoc(location, "constant_subview_{0}_{1}", padAxis, padValue),
+                                     constantOp, constSubviewOffset, constSubviewShape);
 
     // Step 2: Create Reshape Op to match concat shape with expected type
     const auto shapeType = mlir::cast<NDTypeInterface>(constSubView.getType());
@@ -192,8 +192,9 @@ mlir::Value ConvertExpandPass::applyPadding(const int64_t padAxis, const int64_t
         // Reinterpret the storage-typed constant to the expected quantized element type.
         newShapeType = newShapeType.changeElemType(expectedElemType);
     }
-    auto reshapeOp = builder.create<VPUIP::GenericReshapeOp>(
-            appendLoc(location, "constant_reshape_{0}_{1}", padAxis, padValue), newShapeType, constSubView.getResult());
+    auto reshapeOp =
+            VPUIP::GenericReshapeOp::create(builder, appendLoc(location, "constant_reshape_{0}_{1}", padAxis, padValue),
+                                            newShapeType, constSubView.getResult());
 
     // Step 3: Create PermuteCast Op to match concat layout
     const auto expandOutBufferType = mlir::cast<NDTypeInterface>(expandedBuffer.getType());
@@ -204,14 +205,14 @@ mlir::Value ConvertExpandPass::applyPadding(const int64_t padAxis, const int64_t
             DimsOrder::fromNumDims(mlir::cast<NDTypeInterface>(reshapeOp.getOutput().getType()).getRank())
                     .toAffineMap(reshapeOp.getContext()));
     auto permuteCastOp =
-            builder.create<VPUIP::PermuteCastOp>(appendLoc(location, "constant_permute_{0}_{1}", padAxis, padValue),
-                                                 newLayoutType, reshapeOp.getOutput(), dstOrderAttr, memPermAttr);
+            VPUIP::PermuteCastOp::create(builder, appendLoc(location, "constant_permute_{0}_{1}", padAxis, padValue),
+                                         newLayoutType, reshapeOp.getOutput(), dstOrderAttr, memPermAttr);
 
     // Step 4: Create Copy Op for concat concatant input
-    auto subView = builder.create<VPUIP::SubViewOp>(appendLoc(location, "expand_subview_{0}_{1}", padAxis, padValue),
-                                                    expandedBuffer, ShapeRef(subViewOffsets), subViewShape);
-    auto subViewCopy = builder.create<VPUIP::CopyOp>(appendLoc(location, "expand_copy_{0}_{1}", padAxis, padValue),
-                                                     permuteCastOp.getResult(), subView);
+    auto subView = VPUIP::SubViewOp::create(builder, appendLoc(location, "expand_subview_{0}_{1}", padAxis, padValue),
+                                            expandedBuffer, ShapeRef(subViewOffsets), subViewShape);
+    auto subViewCopy = VPUIP::CopyOp::create(builder, appendLoc(location, "expand_copy_{0}_{1}", padAxis, padValue),
+                                             permuteCastOp.getResult(), subView);
 
     return subViewCopy.getOutput();
 }
@@ -296,8 +297,8 @@ ExpandConstOps ConvertExpandPass::getZeroConstOps(mlir::func::FuncOp func, mlir:
     const auto declareBucketConst = [&](mlir::Type storageType, auto zeroValue, int64_t maxSize) {
         const auto tensorType = mlir::RankedTensorType::get({maxSize}, storageType);
         const auto denseAttr = Const::createConstContent(tensorType, ArrayRef(zeroValue));
-        return builder.create<Const::DeclareOp>(loc, vpux::convertToMemRef(tensorType),
-                                                Const::ContentAttr::get(denseAttr));
+        return Const::DeclareOp::create(builder, loc, vpux::convertToMemRef(tensorType),
+                                        Const::ContentAttr::get(denseAttr));
     };
 
     for (const auto kind : SUPPORTED_EXPAND_CONST_KINDS) {
@@ -315,13 +316,13 @@ ExpandConstOps ConvertExpandPass::getZeroConstOps(mlir::func::FuncOp func, mlir:
             ops.at(kindIdx) = declareBucketConst(mlir::Float32Type::get(&ctx), static_cast<float>(0.f), maxSize);
             break;
         case ExpandConstKind::I8:
-            VPUX_THROW_UNLESS(bucketInfo.storageType != nullptr,
-                              "Can not get storage type for I8 quantized Expand constant");
+            VPUX_THROW_WHEN(bucketInfo.storageType == nullptr,
+                            "Can not get storage type for I8 quantized Expand constant");
             ops.at(kindIdx) = declareBucketConst(bucketInfo.storageType, int8_t{0}, maxSize);
             break;
         case ExpandConstKind::U8:
-            VPUX_THROW_UNLESS(bucketInfo.storageType != nullptr,
-                              "Can not get storage type for U8 quantized Expand constant");
+            VPUX_THROW_WHEN(bucketInfo.storageType == nullptr,
+                            "Can not get storage type for U8 quantized Expand constant");
             ops.at(kindIdx) = declareBucketConst(bucketInfo.storageType, uint8_t{0}, maxSize);
             break;
         case ExpandConstKind::FP8E4M3FN:
@@ -349,8 +350,8 @@ Dim ConvertExpandPass::getPadDim(vpux::NDTypeInterface inType, vpux::NDTypeInter
     };
 
     const auto diffAxisIter = std::find_if(ioShapes.begin(), ioShapes.end(), dimDiffPredicate);
-    VPUX_THROW_UNLESS(diffAxisIter != ioShapes.end(), "Expand inShape '{0}' same with the outShape '{1}'", inShape,
-                      outShape);
+    VPUX_THROW_WHEN(diffAxisIter == ioShapes.end(), "Expand inShape '{0}' same with the outShape '{1}'", inShape,
+                    outShape);
 
     const auto padAxis = std::distance(ioShapes.begin(), diffAxisIter);
     return Dim(padAxis);
@@ -406,7 +407,7 @@ void ConvertExpandPass::safeRunOnFunc() {
 
         mlir::OpBuilder builder(origOp.getOperation());
         auto expandedBuffer =
-                builder.create<mlir::memref::AllocOp>(origOp->getLoc(), mlir::cast<mlir::MemRefType>(outputType));
+                mlir::memref::AllocOp::create(builder, origOp->getLoc(), mlir::cast<mlir::MemRefType>(outputType));
 
         const auto nonZeroAxisPredicate = [](const int64_t dim) -> bool {
             return dim > 0;
@@ -434,8 +435,8 @@ void ConvertExpandPass::safeRunOnFunc() {
         builder.setInsertionPoint(origOp);
         const auto tensorShape = to_small_vector(inShape);
         auto tensorSubView =
-                builder.create<VPUIP::SubViewOp>(origOp.getLoc(), expandedBuffer, subViewOffsets, tensorShape);
-        auto tensorSubViewCopy = builder.create<VPUIP::CopyOp>(origOp->getLoc(), origOp.getInput(), tensorSubView);
+                VPUIP::SubViewOp::create(builder, origOp.getLoc(), expandedBuffer, subViewOffsets, tensorShape);
+        auto tensorSubViewCopy = VPUIP::CopyOp::create(builder, origOp->getLoc(), origOp.getInput(), tensorSubView);
 
         concatInputs.push_back(tensorSubViewCopy.getOutput());
 
@@ -454,7 +455,7 @@ void ConvertExpandPass::safeRunOnFunc() {
             concatInputs.push_back(padOut);
         }
 
-        auto concatViewOp = builder.create<VPUIP::ConcatViewOp>(origOp->getLoc(), concatInputs, expandedBuffer);
+        auto concatViewOp = VPUIP::ConcatViewOp::create(builder, origOp->getLoc(), concatInputs, expandedBuffer);
         _log.nest().trace("Create ConcatViewOp '{0}'", concatViewOp->getLoc());
 
         origOp->replaceAllUsesWith(concatViewOp);

@@ -24,7 +24,9 @@ func.func @NceConv(%arg0: tensor<1x16x16x16xf16, {mem_space = @CMX_NN, order = #
                 ppe = #VPU.PPEStub<>,
                 pad = #VPU.Padding<left = 0 , right = 0, top = 0, bottom = 0>,
 
-                strides = [1, 1]
+                strides = [1, 1],
+                tiling_loop_index = 7 : i64,
+                loop_tile_coord = {axes = array<i64: 2>, indices = array<i64: 3>}
             } : tensor<1x16x16x16xf16, {mem_space = @CMX_NN, order = #NHWC}>, tensor<16x16x1x1xf16, {mem_space = @CMX_NN, order = #NHWC}>, tensor<16x1x1x4xsi32, {mem_space = @CMX_NN}> -> tensor<1x16x16x16xf16, {mem_space = @CMX_NN, order = #NHWC}> {
         VPU.DPU.Workload outOffsets [0, 0, 0, 0] outSizes [1, 16, 16, 16] pad [0, 0, 0, 0] #VPU.mpe_mode<VECTOR_FP16>
     }
@@ -34,6 +36,8 @@ func.func @NceConv(%arg0: tensor<1x16x16x16xf16, {mem_space = @CMX_NN, order = #
     // CHECK: [[OUT_BUF:%.+]] = memref.alloc() : memref<1x16x16x16xf16, {order = #NHWC}, @CMX_NN>
 
     // CHECK:       VPUIP.NCEClusterTask
+    // CHECK-SAME:      loop_tile_coord = {axes = array<i64: 2>, indices = array<i64: 3>}
+    // CHECK-SAME:      tiling_loop_index = 7 : i64
     // CHECK-SAME:      task_type = #VPUIP.nce_task_type<CONV>
     // CHECK-SAME:  input([[ARG0]] : memref<1x16x16x16xf16, {order = #NHWC}, @CMX_NN>)
     // CHECK-SAME:  weights([[ARG1]] : memref<16x16x1x1xf16, {order = #NHWC}, @CMX_NN>)

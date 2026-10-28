@@ -6,6 +6,7 @@
 #include "vpux/compiler/dialect/IE/IR/dialect.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/data_movement.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
+#include "vpux/compiler/dialect/IE/utils/dynamic_shape_utils.hpp"
 #include "vpux/compiler/dialect/config/utils/config_option_utils.hpp"
 #include "vpux/compiler/utils/adjust_layout_utils.hpp"
 #include "vpux/utils/core/dense_map.hpp"
@@ -101,6 +102,14 @@ void AdjustLayoutsPass::safeRunOnFunc() {
 
     mlir::ConversionTarget target(ctx);
     target.markUnknownOpDynamicallyLegal([&](mlir::Operation* op) {
+        // PadOp with dynamic output: SEPadOpModel::isSupported does kDynamic+pad arithmetic
+        // on spatial dims, producing invalid shape (kDynamic+N).
+        if (auto padOp = mlir::dyn_cast<IE::PadOp>(op)) {
+            if (IE::hasDynamicShape(padOp.getOutput())) {
+                return true;
+            }
+        }
+
         if (auto iface = mlir::dyn_cast<IE::LayoutInfoOpInterface>(op)) {
             _log.trace("Check layer operation '{0}' at '{1}'", op->getName(), op->getLoc());
 

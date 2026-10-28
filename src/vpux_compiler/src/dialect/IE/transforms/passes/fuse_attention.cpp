@@ -10,6 +10,7 @@
 #include "vpux/compiler/dialect/IE/IR/ops/data_movement.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/data_type.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/eltwise.hpp"
+#include "vpux/compiler/dialect/IE/IR/ops/logical.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/shape_manipulation.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/specialized.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
@@ -53,7 +54,7 @@ private:
 bool isLegalAttentionDMAInputs(mlir::Value inputQ, mlir::Value inputK, mlir::Value inputV, mlir::Value inputMask,
                                mlir::Value inputSink, mlir::Value inputBias);
 
-mlir::Value findSeqLenKFromMask(mlir::Value mask);
+mlir::Value findSeqLenKFromMask(mlir::Value mask, std::optional<int64_t>* localWindowSizeOut = nullptr);
 
 //
 // Skip through layout operations (Reshape, AffineReshape, Transpose) that have single use
@@ -180,9 +181,8 @@ mlir::Value extractUnbroadcastedMask(mlir::OpBuilder& builder, mlir::Location lo
         return mask;
     }
 
-    auto newSelect =
-            builder.create<IE::SelectOp>(appendLoc(loc, "unbroadcast_mask"), unbroadcastedCond, selectOp.getInput2(),
-                                         selectOp.getInput3(), selectOp.getAutoBroadcastAttr());
+    auto newSelect = IE::SelectOp::create(builder, appendLoc(loc, "unbroadcast_mask"), unbroadcastedCond,
+                                          selectOp.getInput2(), selectOp.getInput3(), selectOp.getAutoBroadcastAttr());
     return newSelect.getOutput();
 }
 
@@ -193,7 +193,7 @@ mlir::Value extractUnbroadcastedMask(mlir::OpBuilder& builder, mlir::Location lo
 //      Q[N, qC, tSL, E]  -> Q[N*kC, qC/kC, tSL, E]
 //      K[N, kC, sSL, E]  -> K[N*kC, 1,     sSL, E]
 //      V[N, kC, sSL, E]  -> V[N*kC, 1,     sSL, E]
-//    The mask, bias and sink is reshaped to match the new batch/channel dimensions when applicable.
+//    The mask, bias and sink are reshaped to match the new batch/channel dimensions when applicable.
 //    The output is reshaped back to the original [N, qC, tSL, vE] layout.
 //
 // 2. Batch-to-channels concentration: when batch > 1 and all N*C products (Q, K, V, mask, bias,
@@ -257,19 +257,19 @@ optimizeAttentionInputs(mlir::OpBuilder& builder, mlir::Location loc, mlir::Valu
         // Reshape Q: [N, qC, H, W] -> [N*kC, qC/kC, H, W]
         SmallVector<int64_t> newQShape = {newBatch, newQChannels, qSeqLen, qHeadDim};
         optimizedQ =
-                builder.create<IE::ReshapeOp>(appendLoc(loc, "reshape_q_gqa"), inputQ, getIntArrayAttr(ctx, newQShape))
+                IE::ReshapeOp::create(builder, appendLoc(loc, "reshape_q_gqa"), inputQ, getIntArrayAttr(ctx, newQShape))
                         .getOutput();
 
         // Reshape K: [N, kC, H, W] -> [N*kC, 1, H, W]
         SmallVector<int64_t> newKShape = {newBatch, 1, kSeqLen, kHeadDim};
         optimizedK =
-                builder.create<IE::ReshapeOp>(appendLoc(loc, "reshape_k_gqa"), inputK, getIntArrayAttr(ctx, newKShape))
+                IE::ReshapeOp::create(builder, appendLoc(loc, "reshape_k_gqa"), inputK, getIntArrayAttr(ctx, newKShape))
                         .getOutput();
 
         // Reshape V: [N, vC, H, W] -> [N*vC, 1, H, W]
         SmallVector<int64_t> newVShape = {newBatch, 1, vSeqLen, vHeadDim};
         optimizedV =
-                builder.create<IE::ReshapeOp>(appendLoc(loc, "reshape_v_gqa"), inputV, getIntArrayAttr(ctx, newVShape))
+                IE::ReshapeOp::create(builder, appendLoc(loc, "reshape_v_gqa"), inputV, getIntArrayAttr(ctx, newVShape))
                         .getOutput();
 
         // Reshape mask/bias/sink to match GQA-reshaped Q/K/V batch and channel dimensions.
@@ -299,8 +299,8 @@ optimizeAttentionInputs(mlir::OpBuilder& builder, mlir::Location loc, mlir::Valu
             if (newOperandBatch != operandBatch || newOperandChannels != operandChannels) {
                 SmallVector<int64_t> newOperandShape = {newOperandBatch, newOperandChannels, operandShape.raw()[2],
                                                         operandShape.raw()[3]};
-                return builder
-                        .create<IE::ReshapeOp>(appendLoc(loc, name), operand, getIntArrayAttr(ctx, newOperandShape))
+                return IE::ReshapeOp::create(builder, appendLoc(loc, name), operand,
+                                             getIntArrayAttr(ctx, newOperandShape))
                         .getOutput();
             }
             return operand;
@@ -385,7 +385,7 @@ optimizeAttentionInputs(mlir::OpBuilder& builder, mlir::Location loc, mlir::Valu
 
                 SmallVector<int64_t> newShape = {1, N * C, seqLen, headDim};
                 auto reshapeOp =
-                        builder.create<IE::ReshapeOp>(appendLoc(loc, name), input, getIntArrayAttr(ctx, newShape));
+                        IE::ReshapeOp::create(builder, appendLoc(loc, name), input, getIntArrayAttr(ctx, newShape));
                 return reshapeOp.getOutput();
             };
 
@@ -415,6 +415,26 @@ optimizeAttentionInputs(mlir::OpBuilder& builder, mlir::Location loc, mlir::Valu
             optimizedBias, optimizedSink, needsReshapeBack, origOutputShape};
 }
 
+bool isSmoothSoftmaxSink(mlir::Value sink) {
+    if (sink == nullptr) {
+        return false;
+    }
+    auto constOp = sink.getDefiningOp<Const::DeclareOp>();
+    if (constOp == nullptr || !constOp.getContentAttr().isSplat()) {
+        return false;
+    }
+    const auto splatValue = Const::getSplatValue<double>(constOp);
+    if (mlir::failed(splatValue) || splatValue.value() != 0.0) {
+        return false;
+    }
+    const auto sinkShape = mlir::cast<NDTypeInterface>(sink.getType()).getShape();
+    const auto rank = sinkShape.size();
+    if (rank < 2 || sinkShape.raw()[rank - 1] != 1 || sinkShape.raw()[rank - 2] != 1) {
+        return false;
+    }
+    return true;
+}
+
 void createAttentionFromSDPA(mlir::Operation* op, mlir::Value inputQ, mlir::Value inputK, mlir::Value inputV,
                              mlir::Value mask, mlir::Value scale, mlir::Value sink) {
     auto builder = mlir::OpBuilder(op);
@@ -440,13 +460,12 @@ void createAttentionFromSDPA(mlir::Operation* op, mlir::Value inputQ, mlir::Valu
                 optimizeAttentionInputs(builder, loc, inputQ, inputK, inputV, mask, /*bias=*/nullptr, sink);
     }
 
-    auto attentionOp = builder.create<IE::AttentionOp>(appendLoc(loc, "attention_full"), finalQ, finalK, finalV,
-                                                       finalMask, scale, finalSink, finalBias, /*padSizeS=*/nullptr);
+    auto attentionOp = IE::AttentionOp::create(builder, appendLoc(loc, "attention_full"), finalQ, finalK, finalV,
+                                               finalMask, scale, sink, finalBias, /*padSizeS=*/nullptr);
 
     if (needsReshapeBack) {
-        auto reshapeBackOp =
-                builder.create<IE::ReshapeOp>(appendLoc(loc, "reshape_output_channels_to_batch"),
-                                              attentionOp.getOutput(), getIntArrayAttr(ctx, origOutputShape));
+        auto reshapeBackOp = IE::ReshapeOp::create(builder, appendLoc(loc, "reshape_output_channels_to_batch"),
+                                                   attentionOp.getOutput(), getIntArrayAttr(ctx, origOutputShape));
         op->replaceAllUsesWith(reshapeBackOp);
     } else {
         op->replaceAllUsesWith(attentionOp);
@@ -469,13 +488,12 @@ void createAttention(mlir::Operation* op, mlir::Value inputQ, mlir::Value inputK
                 optimizeAttentionInputs(builder, loc, inputQ, inputK, inputV, mask, bias, sink);
     }
 
-    auto attentionOp = builder.create<IE::AttentionOp>(appendLoc(loc, "attention_pattern"), finalQ, finalK, finalV,
-                                                       finalMask, scale, finalSink, finalBias, /*padSizeS=*/nullptr);
+    auto attentionOp = IE::AttentionOp::create(builder, appendLoc(loc, "attention_pattern"), finalQ, finalK, finalV,
+                                               finalMask, scale, sink, finalBias, /*padSizeS=*/nullptr);
 
     if (needsReshapeBack) {
-        auto reshapeBackOp =
-                builder.create<IE::ReshapeOp>(appendLoc(loc, "reshape_output_channels_to_batch"),
-                                              attentionOp.getOutput(), getIntArrayAttr(ctx, origOutputShape));
+        auto reshapeBackOp = IE::ReshapeOp::create(builder, appendLoc(loc, "reshape_output_channels_to_batch"),
+                                                   attentionOp.getOutput(), getIntArrayAttr(ctx, origOutputShape));
         op->replaceAllUsesWith(reshapeBackOp);
     } else {
         op->replaceAllUsesWith(attentionOp);
@@ -536,8 +554,8 @@ mlir::Value extractUnbroadcastedInput(mlir::OpBuilder& builder, mlir::Location l
         }
 
         if (needsReshape) {
-            current = builder.create<IE::ReshapeOp>(appendLoc(loc, "reshape_unbroadcast"), current,
-                                                    getIntArrayAttr(ctx, expectedShape))
+            current = IE::ReshapeOp::create(builder, appendLoc(loc, "reshape_unbroadcast"), current,
+                                            getIntArrayAttr(ctx, expectedShape))
                               .getOutput();
         }
 
@@ -606,19 +624,18 @@ void squeezeSDPALeadingOnesTo4D(IE::SDPAOp sdpaOp) {
             return val;
         }
         const auto newShape = squeezeLeadingOnesTo4D(getShape(val).raw()).value();
-        return builder
-                .create<IE::ReshapeOp>(appendLoc(sdpaOp.getLoc(), "squeeze_{0}", tag), val,
-                                       getIntArrayAttr(ctx, newShape))
+        return IE::ReshapeOp::create(builder, appendLoc(sdpaOp.getLoc(), "squeeze_{0}", tag), val,
+                                     getIntArrayAttr(ctx, newShape))
                 .getOutput();
     };
 
-    auto newSDPA = builder.create<IE::SDPAOp>(appendLoc(sdpaOp.getLoc(), "to_4d"), to4D(sdpaOp.getInputQ(), "q"),
-                                              to4D(sdpaOp.getInputK(), "k"), to4D(sdpaOp.getInputV(), "v"),
-                                              to4D(sdpaOp.getInputMask(), "m"), sdpaOp.getInputScale(),
-                                              sdpaOp.getInputSink(), sdpaOp.getCausalAttr());
+    auto newSDPA = IE::SDPAOp::create(builder, appendLoc(sdpaOp.getLoc(), "to_4d"), to4D(sdpaOp.getInputQ(), "q"),
+                                      to4D(sdpaOp.getInputK(), "k"), to4D(sdpaOp.getInputV(), "v"),
+                                      to4D(sdpaOp.getInputMask(), "m"), sdpaOp.getInputScale(), sdpaOp.getInputSink(),
+                                      sdpaOp.getCausalAttr());
 
-    auto unsqueeze = builder.create<IE::ReshapeOp>(appendLoc(sdpaOp.getLoc(), "unsqueeze_out"), newSDPA.getOutput(),
-                                                   getIntArrayAttr(ctx, getShape(sdpaOp.getOutput()).raw()));
+    auto unsqueeze = IE::ReshapeOp::create(builder, appendLoc(sdpaOp.getLoc(), "unsqueeze_out"), newSDPA.getOutput(),
+                                           getIntArrayAttr(ctx, getShape(sdpaOp.getOutput()).raw()));
     sdpaOp.getOutput().replaceAllUsesWith(unsqueeze.getOutput());
     sdpaOp.erase();
 }
@@ -631,6 +648,9 @@ struct AttentionDMAConfigs {
     int64_t eDim;
     int64_t eVDim;
 };
+
+// Minimum source sequence length (sSL) at which the AttentionDMAFlash kernel is selected.
+constexpr int64_t ATTENTION_DMA_FLASH_MIN_SSL = 2048;
 
 static const SmallVector<AttentionDMAConfigs> LEGAL_ATTENTION_DMA_CONFIGS = {
         {12, 3600, 3600, 16, 16},
@@ -675,7 +695,6 @@ bool isLegalAttentionDMAInputs(mlir::Value inputQ, mlir::Value inputK, mlir::Val
         });
     };
     if (hasDynamicDim(shapeQ) || hasDynamicDim(shapeK) || hasDynamicDim(shapeV)) {
-        vpux::Logger::global().trace("AttentionOp has dynamic shapes, legal for AttentionDma.");
         return true;
     }
 
@@ -688,11 +707,6 @@ bool isLegalAttentionDMAInputs(mlir::Value inputQ, mlir::Value inputK, mlir::Val
     const auto isTransposedV = shapeK[rankK - 2] != shapeV[rankV - 2];
     const auto eVdim = isTransposedV ? shapeV[rankV - 2] : shapeV[rankV - 1];
 
-    // If the input sink is present, DynamicAttention is not supported
-    if (inputSink != nullptr) {
-        return false;
-    }
-
     // Bias-only (no mask) is not supported by AttentionDMA DMA kernel yet.
     if (inputBias != nullptr && inputMask == nullptr) {
         return false;
@@ -704,13 +718,17 @@ bool isLegalAttentionDMAInputs(mlir::Value inputQ, mlir::Value inputK, mlir::Val
     };
 
     if (llvm::any_of(LEGAL_ATTENTION_DMA_CONFIGS, matches)) {
-        vpux::Logger::global().trace("AttentionOp is legal for AttentionDMA conversion");
         return true;
     }
 
     // The AttentionDMAFlash kernel handles variable-length KV sequences via an explicit seqLenK argument.
-    if (findSeqLenKFromMask(inputMask) != nullptr && sSL >= 8192) {
+    if (findSeqLenKFromMask(inputMask) != nullptr && sSL >= ATTENTION_DMA_FLASH_MIN_SSL) {
         return true;
+    }
+
+    // Sink is not supported for non flash AttentionDMA
+    if (inputSink != nullptr) {
+        return false;
     }
 
     return false;
@@ -743,12 +761,108 @@ mlir::Value getNonConstOperand(mlir::Value lhs, mlir::Value rhs) {
     return lhsConst ? rhs : lhs;
 }
 
+// Result of matching a per-channel dequantize pattern feeding an AttentionDMA K/V input.
+struct DequantizedKVInput {
+    mlir::Value quantValue;  // the raw si8 tensor
+    mlir::Value scale;       // the per-channel float scale constant
+};
+
+// Detect the pattern
+//   Convert(si8 -> float) -> Multiply(scale)
+// optionally preceded by a single Transpose (V is transposed before feeding AttentionDMA), and
+// rebuild it directly on the raw si8 tensor so AttentionDMA can consume the quantized K/V and
+// dequantize scale itself. Dequantize (Convert+Multiply) is elementwise, so it commutes with the
+// layout-only Transpose: re-applying the same permutation to the si8 tensor preserves the shape
+// AttentionDMA expects. Returns the raw si8 tensor (transposed if needed) and the scale constant
+// on match; std::nullopt otherwise.
+std::optional<DequantizedKVInput> matchDequantizeConvertMultiply(mlir::OpBuilder& builder, mlir::Location loc,
+                                                                 mlir::Value input) {
+    mlir::Value current = input;
+    IE::TransposeOp transposeOp;
+    if (auto foundTranspose = current.getDefiningOp<IE::TransposeOp>()) {
+        transposeOp = foundTranspose;
+        current = transposeOp.getInput();
+    }
+
+    auto multiplyOp = current.getDefiningOp<IE::MultiplyOp>();
+    if (multiplyOp == nullptr) {
+        return std::nullopt;
+    }
+
+    // Identify the quantized side by which operand is fed by a Convert(si8 -> float), rather than by
+    // constness: the scale (k_scale/v_scale) may be a genuine runtime input/activation, not a folded
+    // constant, so getNonConstOperand (which requires exactly one Const::DeclareOp operand) cannot be
+    // used here.
+    mlir::Value quantSide = multiplyOp.getInput1();
+    mlir::Value scale = multiplyOp.getInput2();
+    auto convertOp = quantSide.getDefiningOp<IE::ConvertOp>();
+    if (convertOp == nullptr) {
+        quantSide = multiplyOp.getInput2();
+        scale = multiplyOp.getInput1();
+        convertOp = quantSide.getDefiningOp<IE::ConvertOp>();
+        if (convertOp == nullptr) {
+            return std::nullopt;
+        }
+    }
+
+    const auto quantElemType = mlir::cast<NDTypeInterface>(convertOp.getInput().getType()).getElementType();
+    if (!quantElemType.isSignedInteger(8)) {
+        return std::nullopt;
+    }
+
+    mlir::Value quantValue = convertOp.getInput();
+    if (transposeOp != nullptr) {
+        // Only the static order_value form is handled; a dynamic order operand cannot be
+        // safely re-applied here.
+        auto orderAttr = transposeOp.getOrderValueAttr();
+        if (orderAttr == nullptr) {
+            return std::nullopt;
+        }
+        quantValue = IE::TransposeOp::create(builder, appendLoc(loc, "quant_transpose"), quantValue, nullptr, orderAttr)
+                             .getOutput();
+    }
+
+    return DequantizedKVInput{quantValue, scale};
+}
+
+// Extract a scalar local_window_size value from a GreaterEqual op matching the sliding-window
+// "too_old" check (distance >= local_window_size): one operand is the (non-const) distance, the
+// other is a splat si64/si32 constant holding the window size. Returns nullopt on mismatch.
+std::optional<int64_t> extractLocalWindowSize(IE::GreaterEqualOp greaterEqualOp) {
+    mlir::Value lhs = greaterEqualOp.getInput1();
+    mlir::Value rhs = greaterEqualOp.getInput2();
+    const auto isConst = [](mlir::Value value) {
+        return mlir::isa_and_present<Const::DeclareOp>(value.getDefiningOp());
+    };
+    const mlir::Value windowConst = isConst(rhs) ? rhs : (isConst(lhs) ? lhs : nullptr);
+    if (windowConst == nullptr) {
+        return std::nullopt;
+    }
+
+    auto constOp = windowConst.getDefiningOp<Const::DeclareOp>();
+    if (!constOp.getContentAttr().isSplat()) {
+        return std::nullopt;
+    }
+
+    const auto splatValue = Const::getSplatValue<int64_t>(constOp);
+    if (mlir::failed(splatValue)) {
+        return std::nullopt;
+    }
+    return splatValue.value();
+}
+
 // Match the mask tree encoding seq_len_k; return the seq_len_k block argument (nullptr on mismatch).
 //   seq_len_k -> Convert -> Add(c) -> AffineReshape
 //     -> Add(c)      -> Greater(c)                       (left-aligned:  valid tokens at buffer start, -inf on right)
 //     -> Subtract(c) -> Broadcast(c) -> GreaterEqual(c)  (right-aligned: valid tokens at buffer end,   -inf on left)
 //     -> Select(cond, c, c) == mask
-mlir::Value findSeqLenKFromMask(mlir::Value mask) {
+//
+// An optional Mistral-style sliding-window band may be OR-ed on top of the causal/right-aligned
+// condition above:
+//   LogicalOr(<causal or right-aligned condition>, GreaterEqual(distance, local_window_size))
+// When present, it is peeled off here (writing the discovered window size to 'localWindowSizeOut'
+// when non-null) so the branch below keeps matching the causal/right-aligned condition as usual.
+mlir::Value findSeqLenKFromMask(mlir::Value mask, std::optional<int64_t>* localWindowSizeOut) {
     if (!mask) {
         return nullptr;
     }
@@ -758,6 +872,32 @@ mlir::Value findSeqLenKFromMask(mlir::Value mask) {
         return nullptr;
     }
     mlir::Value current = selectOp.getInput1();
+
+    if (auto logicalOrOp = current.getDefiningOp<IE::LogicalOrOp>()) {
+        const auto lhs = logicalOrOp.getInput1();
+        const auto rhs = logicalOrOp.getInput2();
+
+        const auto [windowSize, remainingBranch] = [&]() -> std::pair<std::optional<int64_t>, mlir::Value> {
+            if (auto geOp = lhs.getDefiningOp<IE::GreaterEqualOp>()) {
+                if (const auto size = extractLocalWindowSize(geOp); size.has_value()) {
+                    return {size, rhs};
+                }
+            }
+            if (auto geOp = rhs.getDefiningOp<IE::GreaterEqualOp>()) {
+                if (const auto size = extractLocalWindowSize(geOp); size.has_value()) {
+                    return {size, lhs};
+                }
+            }
+            return {std::nullopt, nullptr};
+        }();
+
+        if (windowSize.has_value()) {
+            if (localWindowSizeOut != nullptr) {
+                *localWindowSizeOut = windowSize;
+            }
+            current = remainingBranch;
+        }
+    }
 
     StringRef alignment;
     if (auto greaterOp = current.getDefiningOp<IE::GreaterOp>()) {
@@ -881,7 +1021,8 @@ void FuseAttentionPass::safeRunOnFunc() {
         const auto extractedVShape = extractedVType.getShape().raw();
 
         if (extractedKShape[rank - 3] != extractedVShape[rank - 3]) {
-            return;
+            inputK = sdpaOp.getInputK();
+            inputV = sdpaOp.getInputV();
         }
 
         SmallVector<uint32_t> permuteNdOrder = {};
@@ -892,8 +1033,8 @@ void FuseAttentionPass::safeRunOnFunc() {
         permuteNdOrder.push_back(rank - 2);
         const auto orderAttr =
                 mlir::AffineMapAttr::get(mlir::AffineMap::getPermutationMap(permuteNdOrder, builder.getContext()));
-        auto transposedVOp =
-                builder.create<IE::TransposeOp>(appendLoc(sdpaOp->getLoc(), "transpose_v"), inputV, nullptr, orderAttr);
+        auto transposedVOp = IE::TransposeOp::create(builder, appendLoc(sdpaOp->getLoc(), "transpose_v"), inputV,
+                                                     nullptr, orderAttr);
 
         createAttentionFromSDPA(sdpaOp, sdpaOp.getInputQ(), inputK, transposedVOp.getOutput(), sdpaOp.getInputMask(),
                                 sdpaOp.getInputScale(), sdpaOp.getInputSink());
@@ -1128,8 +1269,9 @@ void FuseAttentionPass::safeRunOnFunc() {
             permuteOrder.push_back(rank - 2);
 
             auto orderAttr = mlir::AffineMapAttr::get(mlir::AffineMap::getPermutationMap(permuteOrder, ctx));
-            auto transposeOp = builder.create<IE::TransposeOp>(
-                    appendLoc(matMulVOp.getLoc(), formatv("transpose_{0}_for_sdpa", name)), input, nullptr, orderAttr);
+            auto transposeOp = IE::TransposeOp::create(
+                    builder, appendLoc(matMulVOp.getLoc(), formatv("transpose_{0}_for_sdpa", name)), input, nullptr,
+                    orderAttr);
 
             input = transposeOp.getOutput();
         };
@@ -1215,8 +1357,8 @@ void FuseAttentionPass::safeRunOnFunc() {
         // Reshape Q: [N, qHeads, tSL, E] -> [N, 1, qHeads*tSL, E]
         const auto newTSL = qHeads * tSL;
         SmallVector<int64_t> newQShape = {N, 1, newTSL, E};
-        auto reshapedQ = builder.create<IE::ReshapeOp>(appendLoc(loc, "mqa_fold_q"), attentionOp.getInputQ(),
-                                                       getIntArrayAttr(ctx, newQShape))
+        auto reshapedQ = IE::ReshapeOp::create(builder, appendLoc(loc, "mqa_fold_q"), attentionOp.getInputQ(),
+                                               getIntArrayAttr(ctx, newQShape))
                                  .getOutput();
 
         // Tile mask along the tSL dimension (second-to-last) by qHeads.
@@ -1226,21 +1368,21 @@ void FuseAttentionPass::safeRunOnFunc() {
             const auto maskRank = mlir::cast<NDTypeInterface>(tiledMask.getType()).getRank();
             SmallVector<int64_t> maskTiles(maskRank, 1);
             maskTiles[maskRank - 2] = qHeads;
-            tiledMask = builder.create<IE::TileOp>(appendLoc(loc, "mqa_fold_mask"), tiledMask,
-                                                   getIntArrayAttr(ctx, maskTiles))
+            tiledMask = IE::TileOp::create(builder, appendLoc(loc, "mqa_fold_mask"), tiledMask,
+                                           getIntArrayAttr(ctx, maskTiles))
                                 .getOutput();
         }
 
-        auto newAttOp = builder.create<IE::AttentionOp>(appendLoc(loc, "mqa_fold_attention"), reshapedQ,
-                                                        attentionOp.getInputK(), attentionOp.getInputV(), tiledMask,
-                                                        attentionOp.getInputScale(), attentionOp.getInputSink(),
-                                                        /*bias=*/nullptr, attentionOp.getPadSizeSAttr());
+        auto newAttOp = IE::AttentionOp::create(builder, appendLoc(loc, "mqa_fold_attention"), reshapedQ,
+                                                attentionOp.getInputK(), attentionOp.getInputV(), tiledMask,
+                                                attentionOp.getInputScale(), attentionOp.getInputSink(),
+                                                /*bias=*/nullptr, attentionOp.getPadSizeSAttr());
 
         // Reshape output: [N, 1, qHeads*tSL, vE] -> original [N, qHeads, tSL, vE]
         const auto origOutputShape = mlir::cast<NDTypeInterface>(attentionOp.getOutput().getType()).getShape().raw();
         SmallVector<int64_t> reshapeBackShape(origOutputShape.begin(), origOutputShape.end());
-        auto reshapedOut = builder.create<IE::ReshapeOp>(appendLoc(loc, "mqa_unfold_output"), newAttOp.getOutput(),
-                                                         getIntArrayAttr(ctx, reshapeBackShape));
+        auto reshapedOut = IE::ReshapeOp::create(builder, appendLoc(loc, "mqa_unfold_output"), newAttOp.getOutput(),
+                                                 getIntArrayAttr(ctx, reshapeBackShape));
 
         attentionOp.getOutput().replaceAllUsesWith(reshapedOut.getOutput());
         attentionOp.erase();
@@ -1250,11 +1392,43 @@ void FuseAttentionPass::safeRunOnFunc() {
     func->walk([&](IE::AttentionOp attentionOp) {
         if (isLegalAttentionDMA(attentionOp)) {
             auto builder = mlir::OpBuilder(attentionOp);
-            mlir::Value seqLenK = findSeqLenKFromMask(attentionOp.getInputMask());
-            auto newAttOp = builder.create<IE::AttentionDMAOp>(
-                    attentionOp->getLoc(), attentionOp.getInputQ(), attentionOp.getInputK(), attentionOp.getInputV(),
+            std::optional<int64_t> localWindowSize;
+            mlir::Value seqLenK = findSeqLenKFromMask(attentionOp.getInputMask(), &localWindowSize);
+
+            // Quantized K/V is only supported by the AttentionDMAFlash kernel
+            const auto kShape = mlir::cast<NDTypeInterface>(attentionOp.getInputK().getType()).getShape().raw();
+            const bool supportsQuantizedKV = kShape[kShape.size() - 2] >= ATTENTION_DMA_FLASH_MIN_SSL;
+
+            // Quantized K/V support: detect a per-channel dequantize pattern feeding K/V and, when
+            // found, forward the raw si8 tensor plus its scale to AttentionDMA directly instead of
+            // the dequantized float tensor, so the kernel performs the dequantization itself.
+            mlir::Value inputK = attentionOp.getInputK();
+            mlir::Value inputV = attentionOp.getInputV();
+            mlir::Value kScale = nullptr;
+            mlir::Value vScale = nullptr;
+            if (supportsQuantizedKV) {
+                auto quantK = matchDequantizeConvertMultiply(builder, attentionOp->getLoc(), attentionOp.getInputK());
+                auto quantV = matchDequantizeConvertMultiply(builder, attentionOp->getLoc(), attentionOp.getInputV());
+                if (quantK && quantV) {
+                    inputK = quantK->quantValue;
+                    kScale = quantK->scale;
+                    inputV = quantV->quantValue;
+                    vScale = quantV->scale;
+                }
+            }
+
+            const auto localWindowSizeAttr = (seqLenK && localWindowSize.has_value())
+                                                     ? builder.getI64IntegerAttr(localWindowSize.value())
+                                                     : nullptr;
+
+            const bool smoothSoftmax = isSmoothSoftmaxSink(attentionOp.getInputSink());
+            const auto smoothSoftmaxAttr = smoothSoftmax ? builder.getUnitAttr() : nullptr;
+
+            auto newAttOp = IE::AttentionDMAOp::create(
+                    builder, attentionOp->getLoc(), attentionOp.getInputQ(), inputK, inputV,
                     seqLenK ? nullptr : attentionOp.getInputMask(), attentionOp.getInputScale(),
-                    attentionOp.getInputSink(), attentionOp.getInputBias(), seqLenK, attentionOp.getPadSizeSAttr());
+                    smoothSoftmax ? nullptr : attentionOp.getInputSink(), attentionOp.getInputBias(), seqLenK, kScale,
+                    vScale, attentionOp.getPadSizeSAttr(), localWindowSizeAttr, smoothSoftmaxAttr);
 
             attentionOp.getOutput().replaceAllUsesWith(newAttOp.getOutput());
             attentionOp.erase();

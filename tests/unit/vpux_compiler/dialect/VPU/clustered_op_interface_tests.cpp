@@ -138,7 +138,9 @@ module @test attributes {config.compilationMode = #config.compilation_mode<Defau
     {
         // Tile should be compatible with SOH, but it's disabled for now due to bug
         // in downstream passes for this arch.
-        // TODO: ticket
+        // TODO: E#230157 - Corrected check reveals context violation on NPU40XX.
+        // Remove special case when root cause is fixed and leave just the
+        // MultiplyBroadcastedH_IsSOHCompatible_AllowSOH test.
         const Shape smallTileShape({1, 64, 8, 500});
         const Shape smallTileOffsets({0, 0, 8, 0});
         const Shape smallTileAxis({1, 1, 32, 1});
@@ -194,7 +196,7 @@ module @test attributes {config.compilationMode = #config.compilation_mode<Defau
     }
 
     {
-        // Tile is compatible with SOH, as size<h> > num_clusters
+        // Tile is compatible with SOH, as size<h> >= num_clusters
         const Shape smallTileShape({1, 64, 8, 500});
         const Shape smallTileOffsets({0, 0, 8, 0});
         const Shape smallTileAxis({1, 1, 32, 1});

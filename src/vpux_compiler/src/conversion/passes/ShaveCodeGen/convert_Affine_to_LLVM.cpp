@@ -213,7 +213,7 @@ void ConvertAffine2LLVMPass::replaceStaticMemRefDescriptorArgs(mlir::LLVM::LLVMF
     auto loc = newFuncOp.getLoc();
 
     auto makeConst = [&](int64_t val) -> mlir::Value {
-        return builder.create<mlir::LLVM::ConstantOp>(loc, i32Ty, mlir::IntegerAttr::get(i32Ty, val));
+        return mlir::LLVM::ConstantOp::create(builder, loc, i32Ty, mlir::IntegerAttr::get(i32Ty, val));
     };
 
     for (unsigned i = 0, e = origArgTypes.size(); i < e; ++i) {
@@ -302,7 +302,7 @@ void ConvertAffine2LLVMPass::convertIndexArgsToI64(mlir::func::FuncOp funcOp) {
     for (auto indexArgPos : indexArgPositions) {
         auto arg = entryBlock.getArgument(indexArgPos);
         arg.setType(i64Ty);
-        auto cast = builder.create<mlir::index::CastSOp>(loc, builder.getIndexType(), arg);
+        auto cast = mlir::index::CastSOp::create(builder, loc, builder.getIndexType(), arg);
         arg.replaceAllUsesExcept(cast.getResult(), cast.getOperation());
     }
 }

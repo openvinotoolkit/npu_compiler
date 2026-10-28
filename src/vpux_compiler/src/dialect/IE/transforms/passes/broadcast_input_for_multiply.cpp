@@ -5,8 +5,10 @@
 
 #include "vpux/compiler/core/attributes/dims_order.hpp"
 #include "vpux/compiler/dialect/IE/IR/dialect.hpp"
+#include "vpux/compiler/dialect/IE/IR/ops/convolution.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/data_movement.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/eltwise.hpp"
+#include "vpux/compiler/dialect/IE/IR/ops/shape_manipulation.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/specialized.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
 #include "vpux/compiler/dialect/IE/utils/broadcast_utils.hpp"
@@ -34,8 +36,211 @@ const uint32_t levelCount = 2;
 const SmallVector<mlir::PatternBenefit> benefitLevels = getBenefitLevels(levelCount);
 
 //
-// TileBroadcastInputRewriter
+// ConvertPerChannelMultiplyToScaleShift
 //
+// Runs after FuseBroadCastRewriter restores the small scale tensor.
+// At that point the Multiply has:
+//   activation: large tensor matching the output shape  (either input)
+//   scale:      per-channel [1,C,1,1] tensor            (either input)
+//
+// ConvertToScaleShiftPass only handles compile-time const scale; this rewriter
+// also handles runtime (network-parameter) scale, and explicitly checks both
+// operand orderings (scale may be at input1 or input2).
+// The resulting ScaleShift is converted to NCE GroupConvolution by
+// ConvertScaleShiftToDWPass, which is added to buildFinalTransformationPipeline
+// after BroadcastInputForMultiply.
+//
+
+class ConvertPerChannelMultiplyToScaleShift final : public mlir::OpRewritePattern<IE::MultiplyOp> {
+public:
+    ConvertPerChannelMultiplyToScaleShift(mlir::MLIRContext* ctx, mlir::PatternBenefit benefit, Logger log)
+            : mlir::OpRewritePattern<IE::MultiplyOp>(ctx, benefit), _log(log) {
+        setDebugName("ConvertPerChannelMultiplyToScaleShift");
+    }
+
+    mlir::LogicalResult matchAndRewrite(IE::MultiplyOp mulOp, mlir::PatternRewriter& rewriter) const final;
+
+private:
+    Logger _log;
+};
+
+mlir::LogicalResult ConvertPerChannelMultiplyToScaleShift::matchAndRewrite(IE::MultiplyOp mulOp,
+                                                                           mlir::PatternRewriter& rewriter) const {
+    _log.trace("[{0}] Got '{1}' at '{2}'", getDebugName(), mulOp->getName(), mulOp->getLoc());
+
+    // GroupConvolution (DW Conv) supports F16 only.
+    const auto elemType = mlir::cast<mlir::ShapedType>(mulOp.getInput1().getType()).getElementType();
+    if (!elemType.isF16()) {
+        return mlir::failure();
+    }
+
+    if (mulOp.getOutputPaddingAttr() != nullptr || mulOp.getInputPaddingAttr() != nullptr) {
+        return mlir::failure();
+    }
+
+    const auto mulOutShape = getShape(mulOp.getOutput());
+    const auto lhsShape = getShape(mulOp.getInput1());
+    const auto rhsShape = getShape(mulOp.getInput2());
+
+    if (mulOutShape.size() != 4) {
+        return mlir::failure();
+    }
+
+    // Exactly one input must match the output shape (activation); the other is the scale.
+    // Check both orderings.
+    mlir::Value activationInput, scaleInput;
+    if (lhsShape == mulOutShape && rhsShape != mulOutShape) {
+        activationInput = mulOp.getInput1();
+        scaleInput = mulOp.getInput2();
+    } else if (rhsShape == mulOutShape && lhsShape != mulOutShape) {
+        activationInput = mulOp.getInput2();
+        scaleInput = mulOp.getInput1();
+    } else {
+        return mlir::failure();
+    }
+
+    const auto scaleShape = getShape(scaleInput);
+    if (scaleShape.size() != 4) {
+        return mlir::failure();
+    }
+    if (!mlir::cast<vpux::NDTypeInterface>(scaleInput.getType()).getShape().isStatic()) {
+        return mlir::failure();
+    }
+
+    auto* ctx = mulOp.getContext();
+    const auto outC = mulOutShape[Dims4D::Act::C];
+    const auto scaleC = scaleShape[Dims4D::Act::C];
+    const auto scaleW = scaleShape[Dims4D::Act::W];
+    const auto outW = mulOutShape[Dims4D::Act::W];
+
+    // Reject a fully-splat scale [1,1,1,1] — it has no per-channel information.
+    if (scaleShape.totalSize() == 1) {
+        return mlir::failure();
+    }
+
+    // The future DW Conv channel count must satisfy the HW alignment requirement.
+    const auto hwAlignment = VPU::NCEInvariant::getAlignment(elemType);
+
+    // Case 1: C-expanded scale [1,C,1,1] — direct DW Conv without layout change.
+    if (scaleC == outC && scaleShape[Dims4D::Act::N] == 1 && scaleShape[Dims4D::Act::H] == 1 &&
+        scaleShape[Dims4D::Act::W] == 1) {
+        if (scaleC % hwAlignment != 0) {
+            return mlir::failure();
+        }
+        // NCE accepts NHWC operands only
+        if (DimsOrder::fromValue(activationInput) != DimsOrder::NHWC ||
+            DimsOrder::fromValue(scaleInput) != DimsOrder::NHWC) {
+            return mlir::failure();
+        }
+        _log.nest().trace("Case 1: C-expanded scale → direct DW GroupConvolution");
+        const SmallVector<int64_t> filterShape = {(scaleC == 1 ? outC : scaleC), 1, 1, 1};
+        auto filter =
+                rewriter.createOrFold<IE::ShapeCastOp>(mulOp->getLoc(), scaleInput, getIntArrayAttr(ctx, filterShape));
+        const SmallVector<int32_t> s = {1, 1}, p = {0, 0}, d = {1, 1};
+        rewriter.replaceOpWithNewOp<IE::GroupConvolutionOp>(
+                mulOp, mulOp.getType(), activationInput, filter, /*bias=*/nullptr, getIntArrayAttr(ctx, s),
+                getIntArrayAttr(ctx, p), getIntArrayAttr(ctx, p), getIntArrayAttr(ctx, d),
+                getIntAttr(ctx, filterShape[0]), mulOp.getPostOpAttr(), mulOp.getClampAttr(), nullptr, nullptr);
+        return mlir::success();
+    }
+
+    // Case 2: W-expanded scale [1,1,1,W] where W = activation's W.
+    // Apply PermuteCast (NCHW physical → NHWC logical) to both tensors, making W→C,
+    // then create DW Conv in NHWC, then PermuteCast the output back.
+    // Require activation H == 1 so the PermuteCast-based layout change is safe
+    // (activation [1,C,1,W] NCHW → [1,W,C,1] NHWC with no stride/padding issues).
+    if (scaleShape[Dims4D::Act::N] == 1 && scaleShape[Dims4D::Act::C] == 1 && scaleShape[Dims4D::Act::H] == 1 &&
+        scaleW == outW && mulOutShape[Dims4D::Act::H] == 1) {
+        if (outW % hwAlignment != 0) {
+            return mlir::failure();
+        }
+        // The PermuteCasts below reinterpret the operands' memory assuming they are laid out
+        // in canonical NCHW order. If they are not, the reinterpretation silently produces a
+        // wrongly-shaped tensor, which later yields an invalid GroupConvolution.
+        if (DimsOrder::fromValue(activationInput) != DimsOrder::NCHW ||
+            DimsOrder::fromValue(scaleInput) != DimsOrder::NCHW) {
+            return mlir::failure();
+        }
+        _log.nest().trace("Case 2: W-expanded scale → PermuteCast + DW GroupConvolution");
+
+        // PermuteCast reinterprets NCHW physical memory as NHWC logical for the activation:
+        //   activation [1,N_seq,1,C_hidden] NCHW → [1,C_hidden,N_seq,1] NHWC
+        const auto nhwcOrderAttr = mlir::AffineMapAttr::get(DimsOrder::NHWC.toAffineMap(ctx));
+        const auto identMemPerm = mlir::AffineMapAttr::get(mlir::AffineMap::getMultiDimIdentityMap(4, ctx));
+
+        auto actNhwc = rewriter.createOrFold<IE::PermuteCastOp>(appendLoc(mulOp->getLoc(), "act_to_nhwc"),
+                                                                activationInput, nhwcOrderAttr, identMemPerm);
+
+        // The scale [1,1,1,C_hidden] is essentially 1-D. A single PermuteCastOp with
+        // mem_perm=(d3,d0,d1,d2) moves W=C_hidden to physical position 0, giving
+        // [C_hidden,1,1,1] NHWC in one zero-copy step (all other dims are 1).
+        const int64_t groups = outW;
+        const auto filterMemPerm =
+                mlir::AffineMapAttr::get(mlir::AffineMap::getPermutationMap(SmallVector<unsigned>{3, 0, 1, 2}, ctx));
+        auto filter = rewriter.createOrFold<IE::PermuteCastOp>(appendLoc(mulOp->getLoc(), "filter_to_nhwc"), scaleInput,
+                                                               nhwcOrderAttr, filterMemPerm);
+
+        // Output type: same shape and layout as the NHWC-cast activation.
+        const auto outNhwcType = mlir::cast<vpux::NDTypeInterface>(actNhwc.getType());
+        const int64_t seqLen = outNhwcType.getShape()[Dims4D::Act::H];
+
+        // Balance the H×W spatial dims for efficient NCE tiling.
+        // Find the largest power of 2 ≤ 8 that evenly divides seqLen.
+        int64_t spatialW = 1;
+        for (int64_t w = 8; w >= 2; w /= 2) {
+            if (seqLen % w == 0) {
+                spatialW = w;
+                break;
+            }
+        }
+        const int64_t spatialH = seqLen / spatialW;
+        const bool needReshape = (spatialW > 1);
+
+        // Before DW Conv: AffineReshape [1,C,seqLen,1] → [1,C,spatialH,spatialW]
+        // dim_mapping (indexed by input): [[N],[C],[H,W],[W]] — splits H into HxW.
+        const SmallVector<SmallVector<int64_t>> splitDimMapping{{Dims4D::Act::N.ind()},
+                                                                {Dims4D::Act::C.ind()},
+                                                                {Dims4D::Act::H.ind(), Dims4D::Act::W.ind()},
+                                                                {Dims4D::Act::W.ind()}};
+        mlir::Value actConv = actNhwc;
+        mlir::Type convOutType = outNhwcType;
+        if (needReshape) {
+            const Shape splitShape{1, groups, spatialH, spatialW};
+            convOutType = outNhwcType.changeShape(splitShape);
+            actConv = IE::AffineReshapeOp::create(rewriter, appendLoc(mulOp->getLoc(), "pre_conv_reshape"), actNhwc,
+                                                  getIntArrayOfArray(ctx, splitDimMapping),
+                                                  getIntArrayAttr(ctx, splitShape))
+                              .getOutput();
+        }
+
+        const SmallVector<int32_t> s = {1, 1}, p = {0, 0}, d = {1, 1};
+        auto dwConv = IE::GroupConvolutionOp::create(
+                rewriter, mulOp->getLoc(), mlir::cast<mlir::Type>(convOutType), actConv, filter, /*bias=*/nullptr,
+                getIntArrayAttr(ctx, s), getIntArrayAttr(ctx, p), getIntArrayAttr(ctx, p), getIntArrayAttr(ctx, d),
+                getIntAttr(ctx, groups), mulOp.getPostOpAttr(), mulOp.getClampAttr(), nullptr, nullptr);
+
+        // After DW Conv: AffineReshape [1,C,spatialH,spatialW] → [1,C,seqLen,1] (same dim_mapping, inverse shape).
+        mlir::Value dwConvOut = dwConv.getOutput();
+        if (needReshape) {
+            const Shape interShape{1, groups, seqLen, 1};
+            dwConvOut = IE::AffineReshapeOp::create(rewriter, appendLoc(mulOp->getLoc(), "post_conv_reshape"),
+                                                    dwConvOut, getIntArrayOfArray(ctx, splitDimMapping),
+                                                    getIntArrayAttr(ctx, interShape))
+                                .getOutput();
+        }
+
+        // PermuteCast output back to original NCHW layout.
+        const auto origOrderAttr = mlir::AffineMapAttr::get(
+                mlir::cast<vpux::NDTypeInterface>(mulOp.getType()).getDimsOrder().toAffineMap(ctx));
+        auto outNchw = rewriter.createOrFold<IE::PermuteCastOp>(appendLoc(mulOp->getLoc(), "out_to_nchw"), dwConvOut,
+                                                                origOrderAttr, identMemPerm);
+
+        rewriter.replaceOp(mulOp, outNchw);
+        return mlir::success();
+    }
+
+    return mlir::failure();
+}
 
 class TileBroadcastInputRewriter final : public mlir::OpRewritePattern<IE::MultiplyOp> {
 public:
@@ -74,7 +279,7 @@ mlir::Value TileBroadcastInputRewriter::tileInput(mlir::PatternRewriter& rewrite
     }
     const auto repeatsAttr = getIntArrayAttr(ctx, repeats);
     const auto tileOutputType = mlir::cast<NDTypeInterface>(broadcastInput.getType()).changeShape(targetShape);
-    auto tile = rewriter.create<IE::TileOp>(appendLoc(loc, "tile"), tileOutputType, broadcastInput, repeatsAttr);
+    auto tile = IE::TileOp::create(rewriter, appendLoc(loc, "tile"), tileOutputType, broadcastInput, repeatsAttr);
     return tile.getOutput();
 }
 
@@ -117,17 +322,20 @@ bool TileBroadcastInputRewriter::isBroadcastEfficient(NDTypeInterface inputType,
         return false;
     }
 
-    // broadcastDimPos <= innermostNonOneDimPos below is always true for any C-dim broadcast (C is
-    // always the lowest-priority dim in NCHW), so guard channel broadcasts separately by spatial extent.
-    if (diffDim == Dims4D::Act::C) {
-        constexpr int64_t kMaxSpatialSizeForChannelBroadcast =
-                2048;  // experimental value based on regressions observed in E#227477 & E#215801
-        const auto spatialSize = outputShape[Dims4D::Act::H] * outputShape[Dims4D::Act::W];
-        if (spatialSize > kMaxSpatialSizeForChannelBroadcast) {
-            _log.trace("  isBroadcastEfficient: Channel broadcast over large spatial extent ({0}) - not efficient",
-                       spatialSize);
-            return false;
+    // broadcasting over large spatial extents is not efficient, as it can lead to performance regressions in some
+    // models.
+    int64_t spatialSize = 1;
+    for (const auto& dim : {Dims4D::Act::N, Dims4D::Act::C, Dims4D::Act::H, Dims4D::Act::W}) {
+        if (dim == diffDim) {
+            continue;
         }
+        spatialSize *= outputShape[dim];
+    }
+    constexpr int64_t kMaxSpatialSizeForBroadcast =
+            4192;  // experimental value based on regressions observed in E#227477 & E#215801
+    if (spatialSize > kMaxSpatialSizeForBroadcast) {
+        _log.trace("  isBroadcastEfficient: Broadcast over large spatial extent ({0}) - not efficient", spatialSize);
+        return false;
     }
 
     auto innermostNonOneDimPos = inputOrder.dimPos(innermostNonOneDim.value());
@@ -182,8 +390,8 @@ mlir::LogicalResult TileBroadcastInputRewriter::matchAndRewrite(IE::MultiplyOp o
     // On models with regression, broadcast never happens on the C dimension, and C dim is considerably larger
     // than the rest. Threshold chosen based on output C dim of the multiplies that would show regressions (e.g. 1024,
     // 35840, 201088). E#215801
-    constexpr int64_t REGRESSION_CHANNEL_THRESHOLD = 1024;  // last updated E#228711
-    if (outputShape[Dims4D::Act::C] >= REGRESSION_CHANNEL_THRESHOLD) {
+    constexpr int64_t kRegressionChannelThreshold = 1024;  // last updated E#228711
+    if (outputShape[Dims4D::Act::C] >= kRegressionChannelThreshold) {
         _log.trace("Skip broadcast rewrite: output C dimension is too large: {0}", outputShape[Dims4D::Act::C]);
         return mlir::failure();
     }
@@ -266,8 +474,8 @@ mlir::LogicalResult TileBroadcastInputRewriter::matchAndRewrite(IE::MultiplyOp o
 
     // Create new Multiply
     auto newOutputType = outputType.changeDimsOrder(dstOrder).changeShape(getShape(newRhsInput));
-    auto newMultiplyOp = rewriter.create<IE::MultiplyOp>(
-            origOp.getLoc(), newOutputType, newLhsInput, newRhsInput, origOp.getAutoBroadcastAttr(),
+    auto newMultiplyOp = IE::MultiplyOp::create(
+            rewriter, origOp.getLoc(), newOutputType, newLhsInput, newRhsInput, origOp.getAutoBroadcastAttr(),
             origOp.getPostOpAttr(), origOp.getClampAttr(), origOp.getOutputPaddingAttr(), origOp.getInputPaddingAttr());
     // Cast to the original dims order
     auto result = castToDimsOrder(newMultiplyOp.getOutput(), dimsOrder.toAffineMap(ctx), memOrderMap[1],
@@ -418,18 +626,18 @@ mlir::LogicalResult FuseBroadCastRewriter::matchAndRewrite(IE::MultiplyOp multip
     auto newInput = tileInput;
     if (permuteCastOp != nullptr) {
         auto newPermuteCast =
-                rewriter.create<IE::PermuteCastOp>(takeOpLoc(permuteCastOp, "permute_in"), newInput,
-                                                   permuteCastOp.getDstOrderAttr(), permuteCastOp.getMemPermAttr());
+                IE::PermuteCastOp::create(rewriter, takeOpLoc(permuteCastOp, "permute_in"), newInput,
+                                          permuteCastOp.getDstOrderAttr(), permuteCastOp.getMemPermAttr());
         newInput = newPermuteCast.getOutput();
     }
 
     const auto multiplyOutputType = mlir::cast<vpux::NDTypeInterface>(multiplyOp.getOutput().getType());
     const auto newInput1 = isTileOnInput1 ? newInput : multiplyOp.getInput1();
     const auto newInput2 = isTileOnInput1 ? multiplyOp.getInput2() : newInput;
-    auto newMultiplyOp = rewriter.create<IE::MultiplyOp>(
-            takeOpLoc(multiplyOp, "fuse_broadcast"), multiplyOutputType, newInput1, newInput2,
-            multiplyOp.getAutoBroadcastAttr(), multiplyOp.getPostOpAttr(), multiplyOp.getClampAttr(),
-            multiplyOp.getOutputPaddingAttr(), multiplyOp.getInputPaddingAttr());
+    auto newMultiplyOp = IE::MultiplyOp::create(rewriter, takeOpLoc(multiplyOp, "fuse_broadcast"), multiplyOutputType,
+                                                newInput1, newInput2, multiplyOp.getAutoBroadcastAttr(),
+                                                multiplyOp.getPostOpAttr(), multiplyOp.getClampAttr(),
+                                                multiplyOp.getOutputPaddingAttr(), multiplyOp.getInputPaddingAttr());
     rewriter.replaceOp(multiplyOp, newMultiplyOp.getOutput());
 
     _log.trace("Fuse broadcast into multiply for better performance at '{0}'", multiplyLoc);
@@ -475,6 +683,20 @@ void BroadcastInputForMultiplyPass::safeRunOnFunc() {
         mlir::RewritePatternSet patterns(&ctx);
         patterns.add<FuseBroadCastRewriter>(&ctx, benefitLevels[0], _log);
 
+        if (mlir::failed(mlir::applyPatternsGreedily(func, std::move(patterns), getDefaultGreedyRewriteConfig()))) {
+            signalPassFailure();
+            return;
+        }
+    }
+
+    // Phase 1.5: After FuseBroadCastRewriter the Tile is gone and the Multiply has
+    // scale=[1,C,1,1] (small) vs activation (large).  ConvertPerChannelMultiplyToScaleShift
+    // converts it to ScaleShift; ConvertScaleShiftToDWPass (added to the pipeline after
+    // this pass) then converts ScaleShift to NCE GroupConvolution.
+    // Runs unconditionally (like Phase 1) — independent of broadcastInputForMultiply flag.
+    {
+        mlir::RewritePatternSet patterns(&ctx);
+        patterns.add<ConvertPerChannelMultiplyToScaleShift>(&ctx, benefitLevels[0], _log);
         if (mlir::failed(mlir::applyPatternsGreedily(func, std::move(patterns), getDefaultGreedyRewriteConfig()))) {
             signalPassFailure();
             return;

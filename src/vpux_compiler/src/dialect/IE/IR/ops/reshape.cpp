@@ -77,7 +77,7 @@ llvm::FailureOr<llvm::SmallVector<int64_t>> parseOutShape(mlir::Location loc, ml
 
         if (negativeDims > 0) {
             const auto negIt = std::find(shapeVec.begin(), shapeVec.end(), -1);
-            VPUX_THROW_UNLESS(negIt != shapeVec.end(), "Shape vector broken");
+            VPUX_THROW_WHEN(negIt == shapeVec.end(), "Shape vector broken");
 
             *negIt = dividend;
         }
@@ -107,8 +107,8 @@ mlir::LogicalResult vpux::IE::ReshapeOp::inferReturnTypeComponents(
 
     const auto inType = mlir::cast<mlir::RankedTensorType>(reshape.getInput().getType());
 
-    VPUX_THROW_UNLESS(!mlir::isa<Core::BoundedTensorType>(inType), "{0} doesn't support dynamic shapes",
-                      IE::ReshapeOp::getOperationName());
+    VPUX_THROW_WHEN(mlir::isa<Core::BoundedTensorType>(inType), "{0} doesn't support dynamic shapes",
+                    IE::ReshapeOp::getOperationName());
     const auto outDesc =
             vpux::getTensorAttr(ctx, DimsOrder::fromNumDims(outShape.size()), vpux::getMemorySpace(inType));
 
@@ -126,7 +126,7 @@ mlir::OpFoldResult vpux::IE::ReshapeOp::fold(FoldAdaptor adaptor) {
         return getInput();
     }
 
-    VPUX_THROW_UNLESS(!operands.empty(), "Wrong number of operands : {0}", operands.size());
+    VPUX_THROW_WHEN(operands.empty(), "Wrong number of operands : {0}", operands.size());
 
     if (const auto attr = mlir::dyn_cast_or_null<Const::ContentAttr>(operands[0])) {
         return static_cast<Const::ContentAttr>(attr).transform().reshape(vpux::getShape(getOutput())).get();

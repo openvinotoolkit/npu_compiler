@@ -9,12 +9,13 @@
 #include <llvm/ADT/SetOperations.h>
 
 namespace vpux::VPU::VF::v2 {
-PrefetchingLastOpVFScheduling::PrefetchingLastOpVFScheduling(Logger log, bool prefetching)
-        : v2::VFScheduling(log, prefetching) {
+PrefetchingLastOpVFScheduling::PrefetchingLastOpVFScheduling(Logger log, bool prefetching,
+                                                             std::shared_ptr<const VFCostStrategy> costStrategy)
+        : v2::VFScheduling(log, prefetching, std::move(costStrategy)) {
 }
 
-bool PrefetchingLastOpVFScheduling::validate(VFConfig& config, const TilingOperationStorage::UPtr& tilingInfo,
-                                             const Byte reservedMemory) const {
+bool PrefetchingLastOpVFScheduling::validateScenario(VFConfig& config, const TilingOperationStorage::UPtr& tilingInfo,
+                                                     const Byte reservedMemory) const {
     if (tilingInfo == nullptr) {
         return false;
     }
@@ -44,33 +45,4 @@ VFScenario PrefetchingLastOpVFScheduling::getType() const {
     return VFScenario::LASTOP_PREFETCHING;
 }
 
-void PrefetchingLastOpVFScheduling::correctInputPrefetchingCost(
-        StrategyCost& prefetchCost, mlir::Operation* operation, VFConfig& config,
-        const DenseMap<mlir::Operation*, StrategyCost>& isolatedOperCost, SmallVector<StrategyCost>& prefetchCostList,
-        const size_t index) const {
-    StrategyCost parentCost = 0;
-    const auto isInput = llvm::find(config.getInputs(), operation) != config.getInputs().end();
-    VPUX_THROW_WHEN(config.getOutputs().empty(), "Cannot find outputs for VF {0}", config.getSubgraph());
-    auto* lastOp = config.getOutputs().back();
-    if (isInput) {
-        if (index == 0) {
-            return;
-        }
-
-        auto foundCost = isolatedOperCost.find(lastOp);
-        VPUX_THROW_WHEN(foundCost == isolatedOperCost.end(), "Cannot find the cost for {0}", *lastOp);
-        parentCost = foundCost->second;
-
-        VPUX_THROW_WHEN(index - 1 >= prefetchCostList.size(), "Index {0} out of range for prefetchCostList of size {1}",
-                        index - 1, prefetchCostList.size());
-        reduceCostWithPrefetchedDMA(parentCost, prefetchCost, prefetchCostList[index - 1]);
-    } else {
-        parentCost = getParentCost(operation, isolatedOperCost);
-        VPUX_THROW_WHEN(index >= prefetchCostList.size(), "Index {0} out of range for prefetchCostList of size {1}",
-                        index, prefetchCostList.size());
-        reduceCostWithPrefetchedDMA(parentCost, prefetchCost, prefetchCostList[index]);
-    }
-
-    prefetchCost = parentCost <= prefetchCost ? prefetchCost - parentCost : 0;
-}
 }  // namespace vpux::VPU::VF::v2

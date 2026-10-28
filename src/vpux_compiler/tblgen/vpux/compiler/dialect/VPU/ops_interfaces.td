@@ -460,6 +460,11 @@ def VPU_NCEOpInterface : OpInterface<"NCEOpInterface"> {
             [{}],
             [{ return nullptr; }]
         >,
+
+        InterfaceMethod<
+            "Return true if any optional reduce result is active",
+            "bool", "hasReduceOutput", (ins)
+        >,
     ];
 }
 

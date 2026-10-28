@@ -111,8 +111,8 @@ void ConvertConstArgsToMultiConstants::safeRunOnModule() {
     // const.BundleData @BundleData {
     // }
     //
-    auto dataOp = builder.create<Const::DataOp>(appendLoc(netFunc.getLoc(), "data"), DATA_SYMBOL);
-    auto bundleDataOp = builder.create<Const::BundleDataOp>(appendLoc(netFunc.getLoc(), "bundle"), BUNDLE_DATA_SYMBOL);
+    auto dataOp = Const::DataOp::create(builder, appendLoc(netFunc.getLoc(), "data"), DATA_SYMBOL);
+    auto bundleDataOp = Const::BundleDataOp::create(builder, appendLoc(netFunc.getLoc(), "bundle"), BUNDLE_DATA_SYMBOL);
 
     for (auto funcOp : funcOps) {
         auto callOps = getCallSites(funcOp, netFunc);
@@ -285,7 +285,7 @@ Const::RodataBundleOp ConvertConstArgsToMultiConstants::buildRodataBundleOp(Cons
         if (rodataOp == nullptr) {
             std::string symName = formatv("{0}{1}", RODATA_PREFIX, _declareOpToRodataOp.getOperationMap().size());
             const auto content = declareOp.getContentAttr().getBaseContent();
-            rodataOp = dataBodyBuilder.create<Const::RodataOp>(dataOp->getLoc(), symName, content);
+            rodataOp = Const::RodataOp::create(dataBodyBuilder, dataOp->getLoc(), symName, content);
             _declareOpToRodataOp.map(declareOp, rodataOp);
         }
 
@@ -300,8 +300,8 @@ Const::RodataBundleOp ConvertConstArgsToMultiConstants::buildRodataBundleOp(Cons
                               .getContentAttr()
                               .getBaseContent()
                               .getType();
-    auto rodataBundleOp = bundleDataBodyBuilder.create<Const::RodataBundleOp>(bundleDataOp->getLoc(), symName,
-                                                                              rodataSymbols, bundleType);
+    auto rodataBundleOp = Const::RodataBundleOp::create(bundleDataBodyBuilder, bundleDataOp->getLoc(), symName,
+                                                        rodataSymbols, bundleType);
     return rodataBundleOp;
 }
 
@@ -320,7 +320,8 @@ Const::MultiDeclareOp ConvertConstArgsToMultiConstants::buildMultiDeclareOp(
 
     // create 'const.MultiDeclare'
     auto finalType = Const::inferFinalType(rodataBundleOp.getBundleType(), transformationsAttr);
-    auto multiDeclareOp = funcBuilder.create<Const::MultiDeclareOp>(funcOp.getLoc(), finalType, multiContentSymbolAttr);
+    auto multiDeclareOp =
+            Const::MultiDeclareOp::create(funcBuilder, funcOp.getLoc(), finalType, multiContentSymbolAttr);
 
     return multiDeclareOp;
 }

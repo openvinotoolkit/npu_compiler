@@ -261,3 +261,74 @@ module @RejectBf16 {
     // CHECK-NOT: [[VAR0:%.+]] = IE.CodeGenCapsule
   }
 }
+
+// -----
+
+module @RejectNonUnitDimReshape {
+  net.NetworkInfo entryPoint : @main inputsInfo : {
+    DataInfo "input" : tensor<1x4x8x16xf16>
+  } outputsInfo : {
+    DataInfo "output" : tensor<1x4x128x1xf16>
+  }
+
+  func.func @main(%arg0: tensor<1x4x8x16xf16>) -> tensor<1x4x128x1xf16> {
+    %0 = IE.Log(%arg0) : tensor<1x4x8x16xf16> -> tensor<1x4x8x16xf16>
+    %1 = IE.AffineReshape(%0) {dim_mapping = [[0], [1], [2], [2, 3]], shape_value = [1, 4, 128, 1]} : tensor<1x4x8x16xf16> -> tensor<1x4x128x1xf16>
+    %2 = IE.Cos(%1) : tensor<1x4x128x1xf16> -> tensor<1x4x128x1xf16>
+    return %2 : tensor<1x4x128x1xf16>
+
+    // CHECK:      func.func @main([[ARG0:%.+]]: tensor<1x4x8x16xf16>) -> tensor<1x4x128x1xf16> {
+    // CHECK-NEXT:   [[LOGC:%.+]] = IE.CodeGenCapsule inputs([[ARG0]] as [[CAPSULE_ARG:%.+]]: tensor<1x4x8x16xf16>) {
+    // CHECK-NEXT:     [[LOG:%.+]] = IE.Log([[CAPSULE_ARG]]) : tensor<1x4x8x16xf16> -> tensor<1x4x8x16xf16>
+    // CHECK-NEXT:     IE.CGCYield [[LOG]] : tensor<1x4x8x16xf16>
+    // CHECK-NEXT:   } -> tensor<1x4x8x16xf16>
+
+    // CHECK-NEXT:   [[AR:%.+]] = IE.AffineReshape([[LOGC]]) {dim_mapping = {{\[\[}}0], [1], [2], [2, 3{{\]\]}}, shape_value = [1, 4, 128, 1]} : tensor<1x4x8x16xf16> -> tensor<1x4x128x1xf16>
+
+    // CHECK-NEXT:   [[COSC:%.+]] = IE.CodeGenCapsule inputs([[AR]] as [[CAPSULE_ARG:%.+]]: tensor<1x4x128x1xf16>) {
+    // CHECK-NEXT:     [[COS:%.+]] = IE.Cos([[CAPSULE_ARG]]) : tensor<1x4x128x1xf16> -> tensor<1x4x128x1xf16>
+    // CHECK-NEXT:     IE.CGCYield [[COS]] : tensor<1x4x128x1xf16>
+    // CHECK-NEXT:   } -> tensor<1x4x128x1xf16>
+    // CHECK-NEXT:   return [[COSC]] : tensor<1x4x128x1xf16>
+  }
+}
+
+// -----
+
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+#map = affine_map<(d0, d1, d2) -> (d0, d2, d1)>
+
+// CHECK-DAG: [[NHWC:#.+]] = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+// CHECK-DAG: [[MAP:#.+]] = affine_map<(d0, d1, d2) -> (d0, d2, d1)>
+
+module @AcceptUnitDimMemShapeReshape {
+  net.NetworkInfo entryPoint : @main inputsInfo : {
+    DataInfo "input" : tensor<1x8x4x1xf16>
+  } outputsInfo : {
+    DataInfo "output" : tensor<1x8x4xf16>
+  }
+
+  func.func @main(%arg0: tensor<1x8x4x1xf16, {order = #NHWC}>) -> tensor<1x8x4xf16, {order = #map}> {
+    %0 = IE.Log(%arg0) : tensor<1x8x4x1xf16, {order = #NHWC}> -> tensor<1x8x4x1xf16, {order = #NHWC}>
+    %1 = IE.AffineReshape(%0) {dim_mapping = [[0], [1], [2], [2]], shape_value = [1, 8, 4]} : tensor<1x8x4x1xf16, {order = #NHWC}> -> tensor<1x8x4xf16, {order = #map}>
+    %2 = IE.Cos(%1) : tensor<1x8x4xf16, {order = #map}> -> tensor<1x8x4xf16, {order = #map}>
+    return %2 : tensor<1x8x4xf16, {order = #map}>
+
+    // CHECK:      func.func @main([[ARG0:%.+]]: tensor<1x8x4x1xf16, {order = [[NHWC]]}>) -> tensor<1x8x4xf16, {order = [[MAP]]}> {
+    // CHECK-NEXT:   [[LOGC:%.+]] = IE.CodeGenCapsule inputs([[ARG0]] as [[CAPSULE_ARG:%.+]]: tensor<1x8x4x1xf16, {order = [[NHWC]]}>) {
+    // CHECK-NEXT:     [[LOG:%.+]] = IE.Log([[CAPSULE_ARG]]) : tensor<1x8x4x1xf16, {order = [[NHWC]]}> -> tensor<1x8x4x1xf16, {order = [[NHWC]]}>
+    // CHECK-NEXT:     IE.CGCYield [[LOG]] : tensor<1x8x4x1xf16, {order = [[NHWC]]}>
+    // CHECK-NEXT:   } -> tensor<1x8x4x1xf16, {order = [[NHWC]]}>
+
+    // CHECK-NEXT:   [[ARC:%.+]] = IE.CodeGenCapsule inputs([[LOGC]] as [[CAPSULE_ARG:%.+]]: tensor<1x8x4x1xf16, {order = [[NHWC]]}>) {
+    // CHECK-NEXT:     [[AR:%.+]] = IE.AffineReshape([[CAPSULE_ARG]]) {dim_mapping = {{\[\[}}0], [1], [2], [2{{\]\]}}, shape_value = [1, 8, 4]} : tensor<1x8x4x1xf16, {order = [[NHWC]]}> -> tensor<1x8x4xf16, {order = [[MAP]]}>
+    // CHECK-NEXT:     IE.CGCYield [[AR]] : tensor<1x8x4xf16, {order = [[MAP]]}>
+    // CHECK-NEXT:   } -> tensor<1x8x4xf16, {order = [[MAP]]}>
+
+    // CHECK-NEXT:   [[COSC:%.+]] = IE.CodeGenCapsule inputs([[ARC]] as [[CAPSULE_ARG:%.+]]: tensor<1x8x4xf16, {order = [[MAP]]}>) {
+    // CHECK-NEXT:     [[COS:%.+]] = IE.Cos([[CAPSULE_ARG]]) : tensor<1x8x4xf16, {order = [[MAP]]}> -> tensor<1x8x4xf16, {order = [[MAP]]}>
+    // CHECK-NEXT:     IE.CGCYield [[COS]] : tensor<1x8x4xf16, {order = [[MAP]]}>
+    // CHECK-NEXT:   } -> tensor<1x8x4xf16, {order = [[MAP]]}>
+    // CHECK-NEXT:   return [[COSC]] : tensor<1x8x4xf16, {order = [[MAP]]}>
+  }
+}

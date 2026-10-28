@@ -341,8 +341,8 @@ void OptimizeReordersAcrossFunctionCallsPass::connectProducerInputsToNewArg(mlir
             auto producerCallOp = _functionCalls[producerFuncOp][producerCallOpIdx];
             mlir::OpBuilder builder(producerCallOp);
             auto newProducerCallOp =
-                    builder.create<mlir::func::CallOp>(producerCallOp.getLoc(), producerCallOp.getCalleeAttr(),
-                                                       producerFuncOp.getResultTypes(), producerCallOp.getOperands());
+                    mlir::func::CallOp::create(builder, producerCallOp.getLoc(), producerCallOp.getCalleeAttr(),
+                                               producerFuncOp.getResultTypes(), producerCallOp.getOperands());
             for (auto result : producerCallOp->getResults() | indexed) {
                 result.value().replaceAllUsesWith(newProducerCallOp->getResult(result.index()));
             }
@@ -412,8 +412,8 @@ void OptimizeReordersAcrossFunctionCallsPass::eraseConnectionsToOriginalArg(mlir
             // Create a new CallOp which has the correct number of return values and erase the original CallOp
             mlir::OpBuilder builder(producerCallOp);
             auto newProducerCallOp =
-                    builder.create<mlir::func::CallOp>(producerCallOp.getLoc(), producerCallOp.getCalleeAttr(),
-                                                       producerFuncOp.getResultTypes(), producerCallOp.getOperands());
+                    mlir::func::CallOp::create(builder, producerCallOp.getLoc(), producerCallOp.getCalleeAttr(),
+                                               producerFuncOp.getResultTypes(), producerCallOp.getOperands());
             size_t resultIdx = 0;
             for (auto result : producerCallOp->getResults()) {
                 const auto numUses = std::distance(result.getUses().begin(), result.getUses().end());

@@ -30,7 +30,7 @@ mlir::LogicalResult vpux::IE::GreaterEqualOp::inferReturnTypeComponents(
     const auto outDesc = vpux::getTensorAttr(ctx, inferOrder(in1Type, in2Type), /*memSpace=*/nullptr,
                                              BoundsRef(outShapeInfo.bounds));
 
-    inferredReturnShapes.emplace_back(outShapeInfo.shape, in1Type.getElementType(), outDesc);
+    inferredReturnShapes.emplace_back(outShapeInfo.shape, getBool8Type(ctx), outDesc);
 
     return mlir::success();
 }

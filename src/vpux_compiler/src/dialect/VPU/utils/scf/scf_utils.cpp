@@ -5,7 +5,6 @@
 
 #include "vpux/compiler/dialect/VPU/utils/scf/scf_utils.hpp"
 #include "vpux/compiler/core/attributes/dim.hpp"
-#include "vpux/compiler/dialect/IE/utils/dynamic_shape_utils.hpp"
 #include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/data_movement.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/image.hpp"
@@ -14,6 +13,7 @@
 #include "vpux/compiler/dialect/VPU/utils/scf/scf_analysis_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/sibling_ops_analysis.hpp"
 #include "vpux/compiler/dialect/VPU/utils/vertical_fusion/vertical_fusion_algorithm.hpp"
+#include "vpux/compiler/dialect/VPU/utils/workload_split_utils.hpp"
 #include "vpux/compiler/dialect/core/IR/tensor_attr.hpp"
 #include "vpux/compiler/utils/analysis.hpp"
 #include "vpux/compiler/utils/interpolate_bound.hpp"
@@ -53,10 +53,10 @@ mlir::Value vpux::VPU::encodePointPosition(mlir::OpBuilder& builder, mlir::Locat
     VPUX_THROW_WHEN(values.size() != shiftAmounts.size(),
                     "encodePointPosition: values and shiftAmounts must have the same size ({0} vs {1})", values.size(),
                     shiftAmounts.size());
-    auto index = builder.create<mlir::arith::ShLIOp>(loc, values[0], shiftAmounts[0]).getResult();
+    auto index = mlir::arith::ShLIOp::create(builder, loc, values[0], shiftAmounts[0]).getResult();
     for (auto [val, shiftAmt] : llvm::zip(values.drop_front(), shiftAmounts.drop_front())) {
-        auto shifted = builder.create<mlir::arith::ShLIOp>(loc, val, shiftAmt).getResult();
-        index = builder.create<mlir::arith::OrIOp>(loc, index, shifted).getResult();
+        auto shifted = mlir::arith::ShLIOp::create(builder, loc, val, shiftAmt).getResult();
+        index = mlir::arith::OrIOp::create(builder, loc, index, shifted).getResult();
     }
     return index;
 }
@@ -174,7 +174,7 @@ mlir::Value vpux::VPU::generateTile(mlir::Location loc, mlir::OpBuilder& builder
                                     const SCFTileInfo& inputTileInfo, SmallVector<mlir::Operation*>& generatedSlices) {
     auto origType = mlir::cast<vpux::NDTypeInterface>(origInput.getType());
 
-    auto staticNewShape = mlir::getConstantIntValues(inputTileInfo.shape);
+    const auto staticNewShape = mlir::getConstantIntValues(inputTileInfo.shape);
     if (origType.getShape().isStatic() && staticNewShape.has_value() &&
         llvm::equal(origType.getShape().raw(), staticNewShape.value())) {
         return origInput;
@@ -182,40 +182,59 @@ mlir::Value vpux::VPU::generateTile(mlir::Location loc, mlir::OpBuilder& builder
 
     SmallVector<mlir::OpFoldResult> defaultStrides(inputTileInfo.offsets.size(), builder.getIndexAttr(1));
 
-    auto extractTile = builder.create<mlir::tensor::ExtractSliceOp>(
-            appendLoc(loc, "extractSlice"), origInput, inputTileInfo.offsets, inputTileInfo.shape, defaultStrides);
+    auto extractTile = mlir::tensor::ExtractSliceOp::create(builder, appendLoc(loc, "extractSlice"), origInput,
+                                                            inputTileInfo.offsets, inputTileInfo.shape, defaultStrides);
+    generatedSlices.emplace_back(extractTile);
 
     auto newShape = getShape(extractTile.getResult());
+    auto newType = origType.changeShape(ShapeRef(newShape));
+
+    // Fully static tile: output type loses NPU-specific attributes after ExtractSlice, so restore it manually.
+    if (!newShape.isDynamic()) {
+        extractTile->getResult(0).setType(newType);
+        return extractTile;
+    }
 
     /*For cases where we cannot evenly divide tensor with static shapes into pieces of equal size, SCF tiling
      * generates dynamic shapes for extract and pad from static shapes. For such cases setting the bounds here
      * based on the original input shape. For other cases bounds are inferred from available input bounds*/
-
-    auto newType = origType.changeShape(ShapeRef(newShape));
-    if (newShape.isDynamic()) {
-        if (auto boundedType = mlir::dyn_cast<Core::BoundedTensorType>(newType)) {
-            // `changeBounds` expects non-empty bounds and will assert otherwise.
-            // Keep current bounds when tile bounds were not inferred.
-            if (!inputTileInfo.bounds.raw().empty()) {
-                newType = boundedType.changeBounds(inputTileInfo.bounds);
-            }
-        } else {
-            auto origInputShape = to_small_vector(getShape(origInput));
-            SmallVector<int64_t, 4> boundsValue(newShape.begin(), newShape.end());
-            for (size_t ind = 0, sz = boundsValue.size(); ind < sz; ++ind) {
-                if (boundsValue[ind] == mlir::ShapedType::kDynamic) {
-                    boundsValue[ind] = origInputShape[ind];
-                }
-            }
-            auto newBounds = vpux::BoundsRef(ArrayRef<int64_t>(boundsValue.data(), boundsValue.size()));
-            newType = Core::BoundedTensorType::get(newType, newBounds);
+    if (auto boundedType = mlir::dyn_cast<Core::BoundedTensorType>(newType)) {
+        auto updatedType = boundedType;
+        // `changeBounds` expects non-empty bounds and will assert otherwise.
+        // Keep current bounds when tile bounds were not inferred.
+        if (!inputTileInfo.bounds.raw().empty()) {
+            updatedType = boundedType.changeBounds(inputTileInfo.bounds);
         }
+        extractTile->getResult(0).setType(updatedType);
+        return extractTile;
     }
 
-    // by default output type loses NPU-specific attributes so we have to set it manually
-    extractTile->getResult(0).setType(newType);
+    // SCF tiling may introduce dynamic dims when a static tensor cannot be evenly split. When bounds cannot be
+    // inferred from the producer, fall back to using the original input shape as per-dim upper bounds (when
+    // statically known).
+    const auto origInputShape = to_small_vector(getShape(origInput));
 
-    generatedSlices.emplace_back(extractTile);
+    SmallVector<int64_t, 4> boundsValue(newShape.begin(), newShape.end());
+    for (size_t ind = 0, sz = boundsValue.size(); ind < sz; ++ind) {
+        if (boundsValue[ind] != mlir::ShapedType::kDynamic) {
+            continue;
+        }
+
+        // Clamp the refined bound by the original input extent only when that extent is statically known;
+        // kDynamic must not be used as an upper bound.
+        const auto origDim = origInputShape[ind];
+
+        // Default to the full input extent; refined below when a tighter upper bound is available.
+        boundsValue[ind] = origDim;
+    }
+
+    if (llvm::any_of(boundsValue, mlir::ShapedType::isDynamic)) {
+        extractTile->getResult(0).setType(newType);
+        return extractTile;
+    }
+
+    const auto newBounds = vpux::BoundsRef(ArrayRef<int64_t>(boundsValue.data(), boundsValue.size()));
+    extractTile->getResult(0).setType(Core::BoundedTensorType::get(newType, newBounds));
 
     return extractTile;
 }
@@ -430,23 +449,6 @@ VPU::SCFFusionPlan vpux::VPU::planFusion(mlir::OpOperand& consumer, mlir::OpResu
         return SCFFusionPlan::accepted();
     }
 
-    // Single-dim end-padded Expand can be fused as an SCF VF producer, but isn't
-    // in `VPU::isPureViewOp` (which is used by other code paths — cost model,
-    // copy optimization, strategy assignment — that need Expand's non-view behavior).
-    // Accept it here explicitly instead of widening `isPureViewOp`.
-    if (getSinglePaddedExpandDim(producer).has_value()) {
-        return SCFFusionPlan::accepted();
-    }
-
-    // Same exception on the consumer side: such an Expand carries no multiClusterStrategy of
-    // its own (it only pads the channel dim), so the hasMCStrategy XOR check below would reject
-    // an otherwise-fusable producer purely because Expand has no strategy to compare.
-    // Restrict to actual SCF (dynamic-shape) consumers: getSinglePaddedExpandDim only checks that
-    // the padded dim's input is static, not that the op has any dynamic tensors at all.
-    if (IE::hasDynamicTensors(consumer.getOwner()) && getSinglePaddedExpandDim(consumer.getOwner()).has_value()) {
-        return SCFFusionPlan::accepted();
-    }
-
     auto producerShape = getShape(producerCandidate);
     // Only required alignment is needed here; skip dynamic-dimension alignment.
     // This guard avoids required-alignment conflicts for NCE ops.
@@ -478,6 +480,13 @@ VPU::SCFFusionPlan vpux::VPU::planFusion(mlir::OpOperand& consumer, mlir::OpResu
     }
 
     if (consumerHasStrategy ^ producerHasStrategy) {
+        const auto isTransparentForMCStrategy = [](mlir::Operation* op) {
+            return getSinglePaddedExpandDim(op).has_value();
+        };
+        if ((producerHasStrategy && isTransparentForMCStrategy(consumerOp)) ||
+            (consumerHasStrategy && isTransparentForMCStrategy(producer))) {
+            return SCFFusionPlan::accepted();
+        }
         return SCFFusionPlan::rejected();
     }
 
@@ -586,8 +595,8 @@ static mlir::Operation* convertStaticExtractSliceToVPUSlice(mlir::tensor::Extrac
     }
 
     // Replace with VPU.Slice using static result type
-    auto sliceOp = builder.create<VPU::SliceOp>(
-            extractSliceOp.getLoc(), mapper.lookupOrDefault(extractSliceOp.getSource()),
+    auto sliceOp = VPU::SliceOp::create(
+            builder, extractSliceOp.getLoc(), mapper.lookupOrDefault(extractSliceOp.getSource()),
             builder.getI64ArrayAttr(cstOffsets.value()), builder.getI64ArrayAttr(cstSizes.value()));
     return sliceOp;
 }
@@ -642,7 +651,7 @@ mlir::func::FuncOp vpux::VPU::cloneFuncOp(mlir::func::FuncOp originalFunc, const
     assert(newFuncType != nullptr && "newFuncType should be a valid FunctionType");
     auto moduleOp = vpux::getModuleOp(originalFunc);
     mlir::OpBuilder builder(moduleOp.getContext());
-    auto newFunc = builder.create<mlir::func::FuncOp>(takeOpLoc(originalFunc, newName), newName, newFuncType);
+    auto newFunc = mlir::func::FuncOp::create(builder, takeOpLoc(originalFunc, newName), newName, newFuncType);
     moduleOp.push_back(newFunc);
     newFunc->moveAfter(originalFunc);
 
@@ -824,8 +833,8 @@ void vpux::VPU::addCheckForBlockSize(mlir::OpBuilder& builder, mlir::tensor::Dim
     }
 
     auto stepGreaterThanBound =
-            builder.create<mlir::arith::CmpIOp>(loc, mlir::arith::CmpIPredicate::sge, dimOp, blockSize);
-    builder.create<mlir::cf::AssertOp>(takeOpLoc(stepGreaterThanBound, "assert"), stepGreaterThanBound, errorMsg);
+            mlir::arith::CmpIOp::create(builder, loc, mlir::arith::CmpIPredicate::sge, dimOp, blockSize);
+    mlir::cf::AssertOp::create(builder, takeOpLoc(stepGreaterThanBound, "assert"), stepGreaterThanBound, errorMsg);
 }
 
 mlir::LogicalResult vpux::VPU::getTensorDimOpFromIndex(mlir::OpBuilder& builder, mlir::Value tensor, int64_t dimIdx,
@@ -864,12 +873,12 @@ mlir::LogicalResult vpux::VPU::getTensorDimOpFromIndex(mlir::OpBuilder& builder,
         auto blockArg = mlir::dyn_cast<mlir::BlockArgument>(tensor);
         auto blockParentOp = blockArg.getOwner()->getParentOp();
         builder.setInsertionPointToStart(blockArg.getOwner());
-        dimOp = builder.create<mlir::tensor::DimOp>(takeOpLoc(blockParentOp, "dim_" + std::to_string(dimIdx)), tensor,
-                                                    dimIdx);
+        dimOp = mlir::tensor::DimOp::create(builder, takeOpLoc(blockParentOp, "dim_" + std::to_string(dimIdx)), tensor,
+                                            dimIdx);
     } else {
         auto loc = tensor.getDefiningOp();
         builder.setInsertionPointAfter(loc);
-        dimOp = builder.create<mlir::tensor::DimOp>(takeOpLoc(loc, "dim_" + std::to_string(dimIdx)), tensor, dimIdx);
+        dimOp = mlir::tensor::DimOp::create(builder, takeOpLoc(loc, "dim_" + std::to_string(dimIdx)), tensor, dimIdx);
     }
     return mlir::success();
 }
@@ -1021,21 +1030,29 @@ SmallVector<mlir::Value> vpux::VPU::castOutputForInsertion(mlir::OpBuilder& buil
 
         auto tiledOpType = mlir::cast<vpux::NDTypeInterface>(resultValue.getType());
         auto castedOutputShape = Shape(tiledOpType.getShape());
-        auto tiledOpBoundedShape = getBoundedShape(tiledOpType);
+        bool dimsMadeStatic = false;
         for (const auto dynDim : nonTilingDynDims) {
-            const auto evaluatedDim = mlir::getConstantIntValue(outputTile.shape[dynDim.ind()]);
-            castedOutputShape[dynDim] = evaluatedDim.value_or(tiledOpBoundedShape[dynDim]);
+            if (auto evaluatedDim = mlir::getConstantIntValue(outputTile.shape[dynDim.ind()])) {
+                castedOutputShape[dynDim] = evaluatedDim.value();
+                dimsMadeStatic = true;
+            }
+        }
+
+        if (!dimsMadeStatic) {
+            castedValues.push_back(resultValue);
+            continue;
         }
 
         mlir::Type castedTiledOutputType = tiledOpType.changeShape(castedOutputShape);
-        auto castOp = builder.create<mlir::tensor::CastOp>(appendLoc(tiledOperation->getLoc(), "insert_cast"),
-                                                           castedTiledOutputType, resultValue);
+        auto castOp = mlir::tensor::CastOp::create(builder, appendLoc(tiledOperation->getLoc(), "insert_cast"),
+                                                   castedTiledOutputType, resultValue);
         castedValues.push_back(castOp.getResult());
     }
 
     return castedValues;
 }
 
+namespace {
 /**
  * @brief For tensors with dynamic dimensions along padded axes, the PadOp might have identical input and output
  * types. However, for static dimensions, the shapes of PadOp source and destination differ along the padded axes.
@@ -1083,7 +1100,7 @@ mlir::Value getInputOperand(mlir::tensor::PadOp padOp, mlir::OpBuilder builder) 
     auto outDesc = vpux::getTensorAttr(builder.getContext(), inType.getDimsOrder(), inType.getMemSpace(), dstBounds);
     auto newDstType = mlir::RankedTensorType::get(newShape, dstType.getElementType(), outDesc);
     if (newDstType != srcType) {
-        return builder.create<mlir::tensor::CastOp>(appendLoc(padOp.getLoc(), "cast"), newDstType, padOp.getSource());
+        return mlir::tensor::CastOp::create(builder, appendLoc(padOp.getLoc(), "cast"), newDstType, padOp.getSource());
     }
 
     return padOp.getSource();
@@ -1114,6 +1131,7 @@ bool isPadInsideSpatiallySegmentedForallLoop(mlir::tensor::PadOp padOp) {
                            return mlir::isa_and_nonnull<mlir::Value>(ofr);
                        });
 }
+}  // namespace
 
 TensorBoundResolver vpux::VPU::getInterpolateScalesBoundResolver() {
     return [](mlir::Value tensor) -> std::optional<int64_t> {
@@ -1167,7 +1185,134 @@ TensorBoundResolver vpux::VPU::getInterpolateScalesBoundResolver() {
     };
 }
 
-void vpux::VPU::restorePaddingAttribute(mlir::Operation* region, Logger log) {
+// Checks whether the workload output tile can still be produced once tensor.pad has been folded into the padding
+// attribute of the operation: for the given spatial dimension the input range back-inferred from the tile must overlap
+// the unpadded input and must not extend past its trailing padding. A tile that was generated for a different dynamic
+// input shape, i.e. one belonging to an inactive branch of the workload dispatch, does not satisfy this.
+static bool isSpatialTileWithinInput(const TileInfo& outputTile, ShapeRef inputShape, Dim dim, int64_t kernelSize,
+                                     int64_t stride, int64_t padBefore, int64_t padAfter) {
+    const auto outputBegin = outputTile.offsets[dim];
+    const auto outputEnd = outputBegin + outputTile.shape[dim];
+    const auto inputBegin = outputBegin * stride - padBefore;
+    const auto inputEnd = (outputEnd - 1) * stride + kernelSize - padBefore;
+    return inputBegin < inputShape[dim] && inputEnd > 0 && inputEnd <= inputShape[dim] + padAfter;
+}
+
+// Workloads are generated before full SCF unrolling, while boundary padding is represented by tensor.pad and the NCE
+// op itself has zero padding. restorePaddingAttribute() removes tensor.pad and moves that padding onto the cloned NCE
+// op, so workload input coordinates and per-workload padding must be expressed relative to the now-unpadded input.
+// Recompute those fields from each workload's output tile while preserving its split, MPE mode, and cluster. Workloads
+// from an incompatible, inactive shape-dispatch branch are left for post-unroll canonicalization to remove.
+static constexpr StringLiteral deferredWorkloadTranslationAttrName = "VPU.deferredWorkloadTranslation";
+
+static void translateWorkloadsForRestoredPadding(VPU::NCEOpInterface nceOp, mlir::IRRewriter& rewriter, Logger log) {
+    const auto workloads = VPU::collectAllWorkloads(nceOp);
+    if (workloads.empty()) {
+        return;
+    }
+
+    const auto outputShape = Shape(getShape(nceOp->getResult(0)));
+    const auto input = nceOp->getOperand(0);
+    auto inputShape = Shape(getShape(input));
+    if (inputShape.isDynamic()) {
+        const auto boundedShape = getBoundedShape(input);
+        for (const auto dim : irange(inputShape.size())) {
+            if (inputShape[Dim(dim)] == mlir::ShapedType::kDynamic) {
+                inputShape[Dim(dim)] = boundedShape[Dim(dim)];
+            }
+        }
+    }
+    VPUX_THROW_WHEN(inputShape.isDynamic(),
+                    "Cannot translate workloads for NCE op at '{0}' with unbounded dynamic input shape",
+                    nceOp->getLoc());
+
+    const auto kernel = nceOp.getKernelSizeVal();
+    const auto strides = nceOp.getStridesVal();
+    const auto opPadding = VPU::toPadInfo(nceOp.getPad());
+    const auto oneShape = Shape(inputShape.size(), 1);
+
+    for (auto workload : workloads) {
+        auto outOffsets = workload.getMixedOutputOffsets();
+        auto outSizes = workload.getMixedOutputSizes();
+        const auto staticOutOffsets = mlir::getConstantIntValues(outOffsets);
+        const auto staticOutSizes = mlir::getConstantIntValues(outSizes);
+        VPUX_THROW_UNLESS(staticOutOffsets.has_value() && staticOutSizes.has_value(),
+                          "Cannot translate workload at '{0}' with dynamic output tile", workload->getLoc());
+
+        SmallVector<int64_t> translatedOutSizes(staticOutSizes->begin(), staticOutSizes->end());
+        const auto isBoundedShapeFallback = workloads.size() == 1 && !outputShape.isDynamic() &&
+                                            llvm::all_of(staticOutOffsets.value(),
+                                                         [](int64_t offset) {
+                                                             return offset == 0;
+                                                         }) &&
+                                            llvm::all_of(irange(outputShape.size()), [&](size_t dim) {
+                                                return translatedOutSizes[dim] >= outputShape[Dim(dim)];
+                                            });
+        if (isBoundedShapeFallback && ShapeRef(translatedOutSizes) != ShapeRef(outputShape)) {
+            // The workload kept the bounded (full-tensor) tile from workload creation while the op's real output only
+            // became static after unrolling. Clamp it to the concrete output before checking spatial compatibility.
+            translatedOutSizes.assign(outputShape.raw().begin(), outputShape.raw().end());
+            outSizes = mlir::getAsIndexOpFoldResult(rewriter.getContext(), translatedOutSizes);
+        }
+
+        const auto outputTile = TileInfo(ShapeRef(translatedOutSizes), ShapeRef(staticOutOffsets.value()), oneShape);
+        const auto isCompatible =
+                isSpatialTileWithinInput(outputTile, inputShape, Dims4D::Act::H, kernel[Dims4D::Kernel::Y.ind()],
+                                         strides[Dims4D::Strides::Y.ind()], opPadding.top, opPadding.bottom) &&
+                isSpatialTileWithinInput(outputTile, inputShape, Dims4D::Act::W, kernel[Dims4D::Kernel::X.ind()],
+                                         strides[Dims4D::Strides::X.ind()], opPadding.left, opPadding.right);
+        if (!isCompatible) {
+            // Workload dispatch may still contain an alternative for another dynamic tile shape. Once the loop is
+            // unrolled, such an alternative cannot execute for this concrete input and restored padding. Leave it
+            // untouched until the surrounding scf.if is canonicalized instead of back-inferring an impossible tile.
+            continue;
+        }
+
+        const auto workloadPadding = backInferPadsTile(outputTile, inputShape, opPadding, kernel, strides);
+        SmallVector<mlir::OpFoldResult> pads = {
+                rewriter.getIndexAttr(workloadPadding.left), rewriter.getIndexAttr(workloadPadding.right),
+                rewriter.getIndexAttr(workloadPadding.top), rewriter.getIndexAttr(workloadPadding.bottom)};
+
+        rewriter.setInsertionPoint(workload);
+
+        // The input offsets and sizes are optional operands of the workload: they are only set once the input tile has
+        // been computed, i.e. after ComputeNCEInputWorkloads. When they are absent, only the output tile and the
+        // per-workload padding have to be translated.
+        if (!workload.getMixedInputOffsets().has_value() || !workload.getMixedInputSizes().has_value()) {
+            auto newWorkload = VPU::DPUWorkloadOp::create(rewriter, workload->getLoc(), outOffsets, outSizes, pads,
+                                                          workload.getMpeModeAttr(), workload.getClusterIdAttr());
+            rewriter.replaceOp(workload, newWorkload);
+            continue;
+        }
+
+        // The recorded input tile refers to the padded input, so it is recomputed from the output tile against the
+        // unpadded input and the padding that has just been restored on the operation.
+        VPU::WorkloadDescriptor descriptor{Shape(staticOutOffsets.value()),
+                                           Shape(translatedOutSizes),
+                                           workloadPadding,
+                                           workload.getMpeMode(),
+                                           std::nullopt,
+                                           {},
+                                           {}};
+        if (auto clusterId = workload.getClusterIdAttr()) {
+            descriptor.clusterId = clusterId.getInt();
+        }
+        SmallVector<VPU::WorkloadDescriptor, 4> descriptors;
+        descriptors.push_back(std::move(descriptor));
+        // The operand may still be dynamic here, so the shape resolved from its bounds above is passed explicitly:
+        // back-inference clamps the input range against the full input extent and cannot do that with kDynamic.
+        VPU::backInferInputWorkloads(nceOp, descriptors, log, ShapeRef(inputShape));
+
+        auto newWorkload = VPU::DPUWorkloadOp::create(
+                rewriter, workload->getLoc(), outOffsets, outSizes,
+                mlir::getAsIndexOpFoldResult(rewriter.getContext(), descriptors.front().inOffsets.raw()),
+                mlir::getAsIndexOpFoldResult(rewriter.getContext(), descriptors.front().inSizes.raw()), pads,
+                workload.getMpeModeAttr(), workload.getClusterIdAttr());
+        rewriter.replaceOp(workload, newWorkload);
+    }
+}
+
+void vpux::VPU::restorePaddingAttribute(mlir::Operation* region, Logger log, bool deferDynamicShapeWorkloads) {
     SmallVector<std::pair<mlir::Operation*, mlir::tensor::PadOp>> worklist;
     region->walk([&](mlir::tensor::PadOp padOp) {
         if (isPadInsideSpatiallySegmentedForallLoop(padOp)) {
@@ -1215,19 +1360,18 @@ void vpux::VPU::restorePaddingAttribute(mlir::Operation* region, Logger log) {
         auto newNceOp = rewriter.clone(*nceOp, mapper);
         newNceOp->setAttr("pad", restoredPadAttr);
 
-        // Clear workloads that were computed for the pre-restore state (padded input,
-        // zero pad). After padding is restored to the NCE op, the workloads' input
-        // sizes and per-workload padding are invalid. Downstream
-        // SplitNCEOpsOntoWorkloadsPass will re-generate correct workloads.
+        vpux::inferReturnTypes(newNceOp, vpux::InferShapedTypeMode::SHAPE);
+
         if (auto nceIface = mlir::dyn_cast<VPU::NCEOpInterface>(newNceOp)) {
-            auto& workloads = nceIface.getWorkloads();
-            for (auto& block : llvm::make_early_inc_range(workloads.getBlocks())) {
-                block.clear();
-                block.erase();
+            // When the cloned op's input is still dynamic at this point, its inferred output is dynamic too, so the
+            // concrete output tile needed to repair a bounded-shape fallback workload is not yet known. Later inference
+            // rounds make those shapes static; defer translation until then instead of dropping the workload.
+            if (deferDynamicShapeWorkloads && getShape(newNceOp->getResult(0)).isDynamic()) {
+                newNceOp->setAttr(deferredWorkloadTranslationAttrName, mlir::UnitAttr::get(newNceOp->getContext()));
+            } else {
+                translateWorkloadsForRestoredPadding(nceIface, rewriter, log);
             }
         }
-
-        vpux::inferReturnTypes(newNceOp, vpux::InferShapedTypeMode::SHAPE);
 
         // Replace all uses of the original convolution operation with the new one
         rewriter.replaceOp(nceOp, newNceOp->getResults());
@@ -1236,18 +1380,61 @@ void vpux::VPU::restorePaddingAttribute(mlir::Operation* region, Logger log) {
             padOp.erase();
         }
     }
+}
 
-    // Clear ALL workloads for NCE ops in the region. After loop unrolling, shapes
-    // are static but workloads computed by WorkloadsForNCEOpsSCFPass for bounded
-    // (max-iteration) shapes may be invalid for iterations with smaller actual
-    // shapes (e.g., uneven tile division). Downstream SplitNCEOpsOntoWorkloadsPass
-    // will regenerate correct workloads from the actual static shapes.
-    region->walk([&](VPU::NCEOpInterface nceOp) {
-        auto& workloads = nceOp.getWorkloads();
-        for (auto& block : llvm::make_early_inc_range(workloads.getBlocks())) {
-            block.clear();
-            block.erase();
+void vpux::VPU::translateDeferredWorkloadsAfterInference(mlir::Operation* region, Logger log) {
+    mlir::IRRewriter rewriter(region->getContext());
+    region->walk([&](mlir::Operation* op) {
+        if (!op->hasAttr(deferredWorkloadTranslationAttrName)) {
+            return;
         }
+        op->removeAttr(deferredWorkloadTranslationAttrName);
+        if (auto nceOp = mlir::dyn_cast<VPU::NCEOpInterface>(op)) {
+            translateWorkloadsForRestoredPadding(nceOp, rewriter, log);
+        }
+    });
+}
+
+void vpux::VPU::clampOversizedWorkloadsToStaticOutput(mlir::Operation* region, Logger log) {
+    mlir::IRRewriter rewriter(region->getContext());
+    region->walk([&](VPU::NCEOpInterface nceOp) {
+        // Only single-workload ops carry the bounded-shape fallback descriptor. Ops handled by padding restoration
+        // already have correct tiles and are skipped by the oversized check below.
+        const auto workloads = VPU::collectAllWorkloads(nceOp);
+        if (workloads.size() != 1) {
+            return;
+        }
+
+        const auto outputShape = Shape(getShape(nceOp->getResult(0)));
+        if (outputShape.isDynamic()) {
+            return;
+        }
+
+        auto workload = workloads.front();
+        const auto staticOutOffsets = mlir::getConstantIntValues(workload.getMixedOutputOffsets());
+        const auto staticOutSizes = mlir::getConstantIntValues(workload.getMixedOutputSizes());
+        if (!staticOutOffsets.has_value() || !staticOutSizes.has_value()) {
+            return;
+        }
+
+        const auto isZeroOffset = llvm::all_of(staticOutOffsets.value(), [](int64_t offset) {
+            return offset == 0;
+        });
+        const auto isOversized = llvm::any_of(irange(outputShape.size()),
+                                              [&](size_t dim) {
+                                                  return (*staticOutSizes)[dim] > outputShape[Dim(dim)];
+                                              }) &&
+                                 llvm::all_of(irange(outputShape.size()), [&](size_t dim) {
+                                     return (*staticOutSizes)[dim] >= outputShape[Dim(dim)];
+                                 });
+        if (!isZeroOffset || !isOversized) {
+            return;
+        }
+
+        // A workload larger than the op's static output is a stale bounded-shape fallback from workload creation (e.g.
+        // an unpadded Eltwise whose per-iteration output only became static after unrolling). Reuse the restore-padding
+        // translation, which clamps the tile to the concrete output and recomputes the input tile and padding.
+        translateWorkloadsForRestoredPadding(nceOp, rewriter, log);
     });
 }
 
@@ -1447,9 +1634,9 @@ void vpux::VPU::applyDeferredSliceReplacements(
                 adjustedOffsets.push_back(adjustedOffset);
             }
 
-            auto newSliceOp = builder.create<mlir::tensor::ExtractSliceOp>(
-                    sliceToReplace.getLoc(), tiledValue, adjustedOffsets, sliceToReplace.getMixedSizes(),
-                    sliceToReplace.getMixedStrides());
+            auto newSliceOp = mlir::tensor::ExtractSliceOp::create(builder, sliceToReplace.getLoc(), tiledValue,
+                                                                   adjustedOffsets, sliceToReplace.getMixedSizes(),
+                                                                   sliceToReplace.getMixedStrides());
 
             newSliceOp->setAttr(SKIP_CONNECTION_SLICE_MARKER_ATTR_NAME, builder.getUnitAttr());
             builder.replaceAllUsesWith(sliceToReplace.getResult(), newSliceOp.getResult());

@@ -5,8 +5,6 @@
 
 // RUN: vpux-opt --split-input-file --init-compiler="platform=%platform% compilation-mode=DefaultHW allow-custom-values=true enable-sw-kernel-fifo-per-shave-engine=true" --mlir-elide-elementsattrs-if-larger 8 --default-hw-mode-vpuip="workload-management-mode=FWLM_V1_PAGES function-outlining=\"naive='num-parts=2'\"" %s | FileCheck %s
 // REQUIRES: platform-NPU5010
-// UNSUPPORTED: true
-// Tracked in E#-232429: is stale after fixing REQUIRES condition
 
 #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
 
@@ -64,7 +62,7 @@ module @SoftMax attributes {config.platform = #config.platform<NPU5010>, config.
         // CHECK-DAG:   [[DUMMY_BUFF2:%.+]] = VPURT.DeclareBuffer <DDR> <0> -> memref<0x0x0x0xi32, @DDR>
         // CHECK-DAG:   [[DUMMY_BUFF3:%.+]] = VPURT.DeclareBuffer <DDR> <0> -> memref<0x0x0x0xi32, @DDR>
         // CHECK-DAG:   [[DUMMY_BUFF4:%.+]] = VPURT.DeclareBuffer <DDR> <0> -> memref<0x0x0x0xi32, @DDR>
-        // CHECK-DAG:   [[DUMMY_BUFF5:%.+]] = VPURT.DeclareBuffer <DDR> <0> -> memref<0x0x0x0xi32, @DDR>
+        // CHECK-DAG:   [[DUMMY_BUFF5:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<0x0x0x0xi32, [@CMX_NN, 0]>
         // CHECK-DAG:   [[OUT:%.+]] = VPURT.DeclareBuffer <NetworkOutput> [0] <0> -> memref<1x1000xf16, @DDR>
         // CHECK-DAG:   [[BUFF0:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x1x1x1000xf16, [@CMX_NN, 0]>
         // CHECK-DAG:   [[BUFF1:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <2048> -> memref<1x1x1x1000xf16, [@CMX_NN, 0]>
@@ -72,30 +70,30 @@ module @SoftMax attributes {config.platform = #config.platform<NPU5010>, config.
 
         // CHECK-DAG:   [[BUFF2:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <2048> -> memref<1x1000xf16, [@CMX_NN, 0]>
 
-        // CHECK:       VPURT.Task wlmPage(0) {
-        // CHECK-NEXT:      VPUIP.FetchDMA
+        // CHECK:      VPURT.Task wlmPage(0) {
+        // CHECK-NEXT:    VPUIP.FetchDMA
 
-        // CHECK:                VPURT.Task updates([[BAR0]] : !VPURT.Barrier) wlmPage(0) {
-        // CHECK-NEXT:                VPUIP.SyncDMA <{is_out_of_order, port = 0 : i64}> inputs([[DUMMY_BUFF2]] : memref<0x0x0x0xi32, @DDR>) outputs([[DUMMY_BUFF3]] : memref<0x0x0x0xi32, @DDR>)
-        // CHECK-SAME:                -> memref<0x0x0x0xi32, @DDR>
-        // CHECK-NEXT:           }
+        // CHECK:      VPURT.Task updates([[BAR0]] : !VPURT.Barrier) wlmPage(0) {
+        // CHECK-NEXT:    VPUIP.SyncDMA <{is_out_of_order, port = 0 : i64}> inputs([[DUMMY_BUFF2]] : memref<0x0x0x0xi32, @DDR>) outputs([[DUMMY_BUFF3]] : memref<0x0x0x0xi32, @DDR>)
+        // CHECK-SAME:    -> memref<0x0x0x0xi32, @DDR>
+        // CHECK-NEXT: }
 
-        // CHECK:              VPURT.Task updates([[BAR1]] : !VPURT.Barrier) wlmPage(0) {
-        // CHECK-NEXT:            VPUIP.NNDMA <{is_out_of_order, port = 0 : i64}> inputs([[IN]] : memref<1x1x1x1000xf16, @DDR>) outputs([[BUFF0]] : memref<1x1x1x1000xf16, [@CMX_NN, 0]>)
-        // CHECK-SAME:            -> memref<1x1x1x1000xf16, [@CMX_NN, 0]>
-        // CHECK-NEXT:    }
+        // CHECK:      VPURT.Task updates([[BAR1]] : !VPURT.Barrier) wlmPage(0) {
+        // CHECK-NEXT:    VPUIP.NNDMA <{is_out_of_order, port = 0 : i64}> inputs([[IN]] : memref<1x1x1x1000xf16, @DDR>) outputs([[BUFF0]] : memref<1x1x1x1000xf16, [@CMX_NN, 0]>)
+        // CHECK-SAME:    -> memref<1x1x1x1000xf16, [@CMX_NN, 0]>
+        // CHECK-NEXT: }
 
-        // CHECK:        VPURT.Task waits([[BAR1]] : !VPURT.Barrier) updates([[BAR2]] : !VPURT.Barrier) wlmPage(0) {
-        // CHECK:      VPUIP.SW.Kernel {resultSegmentSizes = array<i32: 1, 0, 0>} @VPU.SW::@builtin_SoftMax inputs([[BUFF0]] as {{[^:]+}}: memref<1x1x1x1000xf16, [@CMX_NN, 0]>) outputs([[BUFF1]] as {{[^:]+}}: memref<1x1x1x1000xf16, [@CMX_NN, 0]>)
-        // CHECK-SAME:      on tile 0 list 0 -> memref<1x1x1x1000xf16, [@CMX_NN, 0]>{
-        // CHECK:       VPUIP.SW.Kernel.run {attrs = [
-        // CHECK:       [0, 12884901889, 4294967297000, 4294967297, 4294967297, 4294967297000, 4294967297, 4294967297000]
-        // CHECK:       ]}({{[^:]+}}, {{[^:]+}}) : memref<1x1x1x1000xf16, [@CMX_NN, 0]>, memref<1x1x1x1000xf16, [@CMX_NN, 0]>
+        // CHECK:      VPURT.Task waits([[BAR1]] : !VPURT.Barrier) updates([[BAR2]] : !VPURT.Barrier) wlmPage(0) {
+        // CHECK:         VPUIP.SW.Kernel {resultSegmentSizes = array<i32: 1, 0, 0>} @VPU.SW::@builtin_SoftMax inputs([[BUFF0]] as {{[^:]+}}: memref<1x1x1x1000xf16, [@CMX_NN, 0]>) outputs([[BUFF1]] as {{[^:]+}}: memref<1x1x1x1000xf16, [@CMX_NN, 0]>)
+        // CHECK-SAME:    on tile 0 list 0 -> memref<1x1x1x1000xf16, [@CMX_NN, 0]>{
+        // CHECK:         VPUIP.SW.Kernel.run {attrs = [
+        // CHECK:         [0, 12884901889, 4294967297000, 4294967297, 4294967297, 4294967297000, 4294967297, 4294967297000]
+        // CHECK:         ]}({{[^:]+}}, {{[^:]+}}) : memref<1x1x1x1000xf16, [@CMX_NN, 0]>, memref<1x1x1x1000xf16, [@CMX_NN, 0]>
 
-        // CHECK:       VPURT.Task waits([[BAR2]] : !VPURT.Barrier) updates([[BAR3]] : !VPURT.Barrier) wlmPage(0) {
+        // CHECK:      VPURT.Task waits([[BAR2]] : !VPURT.Barrier) updates([[BAR3]] : !VPURT.Barrier) wlmPage(0) {
         // CHECK-NEXT:    VPUIP.NNDMA <{port = 0 : i64}> inputs([[BUFF2]] : memref<1x1000xf16, [@CMX_NN, 0]>) outputs([[OUT]] : memref<1x1000xf16, @DDR>)
         // CHECK-SAME:    -> memref<1x1000xf16, @DDR>
-        // CHECK-NEXT:  }
+        // CHECK-NEXT: }
 
         // CHECK-NEXT: return [[ARG1]] : memref<1x1000xf16, @DDR>
         }
@@ -157,7 +155,7 @@ module @TwoFunctions attributes {config.platform = #config.platform<NPU5010>, co
                                         compute_offsets = [[0, 0, 0, 0], [0, 0, 0, 2], [0, 0, 0, 4]],
                                         memory_shapes = [[1, 16, 16, 2], [1, 16, 16, 2], [1, 16, 16, 2]],
                                         memory_offsets = [[0, 0, 0, 0], [0, 0, 0, 2], [0, 0, 0, 4]]}>
-        %5 = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 153 : i64, resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{is_permute_quantize, task_type = #VPUIP.nce_task_type<ELTWISE>}>
+        %5 = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 153 : i64} <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>, is_permute_quantize, task_type = #VPUIP.nce_task_type<ELTWISE>}>
               input(%3 : !VPUIP.DistributedBuffer<1x16x16x6xf16, #NHWC, @CMX_NN,
                                                 {mode = "OVERLAPPED", num_tiles = [1, 1, 1, 3], num_clusters = 3 : i64, uniform_distributed_segments,
                                                 compute_shapes = [[1, 16, 16, 2], [1, 16, 16, 2], [1, 16, 16, 2]],
@@ -306,7 +304,7 @@ module @TwoFunctions attributes {config.platform = #config.platform<NPU5010>, co
                                         compute_offsets = [[0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]],
                                         memory_shapes = [[1, 32, 4, 4], [1, 32, 4, 4], [1, 32, 4, 4]],
                                         memory_offsets = [[0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]]}>
-        %17 = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 689 : i64, resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{is_superdense, kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
+        %17 = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 689 : i64} <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>, is_superdense, kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
                                   kernel_size = [3, 3], kernel_strides = [1, 1], task_type = #VPUIP.nce_task_type<CONV>}>
                   input(%11 : !VPUIP.DistributedBuffer<1x16x6x6xf16, #NHWC, @CMX_NN,
                               {mode = "DUPLICATED", num_clusters = 3 : i64, alignment = [1, 16, 1, 1], uniform_distributed_segments,

@@ -128,6 +128,7 @@ TEST_P(AddSoftmaxInnerMaskAwareTestCommon, NPU5010_HW) {
     setDefaultHardwareMode();
     run(Platform::NPU5010);
 }
+
 TEST_P(AddSoftmaxInnerMaskAwareTestCommon, NPU5020_HW) {
     setDefaultHardwareMode();
     run(Platform::NPU5020);

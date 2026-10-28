@@ -716,6 +716,32 @@ def Const_LogicalNotAttr : Const_Attr<"LogicalNot",
 }
 
 //
+// ClampAttr
+//
+
+def Const_ClampAttr : Const_AttrWithStableHash<"Clamp"> {
+    let summary = "Clamp each element to [lower_bound, upper_bound] in the source precision";
+
+    let parameters = (ins
+        "mlir::FloatAttr":$lowerBound,
+        "mlir::FloatAttr":$upperBound
+    );
+
+    let builders = [
+        AttrBuilderWithInferredContext<
+            (ins "mlir::FloatAttr":$lowerBound, "mlir::FloatAttr":$upperBound), [{
+                return $_get(lowerBound.getContext(), lowerBound, upperBound);
+            }]
+        >
+    ];
+
+    let storageNamespace = "details";
+    let genVerifyDecl = 1;
+    let skipDefaultBuilders = 1;
+    let assemblyFormat = "`<` $lowerBound `,` $upperBound `>`";
+}
+
+//
 // CumSumAttr
 //
 

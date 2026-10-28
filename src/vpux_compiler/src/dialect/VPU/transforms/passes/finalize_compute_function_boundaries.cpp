@@ -7,15 +7,12 @@
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
 
 #include "vpux/compiler/core/attributes/dims_order.hpp"
-#include "vpux/compiler/dialect/HostExec/params.hpp"
-#include "vpux/compiler/dialect/config/IR/attributes.hpp"
 #include "vpux/compiler/dialect/core/IR/ops.hpp"
 #include "vpux/compiler/dialect/core/IR/tensor_attr.hpp"
 #include "vpux/compiler/utils/permute_utils.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 #include "vpux/utils/core/error.hpp"
 
-#include <llvm/Support/raw_ostream.h>
 #include <mlir/Dialect/Affine/IR/AffineOps.h>
 #include <mlir/Dialect/Func/IR/FuncOps.h>
 #include <mlir/Dialect/Quant/IR/QuantTypes.h>
@@ -24,12 +21,10 @@
 #include <mlir/Dialect/Tensor/IR/Tensor.h>
 #include <mlir/Dialect/Utils/IndexingUtils.h>
 #include <mlir/IR/Builders.h>
-#include <mlir/IR/BuiltinAttributes.h>
 #include <mlir/IR/BuiltinOps.h>
 #include <mlir/IR/BuiltinTypes.h>
 #include <mlir/IR/Operation.h>
 #include <mlir/IR/PatternMatch.h>
-#include <mlir/Support/WalkResult.h>
 
 namespace vpux::VPU {
 #define GEN_PASS_DECL_FINALIZECOMPUTEFUNCTIONBOUNDARIES
@@ -74,7 +69,7 @@ void updateTensorDimIndexToMemoryOrder(mlir::Operation* origOp, mlir::Operation*
 
     mlir::OpBuilder::InsertionGuard guard(rewriter);
     rewriter.setInsertionPoint(newOp);
-    auto newDimIndexOp = rewriter.create<mlir::arith::ConstantIndexOp>(origDimOp.getLoc(), newDimIndex);
+    auto newDimIndexOp = mlir::arith::ConstantIndexOp::create(rewriter, origDimOp.getLoc(), newDimIndex);
 
     auto newDimOp = mlir::cast<mlir::tensor::DimOp>(newOp);
     newDimOp.getIndexMutable().set(newDimIndexOp.getResult());
@@ -103,7 +98,7 @@ mlir::LogicalResult ConvertOpTypes::matchAndRewrite(mlir::Operation* origOp, vpu
     _log.trace("Process Operation '{0}' with name {1}", origOp->getLoc(), origOp->getName());
 
     const auto* converter = getTypeConverter();
-    VPUX_THROW_UNLESS(converter != nullptr, "TypeConverter was not set");
+    VPUX_THROW_WHEN(converter == nullptr, "TypeConverter was not set");
 
     const auto origOperands = origOp->getOperands();
     VPUX_THROW_UNLESS(origOperands.size() == operands.size(), "Wrong operands size : {0}", operands.size());
@@ -238,36 +233,6 @@ void FinalizeComputeFunctionBoundariesPass::safeRunOnModule() {
         signalPassFailure();
         return;
     }
-
-    // Guarantee identity ReinterpretCast ops at function boundaries where the type conversion
-    // didn't trigger materialization (when the converted type equals the original).
-    module.walk([&](mlir::func::FuncOp funcOp) {
-        if (config::isPureHostCompileFunc(funcOp)) {
-            return;
-        }
-        mlir::OpBuilder builder(ctx);
-
-        // --- Entry: block args ---
-        for (auto arg : funcOp.getArguments() | indexed) {
-            builder.setInsertionPointToStart(&funcOp.getBody().front());
-            auto loc = appendLoc(arg.value().getLoc(), "casted");
-            auto cast = builder.create<Core::ReinterpretCastOp>(loc, arg.value().getType(), arg.value());
-            arg.value().replaceAllUsesExcept(cast.getResult(), cast);
-        }
-
-        // --- Exit: return op values ---
-
-        funcOp.walk([&](mlir::func::ReturnOp returnOp) {
-            for (unsigned i = 0; i < returnOp.getNumOperands(); ++i) {
-                auto operand = returnOp.getOperand(i);
-
-                builder.setInsertionPoint(returnOp);
-                auto loc = appendLoc(operand.getLoc(), "casted");
-                auto cast = builder.create<Core::ReinterpretCastOp>(loc, operand.getType(), operand);
-                returnOp.setOperand(i, cast.getResult());
-            }
-        });
-    });
 }
 
 }  // namespace

@@ -44,7 +44,7 @@ std::optional<uint64_t> getFunctionIndex(mlir::SymbolRefAttr calleeAttr, mlir::M
 #define GET_OP_CLASSES
 #include <vpux/compiler/dialect/bytecode/ops/register.cpp.inc>
 
-void bytecode::VirtualGeneralRegisterOp::build(mlir::OpBuilder& odsBuilder, mlir::OperationState& odsState) {
+void bytecode::VirtualValueRegisterOp::build(mlir::OpBuilder& odsBuilder, mlir::OperationState& odsState) {
     build(odsBuilder, odsState, bytecode::RegisterType::get(odsBuilder.getContext()));
 }
 
@@ -74,7 +74,7 @@ void bytecode::SetImmOp::serialize(vpux::bytecode::BytecodeWriter& writer) {
 
 void bytecode::SetImmIdxOp::serialize(vpux::bytecode::BytecodeWriter& writer) {
     auto parentModule = getOperation()->getParentOfType<mlir::ModuleOp>();
-    VPUX_THROW_UNLESS(parentModule != nullptr, "Expected set_imm_idx op to be inside a module");
+    VPUX_THROW_WHEN(parentModule == nullptr, "Expected set_imm_idx op to be inside a module");
 
     const auto calleeIdxOpt = getFunctionIndex(getCalleeAttr(), parentModule);
     VPUX_THROW_UNLESS(calleeIdxOpt.has_value(), "Failed to resolve symbol '{0}' in bytecode.func_section",

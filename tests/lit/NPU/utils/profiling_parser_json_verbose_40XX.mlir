@@ -41,7 +41,6 @@
 //CHECK-NEXT: "DMA duration":1.196,
 //CHECK-NEXT: "DPU duration":0.141,
 //CHECK-NEXT: "SW duration":5.468,
-//CHECK-NEXT: "M2I duration":0.000,
 //CHECK-NEXT: "DMA-DPU overlap":0.028,
 //CHECK-NEXT: "DMA-SW overlap":0.000,
 //CHECK-NEXT: "SW-DPU overlap":0.000,
@@ -51,8 +50,7 @@
 //CHECK-NEXT: "DMA duration without overlaps":1.168,
 //CHECK-NEXT: "Sum of DMA task durations":1.196,
 //CHECK-NEXT: "Sum of DPU task durations":0.141,
-//CHECK-NEXT: "Sum of SW task durations":5.468,
-//CHECK-NEXT: "Sum of M2I task durations":0.000
+//CHECK-NEXT: "Sum of SW task durations":5.468
 //CHECK-NEXT: },
 //CHECK-NEXT: "workpoint": { "freq": 1850.0, "status": "OK" },
 //CHECK-NEXT: "displayTimeUnit": "ns"

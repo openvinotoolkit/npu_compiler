@@ -44,8 +44,8 @@ std::optional<DebatchedCallOpAttributeView> DebatchedCallOpAttributeView::extrac
         return {};
     }
     auto attr = mlir::dyn_cast_or_null<mlir::ArrayAttr>(callOp->getAttr(DebatchedCallOpAttributeView::name()));
-    VPUX_THROW_UNLESS(attr != nullptr, "Unexpected type for \"{0}\", only \"mlir::ArrayAttr\" supported",
-                      DebatchedCallOpAttributeView::name());
+    VPUX_THROW_WHEN(attr == nullptr, "Unexpected type for \"{0}\", only \"mlir::ArrayAttr\" supported",
+                    DebatchedCallOpAttributeView::name());
     return DebatchedCallOpAttributeView(
             DebatchedCallOpData::deserialize(parseIntArrayAttr<DebatchedCallOpData::ValueType>(attr)));
 }
@@ -54,8 +54,8 @@ void DebatchedCallOpAttributeView::injectImpl(mlir::func::CallOp callOp) const {
     auto serializedArray = data.serialize();
 
     auto debatchedAttr = getIntArrayAttr(callOp->getContext(), serializedArray);
-    VPUX_THROW_UNLESS(debatchedAttr != nullptr, "Cannot create 'DebatchedCallOpAttributeView' attribute \"{0}\"",
-                      DebatchedCallOpAttributeView::name());
+    VPUX_THROW_WHEN(debatchedAttr == nullptr, "Cannot create 'DebatchedCallOpAttributeView' attribute \"{0}\"",
+                    DebatchedCallOpAttributeView::name());
     callOp->setAttr(DebatchedCallOpAttributeView::name(), debatchedAttr);
 }
 
@@ -65,14 +65,14 @@ bool DebatchedCallOpAttributeView::hasAvailableTilesAttr(mlir::func::CallOp call
 
 void DebatchedCallOpAttributeView::setAvailableTilesAttr(mlir::func::CallOp callOp,
                                                          DebatchedCallOpData::ValueType val) {
-    VPUX_THROW_UNLESS(!hasAvailableTilesAttr(callOp),
-                      "Detected existing 'DebatchedCallOpAttributeView' attribute \"{0}\", cannot create new attribute",
-                      DebatchedCallOpAttributeView::availableTilesAttrName());
+    VPUX_THROW_WHEN(hasAvailableTilesAttr(callOp),
+                    "Detected existing 'DebatchedCallOpAttributeView' attribute \"{0}\", cannot create new attribute",
+                    DebatchedCallOpAttributeView::availableTilesAttrName());
 
     auto newAttr = getIntAttr(callOp->getContext(), val);
 
-    VPUX_THROW_UNLESS(newAttr != nullptr, "Failed to create new 'DebatchedCallOpAttributeView' attribute \"{0}\"",
-                      DebatchedCallOpAttributeView::availableTilesAttrName());
+    VPUX_THROW_WHEN(newAttr == nullptr, "Failed to create new 'DebatchedCallOpAttributeView' attribute \"{0}\"",
+                    DebatchedCallOpAttributeView::availableTilesAttrName());
 
     callOp->setAttr(DebatchedCallOpAttributeView::availableTilesAttrName(), newAttr);
 }
@@ -101,8 +101,8 @@ bool DebatchedCallOpAttributeView::hasReorderingAttr(mlir::func::CallOp callOp) 
 void DebatchedCallOpAttributeView::setReorderingAttr(mlir::func::CallOp callOp) {
     auto newAttr = getIntAttr(callOp->getContext(), 1);
 
-    VPUX_THROW_UNLESS(newAttr != nullptr, "Failed to create new 'DebatchedCallOpAttributeView' attribute \"{0}\"",
-                      DebatchedCallOpAttributeView::reorderingAttrName());
+    VPUX_THROW_WHEN(newAttr == nullptr, "Failed to create new 'DebatchedCallOpAttributeView' attribute \"{0}\"",
+                    DebatchedCallOpAttributeView::reorderingAttrName());
 
     callOp->setAttr(DebatchedCallOpAttributeView::reorderingAttrName(), newAttr);
 }
@@ -278,9 +278,9 @@ std::optional<DebatchCoefficients> DebatchCoefficients::create(std::string_view 
                                          std::move(nodeName), DebatchCoeffDescription::createFromString(coeffPairStr));
                              });
 
-    VPUX_THROW_UNLESS(ret.orderedInputCoefficients.size(),
-                      "DebatchCoefficients must contain something once coefficient string: \"{0}\" has been parsed",
-                      tensorsCoeffFormatted);
+    VPUX_THROW_WHEN(ret.orderedInputCoefficients.empty(),
+                    "DebatchCoefficients must contain something once coefficient string: \"{0}\" has been parsed",
+                    tensorsCoeffFormatted);
     auto isEmptyNodeName = [](const auto& node) {
         return node.first.empty();
     };

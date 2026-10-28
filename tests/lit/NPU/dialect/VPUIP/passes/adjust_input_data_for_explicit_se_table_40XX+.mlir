@@ -18,7 +18,7 @@ func.func @SparseConvSETable() -> memref<1x16x80x288xf16, {order = #NHWC}, [@CMX
     %parent_output = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x16x80x288xf16, {order = #NHWC}, [@CMX_NN, 0]>
 
     VPURT.Task attributes {isTrailingSWLayer = false} {
-      %out = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{input_se_size = 16 : i64, is_segmented, kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [2, 2], kernel_strides = [1, 1], task_type = #VPUIP.nce_task_type<CONV>}>
+      %out = VPUIP.NCEClusterTask <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>, input_se_size = 16 : i64, is_segmented, kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [2, 2], kernel_strides = [1, 1], task_type = #VPUIP.nce_task_type<CONV>}>
               input(%input : memref<1x16x36x144xf16, {order = #NHWC}, [@CMX_NN, 0]>)
               input_storage_element_table(%input_se : memref<1x1x73x289xi32, {order = #NHWC}, [@CMX_NN, 0]>)
               weights(%weights : memref<16x16x2x2xf16, {order = #NHWC}, [@CMX_NN, 0]>)

@@ -42,8 +42,8 @@ mlir::FailureOr<SymbolizationResult> BarrierRewriter::symbolize(VPUMI40XX::Confi
 
         auto countType = rewriter.getIntegerType(countBitWidth, /*isSigned*/ false);
 
-        auto newOp = rewriter.create<VPUASM::ManagedBarrierOp>(
-                op.getLoc(), symName, taskIdx, workItemIndex, rewriter.getUI32IntegerAttr(enqueueUsersCount),
+        auto newOp = VPUASM::ManagedBarrierOp::create(
+                rewriter, op.getLoc(), symName, taskIdx, workItemIndex, rewriter.getUI32IntegerAttr(enqueueUsersCount),
                 rewriter.getIntegerAttr(countType, barrierId), op.getNextSameIdAttr(),
                 rewriter.getIntegerAttr(countType, producerCount), rewriter.getIntegerAttr(countType, consumerCount));
 

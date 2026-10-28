@@ -140,3 +140,18 @@ func.func @MaterializeTwoConstantsFromTwo(%input : tensor<1x15xf16>)
   // CHECK: [[MULT:%.+]] = IE.Multiply([[IN]], [[NEW_CST1]])
   // CHECK: return [[NEW_CST2]], [[MULT]]
 }
+
+// -----
+
+// CHECK-LABEL: @MaterializeClamp
+func.func @MaterializeClamp() -> tensor<1x4xf32> {
+  %cst = const.Declare tensor<1x4xf32> = dense<[[1.0, 200000.0, -200000.0, 0.5]]> : tensor<1x4xf32>
+  %0 = IE.Clamp(%cst) {min = -65504.0 : f64, max = 65504.0 : f64} : tensor<1x4xf32> -> tensor<1x4xf32>
+  return %0 : tensor<1x4xf32>
+
+  // CHECK: [[CST:%.+]] = const.Declare tensor<1x4xf32>
+  // CHECK-SAME: dense<{{\[\[}}1.000000e+00, 2.000000e+05, -2.000000e+05, 5.000000e-01{{\]\]}}> : tensor<1x4xf32>,
+  // CHECK-SAME: [#const.Clamp<-6.550400e+04 : f64, 6.550400e+04 : f64>]
+  // CHECK-NOT: IE.Clamp
+  // CHECK: return [[CST]]
+}

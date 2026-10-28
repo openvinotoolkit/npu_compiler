@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-#include "vpux/compiler/core/types/quantile_float/types.hpp"
+#include "vpux/compiler/core/types/quantile_types/types.hpp"
 #include "vpux/compiler/dialect/IE/IR/dialect.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/convolution.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/data_type.hpp"
@@ -58,7 +58,7 @@ bool isLegalTensor(vpux::NDTypeInterface tensorType, mlir::ModuleOp moduleOp, in
                                                                bool isAsymmetricZeroPointSupported) -> bool {
         bool isConversionRequired = false;
 
-        if (const auto quantileStorage = mlir::dyn_cast<vpux::type::QuantileType>(quantizedType.getStorageType())) {
+        if (const auto quantileStorage = mlir::dyn_cast<mlir::quant::QuantileType>(quantizedType.getStorageType())) {
             const auto quantileTypeInt = mlir::dyn_cast<mlir::IntegerType>(quantileStorage.getQuantileType());
             isConversionRequired = quantileTypeInt && quantileTypeInt.isUnsigned() && quantileTypeInt.getWidth() == 8 &&
                                    isSymmetricalZeroPoint(quantizedType, symmetricalZeroPoint);
@@ -113,7 +113,7 @@ Const::DeclareOp ConvolutionRewriter::replaceConstDeclare(Const::DeclareOp origO
 
     auto newContentAttr = origOp.getContentAttr().transform().convertElemType(newQuantType).get();
     auto newConstantOp =
-            rewriter.create<Const::DeclareOp>(takeOpLoc(origOp, "as_i8"), newType, std::move(newContentAttr));
+            Const::DeclareOp::create(rewriter, takeOpLoc(origOp, "as_i8"), newType, std::move(newContentAttr));
     return newConstantOp;
 }
 
@@ -122,7 +122,7 @@ mlir::LogicalResult ConvolutionRewriter::matchAndRewrite(IE::ConvolutionOp origO
     _log.trace("Process Operation '{0}' at '{1}", origOp->getName(), origOp->getLoc());
 
     auto* typeConverter = this->getTypeConverter();
-    VPUX_THROW_UNLESS(typeConverter != nullptr, "TypeConverter was not set");
+    VPUX_THROW_WHEN(typeConverter == nullptr, "TypeConverter was not set");
 
     // Prior legality checks ensures all ops are defined and not null
     auto dequantizeOp = origOp.getFilter().getDefiningOp<IE::DequantizeOp>();
@@ -130,8 +130,8 @@ mlir::LogicalResult ConvolutionRewriter::matchAndRewrite(IE::ConvolutionOp origO
     if (dequantizeOp != nullptr) {
         auto weightDeclareOp = dequantizeOp.getInput().getDefiningOp<Const::DeclareOp>();
         auto newCstDeclareOp = replaceConstDeclare(weightDeclareOp, rewriter);
-        auto newDequantizeOp = rewriter.create<IE::DequantizeOp>(
-                takeOpLoc(origOp, "dequantize_filter"), newCstDeclareOp.getOutput(), dequantizeOp.getDstElemTypeAttr());
+        auto newDequantizeOp = IE::DequantizeOp::create(rewriter, takeOpLoc(origOp, "dequantize_filter"),
+                                                        newCstDeclareOp.getOutput(), dequantizeOp.getDstElemTypeAttr());
         newConvOp = cloneConvolutionOp(rewriter, origOp, origOp.getInput(), newDequantizeOp);
     } else {
         auto weightDeclareOp = origOp.getFilter().getDefiningOp<Const::DeclareOp>();
@@ -156,7 +156,7 @@ mlir::quant::QuantizedType changeStorageTypeToI8(mlir::quant::QuantizedType orig
     const auto changeQuantileStorageToI8 = [](auto uniformType) -> mlir::quant::QuantizedType {
         // in QuantileType we modify the type of the elements in the LUT from u8 to i8 while the
         // storageType and its limits remain the same
-        const auto quantileStorage = mlir::dyn_cast<vpux::type::QuantileType>(uniformType.getStorageType());
+        const auto quantileStorage = mlir::dyn_cast<mlir::quant::QuantileType>(uniformType.getStorageType());
 
         constexpr unsigned u8BitWidth = 8;
         const unsigned quantileTypeMax = llvm::maxUIntN(u8BitWidth);
@@ -167,8 +167,9 @@ mlir::quant::QuantizedType changeStorageTypeToI8(mlir::quant::QuantizedType orig
         }
 
         const auto newQuantileStorageType =
-                vpux::type::QuantileType::get(quantileStorage.getContext(), quantileStorage.getStorageType(),
-                                              getSInt8Type(quantileStorage.getContext()), quantileLUT);
+                mlir::quant::QuantileType::get(quantileStorage.getContext(), quantileStorage.getStorageType(),
+                                               getSInt8Type(quantileStorage.getContext()), quantileLUT,
+                                               quantileStorage.getStorageMin(), quantileStorage.getStorageMax());
 
         if (const auto uniformQuantileType = mlir::dyn_cast<mlir::quant::UniformQuantizedType>(uniformType)) {
             return mlir::quant::UniformQuantizedType::get(
@@ -188,7 +189,7 @@ mlir::quant::QuantizedType changeStorageTypeToI8(mlir::quant::QuantizedType orig
     };
 
     if (const auto uniformType = mlir::dyn_cast<mlir::quant::UniformQuantizedType>(originQType)) {
-        if (mlir::isa<vpux::type::QuantileType>(uniformType.getStorageType())) {
+        if (mlir::isa<mlir::quant::QuantileType>(uniformType.getStorageType())) {
             return changeQuantileStorageToI8(uniformType);
         }
         const auto offset = (uniformType.getStorageTypeMax() + 1) / 2;
@@ -199,7 +200,7 @@ mlir::quant::QuantizedType changeStorageTypeToI8(mlir::quant::QuantizedType orig
     }
 
     if (const auto perAxisType = mlir::dyn_cast<mlir::quant::UniformQuantizedPerAxisType>(originQType)) {
-        if (mlir::isa<vpux::type::QuantileType>(perAxisType.getStorageType())) {
+        if (mlir::isa<mlir::quant::QuantileType>(perAxisType.getStorageType())) {
             return changeQuantileStorageToI8(perAxisType);
         }
         const auto offset = (perAxisType.getStorageTypeMax() + 1) / 2;
@@ -279,7 +280,7 @@ void ConvertWeightsToI8Pass::safeRunOnFunc() {
             const auto outputElemType = outputType.getElementType();
             if (auto outputQType = mlir::dyn_cast<mlir::quant::QuantizedType>(outputElemType)) {
                 if (const auto quantileStorage =
-                            mlir::dyn_cast<vpux::type::QuantileType>(outputQType.getStorageType())) {
+                            mlir::dyn_cast<mlir::quant::QuantileType>(outputQType.getStorageType())) {
                     auto outputQuantileType = quantileStorage.getQuantileType();
                     if (!outputQuantileType.isUnsignedInteger(8) && !outputQuantileType.isSignlessInteger(8)) {
                         return false;

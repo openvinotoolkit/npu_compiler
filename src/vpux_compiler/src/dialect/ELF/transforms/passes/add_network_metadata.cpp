@@ -37,12 +37,12 @@ void AddNetworkMetadata::safeRunOnFunc() {
     auto elfMain = mainOps[0];
 
     auto builder = mlir::OpBuilder::atBlockEnd(elfMain.getBody());
-    auto metadataSection = builder.create<ELF::CreateMetadataSectionOp>(elfMain.getLoc(), "MetadataSection", 1,
-                                                                        ELF::SectionFlagsAttr::SHF_NONE);
+    auto metadataSection = ELF::CreateMetadataSectionOp::create(builder, elfMain.getLoc(), "MetadataSection", 1,
+                                                                ELF::SectionFlagsAttr::SHF_NONE);
     // add network metadata OPs
 
     builder.setInsertionPointToEnd(&metadataSection.getContent().emplaceBlock());
-    auto metadataOp = builder.create<VPUASM::NetworkMetadataOp>(netFunc.getLoc(), "NetworkMetadata");
+    auto metadataOp = VPUASM::NetworkMetadataOp::create(builder, netFunc.getLoc(), "NetworkMetadata");
 
     auto actualAlignment = builder.getIntegerAttr(builder.getIntegerType(64, false),
                                                   metadataOp.getAlignmentRequirements(config::getArch(netFunc)));

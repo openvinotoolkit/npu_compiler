@@ -5,7 +5,7 @@
 
 #include "vpux/compiler/dialect/VPU/IR/ops/data_movement.hpp"
 
-#include "vpux/compiler/core/types/quantile_float/types.hpp"
+#include "vpux/compiler/core/types/quantile_types/types.hpp"
 #include "vpux/compiler/dialect/VPU/utils/const_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/distributed_tensor_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/explicit_distribution_utils.hpp"
@@ -74,9 +74,9 @@ mlir::FailureOr<OutputTiling> vpux::VPU::GatherDMAOp::getTilingStrategy(TilingMo
         auto getStorageBitWidth = [](mlir::Type elemType) -> std::optional<uint32_t> {
             return mlir::TypeSwitch<mlir::Type, std::optional<uint32_t>>(elemType)
                     .Case<mlir::quant::UniformQuantizedType, mlir::quant::UniformQuantizedPerAxisType,
-                          vpux::type::QuantileType>([](auto quantType) {
+                          mlir::quant::QuantileType>([](auto quantType) {
                         if (auto quantileStorage =
-                                    mlir::dyn_cast<vpux::type::QuantileType>(quantType.getStorageType())) {
+                                    mlir::dyn_cast<mlir::quant::QuantileType>(quantType.getStorageType())) {
                             return mlir::cast<mlir::IntegerType>(quantileStorage.getStorageType()).getWidth();
                         }
                         return mlir::cast<mlir::IntegerType>(quantType.getStorageType()).getWidth();
@@ -161,8 +161,8 @@ vpux::VPU::DistributionInfo vpux::VPU::GatherDMAOp::getExplicitDistributionInfoA
         const int64_t numClusters, ArrayRef<int64_t> alignment, const bool uniformDistributedSegments,
         const vpux::VPU::OverlapDistributionParams& /*overlapParams*/,
         const std::optional<ArrayRef<int64_t>> /* memoryNumTiles */) {
-    VPUX_THROW_UNLESS(distributionMode != VPU::DistributionMode::OVERLAPPED,
-                      "Overlapped distribution mode is not supported for GatherDMAOp");
+    VPUX_THROW_WHEN(distributionMode == VPU::DistributionMode::OVERLAPPED,
+                    "Overlapped distribution mode is not supported for GatherDMAOp");
 
     return getNonOverlappedDistributedNative(shape, distributionMode, numTiles, numClusters, alignment,
                                              uniformDistributedSegments);

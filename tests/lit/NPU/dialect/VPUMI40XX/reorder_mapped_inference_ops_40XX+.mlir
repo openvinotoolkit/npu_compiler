@@ -49,8 +49,7 @@ module @test attributes {config.compilationMode = #config.compilation_mode<Defau
     %28 = VPUMI40XX.KernelParams <{dynamicInputShapesSize = array<i32>, dynamicOutputShapesSize = array<i32>}> inputs(%4 : memref<1xf16>) outputs(%2 : memref<1xf16>) kernel_type("activation_softmax") kernel_params([0, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 33, 67, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 33, 67, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0]) -> !VPURegMapped.Index<0:0:0>
     %29 = VPUMI40XX.ActKernelInvocation range_index(%24 : <0:0:0>) kernel_params(%28 : <0:0:0>) tile(7) start_after(0) clean_after(0) -> !VPURegMapped.Index<0:0:0>
     %30 = VPUMI40XX.NNDMA <{port = 0 : i64}> inputs(%4 : memref<1xf16>) outputs(%2 : memref<1xf16>) start_after(0) clean_after(0) acceleration_mode(<DISABLE>) -> !VPURegMapped.Index<0:0:1>
-
-    return
+    VPUMI40XX.OpRanges types([#VPURegMapped.task_type<ActKernelRange>, #VPURegMapped.task_type<ActKernelInvocation>, #VPURegMapped.task_type<DMA>, #VPURegMapped.task_type<DMA>]) begins(%24, %29, %27, %11 : !VPURegMapped.Index<0:0:0>, !VPURegMapped.Index<0:0:0>, !VPURegMapped.Index<0:0:0>, !VPURegMapped.Index<1:0:0>) ends(%24, %29, %30, %11 : !VPURegMapped.Index<0:0:0>, !VPURegMapped.Index<0:0:0>, !VPURegMapped.Index<0:0:1>, !VPURegMapped.Index<1:0:0>)
   }
 }
 

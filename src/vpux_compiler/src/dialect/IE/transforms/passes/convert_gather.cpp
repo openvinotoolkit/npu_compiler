@@ -105,8 +105,8 @@ mlir::LogicalResult ConvertGatherPass::GatherToSlice::matchAndRewrite(IE::Gather
     staticSizes[axisVal] = 1;
 
     const auto sliceOpLoc = appendLoc(gatherOp.getLoc(), "slice");
-    auto sliceOp = rewriter.create<IE::SliceOp>(sliceOpLoc, gatherOp.getInput(), getIntArrayAttr(ctx, staticOffsets),
-                                                getIntArrayAttr(ctx, staticSizes));
+    auto sliceOp = IE::SliceOp::create(rewriter, sliceOpLoc, gatherOp.getInput(), getIntArrayAttr(ctx, staticOffsets),
+                                       getIntArrayAttr(ctx, staticSizes));
 
     rewriter.replaceOpWithNewOp<IE::ReshapeOp>(gatherOp, sliceOp.getResult(),
                                                getIntArrayAttr(ctx, getShape(gatherOp.getOutput())));
@@ -180,7 +180,7 @@ mlir::LogicalResult ConvertGatherPass::GatherToReverse::matchAndRewrite(IE::Gath
     const auto axisAttr = getIntArrayAttr(ctx, ArrayRef(axisVal));
     const auto modeAttr = IE::ReverseModeAttr::get(ctx, IE::ReverseMode::INDEX);
     auto reverseOp =
-            rewriter.create<IE::ReverseOp>(gatherOp.getLoc(), gatherOp.getInput(), nullptr, axisAttr, modeAttr);
+            IE::ReverseOp::create(rewriter, gatherOp.getLoc(), gatherOp.getInput(), nullptr, axisAttr, modeAttr);
 
     _log.trace("[{0}] Replaced with Reverse '{1}' at '{2}'", this->getDebugName(), gatherOp->getName(),
                gatherOp->getLoc());
@@ -260,8 +260,8 @@ mlir::LogicalResult ConvertGatherPass::GatherRepeatInterleaveToBroadcast::matchA
     SmallVector<int64_t> reshapeShape1(inputShape.begin(), inputShape.end());
     reshapeShape1.insert(reshapeShape1.begin() + axisVal + 1, 1);
 
-    auto reshape1 = rewriter.create<IE::ReshapeOp>(appendLoc(loc, "unsqueeze"), gatherOp.getInput(),
-                                                   getIntArrayAttr(ctx, reshapeShape1));
+    auto reshape1 = IE::ReshapeOp::create(rewriter, appendLoc(loc, "unsqueeze"), gatherOp.getInput(),
+                                          getIntArrayAttr(ctx, reshapeShape1));
 
     SmallVector<int64_t> broadcastShape(std::move(reshapeShape1));
     broadcastShape[axisVal + 1] = repeatFactor;
@@ -368,8 +368,8 @@ mlir::LogicalResult ConvertGatherPass::FuseBroadcastGatherND::matchAndRewrite(IE
     const auto ctx = rewriter.getContext();
     const auto loc = origOp.getLoc();
 
-    auto reshapeOp = rewriter.create<IE::ReshapeOp>(appendLoc(loc, "reshape"), broadcastOp.getInput(),
-                                                    getIntArrayAttr(ctx, reshapeShape));
+    auto reshapeOp = IE::ReshapeOp::create(rewriter, appendLoc(loc, "reshape"), broadcastOp.getInput(),
+                                           getIntArrayAttr(ctx, reshapeShape));
 
     const auto outShape = to_small_vector(outType.getShape());
     auto newBroadcast =

@@ -43,9 +43,9 @@ std::vector<std::vector<int>> expandEachBoundedDimWithCustomRule(
         }
 
         auto rawValues = runtimeShapeCallback(boundedDim);
-        VPUX_THROW_UNLESS(!rawValues.empty(),
-                          "runtimeShapeCallback must return at least one value for dynamic dimension with bound {0}",
-                          boundedDim.bound);
+        VPUX_THROW_WHEN(rawValues.empty(),
+                        "runtimeShapeCallback must return at least one value for dynamic dimension with bound {0}",
+                        boundedDim.bound);
 
         auto valuesSet = std::set<int>();
         for (const auto value : rawValues) {

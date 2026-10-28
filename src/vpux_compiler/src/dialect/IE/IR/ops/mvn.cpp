@@ -117,9 +117,9 @@ mlir::LogicalResult ReshapeBatched::matchAndRewrite(IE::MVNOp origOp, mlir::Patt
     auto inputReshape =
             rewriter.createOrFold<IE::ReshapeOp>(takeOpLoc(origOp, "reshape_in"), origOp.getInput(), newShapeAttr);
 
-    auto newMvnOp = rewriter.create<IE::MVNOp>(origOp->getLoc(), inputReshape,
-                                               mlir::BoolAttr::get(rewriter.getContext(), false),
-                                               origOp.getNormalizeVarianceAttr(), origOp.getEpsAttr());
+    auto newMvnOp = IE::MVNOp::create(rewriter, origOp->getLoc(), inputReshape,
+                                      mlir::BoolAttr::get(rewriter.getContext(), false),
+                                      origOp.getNormalizeVarianceAttr(), origOp.getEpsAttr());
 
     const auto origShapeAttr = getIntArrayAttr(origOp->getContext(), origShape);
     auto outputReshape =

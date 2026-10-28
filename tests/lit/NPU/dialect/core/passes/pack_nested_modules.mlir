@@ -47,7 +47,7 @@ module @InitAndWrapper {
     // CHECK:       DataInfo "out_0" tensorNames = ["out_0"] : tensor<f32>
     // CHECK:       DataInfo "out_1" tensorNames = ["out_1"] : tensor<f32>
 
-    // CHECK:     func.func nested @init
+    // CHECK:     func.func @init
 
     // CHECK: func.func nested @main(tensor<f32>, tensor<f32>, tensor<f32>) -> tensor<f32> attributes {do_not_nest}
     // CHECK: func.func @main_wrapper
@@ -102,7 +102,7 @@ module @MultipleSubModules {
     // CHECK:       DataInfo "in_0" tensorNames = ["in_0"] : tensor<f32>
     // CHECK:     } outputsInfo : {
     // CHECK:       DataInfo "out_0" tensorNames = ["out_0"] : tensor<f32>
-    // CHECK:     func.func nested @foo_cluster1
+    // CHECK:     func.func @foo_cluster1
     // CHECK: }
     // CHECK-LABEL: module @Module1 attributes {{.+}} {
     // CHECK-NOT:    config.PipelineOptions @Options
@@ -177,7 +177,7 @@ module @VPUIP {
     // CHECK:       DataInfo "in_1" tensorNames = ["in_1"] : tensor<f16>
     // CHECK:     } outputsInfo : {
     // CHECK:       DataInfo "out_0" tensorNames = ["out_0"] : tensor<f16>
-    // CHECK:     func.func nested @foo
+    // CHECK:     func.func @foo
     // CHECK: }
 
     func.func @main(%arg0: memref<f16, @DDR>, %arg1: memref<f16, @DDR>) -> memref<f16, @DDR> {
@@ -263,8 +263,8 @@ module @BoundsOrderRestore {
     // CHECK:       DataInfo "in_0" tensorNames = ["in_0"] : tensor<?x1x?x1xf16, {bounds = #const.OpaqueI64Elements<[32, 1, 548, 1]> : tensor<4xsi64>, order = #NCHW}>
     // CHECK:     } outputsInfo : {
     // CHECK:       DataInfo "out_0" tensorNames = ["out_0"] : tensor<?x1x?x1xf16, {bounds = #const.OpaqueI64Elements<[32, 1, 548, 1]> : tensor<4xsi64>, order = #NCHW}>
-    // CHECK:     func.func nested @main_func1
-    // CHECK-LABEL: func.func @main
+    // CHECK:     func.func @main_func1(
+    // CHECK-LABEL: func.func @main(
 }
 
 // -----
@@ -323,5 +323,5 @@ module @BoundsOrderRestoreOnOutputTensor {
     // CHECK:     } outputsInfo : {
     // CHECK:       DataInfo "out_0" tensorNames = ["out_0"] : tensor<1x?x?x3xf16, {bounds = #const.OpaqueI64Elements<[1, 2160, 3840, 3]> : tensor<4xsi64>, order = #NCHW}>
     // CHECK:     }
-    // CHECK:     func.func nested @main_func1
+    // CHECK:     func.func @main_func1
 }

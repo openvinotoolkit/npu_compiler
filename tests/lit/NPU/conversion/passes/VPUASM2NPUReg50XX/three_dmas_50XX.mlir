@@ -25,7 +25,7 @@ module @mainModule attributes {config.platform = #config.platform<NPU5010>} {
   }
   VPUASM.ProfilingBindings profilingDeclarations : {
   }
-  func.func nested @race_condition_dma_f16_f16() {
+  func.func @race_condition_dma_f16_f16() {
     ELF.Main {
       VPUASM.DeclareBuffer @DeclareBuffer0 !VPUASM.Buffer< "NetworkInput"[0] <0> : memref<1x16x16x16xf16, {order = #NHWC}, @DDR> :  swizzling(0)>
       VPUASM.DeclareBuffer @DeclareBuffer1 !VPUASM.Buffer< "NetworkOutput"[0] <0> : memref<1x16x16x16xf16, {order = #NHWC}, @DDR> :  swizzling(0)>

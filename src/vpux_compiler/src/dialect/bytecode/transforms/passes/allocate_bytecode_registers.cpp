@@ -41,7 +41,7 @@ using namespace vpux;
 namespace {
 
 struct LiveInterval {
-    bytecode::VirtualGeneralRegisterOp op;
+    bytecode::VirtualValueRegisterOp op;
     size_t start;
     size_t end;
     int16_t regNum = -1;
@@ -89,10 +89,10 @@ int16_t linearScanAllocate(mlir::Region& body, SmallVector<LiveInterval>& interv
         blockPositions[&block] = {firstOp, i};
     }
 
-    SmallVector<bytecode::VirtualGeneralRegisterOp> virtualOps;
+    SmallVector<bytecode::VirtualValueRegisterOp> virtualOps;
     for (auto& block : body) {
-        for (auto vgrOp : block.getOps<bytecode::VirtualGeneralRegisterOp>()) {
-            virtualOps.push_back(vgrOp);
+        for (auto vvrOp : block.getOps<bytecode::VirtualValueRegisterOp>()) {
+            virtualOps.push_back(vvrOp);
         }
     }
 
@@ -112,7 +112,7 @@ int16_t linearScanAllocate(mlir::Region& body, SmallVector<LiveInterval>& interv
             VPUX_THROW_WHEN(info == nullptr, "Liveness information missing for block in bytecode.func body");
             if (info->isLiveIn(virtualOp.getResult()) || info->isLiveOut(virtualOp.getResult())) {
                 const auto posIt = blockPositions.find(&block);
-                VPUX_THROW_UNLESS(posIt != blockPositions.end(), "Block not found in blockPositions map");
+                VPUX_THROW_WHEN(posIt == blockPositions.end(), "Block not found in blockPositions map");
                 minStart = std::min(minStart, posIt->second.firstOpPosition);
                 maxEnd = std::max(maxEnd, posIt->second.onePastLastOpPosition);
                 crossBlock = true;
@@ -122,7 +122,7 @@ int16_t linearScanAllocate(mlir::Region& body, SmallVector<LiveInterval>& interv
         if (!crossBlock) {
             for (auto& use : virtualOp.getResult().getUses()) {
                 const auto idxIt = opIndex.find(use.getOwner());
-                VPUX_THROW_UNLESS(idxIt != opIndex.end(), "Use owner not found in opIndex map");
+                VPUX_THROW_WHEN(idxIt == opIndex.end(), "Use owner not found in opIndex map");
                 const auto idx = idxIt->second;
                 minStart = std::min(minStart, idx);
                 maxEnd = std::max(maxEnd, idx);
@@ -154,7 +154,7 @@ int16_t linearScanAllocate(mlir::Region& body, SmallVector<LiveInterval>& interv
             freePool.erase(freePool.begin());
         } else {
             VPUX_THROW_WHEN(nextReg == std::numeric_limits<int16_t>::max(),
-                            "Ran out of bytecode general registers during allocation");
+                            "Ran out of bytecode value registers during allocation");
             current.regNum = nextReg++;
         }
 
@@ -167,17 +167,17 @@ int16_t linearScanAllocate(mlir::Region& body, SmallVector<LiveInterval>& interv
     return nextReg;
 }
 
-void rewriteGeneralRegisters(mlir::OpBuilder& builder, MutableArrayRef<LiveInterval> intervals) {
+void rewriteValueRegisters(mlir::OpBuilder& builder, MutableArrayRef<LiveInterval> intervals) {
     auto registerType = bytecode::RegisterType::get(builder.getContext());
     for (auto& iv : intervals) {
         builder.setInsertionPoint(iv.op);
-        auto concrete = builder.create<bytecode::GeneralRegisterOp>(iv.op.getLoc(), registerType, iv.regNum);
+        auto concrete = bytecode::GeneralRegisterOp::create(builder, iv.op.getLoc(), registerType, iv.regNum);
         iv.op.getResult().replaceAllUsesWith(concrete.getResult());
         iv.op.erase();
     }
 }
 
-void rewriteParameterRegisters(mlir::Block& block, int16_t numGeneralRegisters, int64_t numParams) {
+void rewriteParameterRegisters(mlir::Block& block, int16_t numValueRegisters, int64_t numParams) {
     SmallVector<bytecode::VirtualParameterRegisterOp> virtualParams;
     for (auto op : block.getOps<bytecode::VirtualParameterRegisterOp>()) {
         virtualParams.push_back(op);
@@ -192,11 +192,11 @@ void rewriteParameterRegisters(mlir::Block& block, int16_t numGeneralRegisters, 
     DenseMap<int16_t, bytecode::GeneralRegisterOp> paramRegs;
     for (auto virtualParam : virtualParams) {
         const auto regNum =
-                static_cast<int16_t>(static_cast<int64_t>(numGeneralRegisters) + virtualParam.getParamIndex());
+                static_cast<int16_t>(static_cast<int64_t>(numValueRegisters) + virtualParam.getParamIndex());
         auto& slot = paramRegs[regNum];
         if (slot == nullptr) {
             mlir::OpBuilder paramBuilder(virtualParam);
-            slot = paramBuilder.create<bytecode::GeneralRegisterOp>(virtualParam.getLoc(), registerType, regNum);
+            slot = bytecode::GeneralRegisterOp::create(paramBuilder, virtualParam.getLoc(), registerType, regNum);
         }
         virtualParam.getResult().replaceAllUsesWith(slot.getResult());
         virtualParam.erase();
@@ -206,23 +206,23 @@ void rewriteParameterRegisters(mlir::Block& block, int16_t numGeneralRegisters, 
     // time as `max(regNum) + 1`, reflects the full calling-convention frame size `G + P` even
     // when trailing parameters are unreferenced by the function body.
     if (numParams > 0) {
-        const auto lastParamRegNum = static_cast<int16_t>(static_cast<int64_t>(numGeneralRegisters) + numParams - 1);
+        const auto lastParamRegNum = static_cast<int16_t>(static_cast<int64_t>(numValueRegisters) + numParams - 1);
         if (paramRegs.find(lastParamRegNum) == paramRegs.end()) {
             auto* terminator = block.getTerminator();
             mlir::OpBuilder paramBuilder(terminator);
-            paramBuilder.create<bytecode::GeneralRegisterOp>(terminator->getLoc(), registerType, lastParamRegNum);
+            bytecode::GeneralRegisterOp::create(paramBuilder, terminator->getLoc(), registerType, lastParamRegNum);
         }
     }
 }
 
-void validateCallFrameLayout(bytecode::FuncOp funcOp, mlir::Block& block, int16_t numGeneralRegisters,
+void validateCallFrameLayout(bytecode::FuncOp funcOp, mlir::Block& block, int16_t numValueRegisters,
                              int64_t numParams) {
     constexpr auto MAX_ADDRESSABLE_REGISTER_COUNT = static_cast<int64_t>(std::numeric_limits<int16_t>::max()) + 1;
 
-    const auto totalRegisters = static_cast<int64_t>(numGeneralRegisters) + numParams;
+    const auto totalRegisters = static_cast<int64_t>(numValueRegisters) + numParams;
     VPUX_THROW_WHEN(totalRegisters > MAX_ADDRESSABLE_REGISTER_COUNT,
-                    "Bytecode call frame would exceed the addressable register space (G={0}, P={1})",
-                    numGeneralRegisters, numParams);
+                    "Bytecode call frame would exceed the addressable register space (G={0}, P={1})", numValueRegisters,
+                    numParams);
 
     for (auto virtualParam : block.getOps<bytecode::VirtualParameterRegisterOp>()) {
         const auto paramIndex = static_cast<int64_t>(virtualParam.getParamIndex());
@@ -238,13 +238,13 @@ void allocate(bytecode::FuncOp funcOp) {
     auto& entryBlock = body.front();
 
     SmallVector<LiveInterval> intervals;
-    const auto numGeneralRegisters = linearScanAllocate(body, intervals);
+    const auto numValueRegisters = linearScanAllocate(body, intervals);
     const auto numParams = resolveNumParams(funcOp);
-    validateCallFrameLayout(funcOp, entryBlock, numGeneralRegisters, numParams);
+    validateCallFrameLayout(funcOp, entryBlock, numValueRegisters, numParams);
 
     mlir::OpBuilder builder(funcOp);
-    rewriteGeneralRegisters(builder, intervals);
-    rewriteParameterRegisters(entryBlock, numGeneralRegisters, numParams);
+    rewriteValueRegisters(builder, intervals);
+    rewriteParameterRegisters(entryBlock, numValueRegisters, numParams);
 }
 
 }  // namespace

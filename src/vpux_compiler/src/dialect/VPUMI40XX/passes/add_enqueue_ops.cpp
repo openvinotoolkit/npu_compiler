@@ -252,8 +252,8 @@ void addPredefinedEnqusForTasksWithFetch(VPUMI40XX::MappedInferenceOp mpi, const
                     mlir::Value previousEnquVal =
                             localPreviousEnqu ? localPreviousEnqu.getResult()
                                               : (globalPreviousEnqu ? globalPreviousEnqu.getResult() : nullptr);
-                    localPreviousEnqu = builder.create<VPURegMapped::EnqueueOp>(
-                            taskOp->getLoc(), index, previousEnquVal, enqueueTarget,
+                    localPreviousEnqu = VPURegMapped::EnqueueOp::create(
+                            builder, taskOp->getLoc(), index, previousEnquVal, enqueueTarget,
                             /*previousTaskIdxOnSameBarrier*/ nullptr, secondary, firstSecondary->getResult(0),
                             lastSecondary->getResult(0));
                     counter++;
@@ -306,8 +306,8 @@ void addPredefinedEnqusForDmas(VPUMI40XX::MappedInferenceOp mpi, const int64_t t
                         mlir::Value previousEnquVal =
                                 localPreviousEnqu ? localPreviousEnqu.getResult()
                                                   : (globalPreviousEnqu ? globalPreviousEnqu.getResult() : nullptr);
-                        localPreviousEnqu = builder.create<VPURegMapped::EnqueueOp>(
-                                dmaTask.getLoc(), index, previousEnquVal, enqueueTarget,
+                        localPreviousEnqu = VPURegMapped::EnqueueOp::create(
+                                builder, dmaTask.getLoc(), index, previousEnquVal, enqueueTarget,
                                 /*previousTaskIdxOnSameBarrier*/ nullptr, VPURegMapped::TaskType::DMA, dmaTask,
                                 dmaTask);
 

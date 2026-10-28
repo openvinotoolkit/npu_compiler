@@ -55,6 +55,7 @@ void FindWlmEnqueueDmasBarrierPass::safeRunOnFunc() {
         barrierInfo.clearAttributes();
         return;
     }
+    barrierInfo.buildWlmTasksDependencies(/*considerEnqueueDmaDependency=*/false);
 
     VPURT::BarrierPagesSplitHandler barrierPagesSplitHandler(func, barrierInfo, numBarriers, _log);
     barrierPagesSplitHandler.initializeForEnqueue(func);

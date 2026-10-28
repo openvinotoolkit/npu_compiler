@@ -42,7 +42,7 @@ protected:
     mlir::Value createBuffer(vpux::AddressType rawSize, vpux::AddressType rawAlign = 64) {
         auto shape = SmallVector<int64_t>{static_cast<int64_t>(rawSize)};
         auto type = mlir::MemRefType::get(shape, _builder.getIntegerType(8));
-        auto alloc = _builder.create<mlir::memref::AllocOp>(_builder.getUnknownLoc(), type);
+        auto alloc = mlir::memref::AllocOp::create(_builder, _builder.getUnknownLoc(), type);
         if (rawAlign != 0) {
             alloc.setAlignment(rawAlign);
         }
@@ -148,7 +148,7 @@ TEST_F(MLIR_UndefinedVF, RunStrategySearchWithRealLinearAllocatorForFeasibleSche
     // Real allocator — same recipe → params translation as the production
     //`tryStrategy helper
     UndefinedVF::AllocatorFn allocator = [&](const VfStrategyRecipe& recipe) {
-        VfSchedStrategyDescriptor params{recipe.fetchScp, recipe.outputRes};
+        VfSchedStrategyDescriptor params{recipe.fetchScp, recipe.lastCompOverlapNextIterIn};
         return VfAllocateLinear(region, classifier, memoryLimit, params, Logger::global()).performAllocation();
     };
 

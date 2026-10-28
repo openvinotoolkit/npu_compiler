@@ -1472,23 +1472,6 @@ def RewriteCTCGreedyDecoder :
         >;
 
 //
-// IE.Pad -> VPU.Pad
-//
-
-def createPadOp :
-        NativeCodeCall<[{
-            $_builder.create<vpux::VPU::PadOp>(
-                $_loc, $0, $1, $2, $3,
-                $4, $5, $6, $7, $8, $9, $10, $11, vpux::VPU::BoundsRepresentationAttr::get($_loc.getContext(), vpux::VPU::BoundsRepresentation::BOUNDS))
-        }]>;
-
-def RewritePad :
-        Pat<
-            (IE_PadOp $input, $pads_begin, $pads_end, $pad_value, $pads_begin_attr, $pads_end_attr, $pad_value_attr, $mode, $output_padding, $input_padding, $output_shape, $output_bounds),
-            (createPadOp $input, $pads_begin, $pads_end, $pad_value, $pads_begin_attr, $pads_end_attr, $pad_value_attr, $mode, $output_padding, $input_padding, $output_shape, $output_bounds)
-        >;
-
-//
 // IE.Slice -> VPU.Slice
 //
 
@@ -2211,14 +2194,14 @@ def RewriteNonZero :
 
 def createReduceSquareOp :
         NativeCodeCall<[{
-            $_builder.create<vpux::VPU::ReduceSquareOp>($_loc, $0, $1, $2, $3, $4)
+            $_builder.create<vpux::VPU::ReduceSquareOp>($_loc, $0, $1, $2, $3)
         }]>;
 
 
 def RewriteReduceSquare :
         Pat<
-            (IE_ReduceSquareOp $input, $epsilon, $axes_value, $keep_dims, $scale),
-            (createReduceSquareOp $input, $axes_value, $keep_dims, $epsilon, $scale)
+            (IE_ReduceSquareOp $input, $epsilon, $axes_value, $keep_dims),
+            (createReduceSquareOp $input, $axes_value, $keep_dims, $epsilon)
         >;
 
 
@@ -2233,8 +2216,8 @@ def createRMSOp :
 
 def RewriteRMS :
         Pat<
-            (IE_RMSOp $input, $gamma, $eps, $conditionalEps),
-            (createRMSOp $input, $gamma, $eps, $conditionalEps)
+            (IE_RMSOp $input, $gamma, $eps, $epsMode),
+            (createRMSOp $input, $gamma, $eps, $epsMode)
         >;
 
 //
@@ -2341,13 +2324,13 @@ def RewriteAttention :
 
 def createAttentionDMAOp :
         NativeCodeCall<[{
-            $_builder.create<vpux::VPU::AttentionDMAOp>($_loc, $0, $1, $2, $3, $4, $5, $6, $7, $8)
+            $_builder.create<vpux::VPU::AttentionDMAOp>($_loc, $0, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
         }]>;
 
 def RewriteAttentionDMA :
         Pat<
-            (IE_AttentionDMAOp $inputQ, $inputK, $inputV, $inputMask, $inputScale, $inputSink, $inputBias, $seqLenK, $padSizeS),
-            (createAttentionDMAOp $inputQ, $inputK, $inputV, $inputMask, $inputScale, $inputSink, $inputBias, $seqLenK, $padSizeS)
+            (IE_AttentionDMAOp $inputQ, $inputK, $inputV, $inputMask, $inputScale, $inputSink, $inputBias, $seqLenK, $kScale, $vScale, $padSizeS, $localWindowSize, $smoothSoftmax),
+            (createAttentionDMAOp $inputQ, $inputK, $inputV, $inputMask, $inputScale, $inputSink, $inputBias, $seqLenK, $kScale, $vScale, $padSizeS, $localWindowSize, $smoothSoftmax)
         >;
 
 //
@@ -2364,6 +2347,22 @@ def RewriteDynamicDataMaskOp :
         Pat<
             (IE_DynamicDataMaskOp $realShape, $outputTensorType),
             (createDynamicDataMaskOp $realShape, $outputTensorType)
+        >;
+
+//
+// IE.GroupQuantCorrectionOp -> VPU.GroupQuantCorrectionOp
+//
+
+def createGroupQuantCorrectionOp :
+        NativeCodeCall<[{
+            $_builder.create<vpux::VPU::GroupQuantCorrectionOp>(
+                $_loc, $0, $1, $2, $3, /*multiClusterStrategy=*/nullptr)
+        }]>;
+
+def RewriteGroupQuantCorrectionOp :
+        Pat<
+            (IE_GroupQuantCorrectionOp $actOut, $actIn, $scales, $zp),
+            (createGroupQuantCorrectionOp $actOut, $actIn, $scales, $zp)
         >;
 
 #endif

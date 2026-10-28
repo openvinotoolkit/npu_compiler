@@ -7,7 +7,7 @@
 #include "vpux/compiler/NPU50XX/dialect/VPUIPDPU/ops.hpp"
 #include "vpux/compiler/NPU50XX/dialect/VPUIPDPU/transforms/passes/expand_dpu_config/expand_dpu_config_invariant.hpp"
 #include "vpux/compiler/NPU50XX/dialect/VPUIPDPU/transforms/passes/expand_dpu_config/expand_dpu_config_invariant_idu.hpp"
-#include "vpux/compiler/core/types/quantile_float/types.hpp"
+#include "vpux/compiler/core/types/quantile_types/types.hpp"
 #include "vpux/compiler/dialect/VPUASM/ops.hpp"
 #include "vpux/compiler/dialect/VPUIPDPU/rewriters/utils.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
@@ -184,7 +184,7 @@ mlir::LogicalResult configureWeights(const Logger& log, VPUIPDPU::arch50xx::IDU:
             if (mlir::isa_and_present<mlir::quant::UniformQuantizedType, mlir::quant::UniformQuantizedPerAxisType>(
                         weightsType)) {
                 auto quantized = mlir::cast<mlir::quant::QuantizedType>(weightsType);
-                if (mlir::isa_and_present<vpux::type::QuantileType>(quantized.getStorageType())) {
+                if (mlir::isa_and_present<mlir::quant::QuantileType>(quantized.getStorageType())) {
                     return true;
                 }
             }
@@ -219,7 +219,7 @@ mlir::LogicalResult configureWeights(const Logger& log, VPUIPDPU::arch50xx::IDU:
 mlir::LogicalResult configureIDU(const Logger& log, VPUIPDPU::arch50xx::IDU::IDUConfig& config,
                                  const vpux::NDTypeInterface& inActType, mlir::Type weightsElementType,
                                  VPUIP::NCETaskType taskType, std::optional<int64_t> spPattern,
-                                 std::optional<bool> inChannelsCompression, std::optional<bool> smallKernelOptimization,
+                                 std::optional<bool> inChannelsCompression, bool smallKernelOptimization,
                                  bool inActSparse, bool weightsSparse, std::optional<mlir::ArrayAttr> kernelSize,
                                  std::optional<mlir::ArrayAttr> kernelStrides, std::optional<int64_t> seSize,
                                  std::optional<VPU::EltwiseType> eltwiseType, const PPETask& ppeTask) {
@@ -289,7 +289,7 @@ mlir::LogicalResult buildIDUConfig(mlir::OpBuilder& builder, const mlir::Locatio
 
     // IDUEltWiseMode
     if (config.eltwiseMode.eltwiseModeOp) {
-        builder.create<IDUEltWiseModeOp>(loc, config.eltwiseMode.eltwiseType);
+        IDUEltWiseModeOp::create(builder, loc, config.eltwiseMode.eltwiseType);
     }
 
     return mlir::success();

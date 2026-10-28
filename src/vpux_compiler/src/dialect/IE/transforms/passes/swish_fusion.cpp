@@ -80,14 +80,14 @@ mlir::LogicalResult SwishFusion::matchAndRewrite(IE::MultiplyOp origOp, mlir::Pa
     }
 
     if (sigmoidOp == nullptr) {
-        return matchFailed(rewriter, origOp, "No Sigmoid operation connected to Multiply");
+        return matchFailed(_log, rewriter, origOp, "No Sigmoid operation connected to Multiply");
     }
 
     if (sigmoidOp.getInput() != origOp.getInput1() && sigmoidOp.getInput() != origOp.getInput2()) {
-        return matchFailed(rewriter, origOp, "No Sigmoid operation connected to Multiply");
+        return matchFailed(_log, rewriter, origOp, "No Sigmoid operation connected to Multiply");
     }
 
-    auto swishOp = rewriter.create<IE::SwishOp>(origOp.getLoc(), sigmoidOp.getInput(), nullptr, nullptr);
+    auto swishOp = IE::SwishOp::create(rewriter, origOp.getLoc(), sigmoidOp.getInput(), nullptr, nullptr);
 
     _log.debug("Replace '{0}' and '{1}' with new op '{2}'", origOp.getLoc(), sigmoidOp.getLoc(), swishOp);
     rewriter.replaceOp(origOp, swishOp.getResult());

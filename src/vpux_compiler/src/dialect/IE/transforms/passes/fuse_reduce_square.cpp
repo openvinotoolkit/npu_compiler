@@ -58,8 +58,8 @@ mlir::Operation* getPowerOp(mlir::Operation* op) {
 
 std::optional<mlir::FloatAttr> extractEpsilon(IE::AddOp addOp, mlir::OpBuilder& builder, Logger log) {
     auto maybeConstant = addOp->getOperand(0).getDefiningOp();
-    auto epsilonConstOp = mlir::dyn_cast<Const::DeclareOp>(mlir::isa_and_nonnull<Const::DeclareOp>(maybeConstant)
-                                                                   ? maybeConstant
+    auto epsilonConstOp = mlir::dyn_cast_or_null<Const::DeclareOp>(
+            mlir::isa_and_nonnull<Const::DeclareOp>(maybeConstant) ? maybeConstant
                                                                    : addOp->getOperand(1).getDefiningOp());
 
     if (epsilonConstOp == nullptr) {
@@ -77,11 +77,11 @@ std::optional<mlir::FloatAttr> extractEpsilon(IE::AddOp addOp, mlir::OpBuilder& 
 }
 
 IE::ReduceSquareOp createReduceSquareOp(mlir::OpBuilder& builder, mlir::Value input, mlir::Type outputType,
-                                        mlir::FloatAttr epsilon, mlir::ArrayAttr axesAttr, mlir::UnitAttr keepDimsAttr,
-                                        mlir::IntegerAttr scaleAttr = nullptr) {
+                                        mlir::FloatAttr epsilon, mlir::ArrayAttr axesAttr,
+                                        mlir::UnitAttr keepDimsAttr) {
     auto loc = input.getLoc();
-    return builder.create<IE::ReduceSquareOp>(appendLoc(loc, "_reduce_square"), outputType, input, epsilon, axesAttr,
-                                              keepDimsAttr, scaleAttr);
+    return IE::ReduceSquareOp::create(builder, appendLoc(loc, "_reduce_square"), outputType, input, epsilon, axesAttr,
+                                      keepDimsAttr);
 }
 
 void FuseReduceSquarePass::safeRunOnFunc() {
@@ -178,33 +178,13 @@ void FuseReduceSquarePass::safeRunOnFunc() {
             sqrtLikeOp->replaceAllUsesWith(reduceSquareOp);
             _log.trace("[FuseReduceSquare] ReduceMean pattern matched");
         } else {
-            const auto inputElementType = mlir::cast<vpux::NDTypeInterface>(reduceInput.getType()).getElementType();
-            // For fp32 inputs with ReduceSum pattern, map to ReduceL2 instead of ReduceSquare
-            if (inputElementType.isF32()) {
-                auto reduceL2Op = builder.create<IE::ReduceL2Op>(appendLoc(reduceInput.getLoc(), "_reduce_l2"),
-                                                                 sqrtLikeOp->getResult(0).getType(),
-                                                                 powerOp->getOperand(0), axesAttr, keepDimsAttr);
-                sqrtLikeOp->replaceAllUsesWith(reduceL2Op);
-                _log.trace("[FuseReduceSquare] ReduceSum fp32 pattern matched, replaced with ReduceL2");
-                return;
-            }
-
-            // ReduceSum pattern: only single innermost axis is supported
-            const auto axes = parseIntArrayAttr<int64_t>(axesAttr);
-            const auto inputRank = mlir::cast<vpux::NDTypeInterface>(reduceInput.getType()).getRank();
-            if (axes.size() != 1 || axes[0] != inputRank - 1) {
-                _log.trace("ReduceSum pattern: axis is not single innermost. Skipping fuse.");
-                return;
-            }
-            const auto inputShape = getShape(reduceInput);
-            const auto innermostDim = inputShape[Dim(inputShape.size() - 1)];
-            const auto scaleAttr = getIntAttr(builder.getContext(), static_cast<int64_t>(innermostDim));
-
-            auto reduceSquareOp =
-                    createReduceSquareOp(builder, powerOp->getOperand(0), sqrtLikeOp->getResult(0).getType(),
-                                         epsilonAttr, axesAttr, keepDimsAttr, scaleAttr);
-            sqrtLikeOp->replaceAllUsesWith(reduceSquareOp);
-            _log.trace("[FuseReduceSquare] ReduceSum pattern matched");
+            // For ReduceSum pattern, map to ReduceL2 instead of ReduceSquare
+            auto reduceL2Op = IE::ReduceL2Op::create(builder, appendLoc(reduceInput.getLoc(), "_reduce_l2"),
+                                                     sqrtLikeOp->getResult(0).getType(), powerOp->getOperand(0),
+                                                     axesAttr, keepDimsAttr);
+            sqrtLikeOp->replaceAllUsesWith(reduceL2Op);
+            _log.trace("[FuseReduceSquare] ReduceSum pattern matched, replaced with ReduceL2");
+            return;
         }
     });
 }

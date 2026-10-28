@@ -456,3 +456,130 @@ module @RepeatingBlocks {
         //CHECK: return [[ARG1]] : memref<1x4x5x5xf16, @DDR>
     }
 }
+
+// -----
+
+// Note: This test mostly verifies that the reinterpret casts at function
+// boundary are correctly eliminated during hardware adaptation. The actual
+// validity of the whole program is not tested.
+
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+
+!DistBufferCmx = !VPUIP.DistributedBuffer<1x1x1x1323291xui8, #NCHW, @CMX_NN,
+    {mode = "DUPLICATED", num_clusters = 4 : i64, uniform_distributed_segments,
+     compute_shapes = [[1, 1, 1, 1323291], [1, 1, 1, 1323291], [1, 1, 1, 1323291], [1, 1, 1, 1323291]],
+     compute_offsets = [[0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]],
+     memory_shapes = [[1, 1, 1, 1323291], [1, 1, 1, 1323291], [1, 1, 1, 1323291], [1, 1, 1, 1323291]],
+     memory_offsets = [[0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]]}>
+
+
+// CHECK-LABEL: @HostCompileKernelWithFunctionBoundaryCasts
+module @HostCompileKernelWithFunctionBoundaryCasts {
+    module @VPU.SW {
+      func.func nested @cache_flush() attributes {VPU.task_type = @CACHE_FLUSH}
+      func.func nested @cache_flush_invalidate() attributes {VPU.task_type = @CACHE_FLUSH_INVALIDATE}
+      func.func nested @builtin_InterpolateDMA(memref<*xf16>, memref<*xsi32>, memref<*xf32>, memref<*xui8, @CMX_NN>,
+                                               memref<*xf16>, memref<*xsi32>, memref<*xui8, @CMX_NN>,
+                                               i64, i64, i64, i64, none, f64, f64, i64)
+        attributes {VPU.kernel_code = "interpolate_dma.cpp", VPU.kernel_entry = "interpolate_dma",
+                    VPU.kernel_name = "interpolate_dma", VPU.task_type = @COMPUTE}
+      func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"}
+    }
+
+    net.NetworkInfo entryPoint : @main inputsInfo : {
+      DataInfo "in_0" : tensor<1x3x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 3, 368, 432]> : tensor<4xsi64>, order = #NCHW}>
+      DataInfo "in_1" : tensor<2xf32>
+      DataInfo "vpux_ie_shape_in_0" : tensor<4xsi32>
+    } outputsInfo : {
+      DataInfo "out_0" : tensor<1x3x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 3, 2944, 3456]> : tensor<4xsi64>, order = #NCHW}>
+      DataInfo "vpux_ie_shape_out_0" : tensor<4xsi32>
+    }
+
+    // CHECK: func.func @main
+    // CHECK-SAME:  ([[IN:%[^:]+]]: memref<1x3x?x?xf16, strided<[?, ?, ?, ?], offset: ?>>,
+    // CHECK-SAME:  [[IN_SCALES:%.+]]: memref<2xf32, strided<[?], offset: ?>>, [[IN_SHAPE:%.+]]: memref<4xsi32>,
+    // CHECK-SAME:  [[OUT:%.+]]: memref<1x3x?x?xf16, strided<[?, ?, ?, ?], offset: ?>>,
+    // CHECK-SAME:  [[OUT_SHAPE:%.+]]: memref<4xsi32>)
+    // CHECK-SAME:  -> (memref<1x3x?x?xf16, strided<[?, ?, ?, ?], offset: ?>>, memref<4xsi32>)
+    func.func @main(%arg0: memref<1x3x?x?xf16, strided<[?, ?, ?, ?], offset: ?>>,
+                    %arg1: memref<2xf32, strided<[?], offset: ?>>, %arg2: memref<4xsi32>,
+                    %arg3: memref<1x3x?x?xf16, strided<[?, ?, ?, ?], offset: ?>>, %arg4: memref<4xsi32>)
+            -> (memref<1x3x?x?xf16, strided<[?, ?, ?, ?], offset: ?>>, memref<4xsi32>) {
+        // CHECK-DAG: [[IN0:%.+]] = VPURT.DeclareBuffer <NetworkInput> [0] <0> -> memref<1x3x368x432xf16, @DDR>
+        // CHECK-DAG: [[IN1:%.+]] = VPURT.DeclareBuffer <NetworkInput> [1] <0> -> memref<2xf32, strided<[?], offset: ?>, @DDR>
+        // CHECK-DAG: [[IN2:%.+]] = VPURT.DeclareBuffer <NetworkInput> [2] <0> -> memref<4xsi32, @DDR>
+        // CHECK-DAG: [[OUT0:%.+]] = VPURT.DeclareBuffer <NetworkOutput> [0] <0> -> memref<1x3x2944x3456xf16, @DDR>
+        // CHECK-DAG: [[OUT1:%.+]] = VPURT.DeclareBuffer <NetworkOutput> [1] <0> -> memref<4xsi32, @DDR>
+
+        %shape_alloc = VPUIP.StaticAlloc<64> -> memref<4xsi32, @DDR>
+        %main_5 = VPUIP.StaticAlloc<0> -> memref<4xsi32, @DDR>
+        %aux_buf = VPURT.DeclareBuffer <CMX_NN> <98304> -> !DistBufferCmx
+        %ddr_dma_tok, %ddr_shape = async.execute -> !async.value<memref<4xsi32, @DDR>>
+                attributes {VPUIP.executor = @DMA_NN, VPUIP.executorIdx = [0], "async-deps-index" = 0 : i64,
+                            cycleBegin = 0 : i64, cycleCost = 1626 : i64, cycleEnd = 1626 : i64} {
+            %in_shape = Core.ReinterpretCast(%arg2) : memref<4xsi32> -> memref<4xsi32, @DDR>
+            %dma_res = VPUIP.NNDMA <{port = 0 : i64}> inputs(%in_shape : memref<4xsi32, @DDR>)
+                outputs(%main_5 : memref<4xsi32, @DDR>) -> memref<4xsi32, @DDR>
+            async.yield %dma_res : memref<4xsi32, @DDR>
+        }
+        // CHECK: VPUIP.NNDMA {{.*}} inputs([[IN2]]
+
+        %sw_tok, %sw_res:5 = async.execute [%ddr_dma_tok] (%ddr_shape as %shape: !async.value<memref<4xsi32, @DDR>>)
+                -> (!async.value<memref<1x3x2944x3456xf16, @DDR>>,
+                    !async.value<!DistBufferCmx>,
+                    !async.value<memref<1x3x2944x3456xf16, @DDR>>,
+                    !async.value<!DistBufferCmx>,
+                    !async.value<memref<4xsi32, @DDR>>) {
+            %input = Core.ReinterpretCast(%arg0) : memref<1x3x?x?xf16, strided<[?, ?, ?, ?], offset: ?>>
+                -> memref<1x3x368x432xf16, @DDR>
+            %in_scales = Core.ReinterpretCast(%arg1) : memref<2xf32, strided<[?], offset: ?>>
+                -> memref<2xf32, strided<[?], offset: ?>, @DDR>
+            %output = Core.ReinterpretCast(%arg3) : memref<1x3x?x?xf16, strided<[?, ?, ?, ?], offset: ?>>
+                -> memref<1x3x2944x3456xf16, @DDR>
+            %res:4, %res_shape = VPUIP.SW.Kernel
+                {dynamicInputShapesMap = array<i32: 0, -1, -1>, dynamicOutputShapesMap = array<i32: 0, -1>, resultSegmentSizes = array<i32: 4, 1, 0>}
+                @VPU.SW::@builtin_InterpolateDMA
+                inputs(%input as %in0: memref<1x3x368x432xf16>,
+                       %in_scales as %in1: memref<2xf32, strided<[?], offset: ?>>,
+                       %aux_buf as %in2: !DistBufferCmx,
+                       %input as %in3: memref<1x3x368x432xf16>,
+                       %in_scales as %in4: memref<2xf32, strided<[?], offset: ?>>,
+                       %aux_buf as %in5: !DistBufferCmx)
+                dynamicInputShapes(%shape : memref<4xsi32, @DDR>)
+                outputs(%output as %out0: memref<1x3x2944x3456xf16>,
+                        %aux_buf as %out1: !DistBufferCmx,
+                        %output as %out2: memref<1x3x2944x3456xf16>,
+                        %aux_buf as %out3: !DistBufferCmx)
+                dynamicOutputShapes(%shape_alloc : memref<4xsi32, @DDR>) on tile 0 ->
+                (memref<1x3x2944x3456xf16, @DDR>, !DistBufferCmx, memref<1x3x2944x3456xf16, @DDR>, !DistBufferCmx, memref<4xsi32, @DDR>)
+            {
+                VPUIP.SW.Kernel.run {attrs = [1, 0, 2, 0, [2, 3], -7.500000e-01, 0.000000e+00, 8589934596]}
+                    (%in0, %in1, %in2, %out0, %out1)
+                    : memref<1x3x368x432xf16>, memref<2xf32, strided<[?], offset: ?>>, !DistBufferCmx,
+                      memref<1x3x2944x3456xf16>, !DistBufferCmx
+                VPUIP.SW.Kernel.run {attrs = [1, 0, 2, 0, [2, 3], -7.500000e-01, 0.000000e+00, 8589934596]}
+                    (%in3, %in4, %in5, %out2, %out3)
+                    : memref<1x3x368x432xf16>, memref<2xf32, strided<[?], offset: ?>>, !DistBufferCmx,
+                      memref<1x3x2944x3456xf16>, !DistBufferCmx
+            }
+            async.yield %res#0, %res#1, %res#2, %res#3, %res_shape
+                : memref<1x3x2944x3456xf16, @DDR>, !DistBufferCmx, memref<1x3x2944x3456xf16, @DDR>, !DistBufferCmx, memref<4xsi32, @DDR>
+        }
+
+        %ddr_dma_tok2, %ddr_shape2 = async.execute [%sw_tok] (%sw_res#4 as %shape: !async.value<memref<4xsi32, @DDR>>)
+                -> !async.value<memref<4xsi32, @DDR>>
+                attributes {VPUIP.executor = @DMA_NN, VPUIP.executorIdx = [0], "async-deps-index" = 2 : i64,
+                            cycleBegin = 1627 : i64, cycleCost = 1626 : i64, cycleEnd = 3253 : i64} {
+            %out_shape = Core.ReinterpretCast(%arg4) : memref<4xsi32> -> memref<4xsi32, @DDR>
+            %dma_res = VPUIP.NNDMA <{port = 0 : i64}> inputs(%shape : memref<4xsi32, @DDR>)
+                outputs(%out_shape : memref<4xsi32, @DDR>) -> memref<4xsi32, @DDR>
+            async.yield %dma_res : memref<4xsi32, @DDR>
+        }
+        // CHECK: VPUIP.NNDMA {{.*}} outputs([[OUT1]]
+
+        %shape_res = async.await %ddr_shape2 : !async.value<memref<4xsi32, @DDR>>
+        %shape_res_noddr = Core.ReinterpretCast(%shape_res) : memref<4xsi32, @DDR> -> memref<4xsi32>
+        return %arg3, %shape_res_noddr : memref<1x3x?x?xf16, strided<[?, ?, ?, ?], offset: ?>>, memref<4xsi32>
+        // CHECK: return [[OUT]], [[OUT_SHAPE]]
+    }
+}

@@ -167,3 +167,175 @@ func.func @NotInsertMemPermuteBeforeAndAfterReduceMaxAsInnerMostDim(%arg0: tenso
 
   // CHECK:         return [[REDUCEMAX]] : tensor<1x1x256x1xf32>
 }
+
+// -----
+
+#NCWH = affine_map<(d0, d1, d2, d3) -> (d0, d1, d3, d2)>
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+
+// CHECK-LABEL: @PropagateMemPermuteThroughInputConvert
+// CHECK-SAME:      [[INPUT:%.+]]: tensor<1x16x128x128xf16>
+func.func @PropagateMemPermuteThroughInputConvert(%arg0: tensor<1x16x128x128xf16>) -> tensor<1x16x1x128xf32> {
+  %0 = IE.Convert(%arg0) {dstElemType = f32} : tensor<1x16x128x128xf16> -> tensor<1x16x128x128xf32>
+  %1 = IE.ReduceSum(%0) {axes_value = [2], keep_dims} : tensor<1x16x128x128xf32> -> tensor<1x16x1x128xf32>
+
+  return %1 : tensor<1x16x1x128xf32>
+
+  // CHECK:        [[MEMPERMUTE:%.+]] = IE.MemPermute([[INPUT]]) {dst_order = #NCWH, mem_perm = #NCWH} : tensor<1x16x128x128xf16> -> tensor<1x16x128x128xf16, {order = #NCWH}>
+  // CHECK:        [[CONVERT:%.+]] = IE.Convert([[MEMPERMUTE]]) {dstElemType = f32} : tensor<1x16x128x128xf16, {order = #NCWH}> -> tensor<1x16x128x128xf32, {order = #NCWH}>
+  // CHECK:        [[REDUCESUM:%.+]] = IE.ReduceSum([[CONVERT]]) {axes_value = [2], keep_dims} : tensor<1x16x128x128xf32, {order = #NCWH}> -> tensor<1x16x1x128xf32, {order = #NCWH}>
+  // CHECK:        [[MEMPERMUTE_OUT:%.+]] = IE.MemPermute([[REDUCESUM]]) {dst_order = #NCHW, mem_perm = #NCWH} : tensor<1x16x1x128xf32, {order = #NCWH}> -> tensor<1x16x1x128xf32>
+
+  // CHECK:         return [[MEMPERMUTE_OUT]] : tensor<1x16x1x128xf32>
+}
+
+// -----
+
+#NCWH = affine_map<(d0, d1, d2, d3) -> (d0, d1, d3, d2)>
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+
+// CHECK-LABEL: @PropagateMemPermuteThroughOutputConvert
+// CHECK-SAME:      [[INPUT:%.+]]: tensor<1x16x128x128xf32>
+func.func @PropagateMemPermuteThroughOutputConvert(%arg0: tensor<1x16x128x128xf32>) -> tensor<1x16x1x128xf16> {
+  %0 = IE.ReduceSum(%arg0) {axes_value = [2], keep_dims} : tensor<1x16x128x128xf32> -> tensor<1x16x1x128xf32>
+  %1 = IE.Convert(%0) {dstElemType = f16} : tensor<1x16x1x128xf32> -> tensor<1x16x1x128xf16>
+
+  return %1 : tensor<1x16x1x128xf16>
+
+  // CHECK:        [[MEMPERMUTE:%.+]] = IE.MemPermute([[INPUT]]) {dst_order = #NCWH, mem_perm = #NCWH} : tensor<1x16x128x128xf32> -> tensor<1x16x128x128xf32, {order = #NCWH}>
+  // CHECK:        [[REDUCESUM:%.+]] = IE.ReduceSum([[MEMPERMUTE]]) {axes_value = [2], keep_dims} : tensor<1x16x128x128xf32, {order = #NCWH}> -> tensor<1x16x1x128xf32, {order = #NCWH}>
+  // CHECK:        [[CONVERT:%.+]] = IE.Convert([[REDUCESUM]]) {dstElemType = f16} : tensor<1x16x1x128xf32, {order = #NCWH}> -> tensor<1x16x1x128xf16, {order = #NCWH}>
+  // CHECK:        [[MEMPERMUTE_OUT:%.+]] = IE.MemPermute([[CONVERT]]) {dst_order = #NCHW, mem_perm = #NCWH} : tensor<1x16x1x128xf16, {order = #NCWH}> -> tensor<1x16x1x128xf16>
+
+  // CHECK:         return [[MEMPERMUTE_OUT]] : tensor<1x16x1x128xf16>
+}
+
+// -----
+
+#NCWH = affine_map<(d0, d1, d2, d3) -> (d0, d1, d3, d2)>
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+
+// CHECK-LABEL: @PropagateMemPermuteThroughBothConverts
+// CHECK-SAME:      [[INPUT:%.+]]: tensor<1x16x128x128xf16>
+func.func @PropagateMemPermuteThroughBothConverts(%arg0: tensor<1x16x128x128xf16>) -> tensor<1x16x1x128xf16> {
+  %0 = IE.Convert(%arg0) {dstElemType = f32} : tensor<1x16x128x128xf16> -> tensor<1x16x128x128xf32>
+  %1 = IE.ReduceSum(%0) {axes_value = [2], keep_dims} : tensor<1x16x128x128xf32> -> tensor<1x16x1x128xf32>
+  %2 = IE.Convert(%1) {dstElemType = f16} : tensor<1x16x1x128xf32> -> tensor<1x16x1x128xf16>
+
+  return %2 : tensor<1x16x1x128xf16>
+
+  // CHECK:        [[MEMPERMUTE:%.+]] = IE.MemPermute([[INPUT]]) {dst_order = #NCWH, mem_perm = #NCWH} : tensor<1x16x128x128xf16> -> tensor<1x16x128x128xf16, {order = #NCWH}>
+  // CHECK:        [[CONVERT_IN:%.+]] = IE.Convert([[MEMPERMUTE]]) {dstElemType = f32} : tensor<1x16x128x128xf16, {order = #NCWH}> -> tensor<1x16x128x128xf32, {order = #NCWH}>
+  // CHECK:        [[REDUCESUM:%.+]] = IE.ReduceSum([[CONVERT_IN]]) {axes_value = [2], keep_dims} : tensor<1x16x128x128xf32, {order = #NCWH}> -> tensor<1x16x1x128xf32, {order = #NCWH}>
+  // CHECK:        [[CONVERT_OUT:%.+]] = IE.Convert([[REDUCESUM]]) {dstElemType = f16} : tensor<1x16x1x128xf32, {order = #NCWH}> -> tensor<1x16x1x128xf16, {order = #NCWH}>
+  // CHECK:        [[MEMPERMUTE_OUT:%.+]] = IE.MemPermute([[CONVERT_OUT]]) {dst_order = #NCHW, mem_perm = #NCWH} : tensor<1x16x1x128xf16, {order = #NCWH}> -> tensor<1x16x1x128xf16>
+
+  // CHECK:         return [[MEMPERMUTE_OUT]] : tensor<1x16x1x128xf16>
+}
+
+// -----
+
+#NCWH = affine_map<(d0, d1, d2, d3) -> (d0, d1, d3, d2)>
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+
+// CHECK-LABEL: @NotPropagateMemPermuteThroughInputConvertMultiUse
+// CHECK-SAME:      [[INPUT:%.+]]: tensor<1x16x128x128xf16>
+func.func @NotPropagateMemPermuteThroughInputConvertMultiUse(%arg0: tensor<1x16x128x128xf16>) -> (tensor<1x16x1x128xf32>, tensor<1x16x128x128xf32>) {
+  %0 = IE.Convert(%arg0) {dstElemType = f32} : tensor<1x16x128x128xf16> -> tensor<1x16x128x128xf32>
+  %1 = IE.ReduceSum(%0) {axes_value = [2], keep_dims} : tensor<1x16x128x128xf32> -> tensor<1x16x1x128xf32>
+
+  return %1, %0 : tensor<1x16x1x128xf32>, tensor<1x16x128x128xf32>
+
+  // CHECK:        [[CONVERT:%.+]] = IE.Convert([[INPUT]]) {dstElemType = f32} : tensor<1x16x128x128xf16> -> tensor<1x16x128x128xf32>
+  // CHECK:        [[MEMPERMUTE:%.+]] = IE.MemPermute([[CONVERT]]) {dst_order = #NCWH, mem_perm = #NCWH} : tensor<1x16x128x128xf32> -> tensor<1x16x128x128xf32, {order = #NCWH}>
+  // CHECK:        [[REDUCESUM:%.+]] = IE.ReduceSum([[MEMPERMUTE]]) {axes_value = [2], keep_dims} : tensor<1x16x128x128xf32, {order = #NCWH}> -> tensor<1x16x1x128xf32, {order = #NCWH}>
+  // CHECK:        [[MEMPERMUTE_OUT:%.+]] = IE.MemPermute([[REDUCESUM]]) {dst_order = #NCHW, mem_perm = #NCWH} : tensor<1x16x1x128xf32, {order = #NCWH}> -> tensor<1x16x1x128xf32>
+
+  // CHECK:         return [[MEMPERMUTE_OUT]], [[CONVERT]] : tensor<1x16x1x128xf32>, tensor<1x16x128x128xf32>
+}
+
+// -----
+
+#NCWH = affine_map<(d0, d1, d2, d3) -> (d0, d1, d3, d2)>
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+
+// CHECK-LABEL: @NotPropagateMemPermuteThroughOutputConvertWhenReduceHasAnotherUser
+// CHECK-SAME:      [[INPUT:%.+]]: tensor<1x16x128x128xf32>
+func.func @NotPropagateMemPermuteThroughOutputConvertWhenReduceHasAnotherUser(%arg0: tensor<1x16x128x128xf32>) -> (tensor<1x16x1x128xf16>, tensor<1x16x1x128xf32, {order = #NCWH}>) {
+  %0 = IE.ReduceSum(%arg0) {axes_value = [2], keep_dims} : tensor<1x16x128x128xf32> -> tensor<1x16x1x128xf32>
+  %1 = IE.Convert(%0) {dstElemType = f16} : tensor<1x16x1x128xf32> -> tensor<1x16x1x128xf16>
+  %2 = IE.MemPermute(%0) {dst_order = #NCWH, mem_perm = #NCWH} : tensor<1x16x1x128xf32> -> tensor<1x16x1x128xf32, {order = #NCWH}>
+
+  return %1, %2 : tensor<1x16x1x128xf16>, tensor<1x16x1x128xf32, {order = #NCWH}>
+
+  // CHECK:        [[INPUT_MEMPERMUTE:%.+]] = IE.MemPermute([[INPUT]]) {dst_order = #NCWH, mem_perm = #NCWH}
+  // CHECK:        [[REDUCESUM:%.+]] = IE.ReduceSum([[INPUT_MEMPERMUTE]]) {axes_value = [2], keep_dims}
+  // CHECK:        [[OUTPUT_MEMPERMUTE:%.+]] = IE.MemPermute([[REDUCESUM]]) {dst_order = #NCHW, mem_perm = #NCWH}
+  // CHECK:        [[CONVERT:%.+]] = IE.Convert([[OUTPUT_MEMPERMUTE]]) {dstElemType = f16}
+  // CHECK:        [[EXISTING_MEMPERMUTE:%.+]] = IE.MemPermute([[OUTPUT_MEMPERMUTE]]) {dst_order = #NCWH, mem_perm = #NCWH}
+  // CHECK:        return [[CONVERT]], [[EXISTING_MEMPERMUTE]]
+}
+
+// -----
+
+#NCWH = affine_map<(d0, d1, d2, d3) -> (d0, d1, d3, d2)>
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+
+// CHECK-LABEL: @NotPropagateMemPermuteThroughOutputConvertMultiUse
+// CHECK-SAME:      [[INPUT:%.+]]: tensor<1x16x128x128xf32>
+func.func @NotPropagateMemPermuteThroughOutputConvertMultiUse(%arg0: tensor<1x16x128x128xf32>) -> (tensor<1x16x1x128xf16>, tensor<1x16x1x128xf16, {order = #NCWH}>) {
+  %0 = IE.ReduceSum(%arg0) {axes_value = [2], keep_dims} : tensor<1x16x128x128xf32> -> tensor<1x16x1x128xf32>
+  %1 = IE.Convert(%0) {dstElemType = f16} : tensor<1x16x1x128xf32> -> tensor<1x16x1x128xf16>
+  %2 = IE.MemPermute(%1) {dst_order = #NCWH, mem_perm = #NCWH} : tensor<1x16x1x128xf16> -> tensor<1x16x1x128xf16, {order = #NCWH}>
+
+  return %1, %2 : tensor<1x16x1x128xf16>, tensor<1x16x1x128xf16, {order = #NCWH}>
+
+  // CHECK:        [[INPUT_MEMPERMUTE:%.+]] = IE.MemPermute([[INPUT]]) {dst_order = #NCWH, mem_perm = #NCWH}
+  // CHECK:        [[REDUCESUM:%.+]] = IE.ReduceSum([[INPUT_MEMPERMUTE]]) {axes_value = [2], keep_dims}
+  // CHECK:        [[OUTPUT_MEMPERMUTE:%.+]] = IE.MemPermute([[REDUCESUM]]) {dst_order = #NCHW, mem_perm = #NCWH}
+  // CHECK:        [[CONVERT:%.+]] = IE.Convert([[OUTPUT_MEMPERMUTE]]) {dstElemType = f16}
+  // CHECK:        [[EXISTING_MEMPERMUTE:%.+]] = IE.MemPermute([[CONVERT]]) {dst_order = #NCWH, mem_perm = #NCWH}
+  // CHECK:        return [[CONVERT]], [[EXISTING_MEMPERMUTE]]
+}
+
+// -----
+
+#NCWH = affine_map<(d0, d1, d2, d3) -> (d0, d1, d3, d2)>
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+
+// CHECK-LABEL: @NotPropagateMemPermuteThroughInputConvertThatDecreasesElemSize
+// CHECK-SAME:      [[INPUT:%.+]]: tensor<1x16x128x128xf32>
+func.func @NotPropagateMemPermuteThroughInputConvertThatDecreasesElemSize(%arg0: tensor<1x16x128x128xf32>) -> tensor<1x16x1x128xf16> {
+  %0 = IE.Convert(%arg0) {dstElemType = f16} : tensor<1x16x128x128xf32> -> tensor<1x16x128x128xf16>
+  %1 = IE.ReduceSum(%0) {axes_value = [2], keep_dims} : tensor<1x16x128x128xf16> -> tensor<1x16x1x128xf16>
+
+  return %1 : tensor<1x16x1x128xf16>
+
+  // CHECK:        [[CONVERT:%.+]] = IE.Convert([[INPUT]]) {dstElemType = f16} : tensor<1x16x128x128xf32> -> tensor<1x16x128x128xf16>
+  // CHECK:        [[MEMPERMUTE:%.+]] = IE.MemPermute([[CONVERT]]) {dst_order = #NCWH, mem_perm = #NCWH} : tensor<1x16x128x128xf16> -> tensor<1x16x128x128xf16, {order = #NCWH}>
+  // CHECK:        [[REDUCESUM:%.+]] = IE.ReduceSum([[MEMPERMUTE]]) {axes_value = [2], keep_dims} : tensor<1x16x128x128xf16, {order = #NCWH}> -> tensor<1x16x1x128xf16, {order = #NCWH}>
+  // CHECK:        [[MEMPERMUTE_OUT:%.+]] = IE.MemPermute([[REDUCESUM]]) {dst_order = #NCHW, mem_perm = #NCWH} : tensor<1x16x1x128xf16, {order = #NCWH}> -> tensor<1x16x1x128xf16>
+
+  // CHECK:         return [[MEMPERMUTE_OUT]] : tensor<1x16x1x128xf16>
+}
+
+// -----
+
+#NCWH = affine_map<(d0, d1, d2, d3) -> (d0, d1, d3, d2)>
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+
+// CHECK-LABEL: @NotPropagateMemPermuteThroughOutputConvertThatIncreasesElemSize
+// CHECK-SAME:      [[INPUT:%.+]]: tensor<1x16x128x128xf16>
+func.func @NotPropagateMemPermuteThroughOutputConvertThatIncreasesElemSize(%arg0: tensor<1x16x128x128xf16>) -> tensor<1x16x1x128xf32> {
+  %0 = IE.ReduceSum(%arg0) {axes_value = [2], keep_dims} : tensor<1x16x128x128xf16> -> tensor<1x16x1x128xf16>
+  %1 = IE.Convert(%0) {dstElemType = f32} : tensor<1x16x1x128xf16> -> tensor<1x16x1x128xf32>
+
+  return %1 : tensor<1x16x1x128xf32>
+
+  // CHECK:        [[MEMPERMUTE:%.+]] = IE.MemPermute([[INPUT]]) {dst_order = #NCWH, mem_perm = #NCWH} : tensor<1x16x128x128xf16> -> tensor<1x16x128x128xf16, {order = #NCWH}>
+  // CHECK:        [[REDUCESUM:%.+]] = IE.ReduceSum([[MEMPERMUTE]]) {axes_value = [2], keep_dims} : tensor<1x16x128x128xf16, {order = #NCWH}> -> tensor<1x16x1x128xf16, {order = #NCWH}>
+  // CHECK:        [[MEMPERMUTE_OUT:%.+]] = IE.MemPermute([[REDUCESUM]]) {dst_order = #NCHW, mem_perm = #NCWH} : tensor<1x16x1x128xf16, {order = #NCWH}> -> tensor<1x16x1x128xf16>
+  // CHECK:        [[CONVERT:%.+]] = IE.Convert([[MEMPERMUTE_OUT]]) {dstElemType = f32} : tensor<1x16x1x128xf16> -> tensor<1x16x1x128xf32>
+
+  // CHECK:         return [[CONVERT]] : tensor<1x16x1x128xf32>
+}

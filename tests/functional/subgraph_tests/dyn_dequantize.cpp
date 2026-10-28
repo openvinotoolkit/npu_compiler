@@ -81,6 +81,7 @@ TEST_P(DynDQTestCommon, NPU5010_TestKindSubgraph) {
     setDefaultHardwareMode();
     run(Platform::NPU5010);
 }
+
 TEST_P(DynDQTestCommon, NPU5020_TestKindSubgraph) {
     setDefaultHardwareMode();
     run(Platform::NPU5020);
@@ -95,9 +96,19 @@ const std::vector<DynDeQuantParams> params = {
         {{16, 8, 32}, {1, 1, 32}, ov::element::nf4, ov::element::f16},
         {{128, 128}, {128, 1}, ov::element::u8, ov::element::f16},
         {{128, 128}, {128, 1}, ov::element::i8, ov::element::f16},
+        // i8->f16 per-row fast path (scale NxCxHx1): W not a multiple of the SIMD width
+        // exercises the vector tail, W < SIMD width exercises the zero-padded short-row path.
+        {{1, 64, 1, 100}, {1, 64, 1, 1}, ov::element::i8, ov::element::f16},
+        {{1, 64, 1, 8}, {1, 64, 1, 1}, ov::element::i8, ov::element::f16},
+        // i8->f16 per-column fast path (scale NxCx1xW): exact-multiple, tail and short-row.
+        {{3, 30, 128}, {3, 1, 128}, ov::element::i8, ov::element::f16},
+        {{3, 30, 100}, {3, 1, 100}, ov::element::i8, ov::element::f16},
+        {{3, 30, 12}, {3, 1, 12}, ov::element::i8, ov::element::f16},
         {{1, 64, 1, 128}, {1, 64, 1, 1}, ov::element::i4, ov::element::f16},
         {{1, 64, 1, 256}, {1, 64, 1, 1}, ov::element::i4, ov::element::f16},
         {{1, 128, 1, 768}, {1, 128, 1, 1}, ov::element::i4, ov::element::f16},
+        {{1, 10, 64, 128}, {1, 10, 1, 128}, ov::element::i8, ov::element::f16},
+        {{1, 10, 8192, 128}, {1, 10, 1, 128}, ov::element::i8, ov::element::f16},
 };
 const std::vector<DynDeQuantParams> paramsI4 = {
         {{3, 30, 128}, {3, 30, 1}, ov::element::i4, ov::element::f16},
@@ -105,6 +116,12 @@ const std::vector<DynDeQuantParams> paramsI4 = {
         {{3, 14, 12}, {3, 1, 12}, ov::element::i4, ov::element::f16},
         {{128, 128}, {128, 1}, ov::element::u8, ov::element::f16},
         {{128, 128}, {128, 1}, ov::element::i8, ov::element::f16},
+        // Same i8->f16 fast-path tail / short-row / per-column coverage as `params`.
+        {{1, 64, 1, 100}, {1, 64, 1, 1}, ov::element::i8, ov::element::f16},
+        {{1, 64, 1, 8}, {1, 64, 1, 1}, ov::element::i8, ov::element::f16},
+        {{3, 30, 128}, {3, 1, 128}, ov::element::i8, ov::element::f16},
+        {{3, 30, 100}, {3, 1, 100}, ov::element::i8, ov::element::f16},
+        {{3, 30, 12}, {3, 1, 12}, ov::element::i8, ov::element::f16},
         {{1, 64, 1, 128}, {1, 64, 1, 1}, ov::element::i4, ov::element::f16},
         {{1, 64, 1, 256}, {1, 64, 1, 1}, ov::element::i4, ov::element::f16},
         {{1, 128, 1, 768}, {1, 128, 1, 1}, ov::element::i4, ov::element::f16},
@@ -230,6 +247,11 @@ TEST_P(DynDQAsymTestCommon, NPU5020_TestKindSubgraph) {
 const std::vector<DynDeQuantAsymParams> paramsAsym = {
         {{128, 128}, {128, 1}, ov::element::i8, ov::element::f16},
         {{128, 128}, {128, 1}, ov::element::u8, ov::element::f16},
+        // i8->f16 per-row asymmetric fast path (dyn_dequant_i8_f16_row_zp): W=128 above is an
+        // exact multiple of the SIMD width, so these add the vector-tail (W=100) and the
+        // zero-padded short-row (W=8 < SIMD width) cases.
+        {{128, 100}, {128, 1}, ov::element::i8, ov::element::f16},
+        {{128, 8}, {128, 1}, ov::element::i8, ov::element::f16},
 };
 
 INSTANTIATE_TEST_SUITE_P(DynDQAsym, DynDQAsymTestCommon, ::testing::ValuesIn(paramsAsym),

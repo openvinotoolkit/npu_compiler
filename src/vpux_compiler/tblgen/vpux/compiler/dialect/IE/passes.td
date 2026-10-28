@@ -818,16 +818,13 @@ def ConvertSelectToEltwise : PassBase<"convert-select-to-eltwise", "vpux::Functi
 // FuseReduceSquare
 //
 def FuseReduceSquare : PassBase<"fuse-reduce-square", "vpux::FunctionPass"> {
-    let summary = "Fuse square-reduce-sqrt chains to ReduceSquare";
+    let summary = "Fuse Power(x,2)/Multiply(x,x) with Reduce-Sqrt patterns to ReduceSquare or ReduceL2";
     let description = [{
-        AI-generated summary
-
-        Detects patterns where element-wise squared operations (Power(x,2) or
-        Multiply(x,x)) immediately precede ReduceMean or ReduceSum, optionally followed
-        by epsilon addition, and terminated by either Sqrt or Power(..., 0.5). Fuses
-        these chains into a single ReduceSquare operation that computes the equivalent
-        reduction of squares. Extracts epsilon values and preserves reduction axes and
-        keep-dims attributes.
+        Fuses squared operations in reduction patterns (epsilon must be a splat constant; Add(epsilon) patterns require a single innermost axis).
+        Sqrt step accepts either IE.Sqrt or Power(x, 0.5):
+        1. Power(x,2) or Multiply(x,x)->ReduceMean->Sqrt/Power(x,0.5) -> ReduceSquare
+        2. Power(x,2) or Multiply(x,x)->ReduceMean->Add(epsilon)->Sqrt/Power(x,0.5) -> ReduceSquare
+        3. Power(x,2) or Multiply(x,x)->ReduceSum->Sqrt/Power(x,0.5) -> ReduceL2
     }];
     let constructor = "vpux::IE::createFuseReduceSquarePass()";
     let dependentDialects = [
@@ -3132,16 +3129,33 @@ def SplitFakeQuant : PassBase<"split-fake-quant", "vpux::FunctionPass"> {
         The pass is a part of `LowPrecision` pipeline.
 
         Registered patterns:
-        - UseQuantDequant — splits FakeQuantize with non-constant input into a
-           `IE::QuantizeOp -> IE::DequantizeOp` (quant.qcast -> quant.dcast) pair
-           using uniform quantized types derived from FQ range parameters.
-           In the common case where input data is already quantized correctly,
-           the pass adds CastElemType and Dequantize attributes instead of
-           inserting a Quantize operation.
-        - UseConstDequant — splits FakeQuantize with constant input. Adds
-           CastElemType to reinterpret data as the quantized type, then
-           IE::DequantizeOp. Applies Quantize only when the input range does
-           not match the storage type range.
+        - UseQuantDequant — splits FakeQuantize with non-constant input into
+           `IE::QuantizeOp -> [IE::QuantizeCastOp] -> IE::DequantizeOp`, using
+           uniform quantized types derived from the FQ's input/output range
+           parameters. QuantizeCast is only inserted when the input and output
+           quantized types differ (e.g. a per-channel rescale). Signedness is
+           derived from `low_fp_type`, from the integer type of the traced-back
+           weights-as-input source, or forced to signed when
+           `keepIntTypeForSIWeightsAsInputOrConst` requires it.
+        - UseConstDequant — splits FakeQuantize with constant input.
+           * Legacy float-weights workaround: if the constant is not already
+             stored as a low-precision integer and its input/output ranges are
+             not a matching splat, either removes the FakeQuantize (ranges
+             equal) or rescales the constant directly (ranges differ by a
+             constant ratio).
+           * If asymmetric per-channel zero-points are unsupported on the
+             target platform, or the legacy weight table format
+             requires it, the constant is folded directly into a dequantized
+             float constant — no `IE.DynamicDequantize` is produced.
+           * Otherwise (the common weights path) the constant is cast to its
+             raw storage type (`I2/I4/I8/...`, no `quant.uniform` wrapper), and
+             the FakeQuantize is replaced with `IE.DynamicDequantize` fed by an
+             explicit f32 scale constant and, when non-zero, a raw-storage-typed
+             zero-point constant. The op is marked with the synthetic-dynamic-
+             dequantize attribute. Scale/zero-point values are taken from the
+             precise attributes captured earlier by
+             `ConvertDynamicDequantizeToFakeQuantize` when present, otherwise
+             recomputed from the FakeQuantize output limits.
     }];
 
     let constructor = "vpux::IE::createSplitFakeQuantPass()";
@@ -3254,17 +3268,21 @@ def PropagateAndFuseQuantizeDequantize : PassBase<"propagate-and-fuse-quantize-d
     let summary = "Propagate Quantize/Dequantize through agnostic operations";
 
         let description = [{
-        AI-generated summary
-
         The pass is a part of LowPrecision pipeline.
 
         Registered patterns:
         - PropagateQuantize — propagates QuantizeOp backward through operations
            that implement ElemTypeInfoOpInterface (e.g. Reshape, Transpose), moving
-           the quantization closer to producing operations.
-        - PropagateDequantize — propagates DequantizeOp forward through operations
-           that implement ElemTypeInfoOpInterface, moving dequantization closer to
-           consuming operations. Respects SE-ops enablement.
+           the quantization closer to producing operations. Across multi-operand ops
+           (e.g. Concat), splitting into one Quantize per operand only happens when
+           it's beneficial: either narrower type on every operand, or at least half
+           of the operands have a fusable Dequantize upstream.
+        - PropagateDequantize
+            — propagates DequantizeOp and DynamicDequantize forward through operations
+              that implement ElemTypeInfoOpInterface, moving dequantization closer to
+              consuming operations. Respects SE-ops enablement.
+            - DynamicDequantize supports propagation through a subset of ElemTypeInfoOpInterface
+              if scale input is involved, as the propagation must be valid on said input as well.
         - FuseDequantizeWithMultiplier — converts
            Quantize -> QuantizeCast(fuse with multiply const) -> Dequantize
            by folding a Multiply constant into the quantization scale via QuantizeCast.
@@ -3564,7 +3582,7 @@ def ConvertToPalletizationLUT: PassBase<"convert-to-pallet-lut", "vpux::Function
 
     let dependentDialects = [
         "vpux::IE::IEDialect",
-        "vpux::type::QuantileDialect"
+        "mlir::quant::QuantDialect"
     ];
 }
 
@@ -4266,7 +4284,9 @@ def UniquifyBranches : PassBase<"uniquify-branches", "vpux::FunctionPass"> {
         - MoveExpandBeforeSlice — moves Expand before Slice when axes do not conflict.
         - MoveReorderBeforeSlice — moves Reorder before Slice.
         - MoveTransposeBeforeSlice — moves Transpose before Slice when axes do not conflict.
-        - MovePermuteCastBeforeSlice — moves PermuteCast before Slice.
+        - MovePermuteCastBeforeSlice — moves PermuteCast before Slice when the permutation
+           does not modify the sliced axis and stays trivial for the Slice source memory
+           shape.
         - MoveAffineReshapeBeforeSlice — moves AffineReshape before Slice.
         - MoveMemPermuteBeforeSlice — moves MemPermute before Slice.
         - MoveQuantizeCastBeforeSlice — moves QuantizeCast before Slice.
@@ -4774,6 +4794,7 @@ def AdjustInputShape: PassBase<"adjust-input-shape", "vpux::FunctionPass"> {
         - ExpandPoolingRewriter<MaxPoolOp> — reshapes MaxPool inputs (KY=1, SY=1).
         - ExpandSingleChannelPoolingRewriter<AvgPoolOp> — handles single-channel AvgPool.
         - ExpandSingleChannelPoolingRewriter<MaxPoolOp> — handles single-channel MaxPool.
+        - AdjustBatchedAddShapeRewriter — reshapes NHWC Add with N>1 to an equivalent N=1 aligned shape.
         - EltwiseShapeRewriter<AddOp> — reshapes Add for better channel alignment (separate pass).
         Platforms NPU37XX+ all benefit.
     }];
@@ -4952,7 +4973,7 @@ def BroadcastInputForMultiply : PassBase<"broadcast-input-for-multiply", "vpux::
     let summary = "Broadcast input for Multiply op";
 
     let description = [{
-        This pass contains two rewrite patterns applied in priority order:
+        This pass contains three rewrite patterns applied in phases:
 
         1. `FuseBroadCastRewriter` (higher priority, always active):
            Matches `Tile (broadcast) -> [optional PermuteCast] -> Multiply` and removes the
@@ -4961,7 +4982,28 @@ def BroadcastInputForMultiply : PassBase<"broadcast-input-for-multiply", "vpux::
            sits between the `Tile` and the `Multiply`, a new small `PermuteCast` on the un-tiled
            input is inserted so the layout contract is preserved.
 
-          2. `TileBroadcastInputRewriter` (lower priority, can be disabled only by setting `broadcast-input-for-multiply=false`):
+          2. `ConvertPerChannelMultiplyToScaleShift` (always active, independent of the
+             `broadcast-input-for-multiply` option):
+             Converts a `Multiply` that scales one input by a per-channel scale into a
+             depthwise `IE.GroupConvolution` so it can run on DPU. The scale operand need not
+             be a compile-time constant; a runtime network parameter is equally supported, as
+             only its shape is inspected. Two scale shapes are handled, in both cases the
+             element type must be F16, the scale must be 4D with a static shape, must not be
+             fully splat `[1,1,1,1]`, and the resulting DW Conv channel count must satisfy the
+             HW alignment requirement:
+               - Case 1, C-expanded scale `[1,C,1,1]` matching the output channels: the scale
+                 is `ShapeCast`ed into a `[C,1,1,1]` filter and used directly, without any
+                 layout change.
+               - Case 2, W-expanded scale `[1,1,1,W]` where W matches the activation's W and
+                 the activation's H is 1: both operands are wrapped in `IE.PermuteCast` so that
+                 W becomes C, the DW Conv is created in NHWC and the result is `PermuteCast`ed
+                 back. Because `PermuteCast` is a zero-copy reinterpretation of the operands'
+                 physical memory as NHWC, this case additionally requires both operands to be
+                 in canonical `NCHW` `DimsOrder`. For any other layout the reinterpretation
+                 would silently yield a wrongly-shaped tensor and hence an invalid
+                 `GroupConvolution`, so the rewrite is skipped and the `Multiply` is preserved.
+
+          3. `TileBroadcastInputRewriter` (lower priority, can be disabled only by setting `broadcast-input-for-multiply=false`):
               Broadcasts mismatched-shape inputs in Multiply operations by materializing an explicit
               `IE.Tile` on the smaller input so it matches the output shape. Performs NCHW-to-NHWC
               casting, tiling, and dimension reordering back to original layout. Only applies when
@@ -5126,6 +5168,22 @@ def AdjustMemPermuteAroundOp : PassBase<"adjust-mem-permute-around-op", "vpux::F
                                           IE.Eltwise -> IE.LayerOp
             IE.LayerOp -> IE.PermuteCast /
         ```
+
+        FusePermuteCastAroundEltwise additionally removes a PermuteCast+AffineReshape sandwich wrapped
+        around a binary Eltwise op (IE.Multiply/IE.Add) when it is provably a no-op, so that the Eltwise op
+        ends up operating directly on its original NHWC operands, e.g. converting from
+        ```
+            IE.PermuteCast -> IE.AffineReshape \
+                                                 IE.Eltwise -> IE.AffineReshape -> IE.PermuteCast
+            IE.PermuteCast -> IE.AffineReshape /
+        ```
+        to
+        ```
+            IE.Eltwise
+        ```
+        This is only applied when it makes the Eltwise op convertible to NCE.Eltwise (checked via
+        VPU::isNCEEltwiseSupported), since the sandwich would otherwise block that conversion; if the fused
+        form still isn't NCE-convertible, the sandwich is left untouched.
     }];
 
     let constructor = "vpux::IE::createAdjustMemPermuteAroundOpPass()";
@@ -5333,15 +5391,18 @@ def OptimizeIdentityPool : PassBase<"optimize-identity-pools", "vpux::FunctionPa
         Cannot be implemented as a folder/canonicalizer because other passes intentionally
         introduce identity pools.
 
-        Applied in three phases:
+        Applied in three phases as three separate func walks:
         Phase 1:
         1. FuseIdentityQuantizedAvgPool — fuses identity AvgPool with PPE into a parent
            quantized AvgPool permutation, moving post-op and clamp attributes.
         2. FuseIdentityWithQuantizedAdd — fuses identity AvgPool with LeakyRelu post-op
            into a quantized Add (where input1 == input2), moving post-op and clamp.
+
         Phase 2:
-        3. FuseIdentityAvgPoolWithPostOp — fuses identity AvgPool with Relu/LeakyRelu
-           post-op or clamp into a parent LayerWithPostOpInterface (e.g., Conv).
+        3. FuseIdentityAvgPoolWithPostOp — fuses identity AvgPool with post-op
+           and/or clamp into a parent LayerWithPostOpInterface (e.g., Conv),
+           intersecting with the parent's existing clamp if present.
+
         Phase 3:
         4. RemoveIdentityPool<MaxPoolOp> — removes identity MaxPool (kernel=1, stride=1, no pad).
         5. RemoveIdentityPool<AvgPoolOp> — removes identity AvgPool (kernel=1, stride=1, no pad).
@@ -6528,12 +6589,33 @@ def SwapOperationsWithGatherAndSlice : PassBase<"swap-operations-with-gather-and
     let summary = "Reorder operations around GatherOp and SliceOp";
 
     let description = [{
-        AI-generated summary
+        The Optimization combines two families of rewrites driven by GatherOp and SliceOp.
 
-        Moves two-input eltwise operations (Multiply, Subtract, DynamicDequantize) and type
-        conversion operations (Convert) before GatherOp when Gather reduces tensor size.
-        Executing the eltwise on the smaller pre-gathered tensor decreases memory footprint
-        and computational cost.
+        Gather-centric rewrites move operations across a GatherOp so they run on the smaller,
+        already-gathered tensor:
+        - Two-input eltwise ops (Multiply, Subtract, DynamicDequantize) are moved after Gather.
+        - Convert is moved after Gather when the swap lowers total data volume, typically when
+          Convert enlarges the element size while Gather reduces the element count, so the
+          Convert runs on the smaller gathered tensor. Convert is hoisted before Gather
+          (optionally through an AffineReshape) when Convert shrinks the element byte size,
+          which lowers the bytes Gather moves.
+
+        Slice-centric rewrites hoist a token Slice backward toward the producers so preceding
+        operations run on the sliced tensor:
+        - Slice is hoisted before two-input eltwise ops (Multiply, Add), activations (Swish,
+          Gelu), FakeQuantize, FullyConnected (optionally through an AffineReshape), RMS
+          (when the normalization axis is untouched), and standalone AffineReshape
+          (when the sliced axis is not split or merged).
+        - Nested Slices on disjoint axes are swapped into a canonical order, and sibling Slices
+          that read the same value with identical offsets and sizes are deduplicated, so the
+          hoisted Slices can propagate further and be reused.
+        - When a FullyConnected's (reshaped) output is split by several Slices along the
+          output-channel axis (e.g. a fused QKV projection), the FullyConnected itself is split
+          into one smaller FullyConnected per Slice by slicing its weights and bias, instead of
+          hoisting the Slice to its input. This avoids materializing the wider fused output.
+
+        Each rewrite fires only when it is profitable, i.e. the reordering reduces the element
+        count that the affected operation must process.
     }];
 
     let constructor = "vpux::IE::createSwapOperationsWithGatherAndSlicePass()";
@@ -6669,38 +6751,6 @@ def PropagateAndCleanUpFQ : PassBase<"propagate-and-clean-up-fq", "vpux::Functio
 }
 
 //
-// DecomposeMatMulThroughSlice
-//
-
-def DecomposeMatMulThroughSlice : PassBase<"decompose-matmul-through-slice", "vpux::FunctionPass"> {
-    let summary = "Decompose a fused MatMul + VariadicSplit into separate per-slice MatMuls";
-    let description = [{
-        This pass is part of the `PostImportPipeline` pipeline and must run
-        before `ConvertVariadicSplitToStridedSlice`.
-
-        Looking for the following pattern:
-            MatMul(act, W_qkv)
-            -> Add(bias)
-            -> Reshape / AffineReshape
-            -> VariadicSplit(equal split lengths)
-
-        Replaces it with N separate MatMul+Add+Reshape sequences, each
-        operating on a column-slice of W_qkv and the corresponding bias slice.
-        The VariadicSplit is eliminated entirely. Each per-output MatMul is
-        smaller and independent, avoiding DDR->DDR copies that the original
-        strided VariadicSplit requires.
-
-    }];
-
-    let constructor = "vpux::IE::createDecomposeMatMulThroughSlicePass()";
-
-    let dependentDialects = [
-        "vpux::IE::IEDialect"
-    ];
-}
-
-
-//
 // ConvertVariadicSplitToStridedSlice
 //
 
@@ -6804,6 +6854,69 @@ def ReassociateMultiply : PassBase<"reassociate-multiply", "vpux::FunctionPass">
     }];
 
     let constructor = "vpux::IE::createReassociateMultiplyPass()";
+
+    let dependentDialects = [
+        "vpux::IE::IEDialect"
+    ];
+}
+
+//
+// UseGroupQuantCorrection
+//
+
+def UseGroupQuantCorrection : PassBase<"use-group-quant-correction", "vpux::FunctionPass"> {
+    let summary = "Fuse group-quantized MatMul correction into a single operation";
+
+    let description = [{
+          The pass replaces a dynamic group-wise ui2 weights dequantization chain
+          followed by Transpose, AffineReshape, and MatMul with a ui2 MatMul and a
+          GroupQuantCorrection operation with a final ReduceSum.
+
+          Before:
+            quantized weights  dynamic scale  dynamic zero point
+                        \            |                 /
+                         \           |                /
+                      +---------------v---------------+
+                      | Weights dequantization chain   |
+                      +---------------+---------------+
+                                      |
+                                      v
+                                  Transpose
+                                      |
+                                      v
+                                AffineReshape
+                                      |
+                                      v
+            activation -----------> MatMul
+
+          After:
+                 weights         activation
+                    |                |
+                    v                v        scale        zp
+             QuantizeCast(ui2)     Reshape      |          |
+                    |                |          v          v
+                    +---> MatMul <---+       Reshape    Reshape
+                            |        |          |          |
+                            |        |          v          v
+                            +--------+----------+----------+
+                                               |
+                                               v
+                                      GroupQuantCorrection
+                                               |
+                                               v
+                                            Reshape
+                                               |
+                                               v
+                                       ReduceSum(groups)
+
+          GroupQuantCorrection computes the dequantization correction for each
+          output channel within a group: `scale * (matmul - sum(activation) * zero_point)`.
+          ReduceSum accumulates corrected per-group outputs, and the final Reshape
+          restores the original MatMul result shape.
+          The pass supports only a group size of 64 and UI2 weights/zp.
+    }];
+
+    let constructor = "vpux::IE::createUseGroupQuantCorrectionPass()";
 
     let dependentDialects = [
         "vpux::IE::IEDialect"
@@ -7326,7 +7439,10 @@ def FuseScale : PassBase<"fuse-scale", "vpux::FunctionPass"> {
            several per-head `IE.Convolution` operations through `IE.Slice` and view ops
            (e.g. AffineReshape) into each convolution's `static_scale`. Applies only when the
            scaled value feeds convolution input #0, the convolution has no bias and no
-           post-op/clamp, and consumes FP16 activations.
+           post-op/clamp, and consumes FP16 activations. Skipped when only 1 tile available to
+           avoid a performance regression.
+           TODO(E#228545): re-enable on single-tile platforms once the regression is resolved.
+
         Also we could fuse channel wise scales to convolution if it could support new weights table format
         Apply the pass before ConvertToScaleShift and after ConvertDivideToMultiply to increase
         the applicability.

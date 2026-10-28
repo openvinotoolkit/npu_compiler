@@ -379,6 +379,41 @@ public:
 };
 
 //
+// ReduceL2DimsOrderOpModelForSW
+//
+
+class ReduceL2DimsOrderOpModelForSW final :
+        public IE::LayoutInfoOpInterface::FallbackModel<ReduceL2DimsOrderOpModelForSW> {
+public:
+    static void inferLayoutInfo(mlir::Operation* op, IE::LayerLayoutInfo& info) {
+        const auto axesValue = mlir::dyn_cast_or_null<mlir::ArrayAttr>(op->getAttr("axes_value"));
+        if (axesValue != nullptr) {
+            const auto axes = parseIntArrayAttr<int64_t>(axesValue);
+            const auto inputOrder = DimsOrder::fromValue(op->getOperand(0));
+
+            if (axes.size() == 1) {
+                const auto axis = axes.front();
+                // Preserve innermost axis to achieve best performance for the current kernel implementation, follow
+                // for more details E-231049
+                if (inputOrder.dimPos(Dim(axis)) == inputOrder.numDims() - 1) {
+                    info.setInput(0, inputOrder);
+                }
+            }
+        }
+
+        VPU::inferReduceLayoutInfo(op, info);
+    }
+
+    mlir::LogicalResult verifyLayout(mlir::Operation* origOp) const {
+        return VPU::verifyReduceLayoutInfo(origOp);
+    }
+
+    IE::LayerLayoutInfo getLayoutInfo(mlir::Operation* origOp) const {
+        return IE::getLayoutInfo(origOp);
+    }
+};
+
+//
 // AffineReshapeDimsOrderOpModelForSW
 //
 

@@ -84,18 +84,18 @@ void decomposeSoftPlus(IE::SoftPlusOp origOp, Logger log) {
     const auto inputType = mlir::cast<vpux::NDTypeInterface>(input.getType());
 
     // Step 1: Create ExpOp
-    auto expOp = builder.create<IE::ExpOp>(appendLoc(loc, "exp"), input);
+    auto expOp = IE::ExpOp::create(builder, appendLoc(loc, "exp"), input);
 
     // Step 2: Create AddOp for "1 + exp(x)"
     const SmallVector<int64_t> oneShape = {1};
     const auto oneStorageType = mlir::RankedTensorType::get(oneShape, inputType.getElementType());
     auto oneConst = Const::createDenseConst<float>(builder, appendLoc(loc, "one"), oneStorageType, 1.0f);
     const auto numpyBroadcast = IE::AutoBroadcastTypeAttr::get(builder.getContext(), IE::AutoBroadcastType::NUMPY);
-    auto addOp = builder.create<IE::AddOp>(appendLoc(loc, "add_one"), expOp.getOutput(), oneConst, numpyBroadcast,
-                                           nullptr, nullptr, nullptr, nullptr);
+    auto addOp = IE::AddOp::create(builder, appendLoc(loc, "add_one"), expOp.getOutput(), oneConst, numpyBroadcast,
+                                   nullptr, nullptr, nullptr, nullptr);
 
     // Step 3: Create LogOp for "Log(1 + exp(x))"
-    auto logOp = builder.create<IE::LogOp>(appendLoc(loc, "log"), addOp.getOutput());
+    auto logOp = IE::LogOp::create(builder, appendLoc(loc, "log"), addOp.getOutput());
 
     origOp.getOutput().replaceAllUsesWith(logOp.getOutput());
     origOp.erase();

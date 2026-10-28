@@ -37,7 +37,7 @@ mlir::LogicalResult SingleClusterDepthToSpaceDMARewriter::unroll(VPUIP::DepthToS
     const auto outOrder = DimsOrder::fromValue(depthToSpaceDMAOp.getOutputBuff());
 
     auto vpurtTask = depthToSpaceDMAOp->getParentOfType<VPURT::TaskOp>();
-    VPUX_THROW_UNLESS(vpurtTask != nullptr, "Can't get VPURT task operation");
+    VPUX_THROW_WHEN(vpurtTask == nullptr, "Can't get VPURT task operation");
     rewriter.setInsertionPointAfter(vpurtTask);
 
     auto inType = mlir::cast<vpux::NDTypeInterface>(depthToSpaceDMAOp.getInput().getType());

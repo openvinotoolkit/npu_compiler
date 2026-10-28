@@ -119,7 +119,7 @@ mlir::LogicalResult ReverseOpConverter::matchAndRewrite(IE::ReverseOp origOp, ml
     const auto inputShape = inputType.getShape();
     const int64_t rank4D = 4;
     if (inputShape.size() != rank4D) {
-        return matchFailed(rewriter, origOp, "Input shape size is not 4");
+        return matchFailed(_log, rewriter, origOp, "Input shape size is not 4");
     }
 
     // IE::ReverseOp generally supports any data type, but the target IE::GroupConvolutionOp
@@ -128,29 +128,29 @@ mlir::LogicalResult ReverseOpConverter::matchAndRewrite(IE::ReverseOp origOp, ml
     const auto inputElemType = inputType.getElementType();
     if (!inputElemType.isF16() && !inputElemType.isF32() && !inputElemType.isF64() &&
         !inputElemType.isSignedInteger(32) && !mlir::isa<mlir::quant::QuantizedType>(inputElemType)) {
-        return matchFailed(rewriter, origOp, "Input type is not supported by GroupConvolutionOp");
+        return matchFailed(_log, rewriter, origOp, "Input type is not supported by GroupConvolutionOp");
     }
 
     // Check the ReverseMode
     if (origOp.getModeAttr() == nullptr || origOp.getMode() != IE::ReverseMode::INDEX) {
-        return matchFailed(rewriter, origOp, "Reverse mode is not INDEX");
+        return matchFailed(_log, rewriter, origOp, "Reverse mode is not INDEX");
     }
 
     // Currently support ReverseOp case:
     // 1. Reverse two continuous axes
     // 2. Reverse one axis
     if (!origOp.getAxisValue().has_value()) {
-        return matchFailed(rewriter, origOp, "Reverse has no axis value");
+        return matchFailed(_log, rewriter, origOp, "Reverse has no axis value");
     }
     mlir::ArrayAttr axisArray = origOp.getAxisValue().value();
     if (axisArray.size() != 2 && axisArray.size() != 1) {
-        return matchFailed(rewriter, origOp, "Reverse axis size is not 2 or 1");
+        return matchFailed(_log, rewriter, origOp, "Reverse axis size is not 2 or 1");
     }
     const bool isTwoAxes = axisArray.size() == 2;
     auto axisReverse1 = mlir::cast<mlir::IntegerAttr>(axisArray.getValue()[0]);
     auto axisReverse2 = isTwoAxes ? mlir::cast<mlir::IntegerAttr>(axisArray.getValue()[1]) : nullptr;
     if (isTwoAxes && axisReverse2.getInt() != axisReverse1.getInt() + 1) {
-        return matchFailed(rewriter, origOp, "Two reverse axes are not continuous");
+        return matchFailed(_log, rewriter, origOp, "Two reverse axes are not continuous");
     }
 
     // Large kernels is not supported due to introduce a large number of GroupConv with large kernels and strides
@@ -159,7 +159,7 @@ mlir::LogicalResult ReverseOpConverter::matchAndRewrite(IE::ReverseOp origOp, ml
     const auto maxKernelSize = config::getNPUConstraints(origOp->getContext()).maxKernelSize;
     if (kernelY > maxKernelSize || kernelX > maxKernelSize || kernelY > VPU::NCEInvariant::MAX_STRIDE ||
         kernelX > VPU::NCEInvariant::MAX_STRIDE) {
-        return matchFailed(rewriter, origOp, "Large kernel is not performant");
+        return matchFailed(_log, rewriter, origOp, "Large kernel is not performant");
     }
 
     const auto isTwoAxesNonHW = [](mlir::ArrayAttr axisArray) -> bool {
@@ -194,8 +194,8 @@ mlir::LogicalResult ReverseOpConverter::matchAndRewrite(IE::ReverseOp origOp, ml
             std::iter_swap(permIn->end() - 1, itAxis1);
         }
         auto orderAttr = mlir::AffineMapAttr::get(mlir::AffineMap::getPermutationMap(permIn.value(), ctx));
-        curInput = rewriter.create<IE::TransposeOp>(appendLoc(location, "transpose_in"), curInput,
-                                                    /*order=*/nullptr, orderAttr);
+        curInput = IE::TransposeOp::create(rewriter, appendLoc(location, "transpose_in"), curInput,
+                                           /*order=*/nullptr, orderAttr);
     }
 
     // Create ShapeCast for input
@@ -204,8 +204,8 @@ mlir::LogicalResult ReverseOpConverter::matchAndRewrite(IE::ReverseOp origOp, ml
     const SmallVector<int64_t> newInShape = {1, curInputShape[Dims4D::Act::N],
                                              curInputShape[Dims4D::Act::C] * curInputShape[Dims4D::Act::H],
                                              curInputShape[Dims4D::Act::W]};
-    auto inShapeCast = rewriter.create<IE::ShapeCastOp>(appendLoc(location, "shapeCast_in"), curInput,
-                                                        getIntArrayAttr(ctx, newInShape));
+    auto inShapeCast = IE::ShapeCastOp::create(rewriter, appendLoc(location, "shapeCast_in"), curInput,
+                                               getIntArrayAttr(ctx, newInShape));
 
     // Create corresponding number of weights for DWConv, the weights number is 'H x W'
     const auto OC = curInputShape[Dims4D::Act::N];
@@ -239,8 +239,8 @@ mlir::LogicalResult ReverseOpConverter::matchAndRewrite(IE::ReverseOp origOp, ml
     std::vector<mlir::Value> dwConvs;
 
     for (std::size_t i = 0; i < weightsArray.size(); ++i) {
-        auto dwConv = rewriter.create<IE::GroupConvolutionOp>(
-                appendLoc(location, "dwConv_{0}", i), inShapeCast, declareWeights[i],
+        auto dwConv = IE::GroupConvolutionOp::create(
+                rewriter, appendLoc(location, "dwConv_{0}", i), inShapeCast, declareWeights[i],
                 /*bias=*/nullptr, stridesAttr, padBeginAttr, padEndAttr, dilationsAttr, groupAttr,
                 /*post_opAttr=*/nullptr, /*clampAttr=*/nullptr,
                 /*outputPadding=*/nullptr, /*inputPadding=*/nullptr);
@@ -255,13 +255,13 @@ mlir::LogicalResult ReverseOpConverter::matchAndRewrite(IE::ReverseOp origOp, ml
     DimArr permConcat{Dims4D::Act::W, Dims4D::Act::C, Dims4D::Act::H, Dims4D::Act::N};
     auto order = DimsOrder::fromPermutation(ArrayRef(permConcat));
     auto orderAttr = mlir::AffineMapAttr::get(order.toAffineMap(ctx));
-    auto transposeOp = rewriter.create<IE::TransposeOp>(appendLoc(location, "transpose_out"), concatDWConvs,
-                                                        /*order=*/nullptr, orderAttr);
+    auto transposeOp = IE::TransposeOp::create(rewriter, appendLoc(location, "transpose_out"), concatDWConvs,
+                                               /*order=*/nullptr, orderAttr);
 
     if (isTwoAxesNonHW(axisArray) || isOneAxisNonW(axisArray)) {
         // Create ShapeCast for output
-        auto outShapeCast = rewriter.create<IE::ShapeCastOp>(appendLoc(location, "shapeCast_out"), transposeOp,
-                                                             getIntArrayAttr(ctx, curInputShape.raw()));
+        auto outShapeCast = IE::ShapeCastOp::create(rewriter, appendLoc(location, "shapeCast_out"), transposeOp,
+                                                    getIntArrayAttr(ctx, curInputShape.raw()));
 
         // Create Transpose for output
         DimArr curPerm{DimsOrder::NCHW.dimAt(permIn.value()[0]), DimsOrder::NCHW.dimAt(permIn.value()[1]),

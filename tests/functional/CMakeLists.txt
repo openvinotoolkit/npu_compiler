@@ -25,7 +25,7 @@ if(ENABLE_NPU_EXECUTION_ENGINE AND BUILD_SHARED_LIBS)
     # utils/ folder that holds those headers, not the whole runtime src/, so the rest of the runtime internals
     # stay hidden from the test build.
     list(APPEND OPTIONAL_FUNC_TESTS_INCLUDES
-        "${PROJECT_SOURCE_DIR}/src/npu_interpreter_runtime/src/utils"
+        "${PROJECT_SOURCE_DIR}/src/vm_runtime/src/utils"
     )
 else()
     list(APPEND EXCLUDED_FUNC_TESTS_DIR
@@ -74,13 +74,6 @@ target_sources(${TARGET_NAME} PRIVATE
 )
 
 ov_build_target_faster(${TARGET_NAME} PCH PUBLIC "precomp.hpp")
-
-if(WIN32)
-    if(ENABLE_DX12)
-        target_compile_definitions(${TARGET_NAME} PRIVATE ENABLE_DX12)
-        target_link_libraries(${TARGET_NAME} PRIVATE d3d12 dxcore)
-    endif()
-endif()
 
 set_target_properties(${TARGET_NAME} PROPERTIES
                       FOLDER ${CMAKE_CURRENT_SOURCE_DIR}

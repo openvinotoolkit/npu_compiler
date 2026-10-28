@@ -22,8 +22,8 @@ void buildLowerVPUIP2ELFPipeline(mlir::OpPassManager& pm,
                                  Logger log = Logger::global(),
                                  VPU::DPUDryRunMode dpuDryRunMode = VPU::DPUDryRunMode::NONE);
 
-void elfSubsetPipelineVPUMI(mlir::OpPassManager& pm, WorkloadManagementMode workloadManagementMode,
-                            bool enableDumpStatisticsOfWlmOps,
+void elfSubsetPipelineVPUMI(mlir::OpPassManager& pm, config::ArchKind arch,
+                            WorkloadManagementMode workloadManagementMode, bool enableDumpStatisticsOfWlmOps,
                             WorkloadManagementBarrierProgrammingMode workloadManagementBarrierProgrammingMode,
                             const Logger& log);
 

@@ -485,6 +485,8 @@ mlir::LogicalResult isDistributedCastCompatible(T inDistributedType, T outDistri
     return mlir::success();
 }
 
+// Subbyte handling utils
+
 SmallVector<int64_t> getSubbyteAwareSegmentedDistributionAlignment(ShapeRef newShape, ArrayRef<Shape> perClusterShapes,
                                                                    int64_t axis, ArrayRef<int64_t> alignment,
                                                                    NDTypeInterface origType);
@@ -492,6 +494,11 @@ SmallVector<int64_t> getSubbyteAwareSegmentedDistributionAlignment(ShapeRef newS
 std::optional<SmallVector<int64_t>> getSubbyteAwareSegmentedDistributionAlignment(
         ShapeRef newShape, ArrayRef<int64_t> numTiles, int64_t numClusters, int64_t axis, ArrayRef<int64_t> alignment,
         bool uniformSegments, NDTypeInterface origType);
+
+mlir::LogicalResult checkPerClusterByteAlignment(DistributionInfoAttr distribution, ShapeRef shape,
+                                                 mlir::Type elementType, const DimsOrder& dimsOrder,
+                                                 const MemStrides& memStrides,
+                                                 FuncRef<mlir::InFlightDiagnostic()> emitError);
 
 }  // namespace VPU
 }  // namespace vpux

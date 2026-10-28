@@ -16,14 +16,15 @@
 namespace vpux::VPU::VF::v2 {
 
 std::deque<std::shared_ptr<IVFScheduling<VFCase::VFConfigType>>> getSchedulingScenarios(VFCase::VFConfigType& config,
-                                                                                        Logger log);
+                                                                                        Logger log,
+                                                                                        VFMergeCostMode costMode);
 
 // find optimal VF configuration based on operations merged in VF
 // the algorithm searches for optimal tiling axis, tiling number and scheduling
 VPU::VF::v2::VFCase getVFCaseWithTiling(
         VFCase::VFConfigType& config, Dim dim, const VFSplit& split,
         const std::function<int64_t(Dim, const VFSplit&)>& minNumCalc,
-        const std::function<int64_t(Dim, const VFSplit&)>& maxNumCalc, Logger log,
+        const std::function<int64_t(Dim, const VFSplit&)>& maxNumCalc, bool enableOutputTileAdjustmentForSW, Logger log,
         const std::deque<std::shared_ptr<IVFScheduling<VFCase::VFConfigType>>>& vfSchedulingChecks);
 
 /// Filter callback type used by findBestVFCaseFromSplits.
@@ -45,32 +46,40 @@ using SplitFilterFn = std::function<bool(Dim dim, const VFSplit& split)>;
 std::optional<VFCase> findBestVFCaseFromSplits(VFConfig& config, ArrayRef<VFSplit> splits,
                                                const std::function<int64_t(Dim, const VFSplit&)>& minNumCalc,
                                                const std::function<int64_t(Dim, const VFSplit&)>& maxNumCalc,
-                                               const std::unique_ptr<VPU::LayerVPUNNCost>& costFunction, Logger log,
-                                               mlir::MLIRContext* ctx, const SplitFilterFn& splitFilter = nullptr);
+                                               const std::unique_ptr<VPU::LayerVPUNNCost>& costFunction,
+                                               bool enableOutputTileAdjustmentForSW, Logger log, mlir::MLIRContext* ctx,
+                                               const SplitFilterFn& splitFilter = nullptr,
+                                               VFMergeCostMode costMode = VFMergeCostMode::PERFORMANCE);
 
 /// Core cost comparison logic for VF merge decisions.
 /// Compares the merged VFCase cost against the sum of individual VF block costs.
 /// Returns true if merging is profitable (merged cost <= prev + current cost).
 bool isVFMergeProfitable(VFCase& mergedCase, StrategyCost prevCost, StrategyCost currentCost,
-                         const std::unique_ptr<VPU::LayerVPUNNCost>& costFunction, Logger log);
+                         const std::unique_ptr<VPU::LayerVPUNNCost>& costFunction, bool enableOutputTileAdjustmentForSW,
+                         Logger log);
 
 // Detect VF split for SCF tiling based on output type and allowed dimensions.
 // Used as the split getter callback in the HostCompile pipeline.
 VF::v2::VFSplit getVFSplitForSCF(VF::v2::VFConfig& config, DimArrRef allowedDims);
 
 VPU::VF::v2::VFCase computeVFSCFCase(vpux::NDTypeInterface outputType, const VPU::VF::v2::VFSplit& vfSplit,
-                                     VPU::VF::v2::VFConfig& config, mlir::Operation* rootOp, Logger log);
+                                     VPU::VF::v2::VFConfig& config, mlir::Operation* rootOp, VFMergeCostMode costMode,
+                                     Logger log);
 
 /// Check if a view-like operation is eligible to be vertically fused.
 /// Returns true when the operation is a pure TilingViewLikeOp that
 /// supports VF and is not sourced exclusively from block arguments or constants.
 bool isViewLikeOpVFCompatible(mlir::Operation* op);
 
+// General approach to get minimal tiling number
+int64_t getMinTilingNumber(Dim dim, const VPU::VF::v2::VFConfig& config);
+
 /// Compute a baseline cost for a standalone operation.
 /// Accounts for per-operation compute cost and spilling overhead due to spatial tiling.
 /// Used by the SCF vertical fusion pass to evaluate merge profitability.
 StrategyCost extractBaselineCost(mlir::Operation* operation, ShapeRef tilingDims,
-                                 const std::unique_ptr<VPU::LayerVPUNNCost>& costFunction, Logger log);
+                                 const std::unique_ptr<VPU::LayerVPUNNCost>& costFunction, Logger log,
+                                 const std::shared_ptr<const VFCostStrategy>& costStrategy);
 
 VPUNNCostParameters fillInCostParam(mlir::Operation* operation, const OutputTiling& tiling,
                                     ArrayRef<TileInfo> inputTiles, const bool enablePrefetching);

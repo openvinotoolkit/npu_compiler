@@ -11,7 +11,7 @@
 !wgtType = !quant.uniform<u2:f16, 2.0:2>
 
 // CHECK: !qElemType = !quant.uniform<i8:f16, 5.000000e-01>
-// CHECK: !qElemType1 = !quant.uniform<!QuantileType.quantile<ui2:si8, {-2.000000e+00,-1.000000e+00,0.000000e+00,1.000000e+00}>:f16, 2.000000e+00>
+// CHECK: !qElemType1 = !quant.uniform<!quant.quantile<ui2:si8, {-2.000000e+00,-1.000000e+00,0.000000e+00,1.000000e+00}>:f16, 2.000000e+00>
 // CHECK: !qElemType2 = !quant.uniform<u2:f16, 2.000000e+00:2>
 
 // CHECK-LABEL: @ConvertInt8ActU2WgtSymmetricZp
@@ -35,7 +35,7 @@ func.func @ConvertInt8ActU2WgtSymmetricZp(%arg0: tensor<1x16x16x16x!actType>) ->
 !wgtType = !quant.uniform<i2:f16, 2.0:0>
 
 // CHECK: !qElemType = !quant.uniform<i8:f16, 5.000000e-01>
-// CHECK: !qElemType1 = !quant.uniform<!QuantileType.quantile<ui2:si8, {0.000000e+00,1.000000e+00,-2.000000e+00,-1.000000e+00}>:f16, 2.000000e+00>
+// CHECK: !qElemType1 = !quant.uniform<!quant.quantile<ui2:si8, {0.000000e+00,1.000000e+00,-2.000000e+00,-1.000000e+00}>:f16, 2.000000e+00>
 // CHECK: !qElemType2 = !quant.uniform<i2:f16, 2.000000e+00>
 
 // CHECK-LABEL: @ConvertInt8ActI2WgtSymmetricZp
@@ -59,7 +59,7 @@ func.func @ConvertInt8ActI2WgtSymmetricZp(%arg0: tensor<1x16x16x16x!actType>) ->
 !wgtType = !quant.uniform<i2:f16, 2.0:-1>
 
 // CHECK: !qElemType = !quant.uniform<i8:f16, 5.000000e-01>
-// CHECK: !qElemType1 = !quant.uniform<!QuantileType.quantile<ui2:si8, {1.000000e+00,2.000000e+00,-1.000000e+00,0.000000e+00}>:f16, 2.000000e+00>
+// CHECK: !qElemType1 = !quant.uniform<!quant.quantile<ui2:si8, {1.000000e+00,2.000000e+00,-1.000000e+00,0.000000e+00}>:f16, 2.000000e+00>
 // CHECK: !qElemType2 = !quant.uniform<i2:f16, 2.000000e+00:-1>
 
 // CHECK-LABEL: @ConvertInt8ActI2WgtAsymmetricZp
@@ -84,7 +84,7 @@ func.func @ConvertInt8ActI2WgtAsymmetricZp(%arg0: tensor<1x16x16x16x!actType>) -
 
 // CHECK: !qElemType = !quant.uniform<i8:f16, 5.000000e-01>
 // CHECK: !qElemType1 = !quant.uniform<i2:f16, 2.000000e+00>
-// CHECK: !qElemType2 = !quant.uniform<!QuantileType.quantile<ui2:si8, {0.000000e+00,1.000000e+00,-2.000000e+00,-1.000000e+00}>:f16, 2.000000e+00>
+// CHECK: !qElemType2 = !quant.uniform<!quant.quantile<ui2:si8, {0.000000e+00,1.000000e+00,-2.000000e+00,-1.000000e+00}>:f16, 2.000000e+00>
 
 // CHECK-LABEL: @ConvertInt8ActI2WeightsAsInput
 // CHECK-SAME: ([[ARG0:%.+]]: tensor<1x16x16x16x!qElemType>, [[ARG1:%.+]]: tensor<16x16x1x1x!qElemType1>)
@@ -106,7 +106,7 @@ func.func @ConvertInt8ActI2WeightsAsInput(%arg0: tensor<1x16x16x16x!actType>, %a
 !wgtType = !quant.uniform<u4:f16, 2.0>
 
 // CHECK: !qElemType = !quant.uniform<i8:f16, 5.000000e-01>
-// CHECK: !qElemType1 = !quant.uniform<!QuantileType.quantile<ui4:si8, {0.000000e+00,1.000000e+00,2.000000e+00,3.000000e+00,4.000000e+00,5.000000e+00,6.000000e+00,7.000000e+00,8.000000e+00,9.000000e+00,1.000000e+01,1.100000e+01,1.200000e+01,1.300000e+01,1.400000e+01,1.500000e+01}>:f16, 2.000000e+00>
+// CHECK: !qElemType1 = !quant.uniform<!quant.quantile<ui4:si8, {0.000000e+00,1.000000e+00,2.000000e+00,3.000000e+00,4.000000e+00,5.000000e+00,6.000000e+00,7.000000e+00,8.000000e+00,9.000000e+00,1.000000e+01,1.100000e+01,1.200000e+01,1.300000e+01,1.400000e+01,1.500000e+01}>:f16, 2.000000e+00>
 // CHECK: !qElemType2 = !quant.uniform<u4:f16, 2.000000e+00>
 
 // CHECK-LABEL: @ConvertInt8ActU4WgtSymmetricZp
@@ -130,7 +130,7 @@ func.func @ConvertInt8ActU4WgtSymmetricZp(%arg0: tensor<1x16x16x16x!actType>) ->
 !wgtType = !quant.uniform<u4:f16, 2.0:8>
 
 // CHECK: !qElemType = !quant.uniform<i8:f16, 5.000000e-01>
-// CHECK: !qElemType1 = !quant.uniform<!QuantileType.quantile<ui4:si8, {-8.000000e+00,-7.000000e+00,-6.000000e+00,-5.000000e+00,-4.000000e+00,-3.000000e+00,-2.000000e+00,-1.000000e+00,0.000000e+00,1.000000e+00,2.000000e+00,3.000000e+00,4.000000e+00,5.000000e+00,6.000000e+00,7.000000e+00}>:f16, 2.000000e+00>
+// CHECK: !qElemType1 = !quant.uniform<!quant.quantile<ui4:si8, {-8.000000e+00,-7.000000e+00,-6.000000e+00,-5.000000e+00,-4.000000e+00,-3.000000e+00,-2.000000e+00,-1.000000e+00,0.000000e+00,1.000000e+00,2.000000e+00,3.000000e+00,4.000000e+00,5.000000e+00,6.000000e+00,7.000000e+00}>:f16, 2.000000e+00>
 // CHECK: !qElemType2 = !quant.uniform<u4:f16, 2.000000e+00:8>
 
 // CHECK-LABEL: @ConvertInt8ActU4WgtAsymmetricZp
@@ -154,7 +154,7 @@ func.func @ConvertInt8ActU4WgtAsymmetricZp(%arg0: tensor<1x16x16x16x!actType>) -
 !wgtType = !quant.uniform<i4:f16, 2.0>
 
 // CHECK: !qElemType = !quant.uniform<i8:f16, 5.000000e-01>
-// CHECK: !qElemType1 = !quant.uniform<!QuantileType.quantile<ui4:si8, {0.000000e+00,1.000000e+00,2.000000e+00,3.000000e+00,4.000000e+00,5.000000e+00,6.000000e+00,7.000000e+00,-8.000000e+00,-7.000000e+00,-6.000000e+00,-5.000000e+00,-4.000000e+00,-3.000000e+00,-2.000000e+00,-1.000000e+00}>:f16, 2.000000e+00>
+// CHECK: !qElemType1 = !quant.uniform<!quant.quantile<ui4:si8, {0.000000e+00,1.000000e+00,2.000000e+00,3.000000e+00,4.000000e+00,5.000000e+00,6.000000e+00,7.000000e+00,-8.000000e+00,-7.000000e+00,-6.000000e+00,-5.000000e+00,-4.000000e+00,-3.000000e+00,-2.000000e+00,-1.000000e+00}>:f16, 2.000000e+00>
 // CHECK: !qElemType2 = !quant.uniform<i4:f16, 2.000000e+00>
 
 // CHECK-LABEL: @ConvertInt8ActI4WgtSymmetricZp
@@ -178,7 +178,7 @@ func.func @ConvertInt8ActI4WgtSymmetricZp(%arg0: tensor<1x16x16x16x!actType>) ->
 !wgtType = !quant.uniform<i4:f16, 2.0:-3>
 
 // CHECK: !qElemType = !quant.uniform<i8:f16, 5.000000e-01>
-// CHECK: !qElemType1 = !quant.uniform<!QuantileType.quantile<ui4:si8, {3.000000e+00,4.000000e+00,5.000000e+00,6.000000e+00,7.000000e+00,8.000000e+00,9.000000e+00,1.000000e+01,-5.000000e+00,-4.000000e+00,-3.000000e+00,-2.000000e+00,-1.000000e+00,0.000000e+00,1.000000e+00,2.000000e+00}>:f16, 2.000000e+00>
+// CHECK: !qElemType1 = !quant.uniform<!quant.quantile<ui4:si8, {3.000000e+00,4.000000e+00,5.000000e+00,6.000000e+00,7.000000e+00,8.000000e+00,9.000000e+00,1.000000e+01,-5.000000e+00,-4.000000e+00,-3.000000e+00,-2.000000e+00,-1.000000e+00,0.000000e+00,1.000000e+00,2.000000e+00}>:f16, 2.000000e+00>
 // CHECK: !qElemType2 = !quant.uniform<i4:f16, 2.000000e+00:-3>
 
 // CHECK-LABEL: @ConvertInt8ActI4WgtAsymmetricZp

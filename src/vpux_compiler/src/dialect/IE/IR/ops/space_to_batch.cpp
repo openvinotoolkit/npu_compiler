@@ -79,8 +79,8 @@ mlir::LogicalResult vpux::IE::SpaceToBatch::inferReturnTypeComponents(
         outShape[i] = (inputShape[i] + padsBeginVal[i] + padsEndVal[i]) / blockShapeVal[i];
     }
 
-    VPUX_THROW_UNLESS(!mlir::isa<Core::BoundedTensorType>(inputType), "{0} doesn't support dynamic shapes",
-                      IE::SpaceToBatch::getOperationName());
+    VPUX_THROW_WHEN(mlir::isa<Core::BoundedTensorType>(inputType), "{0} doesn't support dynamic shapes",
+                    IE::SpaceToBatch::getOperationName());
     const auto outDesc = vpux::getTensorAttr(ctx, inputType.getDimsOrder(), inputType.getMemSpace());
     inferredReturnShapes.emplace_back(outShape, inputType.getElementType(), outDesc);
 

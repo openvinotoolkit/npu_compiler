@@ -206,7 +206,7 @@ mlir::LogicalResult divideTiles(OutputTiling& dividedTiles, ShapeRef divisors, S
 }
 mlir::FailureOr<OutputTiling> fillDividedTilesMVN1MeanVarOp(mlir::Operation* op, ShapeRef divisors, ShapeRef shape) {
     auto mvn1MeanVarOp = mlir::dyn_cast<VPU::MVN1MeanVarOp>(op);
-    VPUX_THROW_UNLESS(mvn1MeanVarOp != nullptr, "Only support MVN1MeanVarOp, but got {0}", op->getName());
+    VPUX_THROW_WHEN(mvn1MeanVarOp == nullptr, "Only support MVN1MeanVarOp, but got {0}", op->getName());
 
     std::optional<SmallVector<int64_t>> optionalAlignment = std::nullopt;
     int64_t groupC = 1;
@@ -223,6 +223,46 @@ mlir::FailureOr<OutputTiling> fillDividedTilesMVN1MeanVarOp(mlir::Operation* op,
     return vpux::fillDividedTiles(divisors, shape, optionalAlignment, /*unrollSpatialFirst = */ false);
 }
 }  // namespace
+
+SmallVector<TileCoordinate> vpux::getTileCoordinates(ArrayRef<TileInfo> tiles) {
+    if (tiles.empty()) {
+        return {};
+    }
+
+    const auto rank = tiles.front().axis.size();
+    SmallVector<SmallVector<int64_t>> offsetsByAxis(rank);
+    for (const auto& tile : tiles) {
+        VPUX_THROW_UNLESS(tile.axis.size() == rank, "Tiles have inconsistent ranks");
+        for (const auto dim : irange(rank)) {
+            if (tile.axis[Dim(dim)] > 1) {
+                offsetsByAxis[dim].push_back(tile.offsets[Dim(dim)]);
+            }
+        }
+    }
+
+    for (auto& offsets : offsetsByAxis) {
+        llvm::sort(offsets);
+        offsets.erase(std::unique(offsets.begin(), offsets.end()), offsets.end());
+    }
+
+    SmallVector<TileCoordinate> coordinates;
+    coordinates.reserve(tiles.size());
+    for (const auto& tile : tiles) {
+        TileCoordinate coordinate;
+        for (const auto dim : irange(rank)) {
+            const auto& offsets = offsetsByAxis[dim];
+            if (offsets.size() <= 1) {
+                continue;
+            }
+            const auto offset = tile.offsets[Dim(dim)];
+            const auto tileIndex = llvm::lower_bound(offsets, offset) - offsets.begin();
+            coordinate.values.emplace_back(Dim(dim), checked_cast<int64_t>(tileIndex));
+        }
+        coordinates.push_back(std::move(coordinate));
+    }
+
+    return coordinates;
+}
 
 mlir::FailureOr<OutputTiling> vpux::fillDividedTiles(ShapeRef divisors, ShapeRef shape,
                                                      std::optional<ArrayRef<int64_t>> alignment,
@@ -1041,13 +1081,13 @@ mlir::FailureOr<OutputTiling> fillDividedTilesSEPDWConv(mlir::Operation* op, Sha
 
 mlir::FailureOr<OutputTiling> fillDividedTilesDepthToSpaceOp(mlir::Operation* op, ShapeRef divisors, ShapeRef shape) {
     auto depthToSpaceOp = mlir::dyn_cast<VPU::DepthToSpaceOp>(op);
-    VPUX_THROW_UNLESS(depthToSpaceOp != nullptr, "Only support DepthToSpaceOp, but got {0}", op->getName());
+    VPUX_THROW_WHEN(depthToSpaceOp == nullptr, "Only support DepthToSpaceOp, but got {0}", op->getName());
 
     int64_t blockSize = 0;
     if (depthToSpaceOp.getBlockSizeAttr() != nullptr) {
         blockSize = depthToSpaceOp.getBlockSizeAttr().getValue().getSExtValue();
     }
-    VPUX_THROW_UNLESS(blockSize != 0, "Got DepthToSpace block_size=0");
+    VPUX_THROW_WHEN(blockSize == 0, "Got DepthToSpace block_size=0");
 
     auto newShape = to_small_vector(shape);
     if ((newShape[Dims4D::Act::H.ind()] % blockSize) != 0 || (newShape[Dims4D::Act::W.ind()] % blockSize) != 0) {
@@ -2568,6 +2608,14 @@ DimArr vpux::getTileDimOrder(mlir::Operation* op, TilingMode tilingMode, Logger 
                         if (VPU::hasReduceOutputs(op)) {
                             llvm::erase(dims, Dims4D::Act::C);
                         }
+                        // BLOCK_FIRST S2DD2S ops require interleaved channel access; C-dim splits are
+                        // forbidden. Exclude C so the tiling search never carries a blocked C value
+                        // that would contaminate subsequent dimension searches.
+                        auto nceConv = mlir::dyn_cast<VPU::NCEConvolutionOp>(op);
+                        const auto s2dd2sCfg = nceConv ? nceConv.getS2dd2sConfigAttr() : nullptr;
+                        if (s2dd2sCfg && !VPU::isS2DD2SDimSplitSupported(s2dd2sCfg, Dims4D::Act::C)) {
+                            llvm::erase(dims, Dims4D::Act::C);
+                        }
                         return dims;
                     })
                     .Case<VPU::NCEDepthConvolutionOp>([&](mlir::Operation* op) {
@@ -2582,6 +2630,14 @@ DimArr vpux::getTileDimOrder(mlir::Operation* op, TilingMode tilingMode, Logger 
                         dims = stripChannelsDimIfAutopadIsUsed(op, std::move(dims));
                         // TODO(E#207252): Remove once applyTileStrategy supports split-over-C reconstruction.
                         if (VPU::hasReduceOutputs(op)) {
+                            llvm::erase(dims, Dims4D::Act::C);
+                        }
+                        // BLOCK_FIRST S2DD2S ops require interleaved channel access; C-dim splits are
+                        // forbidden. Exclude C so the tiling search never carries a blocked C value
+                        // that would contaminate subsequent dimension searches.
+                        auto maxPoolOp = mlir::dyn_cast<VPU::NCEMaxPoolOp>(op);
+                        const auto s2dd2sCfg = maxPoolOp ? maxPoolOp.getS2dd2sConfigAttr() : nullptr;
+                        if (s2dd2sCfg && !VPU::isS2DD2SDimSplitSupported(s2dd2sCfg, Dims4D::Act::C)) {
                             llvm::erase(dims, Dims4D::Act::C);
                         }
                         return dims;
@@ -2886,6 +2942,9 @@ DimArr vpux::getTileDimOrder(mlir::Operation* op, TilingMode tilingMode, Logger 
 
                         return tileDimOrder;
                     })
+                    .Case<VPU::GroupQuantCorrectionOp>([&](mlir::Operation*) {
+                        return DimArr{Dims4D::Act::N, Dims4D::Act::C};
+                    })
                     .Case<VPU::GenericSwLayerOp>([&](mlir::Operation* op) {
                         auto layerOp = mlir::cast<VPU::GenericSwLayerOp>(op);
 
@@ -2991,20 +3050,27 @@ SmallVector<int64_t> vpux::getMinNumTiles(mlir::Operation* op) {
     const auto outputShape = getBoundedShape(op->getResult(0));
     auto minNumTiles = SmallVector<int64_t>(outputShape.size(), 1);
 
-    const auto rawOutputShape = getShape(op->getResult(0));
-    if (rawOutputShape.isDynamic() && config::isHostCompileMode(op)) {
+    const auto applyDynamicHostCompileFloor = [&]() {
+        const auto rawOutputShape = getShape(op->getResult(0));
+        if (!rawOutputShape.isDynamic() || !config::isHostCompileMode(op)) {
+            return;
+        }
+        // Skip for ops without TilingBuilderOpInterface: this function is reachable via generic paths
+        // that guard only on TilingInfoOpInterface.
         auto tilingBuilder = mlir::dyn_cast<VPU::TilingBuilderOpInterface>(op);
-        VPUX_THROW_WHEN(tilingBuilder == nullptr, "Operation '{0}' doesn't implement TilingBuilderOpInterface",
-                        op->getName());
+        if (tilingBuilder == nullptr) {
+            return;
+        }
         const auto maxNumTiles = tilingBuilder.getMaxNumTiles();
         for (size_t i = 0; i < outputShape.size(); ++i) {
             if (rawOutputShape[Dim(i)] == mlir::ShapedType::kDynamic && maxNumTiles[i] >= VPU::MIN_REQUIRED_TILES) {
                 minNumTiles[i] = std::max(VPU::MIN_REQUIRED_TILES, minNumTiles[i]);
             }
         }
-    }
+    };
 
     if (!mlir::isa<VPU::NCEOpInterface>(op)) {
+        applyDynamicHostCompileFloor();
         return minNumTiles;
     }
     // NCE specific logic
@@ -3020,6 +3086,7 @@ SmallVector<int64_t> vpux::getMinNumTiles(mlir::Operation* op) {
             return inputShape[dim] <= VPU::NCEInvariant::VPU_DIMENSION_LIMIT &&
                    outputShape[dim] <= VPU::NCEInvariant::VPU_DIMENSION_LIMIT;
         })) {
+        applyDynamicHostCompileFloor();
         return minNumTiles;
     }
 
@@ -3053,6 +3120,7 @@ SmallVector<int64_t> vpux::getMinNumTiles(mlir::Operation* op) {
         }
     }
 
+    applyDynamicHostCompileFloor();
     return minNumTiles;
 }
 
@@ -3300,33 +3368,6 @@ SmallVector<int64_t> vpux::getMaxNumTiles(mlir::Operation* op, bool checkMinimal
 
     for (size_t i = 0; i < maxTilesPerDim.size(); ++i) {
         maxNumTiles[i] = std::min(maxTilesPerDim[i], maxNumTiles[i]);
-    }
-
-    const auto opOutputShape = getShape(op->getResult(0));
-    if (opOutputShape.isDynamic() && config::isHostCompileMode(op)) {
-        // TODO: this alignment is optional; rework to also try the search without it.
-        const auto getMaxAlignedDivision = [](int64_t dimSize, int64_t maxTiles, int64_t alignment) {
-            if (maxTiles <= 1 || alignment <= 1) {
-                return maxTiles;
-            }
-            const auto alignedTileSize = alignValUp(divUp(dimSize, maxTiles), alignment);
-            return std::min(maxTiles, divUp(dimSize, alignedTileSize));
-        };
-
-        const auto dynamicDimAlignment = getAlignment(op, ShapeRef(maxNumTiles), outputShape);
-        for (size_t i = 0; i < maxNumTiles.size(); ++i) {
-            if (opOutputShape[Dim(i)] != mlir::ShapedType::kDynamic) {
-                continue;
-            }
-            const auto alignment = dynamicDimAlignment[i];
-            if (alignment <= 1) {
-                continue;
-            }
-            const auto dim = Dim(i);
-            const auto minNumTiles = std::min<int64_t>(maxNumTiles[i], VPU::MIN_REQUIRED_TILES);
-            const auto maxAlignedDivision = getMaxAlignedDivision(outputShape[dim], maxNumTiles[i], alignment);
-            maxNumTiles[i] = std::max(minNumTiles, maxAlignedDivision);
-        }
     }
 
     return maxNumTiles;
@@ -4497,5 +4538,46 @@ void vpux::transferTilingInfo(vpux::TileInfo& dst, const vpux::TileInfo& src, Sm
         dst.shape[dim] = src.shape[dim];
         dst.offsets[dim] = src.offsets[dim];
         dst.axis[dim] = src.axis[dim];
+    }
+}
+
+void vpux::correctTilingInfo(vpux::TileInfo& tiling, mlir::Operation* op) {
+    if (getShape(op->getResult(0)).isDynamic()) {
+        return;
+    }
+
+    if (op->hasTrait<VPU::EltwiseOp>()) {
+        // Eltwise op doesn't have any tiling requirement
+        return;
+    }
+    const auto outputShape = getBoundedShape(op->getResult(0));
+    auto alignment = vpux::getAlignment(op, tiling.axis, outputShape);
+    if (auto d2s = mlir::dyn_cast<VPU::DepthToSpaceOp>(op)) {
+        // Not all D2S ops implement getAlignment because they have specialized implementations (e.g. SW/DMA) and
+        // fillDividesTiles function. The block size is handled internally. So here pass the block size as the alignment
+        // for the spatial dimensions.
+        if (d2s.getBlockSizeAttr() != nullptr) {
+            const auto blockSize = d2s.getBlockSizeAttr().getValue().getSExtValue();
+            alignment[Dims4D::Act::H.ind()] = blockSize;
+            alignment[Dims4D::Act::W.ind()] = blockSize;
+        }
+    }
+
+    for (const auto dimIdx : alignment | indexed) {
+        const auto dim = Dim(dimIdx.index());
+        const auto dimAlignment = alignment[dimIdx.index()];
+        if (dimAlignment == 1) {
+            continue;
+        }
+        const auto begin = tiling.offsets[dim];
+        const auto end = begin + tiling.shape[dim];
+        const auto alignedBegin = alignValDown(begin, dimAlignment);
+        const auto alignedEnd = std::min(alignValUp(end, dimAlignment), outputShape.raw()[dim.ind()]);
+        VPUX_THROW_UNLESS(alignedBegin < alignedEnd,
+                          "Cannot align tile interval [{0}, {1}) on dimension {2} to {3} at '{4}'", begin, end, dim,
+                          dimAlignment, op->getLoc());
+
+        tiling.offsets[dim] = alignedBegin;
+        tiling.shape[dim] = alignedEnd - alignedBegin;
     }
 }

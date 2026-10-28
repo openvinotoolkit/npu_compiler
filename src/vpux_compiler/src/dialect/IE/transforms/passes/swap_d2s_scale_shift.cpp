@@ -78,8 +78,8 @@ mlir::LogicalResult SwapDepth2SpaceAndScaleShift::matchAndRewrite(IE::DepthToSpa
 
         return rewriter.createOrFold<IE::ReshapeOp>(loc, broadcastOp, getIntArrayAttr(ctx, ShapeRef(reshapeShape)));
     };
-    auto newScaleShift = rewriter.create<IE::ScaleShiftOp>(loc, d2sOp.getInput(), getNewValue(scaleShift.getWeights()),
-                                                           getNewValue(scaleShift.getBiases()));
+    auto newScaleShift = IE::ScaleShiftOp::create(rewriter, loc, d2sOp.getInput(), getNewValue(scaleShift.getWeights()),
+                                                  getNewValue(scaleShift.getBiases()));
     rewriter.replaceOpWithNewOp<IE::DepthToSpaceOp>(scaleShift, d2sOp.getType(), newScaleShift.getOutput(),
                                                     d2sOp.getBlockSizeAttr(), d2sOp.getModeAttr());
 

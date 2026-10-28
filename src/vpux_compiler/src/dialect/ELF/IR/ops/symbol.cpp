@@ -44,7 +44,7 @@ void ELF::SymbolOp::serialize(elf::writer::Symbol* symbol, ELF::SectionMapType& 
     symbol->setValue(symVal);
 
     auto sectionMapEntry = sectionMap.find(parentSection);
-    VPUX_THROW_UNLESS(sectionMapEntry != sectionMap.end(), "Unable to find section entry for SymbolOp");
+    VPUX_THROW_WHEN(sectionMapEntry == sectionMap.end(), "Unable to find section entry for SymbolOp");
     auto sectionEntry = sectionMapEntry->second;
 
     symbol->setRelatedSection(sectionEntry);

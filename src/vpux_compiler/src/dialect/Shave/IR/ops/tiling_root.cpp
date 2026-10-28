@@ -42,7 +42,7 @@ mlir::FailureOr<ExtractSliceParams> computeExtractSliceParams(vpux::Shave::Tilin
 
     mlir::Value loopId = op.getLoopId();
     mlir::Value tileNum = mlir::getValueOrCreateConstantIndexOp(b, op.getLoc(), offsets[0]);
-    auto sliceInfo = b.create<vpux::Shave::OutSliceInfoOp>(op.getLoc(), outTys, outTys, loopId, tileNum);
+    auto sliceInfo = vpux::Shave::OutSliceInfoOp::create(b, op.getLoc(), outTys, outTys, loopId, tileNum);
 
     SmallVector<mlir::OpFoldResult> resultOffsets(rank, b.getIndexAttr(0));
     SmallVector<mlir::OpFoldResult> resultSizes =
@@ -113,8 +113,8 @@ mlir::SmallVector<mlir::Range> vpux::Shave::TilingRootOp::getIterationDomain(mli
     // Create a LoopTripCountOp tied to this op's loop id. The trip count
     // represents the upper bound of the iteration space for the tiling
     // transformation.
-    auto tripCountOp = b.create<Shave::LoopTripCountOp>(getLoc(), mlir::TypeRange{b.getIndexType()},
-                                                        getOperation()->getOperand(0));
+    auto tripCountOp = Shave::LoopTripCountOp::create(b, getLoc(), mlir::TypeRange{b.getIndexType()},
+                                                      getOperation()->getOperand(0));
     auto tripCountVal = tripCountOp.getOperation()->getResult(0);
 
     mlir::SmallVector<mlir::Range> loopBounds(1);
@@ -137,8 +137,8 @@ mlir::FailureOr<mlir::TilingResult> vpux::Shave::TilingRootOp::getTiledImplement
     SmallVector<mlir::OpFoldResult> strides;
     std::tie(resultOffsets, resultSizes, strides) = std::move(paramsOrFailure.value());
 
-    auto extractSlice =
-            b.create<mlir::tensor::ExtractSliceOp>(getLoc(), this->getInputs()[0], resultOffsets, resultSizes, strides);
+    auto extractSlice = mlir::tensor::ExtractSliceOp::create(b, getLoc(), this->getInputs()[0], resultOffsets,
+                                                             resultSizes, strides);
 
     SmallVector<mlir::Operation*> tiledOps;
     SmallVector<mlir::Value> resultValues;

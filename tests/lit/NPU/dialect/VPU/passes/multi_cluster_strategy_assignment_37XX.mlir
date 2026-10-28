@@ -1683,12 +1683,12 @@ func.func @ConvertOpAssignedMCStratF16To32(%arg0: tensor<1x48x160x80xf16>) -> te
 
 // -----
 
-// CHECK-LABEL: @ConvertOpAssignedMCStratClustering
+// CHECK-LABEL: @ConvertOpAssignedMCStratSOK
 // CHECK-SAME: ([[ARG_0:%[^:]+]]: tensor<2x48x160x80xf16>)
-func.func @ConvertOpAssignedMCStratClustering(%arg0: tensor<2x48x160x80xf16>) -> tensor<2x48x160x80xf32> {
+func.func @ConvertOpAssignedMCStratSOK(%arg0: tensor<2x48x160x80xf16>) -> tensor<2x48x160x80xf32> {
     %0 = VPU.Convert(%arg0) {dstElemType = f32} : tensor<2x48x160x80xf16> -> tensor<2x48x160x80xf32>
     return %0 : tensor<2x48x160x80xf32>
-    // CHECK:       [[CONVERT:%.+]] = VPU.Convert([[ARG_0]]) {dstElemType = f32, multiClusterStrategy = #VPU.multi_cluster_strategy<Clustering>} : tensor<2x48x160x80xf16> -> tensor<2x48x160x80xf32>
+    // CHECK:       [[CONVERT:%.+]] = VPU.Convert([[ARG_0]]) {dstElemType = f32, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>} : tensor<2x48x160x80xf16> -> tensor<2x48x160x80xf32>
     // CHECK:       return [[CONVERT]] : tensor<2x48x160x80xf32>
 }
 

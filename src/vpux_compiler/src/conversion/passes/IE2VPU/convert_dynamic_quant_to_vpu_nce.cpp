@@ -61,7 +61,7 @@ mlir::LogicalResult DynamicQuantToVPUNCE::matchAndRewrite(IE::ConvolutionOp orig
     auto alignedFilter = VPU::alignConvWeightsTensor(rewriter, origOp->getLoc(), weightsValue);
 
     auto weightsTable =
-            rewriter.create<VPU::PopulateWeightTableOp>(dynamicDequant->getLoc(), dynamicDequant->getOperand(1), 0, 0);
+            VPU::PopulateWeightTableOp::create(rewriter, dynamicDequant->getLoc(), dynamicDequant->getOperand(1), 0, 0);
 
     const auto padAttr = VPU::getPaddingAttr(getContext(), PadInfo(origOp.getPadsBegin(), origOp.getPadsEnd()));
     const auto ppeAttr = VPU::getPpeConfig(origOp->getContext()).retrievePPEAttribute(origOp);
@@ -80,6 +80,7 @@ mlir::LogicalResult DynamicQuantToVPUNCE::matchAndRewrite(IE::ConvolutionOp orig
             /*weight_zero_points=*/nullptr, origOp.getStridesAttr(), padAttr, ppeAttr, mpeEngineAttr,
             /*rawFilterShape=*/mlir::ValueRange{}, staticRawFilterShape,
             /*multi_cluster_strategyAttr=*/nullptr, origOp.getOutputPaddingAttr(), origOp.getInputPaddingAttr(),
+            /*s2dd2s_config*/ nullptr,
             /*axes_value=*/nullptr);
 
     rewriter.eraseOp(dynamicDequant);

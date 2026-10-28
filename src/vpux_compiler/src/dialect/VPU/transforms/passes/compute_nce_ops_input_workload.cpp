@@ -371,8 +371,8 @@ void ComputeNCEInputWorkloadsPass::safeRunOnFunc() {
                 const auto inStartAttr = mlir::DenseI64ArrayAttr::get(builder.getContext(), inStart);
                 const auto inSizeAttr = mlir::DenseI64ArrayAttr::get(builder.getContext(), inSize);
 
-                auto workloadWithInputOffsets = builder.create<DPUWorkloadOp>(
-                        workload.getLoc(), workload.getOutOffsets(), workload.getOutSizes(),
+                auto workloadWithInputOffsets = DPUWorkloadOp::create(
+                        builder, workload.getLoc(), workload.getOutOffsets(), workload.getOutSizes(),
                         workload.getStaticOutOffsetsAttr(), workload.getStaticOutSizesAttr(),
                         /* inOffsets */ mlir::ValueRange{},
                         /* inSizes */ mlir::ValueRange{}, inStartAttr, inSizeAttr, workload.getMpeModeAttr(),

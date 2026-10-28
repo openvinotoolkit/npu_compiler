@@ -186,9 +186,9 @@ mlir::LogicalResult SharedCopyInputRewriter::matchAndRewrite(VPU::ConcatOp origO
 
         rewriter.setInsertionPointAfter(insertPoint);
         for (const auto& userData : userDataList) {
-            auto newConcat = rewriter.create<VPU::ConcatOp>(userData.copyOp->getLoc(),
-                                                            userData.copyOp->getResult(0).getType(), userData.newInputs,
-                                                            getIntArrayOfArray(ctx, userData.newConcatOffsets));
+            auto newConcat =
+                    VPU::ConcatOp::create(rewriter, userData.copyOp->getLoc(), userData.copyOp->getResult(0).getType(),
+                                          userData.newInputs, getIntArrayOfArray(ctx, userData.newConcatOffsets));
             newUserMapping.insert({userData.copyOp, newConcat});
         }
 
@@ -296,7 +296,7 @@ std::optional<mlir::Value> SharedCopyInputRewriter::createNewBranchInput(mlir::V
     }
 
     rewriter.setInsertionPointAfter(concat);
-    auto newSlice = rewriter.create<VPU::SliceOp>(sliceUser.getLoc(), concatInput, newSliceOffset, newSliceSize);
+    auto newSlice = VPU::SliceOp::create(rewriter, sliceUser.getLoc(), concatInput, newSliceOffset, newSliceSize);
 
     auto userCopyOp = *sliceUser->getUsers().begin();
 
@@ -309,13 +309,13 @@ std::optional<mlir::Value> SharedCopyInputRewriter::createNewBranchInput(mlir::V
     }
 
     if (!mlir::isa<VPU::DistributedTensorType>(copyOutType)) {
-        return rewriter.create<VPU::CopyOp>(userCopyOp->getLoc(), newSlice, copyOutType.getMemSpace());
+        return VPU::CopyOp::create(rewriter, userCopyOp->getLoc(), newSlice, copyOutType.getMemSpace());
     }
 
     auto newShape = getShape(newSlice.getResult());
     auto newOutType = getConcatDistributedType(mlir::cast<vpux::VPU::DistributedTensorType>(copyOutType), newShape);
     auto newCopyOp =
-            rewriter.create<VPU::CopyOp>(userCopyOp->getLoc(), newOutType, newSlice, copyOutType.getMemSpace());
+            VPU::CopyOp::create(rewriter, userCopyOp->getLoc(), newOutType, newSlice, copyOutType.getMemSpace());
 
     return newCopyOp->getResult(0);
 }

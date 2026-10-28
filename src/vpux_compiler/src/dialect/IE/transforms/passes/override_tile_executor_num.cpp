@@ -80,8 +80,8 @@ void OverrideTileExecutorNumPass::safeRunOnModule() {
 
     if (overrideToTilesPerBatchMode == "apply") {
         module.walk([&](mlir::func::CallOp callOp) {
-            VPUX_THROW_UNLESS(!DebatchedCallOpAttributeView::hasAvailableTilesAttr(callOp),
-                              "Detected existing overridden process, unable to override without reverting.");
+            VPUX_THROW_WHEN(DebatchedCallOpAttributeView::hasAvailableTilesAttr(callOp),
+                            "Detected existing overridden process, unable to override without reverting.");
 
             const auto debatchedCallOpAttrView = DebatchedCallOpAttributeView::extract(callOp);
 

@@ -37,15 +37,15 @@ void warpIntoAsyncRegion(VPUIP::AsyncLayerOpInterface op, Logger log) {
 
     const auto bodyBuilder = [op](mlir::OpBuilder& builder, mlir::Location loc, mlir::ValueRange) {
         auto* newOp = builder.clone(*op);
-        builder.create<mlir::async::YieldOp>(loc, newOp->getResults());
+        mlir::async::YieldOp::create(builder, loc, newOp->getResults());
     };
 
     OpBuilderLogger builderLog(log.nest());
     mlir::OpBuilder builder(op, &builderLog);
 
-    auto execOp = builder.create<mlir::async::ExecuteOp>(op->getLoc(), op->getResultTypes(),
-                                                         /* dependencies */ mlir::ValueRange{},
-                                                         /* operands */ mlir::ValueRange{}, bodyBuilder);
+    auto execOp = mlir::async::ExecuteOp::create(builder, op->getLoc(), op->getResultTypes(),
+                                                 /* dependencies */ mlir::ValueRange{},
+                                                 /* operands */ mlir::ValueRange{}, bodyBuilder);
     if (executor != nullptr) {
         VPUIP::VPUIPDialect::setExecutor(execOp, executor);
     }
@@ -55,7 +55,7 @@ void warpIntoAsyncRegion(VPUIP::AsyncLayerOpInterface op, Logger log) {
     SmallVector<mlir::Value> newResults;
     newResults.resize(op->getNumResults());
     for (auto i : irange(op->getNumResults())) {
-        auto waitOp = builder.create<mlir::async::AwaitOp>(op->getLoc(), execOp.getBodyResults()[i]);
+        auto waitOp = mlir::async::AwaitOp::create(builder, op->getLoc(), execOp.getBodyResults()[i]);
         newResults[i] = waitOp.getResult();
     }
 

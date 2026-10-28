@@ -50,16 +50,16 @@ void decomposeNormalizeL2(IE::NormalizeL2Op origOp, Logger log) {
     }
 
     // --- Calculate sum of squared input data
-    auto multiplyOp = builder.create<IE::MultiplyOp>(appendLoc(loc, "mul"), data, data, IE::AutoBroadcastType::NUMPY,
-                                                     nullptr, nullptr, nullptr, nullptr);
-    auto reduceSumOp = builder.create<IE::ReduceSumOp>(appendLoc(loc, "reduceSum"), multiplyOp.getOutput(),
-                                                       axesValueAttr, false, nullptr, nullptr);
+    auto multiplyOp = IE::MultiplyOp::create(builder, appendLoc(loc, "mul"), data, data, IE::AutoBroadcastType::NUMPY,
+                                             nullptr, nullptr, nullptr, nullptr);
+    auto reduceSumOp = IE::ReduceSumOp::create(builder, appendLoc(loc, "reduceSum"), multiplyOp.getOutput(),
+                                               axesValueAttr, false, nullptr, nullptr);
 
-    auto sqrtOp = builder.create<IE::SqrtOp>(appendLoc(loc, "sqrt"), reduceSumOp.getOutput());
+    auto sqrtOp = IE::SqrtOp::create(builder, appendLoc(loc, "sqrt"), reduceSumOp.getOutput());
 
     // --- Divide all input data by the calculated value
-    auto divOp =
-            builder.create<IE::DivideOp>(appendLoc(loc, "div"), data, sqrtOp.getOutput(), IE::AutoBroadcastType::NUMPY);
+    auto divOp = IE::DivideOp::create(builder, appendLoc(loc, "div"), data, sqrtOp.getOutput(),
+                                      IE::AutoBroadcastType::NUMPY);
 
     origOp.getOutput().replaceAllUsesWith(divOp.getOutput());
     origOp.erase();
@@ -105,11 +105,11 @@ void decomposeReduceL2(IE::ReduceL2Op origOp, Logger log) {
     mlir::OpBuilder builder(origOp);
 
     auto input = origOp.getInput();
-    auto multiplyOp = builder.create<IE::MultiplyOp>(appendLoc(loc, "square"), input, input,
-                                                     IE::AutoBroadcastType::NUMPY, nullptr, nullptr, nullptr, nullptr);
-    auto reduceSumOp = builder.create<IE::ReduceSumOp>(appendLoc(loc, "reduceSum"), multiplyOp.getOutput(),
-                                                       origOp.getAxesValueAttr(), origOp.getKeepDimsAttr());
-    auto sqrtOp = builder.create<IE::SqrtOp>(appendLoc(loc, "sqrt"), reduceSumOp.getOutput());
+    auto multiplyOp = IE::MultiplyOp::create(builder, appendLoc(loc, "square"), input, input,
+                                             IE::AutoBroadcastType::NUMPY, nullptr, nullptr, nullptr, nullptr);
+    auto reduceSumOp = IE::ReduceSumOp::create(builder, appendLoc(loc, "reduceSum"), multiplyOp.getOutput(),
+                                               origOp.getAxesValueAttr(), origOp.getKeepDimsAttr());
+    auto sqrtOp = IE::SqrtOp::create(builder, appendLoc(loc, "sqrt"), reduceSumOp.getOutput());
 
     origOp.getOutput().replaceAllUsesWith(sqrtOp.getOutput());
     origOp.erase();

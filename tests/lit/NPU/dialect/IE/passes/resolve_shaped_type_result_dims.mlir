@@ -120,12 +120,12 @@ func.func @ReifyAddShape(%IN1: !BoundedType, %IN2: !BoundedType) -> (!BoundedTyp
 
 #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
 
-!Type1 = tensor<1x64xf16, {order = #NCHW}>
+!Type1 = tensor<1x64xf16>
 !Type2 = tensor<1x?x32x1xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 32, 1]> : tensor<4xsi64>, order = #NCHW}>
 !OutType = tensor<1x?x32x64xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 32, 64]> : tensor<4xsi64>, order = #NCHW}>
 
 // CHECK-LABEL: @ReifyBroadcastAddShape
-// CHECK-SAME: [[IN1:%.+]]: tensor<1x64xf16, {order = #NCHW}>,
+// CHECK-SAME: [[IN1:%.+]]: tensor<1x64xf16>,
 // CHECK-SAME: [[IN2:%.+]]: tensor<1x?x32x1xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 32, 1]> : tensor<4xsi64>, order = #NCHW}>
 func.func @ReifyBroadcastAddShape(%IN1: !Type1, %IN2: !Type2) -> (!OutType, index) {
     %IDX_1 = arith.constant 1 : index
@@ -426,15 +426,16 @@ func.func @ReifyMatMulShape3(%IN1: !InBoundedType1, %IN2: !InBoundedType2) -> (!
 // -----
 
 #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+#CHW = affine_map<(d0, d1, d2) -> (d0, d1, d2)>
 
 !InBoundedType1 = tensor<1x2x256x?xf32, {bounds = #const.OpaqueI64Elements<[1, 2, 256, 512]> : tensor<4xsi64>, order = #NCHW}>
-!InBoundedType2 = tensor<2x?x256xf32, {bounds = #const.OpaqueI64Elements<[2, 128, 256]> : tensor<3xsi64>, order = #NCHW}>
+!InBoundedType2 = tensor<2x?x256xf32, {bounds = #const.OpaqueI64Elements<[2, 128, 256]> : tensor<3xsi64>, order = #CHW}>
 !OutBoundedType = tensor<1x2x?x?xf32, {bounds = #const.OpaqueI64Elements<[1, 2, 512, 128]> : tensor<4xsi64>, order = #NCHW}>
 
 // CHECK-LABEL: @ReifyMatMulShape4
 func.func @ReifyMatMulShape4(%IN1: !InBoundedType1, %IN2: !InBoundedType2) -> (!OutBoundedType, index, index) {
     // CHECK: [[IN1:%.+]]: tensor<1x2x256x?xf32, {bounds = #const.OpaqueI64Elements<[1, 2, 256, 512]> : tensor<4xsi64>, order = #NCHW}>
-    // CHECK: [[IN2:%.+]]: tensor<2x?x256xf32, {bounds = #const.OpaqueI64Elements<[2, 128, 256]> : tensor<3xsi64>, order = #NCHW}>
+    // CHECK: [[IN2:%.+]]: tensor<2x?x256xf32, {bounds = #const.OpaqueI64Elements<[2, 128, 256]> : tensor<3xsi64>, order = #CHW}>
     %IDX_2 = arith.constant 2 : index
     %IDX_3 = arith.constant 3 : index
 
@@ -457,14 +458,15 @@ func.func @ReifyMatMulShape4(%IN1: !InBoundedType1, %IN2: !InBoundedType2) -> (!
 // -----
 
 #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+#CHW = affine_map<(d0, d1, d2) -> (d0, d1, d2)>
 
-!InBoundedType1 = tensor<2x256x?xf32, {bounds = #const.OpaqueI64Elements<[2, 256, 512]> : tensor<3xsi64>, order = #NCHW}>
+!InBoundedType1 = tensor<2x256x?xf32, {bounds = #const.OpaqueI64Elements<[2, 256, 512]> : tensor<3xsi64>, order = #CHW}>
 !InBoundedType2 = tensor<1x2x?x256xf32, {bounds = #const.OpaqueI64Elements<[1, 2, 128, 256]> : tensor<4xsi64>, order = #NCHW}>
 !OutBoundedType = tensor<1x2x?x?xf32, {bounds = #const.OpaqueI64Elements<[1, 2, 512, 128]> : tensor<4xsi64>, order = #NCHW}>
 
 // CHECK-LABEL: @ReifyMatMulShape5
 func.func @ReifyMatMulShape5(%IN1: !InBoundedType1, %IN2: !InBoundedType2) -> (!OutBoundedType, index, index) {
-    // CHECK: [[IN1:%.+]]: tensor<2x256x?xf32, {bounds = #const.OpaqueI64Elements<[2, 256, 512]> : tensor<3xsi64>, order = #NCHW}>
+    // CHECK: [[IN1:%.+]]: tensor<2x256x?xf32, {bounds = #const.OpaqueI64Elements<[2, 256, 512]> : tensor<3xsi64>, order = #CHW}>
     // CHECK: [[IN2:%.+]]: tensor<1x2x?x256xf32, {bounds = #const.OpaqueI64Elements<[1, 2, 128, 256]> : tensor<4xsi64>, order = #NCHW}>
     %IDX_2 = arith.constant 2 : index
     %IDX_3 = arith.constant 3 : index
@@ -996,12 +998,12 @@ func.func @ReifyMultiplyShape(%IN1: !BoundedType, %IN2: !BoundedType) -> (!Bound
 
 #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
 
-!Type1 = tensor<1x64xf16, {order = #NCHW}>
+!Type1 = tensor<1x64xf16>
 !Type2 = tensor<1x?x32x1xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 32, 1]> : tensor<4xsi64>, order = #NCHW}>
 !OutType = tensor<1x?x32x64xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 32, 64]> : tensor<4xsi64>, order = #NCHW}>
 
 // CHECK-LABEL: @ReifyBroadcastMultiplyShape
-// CHECK-SAME: [[IN1:%.+]]: tensor<1x64xf16, {order = #NCHW}>,
+// CHECK-SAME: [[IN1:%.+]]: tensor<1x64xf16>,
 // CHECK-SAME: [[IN2:%.+]]: tensor<1x?x32x1xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 32, 1]> : tensor<4xsi64>, order = #NCHW}>
 func.func @ReifyBroadcastMultiplyShape(%IN1: !Type1, %IN2: !Type2) -> (!OutType, index) {
     %IDX_1 = arith.constant 1 : index
@@ -1376,7 +1378,7 @@ func.func @ReifyAttentionDMADynSSL(%Q: !QType, %K: !KType, %V: !VType) -> (!OutT
     %IDX_2 = arith.constant 2 : index
     // CHECK: [[IDX_2:%.+]] = arith.constant 2 : index
 
-    %ATTN = IE.AttentionDMA(%Q, %K, %V) {operandSegmentSizes = array<i32: 1, 1, 1, 0, 0, 0, 0, 0>} : !QType, !KType, !VType -> !OutType_Attn
+    %ATTN = IE.AttentionDMA(%Q, %K, %V) {operandSegmentSizes = array<i32: 1, 1, 1, 0, 0, 0, 0, 0, 0, 0>} : !QType, !KType, !VType -> !OutType_Attn
     // CHECK: [[ATTN:%.+]] = IE.AttentionDMA
 
     %DIM_2 = tensor.dim %ATTN, %IDX_2 : !OutType_Attn
@@ -1384,4 +1386,46 @@ func.func @ReifyAttentionDMADynSSL(%Q: !QType, %K: !KType, %V: !VType) -> (!OutT
 
     return %ATTN, %DIM_2 : !OutType_Attn, index
     // CHECK: return [[ATTN]], [[DIM_2]]
+}
+
+// -----
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+
+!BoundedType = tensor<1x16x32x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 32, 64]> : tensor<4xsi64>, order = #NCHW}>
+
+// CHECK-LABEL: @ReifyPReLUShape
+func.func @ReifyPReLUShape(%IN: !BoundedType) -> (!BoundedType, index) {
+    // CHECK: [[IN:%.+]]: tensor<1x16x32x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 32, 64]> : tensor<4xsi64>, order = #NCHW}>
+    %IDX_3 = arith.constant 3 : index
+    // CHECK: [[IDX_3:%.+]] = arith.constant 3 : index
+
+    %SLOPE = const.Declare tensor<1x16xf32> = dense<1.0> : tensor<1x16xf32>
+    %PRELU = IE.PRelu(%IN, %SLOPE) : !BoundedType, tensor<1x16xf32> -> !BoundedType
+    // CHECK: [[PRELU:%.+]] = IE.PRelu([[IN]], [[SLOPE:%.+]])
+
+    %DIM_3 = tensor.dim %PRELU, %IDX_3 : !BoundedType
+    // CHECK: [[DIM_3:%.+]] = tensor.dim [[IN]], [[IDX_3]]
+    // Note that the first operand of tensor.dim comes from the block argument now
+
+    return %PRELU, %DIM_3 : !BoundedType, index
+    // CHECK: return [[PRELU]], [[DIM_3]]
+}
+
+// -----
+
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+
+!BoundedType = tensor<1x16x32x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 32, 64]> : tensor<4xsi64>, order = #NCHW}>
+
+// CHECK-LABEL: @ReifyShapeOfShape
+func.func @ReifyShapeOfShape(%arg0: !BoundedType) -> (tensor<4xsi32>, index) {
+    // CHECK: [[IN:%.+]]: tensor<1x16x32x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 32, 64]> : tensor<4xsi64>, order = #NCHW}>
+    // CHECK-DAG: [[DIM:%.+]] = arith.constant 4 : index
+    // ShapeOf output is tensor<rank x T>; rank is static so reify yields a compile-time constant
+    %shapeof = IE.ShapeOf(%arg0) {dstElemType = si32} : !BoundedType -> tensor<4xsi32>
+    // CHECK-DAG: [[SHAPE:%.+]] = IE.ShapeOf([[IN]]) {dstElemType = si32} : tensor<1x16x32x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 32, 64]> : tensor<4xsi64>, order = #NCHW}> -> tensor<4xsi32>
+    %c0 = arith.constant 0 : index
+    %dim = tensor.dim %shapeof, %c0 : tensor<4xsi32>
+    return %shapeof, %dim : tensor<4xsi32>, index
+    // CHECK: return [[SHAPE]], [[DIM]]
 }

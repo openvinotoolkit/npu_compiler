@@ -67,7 +67,7 @@ void vpux::VPU::WorkloadSplitter::correctInvalidWorkload(const VPU::SparsityCons
         const auto& strategyFactory = VPU::getVPUStrategyFactory(ctx);
         for (auto op : producerNCEOps) {
             auto nceOpi = mlir::dyn_cast<VPU::NCEOpInterface>(op);
-            VPUX_THROW_UNLESS(nceOpi != nullptr, "Expected NCE op, got '{0}'", op);
+            VPUX_THROW_WHEN(nceOpi == nullptr, "Expected NCE op, got '{0}'", op);
 
             auto isInvalidDepthwise = invalidDepthwiseOps.contains(op);
             auto isInvalidSparsity = invalidSparseOps.contains(op);
@@ -82,7 +82,9 @@ void vpux::VPU::WorkloadSplitter::correctInvalidWorkload(const VPU::SparsityCons
                         mlir::cast<vpux::NDTypeInterface>(op->getResult(0).getType()).getShape()[Dims4D::Act::C] -
                         mlir::cast<vpux::NDTypeInterface>(op->getOperand(0).getType()).getShape()[Dims4D::Act::C];
             }
-            auto workloads = to_small_vector(nceOpi.getWorkloads().getOps<VPU::DPUWorkloadOp>());
+            // SCF workload generation may place alternatives under nested scf.if operations.
+            // Correct every alternative before full unrolling selects the active branch.
+            auto workloads = VPU::collectAllWorkloads(nceOpi);
             // The workloads must have the same channel size when there's output sparsity
             // It's because the workloads share the unique storage element size
             // However the last workload can have any channel size which is smaller than the previous workloads
@@ -91,15 +93,24 @@ void vpux::VPU::WorkloadSplitter::correctInvalidWorkload(const VPU::SparsityCons
             // workload size
             // We can't skip the last workload if there are multiple NCE operations as producer because we don't know
             // which NCE operation provides the last workload
+            mlir::DenseSet<mlir::Operation*> skippedTailWorkloads;
             if ((producerNCEOps.size() == 1) && isInvalidSparsity && !isInvalidDepthwise && !isInvalidNCEPermuteOp) {
-                const auto lastWorkloadSizes = workloads.back().getConstOutputSizes();
-                const auto lastChannel = lastWorkloadSizes[Dims4D::Act::C.ind()];
-                auto canSkipTheLastWorkload = llvm::any_of(supportedChannels, [&](int64_t channel) -> bool {
-                    return lastChannel < channel;
-                });
-
-                if (canSkipTheLastWorkload) {
-                    workloads.pop_back();
+                // collectAllWorkloads flattens the alternatives kept under nested scf.if dispatch, so each branch has
+                // its own workloads block. The skippable channel tail must be found per block; a single global tail
+                // would leave the other branches' tails wrongly split.
+                llvm::DenseMap<mlir::Block*, VPU::DPUWorkloadOp> lastWorkloadPerBlock;
+                for (auto workloadOp : workloads) {
+                    lastWorkloadPerBlock[workloadOp->getBlock()] = workloadOp;
+                }
+                for (const auto& blockAndTail : lastWorkloadPerBlock) {
+                    auto tailWorkload = blockAndTail.second;
+                    const auto lastChannel = tailWorkload.getConstOutputSizes()[Dims4D::Act::C.ind()];
+                    const auto canSkipTheLastWorkload = llvm::any_of(supportedChannels, [&](int64_t channel) -> bool {
+                        return lastChannel < channel;
+                    });
+                    if (canSkipTheLastWorkload) {
+                        skippedTailWorkloads.insert(tailWorkload.getOperation());
+                    }
                 }
             }
 
@@ -116,6 +127,9 @@ void vpux::VPU::WorkloadSplitter::correctInvalidWorkload(const VPU::SparsityCons
             }
 
             for (auto workloadOp : llvm::make_early_inc_range(workloads)) {
+                if (skippedTailWorkloads.contains(workloadOp.getOperation())) {
+                    continue;
+                }
                 const auto wlSizes = workloadOp.getConstOutputSizes();
                 auto wlChannels = wlSizes[Dims4D::Act::C.ind()];
                 if (llvm::find(supportedChannels, wlChannels) != supportedChannels.end()) {
@@ -154,7 +168,7 @@ mlir::DenseSet<int64_t> vpux::VPU::WorkloadSplitter::getWorkloadsChannels(
     mlir::DenseSet<int64_t> workloadsChannels;
     for (auto op : nceOps) {
         auto nceOp = mlir::dyn_cast<VPU::NCEOpInterface>(op);
-        VPUX_THROW_UNLESS(nceOp != nullptr, "Expected NCE op, got '{0}'", op);
+        VPUX_THROW_WHEN(nceOp == nullptr, "Expected NCE op, got '{0}'", op);
         const auto workloads = to_small_vector(nceOp.getWorkloads().getOps<VPU::DPUWorkloadOp>());
         allWorkloads.insert(allWorkloads.end(), workloads.begin(), workloads.end());
     }
@@ -197,7 +211,7 @@ mlir::DenseSet<int64_t> vpux::VPU::WorkloadSplitter::getWorkloadsChannels(
 SmallVector<int64_t> vpux::VPU::WorkloadSplitter::filterSupportedChannelsBySmallKernelOptimization(
         mlir::Operation* op, ArrayRef<int64_t> supportedChannels) {
     auto nceOp = mlir::dyn_cast<VPU::NCEOpInterface>(op);
-    VPUX_THROW_UNLESS(nceOp != nullptr, "Expected NCE op, got '{0}'", op);
+    VPUX_THROW_WHEN(nceOp == nullptr, "Expected NCE op, got '{0}'", op);
     auto workloads = nceOp.getWorkloads().getOps<VPU::DPUWorkloadOp>();
     SmallVector<int64_t> workloadsChannels =
             to_container<SmallVector<int64_t>>(workloads | transformed([](VPU::DPUWorkloadOp workload) -> int64_t {
@@ -397,7 +411,7 @@ mlir::DenseSet<mlir::Operation*> vpux::VPU::WorkloadSplitter::findInvalidNCEPerm
             continue;
         }
         auto nceOp = mlir::dyn_cast<VPU::NCEOpInterface>(op);
-        VPUX_THROW_UNLESS(nceOp != nullptr, "Expected NCE op, got '{0}'", op);
+        VPUX_THROW_WHEN(nceOp == nullptr, "Expected NCE op, got '{0}'", op);
         const auto workloads = VPU::collectAllWorkloads(nceOp);
         const auto nonZeroPadding = llvm::any_of(workloads, [&](VPU::DPUWorkloadOp workload) -> bool {
             const auto expandChannels = mlir::cast<VPU::NCEPermuteOp>(op).getExpandedChannels();
@@ -525,7 +539,7 @@ SmallVector<int64_t> vpux::VPU::WorkloadSplitter::getSupportedChannels(
     }
 
     auto nceOp = mlir::dyn_cast<VPU::NCEOpInterface>(*nceOps.begin());
-    VPUX_THROW_UNLESS(nceOp != nullptr, "Expected NCE op, got '{0}'", *nceOps.begin());
+    VPUX_THROW_WHEN(nceOp == nullptr, "Expected NCE op, got '{0}'", *nceOps.begin());
 
     // Filter supported channels through errata conditions for small spatial compute DW ops
     auto ctx = nceOp.getContext();
@@ -568,7 +582,20 @@ void vpux::VPU::WorkloadSplitter::splitWorkload(VPU::DPUWorkloadOp dpuWorkloadOp
         const auto right = pads.getRight().getInt();
         wlSizes[Dims4D::Act::H.ind()] -= (top + bottom);
         wlSizes[Dims4D::Act::W.ind()] -= (left + right);
-        wlSizes[Dims4D::Act::C.ind()] -= channelPadding;
+
+        // SCF workload generation can already produce the logical (unpadded) channel range.
+        // Remove only the part of this workload that extends into the expanded-channel padding;
+        // blindly subtracting the full op-level padding would turn e.g. C=150 into C=140.
+        auto ncePermuteOp = dpuWorkloadOp->getParentOfType<VPU::NCEPermuteOp>();
+        VPUX_THROW_UNLESS(ncePermuteOp != nullptr, "Expected NCEPermute ancestor for workload '{0}'", dpuWorkloadOp);
+        const auto logicalChannels =
+                mlir::cast<vpux::NDTypeInterface>(ncePermuteOp.getInput().getType()).getShape()[Dims4D::Act::C];
+        const auto workloadChannelEnd = wlOffsets[Dims4D::Act::C.ind()] + wlSizes[Dims4D::Act::C.ind()];
+        const auto workloadChannelPadding = std::max<int64_t>(0, workloadChannelEnd - logicalChannels);
+        VPUX_THROW_WHEN(workloadChannelPadding > channelPadding,
+                        "Workload channel padding '{0}' exceeds NCEPermute channel padding '{1}' for '{2}'",
+                        workloadChannelPadding, channelPadding, dpuWorkloadOp);
+        wlSizes[Dims4D::Act::C.ind()] -= workloadChannelPadding;
 
         padsAttr = VPU::getPaddingAttr(pads.getContext(), PadInfo(0, 0, 0, 0));
 
@@ -589,6 +616,20 @@ void vpux::VPU::WorkloadSplitter::splitWorkload(VPU::DPUWorkloadOp dpuWorkloadOp
     }
 
     auto channelOffset = wlOffsets[Dims4D::Act::C.ind()];
+    const auto staticInOffsets = dpuWorkloadOp.getStaticInOffsetsAttr();
+    const auto staticInSizes = dpuWorkloadOp.getStaticInSizesAttr();
+    // The input workload of the original operation describes the input tile of the whole channel range. It stays
+    // valid only when the channel range is not split, i.e. exactly one new workload is created: for a channel split
+    // each part consumes a different input channel range (depthwise) and reusing the original range would be wrong.
+    // The padding and channel corrections applied to an invalid NCEPermute above keep it valid, because NCEPermute is
+    // a 1x1 stride 1 operation: back-inference had already mapped the padded output tile onto the unpadded input,
+    // which is exactly what the corrected output tile describes, and it clamped the channel range to the logical
+    // channels as well. The offsets reset is the exception, as it renumbers the output tile without the input tile
+    // following. Whenever the recorded input workload is dropped, ComputeNCEInputWorkloads, which runs right after
+    // this pass, back-infers it for every new workload.
+    const auto preserveInputWorkload = staticInOffsets != nullptr && staticInSizes != nullptr &&
+                                       newWorkloadChannels.size() == 1 &&
+                                       !(isInvalidNCEPermuteOp && isNCEPermuteOffsetsCorrectionNeeded);
 
     for (auto channelSize : newWorkloadChannels) {
         auto sizes = wlSizes;
@@ -601,8 +642,14 @@ void vpux::VPU::WorkloadSplitter::splitWorkload(VPU::DPUWorkloadOp dpuWorkloadOp
         const auto offsetsAttr = mlir::DenseI64ArrayAttr::get(builder.getContext(), offsets);
         const auto sizesAttr = mlir::DenseI64ArrayAttr::get(builder.getContext(), sizes);
 
-        builder.create<VPU::DPUWorkloadOp>(dpuWorkloadOp.getLoc(), offsetsAttr, sizesAttr, padsAttr,
-                                           dpuWorkloadOp.getMpeModeAttr(), dpuWorkloadOp.getClusterIdAttr());
+        if (preserveInputWorkload) {
+            VPU::DPUWorkloadOp::create(builder, dpuWorkloadOp.getLoc(), offsetsAttr, sizesAttr, staticInOffsets,
+                                       staticInSizes, padsAttr, dpuWorkloadOp.getMpeModeAttr(),
+                                       dpuWorkloadOp.getClusterIdAttr());
+        } else {
+            VPU::DPUWorkloadOp::create(builder, dpuWorkloadOp.getLoc(), offsetsAttr, sizesAttr, padsAttr,
+                                       dpuWorkloadOp.getMpeModeAttr(), dpuWorkloadOp.getClusterIdAttr());
+        }
     }
 
     log.nest().trace("Split workload of size '{0}' into '{1}'", wlSizes[Dims4D::Act::C.ind()], newWorkloadChannels);

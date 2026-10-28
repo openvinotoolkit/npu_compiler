@@ -12,7 +12,7 @@ namespace vpumi40xx2vpuasm {
 mlir::FailureOr<SymbolizationResult> KernelTextRewriter::symbolize(VPUMI40XX::DeclareKernelTextOp op, SymbolMapper&,
                                                                    mlir::ConversionPatternRewriter& rewriter) const {
     auto symName = findSym(op).getRootReference();
-    auto newOp = rewriter.create<VPUASM::DeclareKernelTextOp>(op.getLoc(), symName, op.getKernelPathAttr());
+    auto newOp = VPUASM::DeclareKernelTextOp::create(rewriter, op.getLoc(), symName, op.getKernelPathAttr());
     rewriter.eraseOp(op);
     return SymbolizationResult(newOp);
 }

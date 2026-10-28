@@ -33,7 +33,7 @@ void AddPlatformInfo::safeRunOnFunc() {
     auto trivialIndexType = VPURegMapped::IndexType::get(ctx, 0);
 
     mlir::OpBuilder builder(&(funcOp.getBody().front().back()));
-    builder.create<VPUMI40XX::PlatformInfoOp>(builder.getUnknownLoc(), trivialIndexType);
+    VPUMI40XX::PlatformInfoOp::create(builder, builder.getUnknownLoc(), trivialIndexType);
 }
 }  // namespace
 

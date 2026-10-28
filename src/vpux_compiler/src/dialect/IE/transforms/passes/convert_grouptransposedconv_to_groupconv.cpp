@@ -85,14 +85,14 @@ mlir::LogicalResult GroupTransposedConvConverter::matchAndRewrite(IE::GroupTrans
 
     const auto featureShape = getShape(origOp.getInput());
     if (featureShape.size() != 4) {
-        return matchFailed(rewriter, origOp,
+        return matchFailed(_log, rewriter, origOp,
                            "Only 2D GroupTransposedConvolutionOp is supported, expected 4D feature but got {0}",
                            featureShape.size());
     }
 
     const auto outputShape = getShape(origOp.getOutput());
     if (outputShape.size() != 4) {
-        return matchFailed(rewriter, origOp,
+        return matchFailed(_log, rewriter, origOp,
                            "Only 2D GroupTransposedConvolutionOp is supported, expected 4D output shape but got {0}",
                            outputShape.size());
     }
@@ -100,14 +100,14 @@ mlir::LogicalResult GroupTransposedConvConverter::matchAndRewrite(IE::GroupTrans
     auto filterType = mlir::cast<vpux::NDTypeInterface>(origOp.getFilter().getType());
     auto origFilterShape = to_small_vector(filterType.getShape());
     if (origFilterShape.size() != 5) {
-        return matchFailed(rewriter, origOp,
+        return matchFailed(_log, rewriter, origOp,
                            "Only 2D GroupTransposedConvolutionOp is supported, expected 5D filter but got {0}",
                            origFilterShape.size());
     }
 
     auto dwConvFilter = origOp.getFilter().getDefiningOp();
     if (dwConvFilter == nullptr) {
-        return matchFailed(rewriter, origOp, "GroupTransposedConvolutionOp has no filter Op");
+        return matchFailed(_log, rewriter, origOp, "GroupTransposedConvolutionOp has no filter Op");
     }
 
     // convert filter shape from 5D to 4D
@@ -160,14 +160,13 @@ mlir::LogicalResult GroupTransposedConvConverter::matchAndRewrite(IE::GroupTrans
                                                                          dwConvFilter->getResult(0), filter4DShapeAttr);
             // LegalizeDilatedConvolution runs before this pass in the pipeline, so we must expand
             // dilation here explicitly instead of relying on that pass to do it later.  E#222712
-            auto expandedFilter = rewriter.create<IE::ExpandDilatedOp>(takeOpLoc(origOp, "expand_dilated_filter"),
-                                                                       reshaped4DFilter, dilations);
+            auto expandedFilter = IE::ExpandDilatedOp::create(rewriter, takeOpLoc(origOp, "expand_dilated_filter"),
+                                                              reshaped4DFilter, dilations);
             auto noDilations = getIntArrayAttr(getContext(), SmallVector<int64_t>{1, 1});
-            auto directResult = rewriter.create<IE::GroupConvolutionOp>(origOp->getLoc(), origOp.getInput(),
-                                                                        expandedFilter.getResult(), nullptr,
-                                                                        directStrides, directPadsBegin, directPadsEnd,
-                                                                        noDilations, getIntAttr(rewriter, groups),
-                                                                        postOp, clampOp, outputChannels, inputChannels)
+            auto directResult = IE::GroupConvolutionOp::create(
+                                        rewriter, origOp->getLoc(), origOp.getInput(), expandedFilter.getResult(),
+                                        nullptr, directStrides, directPadsBegin, directPadsEnd, noDilations,
+                                        getIntAttr(rewriter, groups), postOp, clampOp, outputChannels, inputChannels)
                                         .getOutput();
             const auto origOpLoc = origOp.getLoc();
             rewriter.replaceOp(origOp, directResult);
@@ -200,11 +199,10 @@ mlir::LogicalResult GroupTransposedConvConverter::matchAndRewrite(IE::GroupTrans
     auto reshaped4DFilter = rewriter.createOrFold<IE::ReshapeOp>(takeOpLoc(origOp, "reshape_filter"),
                                                                  dwConvFilter->getResult(0), filter4DShapeAttr);
 
-    auto resultOP =
-            rewriter.create<IE::GroupConvolutionOp>(origOp->getLoc(), paddingOutput, reshaped4DFilter, nullptr, strides,
-                                                    padsBegin, padsEnd, dilations, getIntAttr(rewriter, groups), postOp,
-                                                    clampOp, outputChannels, inputChannels)
-                    .getOutput();
+    auto resultOP = IE::GroupConvolutionOp::create(rewriter, origOp->getLoc(), paddingOutput, reshaped4DFilter, nullptr,
+                                                   strides, padsBegin, padsEnd, dilations, getIntAttr(rewriter, groups),
+                                                   postOp, clampOp, outputChannels, inputChannels)
+                            .getOutput();
 
     const auto origOpLoc = origOp.getLoc();
     rewriter.replaceOp(origOp, resultOP);

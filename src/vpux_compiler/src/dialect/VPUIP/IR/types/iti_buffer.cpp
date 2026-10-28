@@ -348,7 +348,7 @@ int64_t VPUIP::ITIBufferType::getRank() const {
 
 int64_t VPUIP::ITIBufferType::getNumElements() const {
     auto memShape = getMemShape().raw();
-    VPUX_THROW_UNLESS(!details::isDynamicDimValues(memShape), "Cannot get element count of dynamic shaped type");
+    VPUX_THROW_WHEN(details::isDynamicDimValues(memShape), "Cannot get element count of dynamic shaped type");
     return details::calcTotalShapeSize(memShape);
 }
 

@@ -448,7 +448,7 @@ mlir::LogicalResult vpux::VPUIP::verifySameDimsOrder(mlir::Operation* op) {
 
 mlir::LogicalResult vpux::VPUIP::verifySameInOutDimsOrder(mlir::Operation* op) {
     auto layer = mlir::dyn_cast<VPUIP::LayerOpInterface>(op);
-    VPUX_THROW_UNLESS(layer != nullptr, "Operation {0} is not layer", op->getName());
+    VPUX_THROW_WHEN(layer == nullptr, "Operation {0} is not layer", op->getName());
 
     const auto input = layer.getInputs()[0];
     const auto output = layer.getOutputs()[0];

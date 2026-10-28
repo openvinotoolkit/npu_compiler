@@ -20,10 +20,10 @@ module @mainModule {
     } : tensor<96xui32>
   }
 
-  // CHECK-LABEL: func.func nested @main
+  // CHECK-LABEL: func.func @main
   // CHECK-SAME:    [[ARG_0:%[^:]+]]: memref<1x16x16x16xf16, {order = #NHWC}, @DDR>
   // CHECK-SAME:    [[ARG_1:%[^:]+]]: memref<1x16x16x16xf16, {order = #NHWC}, @DDR>
-  func.func nested @main(%arg0: memref<1x16x16x16xf16, {order = #NHWC}, @DDR>, %arg1: memref<1x16x16x16xf16, {order = #NHWC}, @DDR>, %arg2: memref<1x16x16x16xf16, {order = #NHWC}, @DDR>, %arg3: memref<96xui32>) -> (memref<1x16x16x16xf16, {order = #NHWC}, @DDR>, memref<1x16x16x16xf16, {order = #NHWC}, @DDR>, memref<96xui32>) {
+  func.func @main(%arg0: memref<1x16x16x16xf16, {order = #NHWC}, @DDR>, %arg1: memref<1x16x16x16xf16, {order = #NHWC}, @DDR>, %arg2: memref<1x16x16x16xf16, {order = #NHWC}, @DDR>, %arg3: memref<96xui32>) -> (memref<1x16x16x16xf16, {order = #NHWC}, @DDR>, memref<1x16x16x16xf16, {order = #NHWC}, @DDR>, memref<96xui32>) {
     // CHECK: [[DMA_HWP_BASE:%.+]] = VPURT.DeclareBuffer <ProfilingOutput> [0] <0> -> memref<80xui32>
     // CHECK: [[WORKPOINT_CFG:%.+]] = VPURT.DeclareBuffer <ProfilingOutput> [0] <320> -> memref<16xui32>
 

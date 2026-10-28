@@ -3,14 +3,16 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-// RUN: vpux-opt --split-input-file --init-compiler="platform=%platform%" --convert-eltwise-layers-to-math --canonicalize %s | FileCheck %s
+// RUN: vpux-opt --split-input-file --init-compiler="platform=%platform%" --convert-eltwise-layers-to-math %s | FileCheck %s
 // REQUIRES: platform-NPU4000 || platform-NPU5010
 
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
 #NWCH = affine_map<(d0, d1, d2, d3) -> (d0, d3, d1, d2)>
 
-// CHECK: [[NCHW:#.+]] = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+// CHECK-DAG: [[PERMUTE_CAST_MAP:#.+]] = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+// CHECK-DAG: [[RESHAPE_MAP:#.+]] = affine_map<(d0, d1, d2, d3) -> (d0, d3, d1, d2)>
+// CHECK-DAG: [[IDENTITY:#.+]] = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
 
 // CHECK: func.func @convertAndFuse(
 func.func @convertAndFuse(%arg0: tensor<1x1008x1x1xf16, {order = #NHWC}>) -> tensor<1x1x1x1000xf32> {
@@ -26,12 +28,37 @@ func.func @convertAndFuse(%arg0: tensor<1x1008x1x1xf16, {order = #NHWC}>) -> ten
 
 // CHECK: IE.CodeGenCapsule inputs({{.+}} as [[ARG1:%.+]]: tensor<1x1x1x1008xf16>) {
 // CHECK-NEXT:      [[EXTRACT_SLICE:%.+]] = tensor.extract_slice [[ARG1]][0, 0, 0, 0] [1, 1, 1, 1000] [1, 1, 1, 1] : tensor<1x1x1x1008xf16> to tensor<1x1x1x1000xf16>
-// CHECK-NEXT:      [[EMPTY:%.+]] = tensor.empty() : tensor<1x1x1x1000xf32>
-// CHECK-NEXT:      [[OP:%.+]] = linalg.generic
-// CHECK-SAME:          indexing_maps = [[[NCHW]], [[NCHW]]]
+
+// CHECK-NEXT:      [[EMPTY0:%.+]] = tensor.empty() : tensor<1x1000x1x1xf16>
+// CHECK-NEXT:      [[PERMUTE_CAST:%.+]] = linalg.generic
+// CHECK-SAME:          indexing_maps = [[[PERMUTE_CAST_MAP]], [[IDENTITY]]]
 // CHECK-SAME:          iterator_types = ["parallel", "parallel", "parallel", "parallel"]
 // CHECK-SAME:          ins([[EXTRACT_SLICE]] : tensor<1x1x1x1000xf16>)
-// CHECK-SAME:          outs([[EMPTY]] : tensor<1x1x1x1000xf32>) {
-// CHECK:           } -> tensor<1x1x1x1000xf32>
-// CHECK-NEXT:      IE.CGCYield [[OP]] : tensor<1x1x1x1000xf32>
+// CHECK-SAME:          outs([[EMPTY0]] : tensor<1x1000x1x1xf16>) {
+// CHECK-NEXT:        ^bb0([[IN0:%.+]]: f16, {{%.+}}: f16):
+// CHECK-NEXT:          linalg.yield [[IN0]] : f16
+// CHECK-NEXT:      } -> tensor<1x1000x1x1xf16>
+
+// CHECK-NEXT:      [[EMPTY1:%.+]] = tensor.empty() : tensor<1x1x1x1000xf16>
+// CHECK-NEXT:      [[RESHAPE:%.+]] = linalg.generic
+// CHECK-SAME:          indexing_maps = [[[RESHAPE_MAP]], [[IDENTITY]]]
+// CHECK-SAME:          iterator_types = ["parallel", "parallel", "parallel", "parallel"]
+// CHECK-SAME:          ins([[PERMUTE_CAST]] : tensor<1x1000x1x1xf16>)
+// CHECK-SAME:          outs([[EMPTY1]] : tensor<1x1x1x1000xf16>) {
+// CHECK-NEXT:        ^bb0([[IN1:%.+]]: f16, {{%.+}}: f16):
+// CHECK-NEXT:          linalg.yield [[IN1]] : f16
+// CHECK-NEXT:      } -> tensor<1x1x1x1000xf16>
+
+// CHECK-NEXT:      [[EMPTY2:%.+]] = tensor.empty() : tensor<1x1x1x1000xf32>
+// CHECK-NEXT:      [[CONVERT:%.+]] = linalg.generic
+// CHECK-SAME:          indexing_maps = [[[IDENTITY]], [[IDENTITY]]]
+// CHECK-SAME:          iterator_types = ["parallel", "parallel", "parallel", "parallel"]
+// CHECK-SAME:          ins([[RESHAPE]] : tensor<1x1x1x1000xf16>)
+// CHECK-SAME:          outs([[EMPTY2]] : tensor<1x1x1x1000xf32>) {
+// CHECK-NEXT:        ^bb0([[IN2:%.+]]: f16, {{%.+}}: f32):
+// CHECK-NEXT:          [[EXTF:%.+]] = arith.extf [[IN2]] : f16 to f32
+// CHECK-NEXT:          linalg.yield [[EXTF]] : f32
+// CHECK-NEXT:      } -> tensor<1x1x1x1000xf32>
+
+// CHECK-NEXT:      IE.CGCYield [[CONVERT]] : tensor<1x1x1x1000xf32>
 }

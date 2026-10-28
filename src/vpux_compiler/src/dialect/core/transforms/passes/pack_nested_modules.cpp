@@ -576,8 +576,8 @@ void PackNestedModules::patchCallSites(const Clusters& clusters) {
             const auto nestedSymbolAttr = mlir::SymbolRefAttr::get(moduleSymRef.getRootReference(), symVec);
 
             builder.setInsertionPoint(callOp);
-            const auto nestedCallOp = builder.create<Core::NestedCallOp>(
-                    callOp.getLoc(), nestedSymbolAttr, callOp->getResultTypes(), callOp->getOperands());
+            const auto nestedCallOp = Core::NestedCallOp::create(builder, callOp.getLoc(), nestedSymbolAttr,
+                                                                 callOp->getResultTypes(), callOp->getOperands());
 
             callOp->replaceAllUsesWith(nestedCallOp);
             callOp->erase();
@@ -590,7 +590,7 @@ mlir::ModuleOp PackNestedModules::nestCluster(mlir::OpBuilder& builder, NestedCl
     const auto& moduleName = clusterInfo.moduleName;
 
     auto topModuleOp = getOperation();
-    auto subModuleOp = builder.create<mlir::ModuleOp>(appendLoc(topModuleOp.getLoc(), "{0}", moduleName), moduleName);
+    auto subModuleOp = mlir::ModuleOp::create(builder, appendLoc(topModuleOp.getLoc(), "{0}", moduleName), moduleName);
     auto& targetOps = subModuleOp.getBody()->getOperations();
 
     for (auto funcOrModuleOp : clusterInfo.functions) {
@@ -608,9 +608,9 @@ mlir::ModuleOp PackNestedModules::nestCluster(mlir::OpBuilder& builder, NestedCl
 void PackNestedModules::createNetInfoForFuncOp(mlir::OpBuilder& builder, mlir::func::FuncOp funcOp,
                                                bool enableProfiling) {
     _log.trace("Creating new networkInfo for the function: {0}", funcOp.getName());
-    auto netInfo = builder.create<net::NetworkInfoOp>(
-            appendLoc(funcOp.getLoc(), "nested_network_info"),
-            mlir::FlatSymbolRefAttr::get(funcOp->getContext(), funcOp.getName()), enableProfiling);
+    auto netInfo = net::NetworkInfoOp::create(builder, appendLoc(funcOp.getLoc(), "nested_network_info"),
+                                              mlir::FlatSymbolRefAttr::get(funcOp->getContext(), funcOp.getName()),
+                                              enableProfiling);
     net::setupSections(netInfo, enableProfiling);
 
     auto funcType = funcOp.getFunctionType();
@@ -627,7 +627,7 @@ void PackNestedModules::createNetInfoForFuncOp(mlir::OpBuilder& builder, mlir::f
     auto createDataInfoOp = [&](const std::string& name, vpux::NDTypeInterface argType,
                                 vpux::NDTypeInterface netInfoArgType) {
         mlir::Type newType = buildNetworkInfoType(argType, netInfoArgType);
-        auto dataInfoOp = builder.create<net::DataInfoOp>(appendLoc(funcOp.getLoc(), name), name, newType);
+        auto dataInfoOp = net::DataInfoOp::create(builder, appendLoc(funcOp.getLoc(), name), name, newType);
 
         SmallVector<mlir::Attribute> tensorNamesStringAttrs;
         tensorNamesStringAttrs.push_back(builder.getStringAttr(name));
@@ -739,12 +739,16 @@ void PackNestedModules::safeRunOnModule() {
 
         builder.setInsertionPointToStart(subModuleOp.getBody());
 
-        // If no explicit entry point was set, default to the first function in the module
+        // If no explicit entry point was set, default to the first function in
+        // the module that is not external (external functions cannot be entry
+        // points by definition).
         if (entryPointFunc == nullptr) {
             auto funcOps = subModuleOp.getOps<mlir::func::FuncOp>();
-            assert(std::distance(funcOps.begin(), funcOps.end()) > 0 &&
-                   "A nested module must have at least 1 function");
-            entryPointFunc = *funcOps.begin();
+            auto it = llvm::find_if(funcOps, [](mlir::func::FuncOp func) {
+                return !func.isExternal();
+            });
+            assert(it != funcOps.end() && "A nested module must have at least 1 non-external function");
+            entryPointFunc = *it;
         }
 
         if (clusterMode == Core::NestingMode::EntryPoint) {
@@ -763,6 +767,7 @@ void PackNestedModules::safeRunOnModule() {
             }
             createNetInfoForFuncOp(builder, entryPointFunc, _enableProfiling);
         }
+        entryPointFunc.setPublic();
 
         builder.setInsertionPointToStart(subModuleOp.getBody());
 

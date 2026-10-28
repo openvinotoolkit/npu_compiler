@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
+#include "vpux/compiler/core/attributes/shape.hpp"
 #include "vpux/compiler/core/attributes/stride_reqs.hpp"
 #include "vpux/compiler/core/bounded_buffer.hpp"
 #include "vpux/compiler/core/cost_model_utils.hpp"
@@ -207,7 +208,9 @@ mlir::ArrayAttr optionalIoAttr(mlir::Operation* op) {
                 mask |= (attention.getInputBias() ? 1 : 0) << 6;   // InputBias
                 mask |= 1 << 7;                                    // AuxBuffer
                 mask |= (attention.getSeqLenK() ? 1 : 0) << 8;     // seqLenK
-                mask |= 1 << 9;                                    // output
+                mask |= (attention.getKScale() ? 1 : 0) << 9;      // KScale
+                mask |= (attention.getVScale() ? 1 : 0) << 10;     // VScale
+                mask |= 1 << 11;                                   // output
             })
             .Case<VPU::PadOp>([&](VPU::PadOp pad) {
                 mask |= 1 << 0;                             // main input
@@ -215,6 +218,18 @@ mlir::ArrayAttr optionalIoAttr(mlir::Operation* op) {
                 mask |= (pad.getPadsEnd() ? 1 : 0) << 2;    // pad_end
                 mask |= (pad.getPadValue() ? 1 : 0) << 3;   // pad_value
                 mask |= 1 << 4;
+            })
+            .Case<VPU::PadDmaOp>([&](VPU::PadDmaOp) {
+                mask |= 1 << 0;  // input
+                mask |= 1 << 1;  // output
+            })
+            .Case<VPU::DynamicQuantizeOp>([&](VPU::DynamicQuantizeOp dq) {
+                mask |= 1 << 0;                      // input
+                mask |= (dq.getMin() ? 1 : 0) << 1;  // min (absent in internal-reduction mode)
+                mask |= (dq.getMax() ? 1 : 0) << 2;  // max (absent in internal-reduction mode)
+                mask |= 1 << 3;                      // output
+                mask |= 1 << 4;                      // scale
+                mask |= 1 << 5;                      // zero_point
             })
             .Default([](mlir::Operation* op) {
                 VPUX_THROW("Bit-mask for '{0}' not implemented", op->getName());
@@ -793,6 +808,7 @@ bool isConfigSupported(VPU::ConvertOp op) {
             mode(DT::NN_U4, DT::NN_FP16),   mode(DT::NN_I4, DT::NN_I8),     mode(DT::NN_BF16, DT::NN_FP16),
             mode(DT::NN_I64, DT::NN_FP64),  mode(DT::NN_FP64, DT::NN_I64),  mode(DT::NN_I8, DT::NN_U8),
             mode(DT::NN_U8, DT::NN_I8),     mode(DT::NN_FP64, DT::NN_FP16), mode(DT::NN_FP16, DT::NN_FP64),
+            mode(DT::NN_I16, DT::NN_FP16),  mode(DT::NN_FP16, DT::NN_I16),
     };
 
     return llvm::is_contained(supportedModes, curMode);
@@ -865,6 +881,17 @@ std::pair<SmallString, SmallString> getKernelImpl(VPU::ConvertOp op) {
             return std::pair<SmallString, SmallString>{"convert_p01", "convert_p01.cpp"};
         }
 
+        // FP32 <-> FP64 and FP64 <-> I32 are routed to the dedicated convert_p02 kernel because
+        // moviCompile lacks a native double and convert.cpp does not implement these paths.
+        const auto isI32 = [](mlir::Type t) {
+            return t.isInteger(32) && !t.isUnsignedInteger(32);
+        };
+        const auto isFp32Fp64 = (iType.isF32() && oType.isF64()) || (iType.isF64() && oType.isF32());
+        const auto isFp64I32 = (iType.isF64() && isI32(oType)) || (isI32(iType) && oType.isF64());
+        if (isFp32Fp64 || isFp64I32) {
+            return std::pair<SmallString, SmallString>{"convert_p02", "convert_p02.cpp"};
+        }
+
         if (arch != config::ArchKind::NPU40XX) {
             auto isInputFp8 = mlir::isa<mlir::Float8E4M3FNType, Float8E5M2Type>(iType);
             auto isOutputFp8 = mlir::isa<mlir::Float8E4M3FNType, Float8E5M2Type>(oType);
@@ -896,6 +923,10 @@ std::tuple<SmallString, SmallString, SmallString> getKernelImpl(VPU::SoftMaxOp o
     const auto axisParam = computeReverseMemDim(op.getInput(), op.getAxisInd());
 
     if (op->hasAttr("SkipNormalization")) {
+        if (op.getMax() != nullptr) {
+            return std::tuple<SmallString, SmallString, SmallString>{"exp_stabilized_precalc_max",
+                                                                     "exp_stabilized_precalc_max.cpp", "softmax"};
+        }
         return std::tuple<SmallString, SmallString, SmallString>{"exp_stabilized", "exp_stabilized.cpp", "softmax"};
     }
 
@@ -928,8 +959,36 @@ std::tuple<SmallString, SmallString> getKernelImpl(VPU::AttentionOp op) {
 }
 
 std::tuple<SmallString, SmallString, SmallString> getKernelImpl(VPU::AttentionDMAOp op) {
-    if (VPU::AttentionDMAOp::fitsForNonFlashKernel(op)) {
+    const auto kElemType = mlir::cast<NDTypeInterface>(op.getInputK().getType()).getElementType();
+    const auto vElemType = mlir::cast<NDTypeInterface>(op.getInputV().getType()).getElementType();
+    const bool hasQuantizedKV = kElemType.isSignedInteger(8) || vElemType.isSignedInteger(8) ||
+                                (op.getKScale() != nullptr) || (op.getVScale() != nullptr);
+    // Sliding window, smooth-softmax and sink input are only implemented by the flash kernels.
+    const bool hasLocalWindow = op.getLocalWindowSize().has_value() && op.getLocalWindowSize().value() != -1;
+    const bool hasSmoothSoftmax = op.getSmoothSoftmaxAttr() != nullptr;
+    const bool hasSink = op.getInputSink() != nullptr;
+
+    // The non-flash attention_dma kernel cannot consume a runtime seqLenK and only supports inner
+    // dims (eDim/eVDim/sSL) that are multiples of 16; anything else must go to the flash kernels.
+    const auto kShape = getBoundedShape(op.getInputK()).raw();
+    const auto vShape = getBoundedShape(op.getInputV()).raw();
+    const auto sSL = kShape[kShape.size() - 2];
+    const auto eDim = kShape[kShape.size() - 1];
+    const bool isTransposedV = kShape[kShape.size() - 2] != vShape[vShape.size() - 2];
+    const auto eVDim = isTransposedV ? vShape[vShape.size() - 2] : vShape[vShape.size() - 1];
+    const bool hasSeqLenK = op.getSeqLenK() != nullptr;
+    const bool nonFlashDimsAligned = (eDim % 16 == 0) && (eVDim % 16 == 0) && (sSL % 16 == 0);
+
+    if (!hasQuantizedKV && !hasLocalWindow && !hasSmoothSoftmax && !hasSink && !hasSeqLenK && nonFlashDimsAligned &&
+        VPU::AttentionDMAOp::fitsForNonFlashKernel(op)) {
         return std::tuple<SmallString, SmallString, SmallString>{"attention_dma", "attention_dma.cpp", "attention_dma"};
+    }
+    // tSL is the query sequence-length dim, Q shape is [..., tSL, e]
+    const auto qShape = getBoundedShape(op.getInputQ()).raw();
+    const auto tSL = qShape[qShape.size() - 2];
+    if (tSL == 1 && op.getSeqLenK() != nullptr && op.getInputMask() == nullptr && op.getInputBias() == nullptr) {
+        return std::tuple<SmallString, SmallString, SmallString>{"attention_dma_flash_quant_tsl1",
+                                                                 "attention_dma_flash_quant_tsl1.cpp", "attention_dma"};
     }
     return std::tuple<SmallString, SmallString, SmallString>{"attention_dma_flash", "attention_dma_flash.cpp",
                                                              "attention_dma"};
@@ -962,7 +1021,7 @@ std::pair<SmallString, SmallString> getKernelImpl(VPU::RMSOp op) {
         if (isF16 && (type.getDimsOrder() == DimsOrder::NCHW)) {
             const auto shape = type.getShape();
             const auto W = shape[Dims4D::Act::W];
-            if (W == 64 || W == 256) {
+            if (W == 64 || W == 128 || W == 256) {
                 return std::pair<SmallString, SmallString>{"rms_norm_p00", "rms_norm_p00.cpp"};
             }
         }
@@ -972,6 +1031,10 @@ std::pair<SmallString, SmallString> getKernelImpl(VPU::RMSOp op) {
 
 std::pair<SmallString, SmallString> getKernelImpl(VPU::GatedDeltaNetOp) {
     return std::pair<SmallString, SmallString>{"gated_delta_net", "gated_delta_net.cpp"};
+}
+
+std::pair<SmallString, SmallString> getKernelImpl(VPU::GroupQuantCorrectionOp) {
+    return std::pair<SmallString, SmallString>{"group_quant_correction", "group_quant_correction.cpp"};
 }
 
 std::pair<SmallString, SmallString> getKernelImpl(VPU::DepthToSpaceOp op) {
@@ -1463,9 +1526,9 @@ VPUIP::KernelInfo SwKernelOp::getKernelInfo(mlir::Operation* origOp) {
             .Case<VPU::MultiplyOp>([&](VPU::MultiplyOp op) {
                 const auto oType = mlir::cast<vpux::NDTypeInterface>(op.getOutput().getType());
                 const auto outElemType = oType.getElementType();
-                VPUX_THROW_UNLESS(!mlir::isa<mlir::quant::UniformQuantizedPerAxisType>(outElemType),
-                                  "Multiply layer op does not support per-axis quantized output on shv at '{0}'",
-                                  op->getLoc());
+                VPUX_THROW_WHEN(mlir::isa<mlir::quant::UniformQuantizedPerAxisType>(outElemType),
+                                "Multiply layer op does not support per-axis quantized output on shv at '{0}'",
+                                op->getLoc());
 
                 const auto quantParams = mlir::dyn_cast<mlir::quant::UniformQuantizedType>(outElemType);
                 if (quantParams != nullptr) {
@@ -1730,6 +1793,34 @@ VPUIP::KernelInfo SwKernelOp::getKernelInfo(mlir::Operation* origOp) {
                         SmallVector<mlir::Attribute>{axisParamAttr, modeIntAttr, sortModeAttr, kValueAttr, runInfoAttr},
                         {"topk_dma"}};
             })
+            .Case<VPU::PadDmaOp>([&](VPU::PadDmaOp pad) {
+                const auto inOrder = DimsOrder::fromValue(pad.getInput());
+                // pads are in logical order (NCHW) — do NOT permute, kernel reads them in NCHW order.
+                auto padBegin = pad.getPadsBeginAttr().has_value()
+                                        ? parseIntArrayAttr<int64_t>(pad.getPadsBeginAttr().value())
+                                        : SmallVector<int64_t>(inOrder.numDims(), 0);
+                auto padEnd = pad.getPadsEndAttr().has_value()
+                                      ? parseIntArrayAttr<int64_t>(pad.getPadsEndAttr().value())
+                                      : SmallVector<int64_t>(inOrder.numDims(), 0);
+                // Pad to PAD_DMA_MAX_DIMS (4) so struct pads_begin/pads_end array is fully initialized.
+                padBegin.resize(4, 0);
+                padEnd.resize(4, 0);
+                const auto padMode = static_cast<int64_t>(pad.getModeAttr().getValue());
+
+                const int64_t numTiles = getNumTiles(pad.getAuxBuffer());
+                const int64_t numShaves = 1;
+                const auto runInfoAttr = getIntAttr(ctx, (numShaves << 32) | numTiles);
+
+                const double padValueDouble =
+                        pad.getPadValueAttrAttr() != nullptr ? pad.getPadValueAttrAttr().getValueAsDouble() : 0.0;
+                const auto padValue = getFPAttr(ctx, padValueDouble);
+                const auto releasePad = getFPAttr(ctx, 0.0f);
+
+                return VPUIP::KernelInfo{
+                        SmallVector<mlir::Attribute>{getIntArrayAttr(ctx, padBegin), getIntArrayAttr(ctx, padEnd),
+                                                     padValue, releasePad, getIntAttr(ctx, padMode), runInfoAttr},
+                        {"pad_dma"}};
+            })
             .Case<VPU::ExtractImagePatchesOp>([&](VPU::ExtractImagePatchesOp op) {
                 auto sizes = parseIntArrayAttr<int64_t>(op.getSizesAttr());
                 auto strides = parseIntArrayAttr<int64_t>(op.getStridesAttr());
@@ -1885,8 +1976,10 @@ VPUIP::KernelInfo SwKernelOp::getKernelInfo(mlir::Operation* origOp) {
                 getQuantParamsAttr(op.getInput(), oType.getElementType(), paramsAttr);
                 return VPUIP::KernelInfo{SmallVector<mlir::Attribute>{paramsAttr}, {"dequantize"}};
             })
-            .Case<VPU::DynamicQuantizeOp>([&](VPU::DynamicQuantizeOp) {
-                return VPUIP::KernelInfo{SmallVector<mlir::Attribute>{}, {"dynamic_quantize"}};
+            .Case<VPU::DynamicQuantizeOp>([&](VPU::DynamicQuantizeOp op) {
+                // Pass the present-IO bit-mask so the kernel can distinguish explicit min/max mode
+                // from internal-reduction mode (min/max absent).
+                return VPUIP::KernelInfo{SmallVector<mlir::Attribute>{optionalIoAttr(op)}, {"dynamic_quantize"}};
             })
             .Case<VPU::DynamicDequantizeOp>([&](VPU::DynamicDequantizeOp) {
                 const auto delimiterAttr = getIntAttr(ctx, INT64_MAX);
@@ -2240,12 +2333,10 @@ VPUIP::KernelInfo SwKernelOp::getKernelInfo(mlir::Operation* origOp) {
                 const auto sortResultDescending = static_cast<int64_t>(nms.getSortResultDescendingAttr() != nullptr);
                 const auto sortResultDescendingAttr = getIntAttr(ctx, sortResultDescending);
 
-                return VPUIP::KernelInfo{
-                        SmallVector<mlir::Attribute>{nms.getMaxOutputBoxesPerClassValueAttr(),
-                                                     nms.getIouThresholdValueAttr(), nms.getScoreThresholdValueAttr(),
-                                                     nms.getSoftNmsSigmaValueAttr(), boxEncodingAttr,
-                                                     sortResultDescendingAttr},
-                        {"nms"}};
+                return VPUIP::KernelInfo{SmallVector<mlir::Attribute>{nms.getMaxOutputBoxesPerClassValueAttr(),
+                                                                      nms.getSoftNmsSigmaValueAttr(), boxEncodingAttr,
+                                                                      sortResultDescendingAttr},
+                                         {"nms"}};
             })
             .Case<VPU::CTCGreedyDecoderOp>([&](VPU::CTCGreedyDecoderOp op) {
                 const auto mergeRepeated = static_cast<int64_t>(op.getMergeRepeatedAttr() != nullptr);
@@ -2320,14 +2411,34 @@ VPUIP::KernelInfo SwKernelOp::getKernelInfo(mlir::Operation* origOp) {
                 int64_t packedAttrs = static_cast<int64_t>(static_cast<uint64_t>(static_cast<uint32_t>(padSize)) |
                                                            (static_cast<uint64_t>(thresholdBits) << 32));
                 const auto packedAttr = getIntAttr(ctx, packedAttrs);
-                // Second i64: {numTiles(low32), numShaves(high32)}
+                // Third i64 (pushed before runInfoAttr below): {numTiles(low32), numShaves(high32)}
                 const auto runInfoAttr = getIntAttr(op.getContext(), (numShaves << 32) | numTiles);
+
+                // Second i64 (pushed right after packedAttr / optional flashInfoAttr):
+                // {local_window_size(low32), smooth_softmax(high32)}. Mistral-style sliding-window
+                // size is a compile-time constant attribute on the op; -1 (default/absent) disables
+                // it, matching the convention used by the mask-construction pattern this attribute is
+                // extracted from. smooth_softmax (1/0) mirrors AttentionDmaAttrs::smoothSoftmax --
+                // set by fuseAttention when the real sink was a compile-time all-zero constant.
+                int32_t localWindowSize = -1;
+                if (op.getLocalWindowSizeAttr() != nullptr) {
+                    if (op.getLocalWindowSize().has_value()) {
+                        localWindowSize = static_cast<int32_t>(op.getLocalWindowSize().value());
+                    }
+                }
+                const int32_t smoothSoftmax = (op.getSmoothSoftmaxAttr() != nullptr) ? 1 : 0;
+                int64_t windowAttrs =
+                        static_cast<int64_t>(static_cast<uint64_t>(static_cast<uint32_t>(localWindowSize)) |
+                                             (static_cast<uint64_t>(static_cast<uint32_t>(smoothSoftmax)) << 32));
+                const auto windowAttr = getIntAttr(ctx, windowAttrs);
 
                 auto [kernelEntry, kernelSrc, kernelName] = getKernelImpl(op);
 
                 SmallVector<mlir::Attribute> params{optionalIoAttr(op), packedAttr};
-                if (kernelEntry == SmallString("attention_dma_flash")) {
+                if (kernelEntry == SmallString("attention_dma_flash") ||
+                    kernelEntry == SmallString("attention_dma_flash_quant_tsl1")) {
                     params.push_back(getIntAttr(ctx, static_cast<int64_t>(0)));  // flashInfoAttr
+                    params.push_back(windowAttr);
                 }
                 params.push_back(runInfoAttr);
 
@@ -2835,9 +2946,10 @@ VPUIP::KernelInfo SwKernelOp::getKernelInfo(mlir::Operation* origOp) {
                 const auto iType = mlir::cast<vpux::NDTypeInterface>(op.getInput().getType());
                 VPUX_THROW_UNLESS(iType.getRank() <= 4, "Supporting only 3D and 4D input, got {0}", iType.getRank());
                 const auto epsilonAttr = op.getEpsAttr();
-                const auto conditionalEpsAttr = op.getConditionalEpsAttr();
+                const auto epsMode = static_cast<int64_t>(op.getEpsModeAttr().getValue());
+                const auto epsModeAttr = getIntAttr(ctx, epsMode);
                 auto [kernelEntry, kernelSrc] = getKernelImpl(op);
-                return VPUIP::KernelInfo{SmallVector<mlir::Attribute>{epsilonAttr, conditionalEpsAttr},
+                return VPUIP::KernelInfo{SmallVector<mlir::Attribute>{epsilonAttr, epsModeAttr},
                                          kernelEntry,
                                          kernelSrc,
                                          {"rms_norm"}};
@@ -2850,6 +2962,13 @@ VPUIP::KernelInfo SwKernelOp::getKernelInfo(mlir::Operation* origOp) {
                         kernelEntry,
                         kernelSrc,
                         {"gated_delta_net"}};
+            })
+            .Case<VPU::GroupQuantCorrectionOp>([&](VPU::GroupQuantCorrectionOp op) {
+                auto [kernelEntry, kernelSrc] = getKernelImpl(op);
+                return VPUIP::KernelInfo{SmallVector<mlir::Attribute>{},
+                                         kernelEntry,
+                                         kernelSrc,
+                                         {"group_quant_correction"}};
             })
             .Case<VPU::ReduceSquareOp>([&](VPU::ReduceSquareOp op) {
                 const auto inType = mlir::cast<vpux::NDTypeInterface>(op.getInputs().front().getType());
@@ -2874,16 +2993,9 @@ VPUIP::KernelInfo SwKernelOp::getKernelInfo(mlir::Operation* origOp) {
                     epsilonAttr = mlir::FloatAttr::get(mlir::Float32Type::get(ctx), 0.0f);
                 }
 
-                mlir::Attribute scaleAttr;
-                if (op.getScale().has_value()) {
-                    scaleAttr = getIntAttr(ctx, op.getScale().value());
-                } else {
-                    scaleAttr = getIntAttr(ctx, static_cast<int64_t>(1));
-                }
-
-                return VPUIP::KernelInfo{SmallVector<mlir::Attribute>{keepDimsAttr, axesValueSizeAttr, axesValueAttr,
-                                                                      epsilonAttr, scaleAttr},
-                                         {"reduce_square"}};
+                return VPUIP::KernelInfo{
+                        SmallVector<mlir::Attribute>{keepDimsAttr, axesValueSizeAttr, axesValueAttr, epsilonAttr},
+                        {"reduce_square"}};
             })
             .Case<VPU::InverseOp>([&](VPU::InverseOp inverse) {
                 const auto adjointAttr = getIntAttr(ctx, static_cast<int64_t>(inverse.getAdjoint()));

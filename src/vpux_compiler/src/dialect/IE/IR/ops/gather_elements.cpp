@@ -47,9 +47,18 @@ mlir::OpFoldResult vpux::IE::GatherElementsOp::fold(FoldAdaptor adaptor) {
 
     const auto indicesContent = indicesContentAttr.fold();
     const auto indicesType = mlir::cast<mlir::ShapedType>(getIndices().getType());
-    const auto indicesAttr = mlir::DenseElementsAttr::getFromRawBuffer(indicesType, indicesContent.getRawStorageBuf());
+    auto indicesAttr = mlir::DenseElementsAttr::getFromRawBuffer(indicesType, indicesContent.getRawStorageBuf());
     if (indicesAttr == nullptr) {
         return nullptr;
+    }
+
+    // GatherElementsAttr requires signed i64 indices; cast if the stored type is narrower (e.g. i32).
+    if (!indicesType.getElementType().isInteger(64)) {
+        const auto i64Type = mlir::IntegerType::get(getContext(), 64, mlir::IntegerType::Signed);
+        indicesAttr =
+                mlir::cast<mlir::DenseIntElementsAttr>(indicesAttr).mapValues(i64Type, [](const llvm::APInt& val) {
+                    return val.sext(64);
+                });
     }
 
     auto axisAttr = mlir::IntegerAttr::get(mlir::IntegerType::get(getContext(), 64), axis);

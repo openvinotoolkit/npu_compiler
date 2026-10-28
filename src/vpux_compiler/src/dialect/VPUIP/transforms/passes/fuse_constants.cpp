@@ -52,7 +52,7 @@ mlir::Value createAllocOp(Const::DeclareOp declOp, VPURT::AllocDistributed alloc
         auto origType = mlir::cast<vpux::VPUIP::DistributedBufferType>(allocDistributed.getType());
         auto newType = vpux::ConstantFusing::getDistributedBufferType(origType, declOp, rewriter);
         auto distributedBufferType = mlir::cast<vpux::VPUIP::DistributedBufferType>(newType);
-        return rewriter.create<VPURT::AllocDistributed>(declOp.getLoc(), distributedBufferType, nullptr, nullptr)
+        return VPURT::AllocDistributed::create(rewriter, declOp.getLoc(), distributedBufferType, nullptr, nullptr)
                 .getBuffer();
 
     } else {
@@ -61,17 +61,17 @@ mlir::Value createAllocOp(Const::DeclareOp declOp, VPURT::AllocDistributed alloc
                 IndexedSymbolAttr::get(rewriter.getContext(), stringifyEnum(VPU::MemoryKind::CMX_NN), 0);
         auto newType = type.changeMemSpace(memKindAttr);
         auto memrefType = mlir::cast<mlir::MemRefType>(newType);
-        return rewriter.create<mlir::memref::AllocOp>(declOp.getLoc(), memrefType).getMemref();
+        return mlir::memref::AllocOp::create(rewriter, declOp.getLoc(), memrefType).getMemref();
     }
 }
 
 VPUIP::CopyOp createFusedCopyOp(mlir::Value allocDefiningOp, Const::DeclareOp declOp, mlir::PatternRewriter& rewriter) {
     VPUIP::CopyOp fusedCopyOp = nullptr;
     if (auto allocOp = allocDefiningOp.getDefiningOp<VPURT::AllocDistributed>()) {
-        fusedCopyOp = rewriter.create<VPUIP::CopyOp>(appendLoc(declOp.getLoc(), "fused_tile"), declOp.getResult(),
-                                                     allocOp.getBuffer());
+        fusedCopyOp = VPUIP::CopyOp::create(rewriter, appendLoc(declOp.getLoc(), "fused_tile"), declOp.getResult(),
+                                            allocOp.getBuffer());
     } else if (auto allocOp = allocDefiningOp.getDefiningOp<mlir::memref::AllocOp>()) {
-        fusedCopyOp = rewriter.create<VPUIP::CopyOp>(declOp->getLoc(), declOp.getOutput(), allocOp.getMemref());
+        fusedCopyOp = VPUIP::CopyOp::create(rewriter, declOp->getLoc(), declOp.getOutput(), allocOp.getMemref());
     } else {
         VPUX_THROW("Unrecognized allocDefiningOp encountered");
     }
@@ -96,7 +96,7 @@ void replaceConstantsWithFusedConstant(vpux::ConstantFusing::ConstantVector& con
         auto offsets = SmallVector<int64_t>{0, 0, 0, offset};
         auto copyOp = constantVector[i].first;
         auto subViewOp =
-                rewriter.create<VPUIP::SubViewOp>(constant.getLoc(), newCopyOp.getOutput(), offsets, subtensor);
+                VPUIP::SubViewOp::create(rewriter, constant.getLoc(), newCopyOp.getOutput(), offsets, subtensor);
         rewriter.replaceOpWithNewOp<VPUIP::ViewOp>(copyOp, copyOp.getOutputBuff().getType(), subViewOp.getResult());
         offset += size.count();
     }
@@ -110,7 +110,7 @@ void replaceConstantsWithFusedConstant(vpux::ConstantFusing::ConstantVector& con
 mlir::LogicalResult getInputsInFusingOrder(VPUIP::NCEClusterTaskOp& nceOp,
                                            vpux::ConstantFusing::ConstantVector& constantVector,
                                            SmallVector<VPURT::AllocDistributed>& tilingVector,
-                                           mlir::PatternRewriter& rewriter) {
+                                           mlir::PatternRewriter& rewriter, Logger log) {
     VPUIP::CopyOp copyOp = nullptr;
     Const::DeclareOp declareOp = nullptr;
 
@@ -127,7 +127,7 @@ mlir::LogicalResult getInputsInFusingOrder(VPUIP::NCEClusterTaskOp& nceOp,
         constantVector[0] = {copyOp, declareOp};
         tilingVector[0] = allocDistributed;
     } else {
-        return matchFailed(rewriter, nceOp, "Couldn't find weight table");
+        return matchFailed(log, rewriter, nceOp, "Couldn't find weight table");
     }
 
     if (nceOp.getWeights() != nullptr) {
@@ -135,11 +135,11 @@ mlir::LogicalResult getInputsInFusingOrder(VPUIP::NCEClusterTaskOp& nceOp,
 
         vpux::ConstantFusing::getCopyAndDeclareOpForFusion(nceOp.getWeights(), copyOp, declareOp, allocDistributed);
         if (copyOp == nullptr) {
-            return matchFailed(rewriter, nceOp, "Weights Copy Op missing");
+            return matchFailed(log, rewriter, nceOp, "Weights Copy Op missing");
         }
         // TODO Handling shared weights with weight table. Ticket E#61458
         if (!copyOp->hasOneUse()) {
-            return matchFailed(rewriter, nceOp, "Weights Copy Op has more than one use");
+            return matchFailed(log, rewriter, nceOp, "Weights Copy Op has more than one use");
         }
 
         if (declareOp != nullptr) {
@@ -148,7 +148,7 @@ mlir::LogicalResult getInputsInFusingOrder(VPUIP::NCEClusterTaskOp& nceOp,
         } else {
             // Special condition when weights come in from a different source
             // e.g. Activation tensor
-            return matchFailed(rewriter, nceOp, "Non constant layer weights");
+            return matchFailed(log, rewriter, nceOp, "Non constant layer weights");
         }
     }
 
@@ -157,18 +157,18 @@ mlir::LogicalResult getInputsInFusingOrder(VPUIP::NCEClusterTaskOp& nceOp,
         vpux::ConstantFusing::getCopyAndDeclareOpForFusion(nceOp.getWeightsSparsityMap(), copyOp, declareOp,
                                                            allocDistributed);
         if (copyOp == nullptr) {
-            return matchFailed(rewriter, nceOp, "Weights sparsity map Copy Op missing");
+            return matchFailed(log, rewriter, nceOp, "Weights sparsity map Copy Op missing");
         }
 
         if (!copyOp->hasOneUse()) {
-            return matchFailed(rewriter, nceOp, "Weights sparsity copy op has more than one use");
+            return matchFailed(log, rewriter, nceOp, "Weights sparsity copy op has more than one use");
         }
 
         if (declareOp != nullptr) {
             constantVector[2] = {copyOp, declareOp};
             tilingVector[2] = allocDistributed;
         } else {
-            return matchFailed(rewriter, nceOp, "The layer weights sparsity map is not constant");
+            return matchFailed(log, rewriter, nceOp, "The layer weights sparsity map is not constant");
         }
     }
     return mlir::success();
@@ -228,7 +228,7 @@ mlir::LogicalResult FuseConstants::matchAndRewrite(VPUIP::NCEClusterTaskOp nceOp
     vpux::ConstantFusing::ConstantVector constantVector(vpux::ConstantFusing::numberOfConstantsToFuse,
                                                         {nullptr, nullptr});
     SmallVector<VPURT::AllocDistributed> tilingVector(vpux::ConstantFusing::numberOfConstantsToFuse, nullptr);
-    if (getInputsInFusingOrder(nceOp, constantVector, tilingVector, rewriter).failed()) {
+    if (getInputsInFusingOrder(nceOp, constantVector, tilingVector, rewriter, _log).failed()) {
         constantVector.clear();
         tilingVector.clear();
         return mlir::failure();
@@ -236,7 +236,7 @@ mlir::LogicalResult FuseConstants::matchAndRewrite(VPUIP::NCEClusterTaskOp nceOp
     // for ContentAttr with Fuse transform base content doesn't actually matter,
     // we simply have to pass something to satisfy API requirements. Since weightTable is
     // assumed to be always present we use its base content.
-    VPUX_THROW_UNLESS(constantVector[0].second != nullptr, "No weight table for fusing");
+    VPUX_THROW_WHEN(constantVector[0].second == nullptr, "No weight table for fusing");
     const auto fakeBaseContent = constantVector[0].second.getContentAttr().getBaseContent();
     const auto newLoc = appendLoc(nceOp.getLoc(), "fused_constant");
     auto newContentAttr = Const::ContentAttr::get(fakeBaseContent);
@@ -250,11 +250,11 @@ mlir::LogicalResult FuseConstants::matchAndRewrite(VPUIP::NCEClusterTaskOp nceOp
     auto fusedContentAttr = newContentAttr.transform().fuse(tensorType, weightsTable, weights, sparsity, {}).get();
     // 2. Create fused constant of u8 type with size of weights + weights sparsity map + weights table + activation
     // window Fill it with the original binary data
-    VPUX_THROW_UNLESS(tensorType != nullptr, "Couldn't fuse constant tensor type");
+    VPUX_THROW_WHEN(tensorType == nullptr, "Couldn't fuse constant tensor type");
 
     // 3. Build new constant memref
     auto fusedTensorTypeMemref = vpux::convertToMemRef(tensorType);
-    auto fusedConstant = rewriter.create<Const::DeclareOp>(newLoc, fusedTensorTypeMemref, std::move(fusedContentAttr));
+    auto fusedConstant = Const::DeclareOp::create(rewriter, newLoc, fusedTensorTypeMemref, std::move(fusedContentAttr));
 
     // 4. build new AllocOp
     auto allocOp = createAllocOp(fusedConstant, tilingVector[0], rewriter);

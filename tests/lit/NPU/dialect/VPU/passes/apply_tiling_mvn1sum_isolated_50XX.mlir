@@ -7,6 +7,63 @@
 // REQUIRES: platform-NPU5010
 
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+
+// CHECK-LABEL: func.func @TilingMVN1SumModelNativeSliceInput
+// Reproduces the Kokoro CMX overflow: a model-native VPU.Slice feeds MVN1SumOp.
+// The two SliceOp early-exits in MVN1SumCorrectHeight and MVN1SumTiling incorrectly
+// blocked both height correction and tiling, leaving a 2MB/cluster SEGMENTED demand
+// (8001 rows × 128ch × 2B = 2,048,256 > 1,473,536 CMX) that failed the scheduler.
+// After the fix: height is corrected 3→6, then the input is tiled into two sub-ops
+// whose per-cluster demand (4001×128×2 = 1,024,256 B < available CMX) fits.
+// CHECK-SAME:  [[INPUT:%arg[0-9]]]: tensor<1x128x24004x1xf16, {order = #NHWC}>
+func.func @TilingMVN1SumModelNativeSliceInput(%arg0: tensor<1x128x24004x1xf16, {order = #NHWC}>) -> tensor<1x128x1x2xf16, {order = #NHWC}> {
+    %0 = VPU.Slice %arg0 [0, 0, 0, 0] [1, 128, 24001, 1]
+            : tensor<1x128x24004x1xf16, {order = #NHWC}> to tensor<1x128x24001x1xf16, {order = #NHWC}>
+    %1 = VPU.MVN1SumOp(%0) {
+            across_channels = false,
+            multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
+            normalize_variance = true,
+            output_height = 3 : i64
+         } : tensor<1x128x24001x1xf16, {order = #NHWC}> -> tensor<1x128x3x2xf32, {order = #NHWC}>
+    %2 = VPU.MVN1MeanVar(%1) {
+            across_channels = false,
+            eps = 9.9999997473787516E-6 : f64,
+            multiClusterStrategy = #VPU.multi_cluster_strategy<Clustering>,
+            normalize_variance = true,
+            orig_shape = [1, 128, 24001, 1],
+            output_type = f16
+         } : tensor<1x128x3x2xf32, {order = #NHWC}> -> tensor<1x128x1x2xf16, {order = #NHWC}>
+    return %2 : tensor<1x128x1x2xf16, {order = #NHWC}>
+
+    // MVN1SumCorrectHeight raises output_height 3→6 (SOH + H=24001 >= numActShave=6).
+    // MVN1SumTiling tiles the 6MB input into 2 sub-ops; with SOH+3 clusters each
+    // per-cluster demand is 4001×128×2 = 1,024,256 B < available CMX.
+    // The model-native VPU.Slice is preserved; tiling slices are cut from its result.
+    // CHECK:        [[ORIG_SLICE:%.+]] = VPU.Slice [[INPUT]] [0, 0, 0, 0] [1, 128, 24001, 1]
+    // CHECK-SAME:       tensor<1x128x24004x1xf16, {order = #NHWC}> to tensor<1x128x24001x1xf16, {order = #NHWC}>
+    // CHECK:        [[SLICE0:%.+]] = VPU.Slice [[ORIG_SLICE]] [0, 0, 0, 0] [1, 128, 12001, 1]
+    // CHECK-SAME:       tensor<1x128x24001x1xf16, {order = #NHWC}> to tensor<1x128x12001x1xf16, {order = #NHWC}>
+    // CHECK:        [[TILE0:%.+]] = VPU.MVN1SumOp([[SLICE0]])
+    // CHECK-SAME:       across_channels = false
+    // CHECK-SAME:       multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>
+    // CHECK-SAME:       output_height = 6 : i64
+    // CHECK-SAME:       tensor<1x128x12001x1xf16, {order = #NHWC}> -> tensor<1x128x6x2xf32, {order = #NHWC}>
+    // CHECK:        [[SLICE1:%.+]] = VPU.Slice [[ORIG_SLICE]] [0, 0, 12001, 0] [1, 128, 12000, 1]
+    // CHECK-SAME:       tensor<1x128x24001x1xf16, {order = #NHWC}> to tensor<1x128x12000x1xf16, {order = #NHWC}>
+    // CHECK:        [[TILE1:%.+]] = VPU.MVN1SumOp([[SLICE1]])
+    // CHECK-SAME:       across_channels = false
+    // CHECK-SAME:       multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>
+    // CHECK-SAME:       output_height = 6 : i64
+    // CHECK-SAME:       tensor<1x128x12000x1xf16, {order = #NHWC}> -> tensor<1x128x6x2xf32, {order = #NHWC}>
+    // CHECK:        [[CONCAT:%.+]] = VPU.Concat([[TILE0]], [[TILE1]]) {per_axis = #IE.Concat<axis = 3 : i64>}
+    // CHECK-SAME:       -> tensor<1x128x6x4xf32, {order = #NHWC}>
+    // CHECK:        VPU.MVN1MeanVar([[CONCAT]])
+    // CHECK-SAME:       tensor<1x128x6x4xf32, {order = #NHWC}> -> tensor<1x128x1x2xf16, {order = #NHWC}>
+}
+
+// -----
+
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 // CHECK-LABEL: func.func @SOHTilingMVN1SumNotCorrectHForMS
 // CHECK-SAME:        [[INPUT:%arg[0-9]]]: tensor<3x1x1420001x1xf16, {order = #NHWC}>
 func.func @SOHTilingMVN1SumNotCorrectHForMS(%arg0: tensor<3x1x1420001x1xf16, {order = #NHWC}>) -> (tensor<3x1x1x2xf16, {order = #NHWC}>) {

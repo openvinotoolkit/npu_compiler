@@ -166,19 +166,20 @@ def ConvertEltwiseLayers2Math : PassBase<"convert-eltwise-layers-to-math", "vpux
     ];
 }
 
-def DecomposeAggregateOps : PassBase<"decompose-aggregate-ops", "vpux::ModulePass"> {
+def DecomposeAggregateOps : PassBase<"decompose-aggregate-ops", "vpux::FunctionPass"> {
     let summary = "Decomposes aggregate ops (mainly softmax)";
 
     let description = [{
-        Decomposes aggregate ops in the SW module. The purpose is to lower
+        Decomposes aggregate ops in the codegen capsules. The purpose is to lower
         linalg.softmax (and any other aggregate ops).
     }];
 
     let constructor = "vpux::ShaveCodeGen::createDecomposeAggregateOpsPass()";
 
     let dependentDialects = [
-        "mlir::func::FuncDialect",
+        "vpux::IE::IEDialect",
         "mlir::arith::ArithDialect",
+        "mlir::func::FuncDialect",
         "mlir::math::MathDialect",
         "mlir::tensor::TensorDialect",
         "mlir::linalg::LinalgDialect"
@@ -508,7 +509,7 @@ def ConvertHostcodeToBytecode : PassBase<"convert-hostcode-to-bytecode", "vpux::
         - `cf.assert` -> `bytecode.ext.assert` (string payload kept as attribute; resolved by ConvertIntermediateBytecodeOps)
 
         Block arguments of non-entry blocks are eliminated: a pre-pass allocates one
-        `bytecode.virtual_general_register` per non-entry block argument at the entry block.
+        `bytecode.virtual_value_register` per non-entry block argument at the entry block.
         Branch rewriters emit `bytecode.set` ops before each jump to copy values into those registers.
         After conversion, all uses of the original block arguments are replaced with the canonical registers.
 

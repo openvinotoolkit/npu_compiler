@@ -30,6 +30,12 @@ module @Activation attributes {config.compilationMode = #config.compilation_mode
     config.Option @config.MetadataMaxKernelRangeCount : 32 : ui64
     config.Option @config.MetadataMaxDMACount : 80 : ui64
     config.Option @config.MetadataMaxMediaCount : 4 : ui64
+    config.Option @config.TaskBinarySizeDPUInvariant : 352 : ui64
+    config.Option @config.TaskBinarySizeDPUVariant : 224 : ui64
+    config.Option @config.TaskBinarySizeActKernelInvocation : 96 : ui64
+    config.Option @config.TaskBinarySizeActKernelRange : 40 : ui64
+    config.Option @config.TaskBinarySizeDMA : 224 : ui64
+    config.Option @config.TaskBinarySizeM2I : 240 : ui64
   }
   config.Resources {activity_factor = 0.000000e+00 : f64} 1 of @NCE at 2.100000e+03 MHz {
     config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
@@ -166,13 +172,13 @@ module @Activation attributes {config.compilationMode = #config.compilation_mode
 // CHECK: [[DTB3:%.+]] = VPUMI40XX.DeclareTaskBuffer {offset = 61536 : ui64} <DMA> -> !VPURegMapped.Index<0:1:1>
 
 // CHECK: [[VTR0:%.+]] = VPURegMapped.ViewTaskRange([[DTB0]] -> [[DTB0]] : <0:0:0> -> <0:0:0>) -> memref<1x224xui8, [@CMX_NN, 0]>
-// CHECK: [[FD0:%.+]] = VPUMI40XX.NNDMA <{fetch_dma = #VPUIP.FetchDMAAttr<<DMA_NN>, tile = 0 : i64, list = 0 : i64, fetchType = <SingleDescriptor>, logicalTaskIdx = 0 : i64, descId = 0 : i64>, is_out_of_order, port = 0 : i64, wlmPage = 0 : i64}> inputs(%0 : memref<1x224xi8, @DDR>) outputs([[VTR0]] : memref<1x224xui8, [@CMX_NN, 0]>) 
+// CHECK: [[FD0:%.+]] = VPUMI40XX.NNDMA <{fetch_dma = #VPUIP.FetchDMAAttr<<DMA_NN>, tile = 0 : i64, list = 0 : i64, fetchType = <SingleDescriptor>, logicalTaskIdx = 0 : i64, descId = 0 : i64>, is_out_of_order, port = 0 : i64, wlmPage = 0 : i64}> inputs(%0 : memref<1x224xi8, @DDR>) outputs([[VTR0]] : memref<1x224xui8, [@CMX_NN, 0]>)
 // CHECK: [[VTR1:%.+]] = VPURegMapped.ViewTaskRange([[DTB1]] -> [[DTB1]] : <0:0:1> -> <0:0:1>) -> memref<1x224xui8, [@CMX_NN, 0]>
-// CHECK: [[FD1:%.+]] = VPUMI40XX.NNDMA <{fetch_dma = #VPUIP.FetchDMAAttr<<DMA_NN>, tile = 0 : i64, list = 0 : i64, fetchType = <SingleDescriptor>, logicalTaskIdx = 0 : i64, descId = 1 : i64>, is_out_of_order, port = 0 : i64, wlmPage = 0 : i64}> inputs(%0 : memref<1x224xi8, @DDR>) outputs([[VTR1]] : memref<1x224xui8, [@CMX_NN, 0]>) 
+// CHECK: [[FD1:%.+]] = VPUMI40XX.NNDMA <{fetch_dma = #VPUIP.FetchDMAAttr<<DMA_NN>, tile = 0 : i64, list = 0 : i64, fetchType = <SingleDescriptor>, logicalTaskIdx = 0 : i64, descId = 1 : i64>, is_out_of_order, port = 0 : i64, wlmPage = 0 : i64}> inputs(%0 : memref<1x224xi8, @DDR>) outputs([[VTR1]] : memref<1x224xui8, [@CMX_NN, 0]>)
 
 // CHECK: [[VTR2:%.+]] = VPURegMapped.ViewTaskRange([[DTB2]] -> [[DTB2]] : <0:1:0> -> <0:1:0>) -> memref<1x224xui8, [@CMX_NN, 0]>
-// CHECK: [[FD2:%.+]] = VPUMI40XX.NNDMA <{fetch_dma = #VPUIP.FetchDMAAttr<<DMA_NN>, tile = 0 : i64, list = 1 : i64, fetchType = <SingleDescriptor>, logicalTaskIdx = 0 : i64, descId = 2 : i64>, is_out_of_order, port = 0 : i64, wlmPage = 0 : i64}> inputs(%0 : memref<1x224xi8, @DDR>) outputs([[VTR2]] : memref<1x224xui8, [@CMX_NN, 0]>) 
+// CHECK: [[FD2:%.+]] = VPUMI40XX.NNDMA <{fetch_dma = #VPUIP.FetchDMAAttr<<DMA_NN>, tile = 0 : i64, list = 1 : i64, fetchType = <SingleDescriptor>, logicalTaskIdx = 0 : i64, descId = 2 : i64>, is_out_of_order, port = 0 : i64, wlmPage = 0 : i64}> inputs(%0 : memref<1x224xi8, @DDR>) outputs([[VTR2]] : memref<1x224xui8, [@CMX_NN, 0]>)
 
 // CHECK: [[VTR3:%.+]] = VPURegMapped.ViewTaskRange([[DTB3]] -> [[DTB3]] : <0:1:1> -> <0:1:1>) -> memref<1x224xui8, [@CMX_NN, 0]>
-// CHECK: [[FD3:%.+]] = VPUMI40XX.NNDMA <{fetch_dma = #VPUIP.FetchDMAAttr<<DMA_NN>, tile = 0 : i64, list = 1 : i64, fetchType = <SingleDescriptor>, logicalTaskIdx = 0 : i64, descId = 3 : i64>, is_out_of_order, port = 0 : i64, wlmPage = 0 : i64}> inputs(%0 : memref<1x224xi8, @DDR>) outputs([[VTR3]] : memref<1x224xui8, [@CMX_NN, 0]>) 
+// CHECK: [[FD3:%.+]] = VPUMI40XX.NNDMA <{fetch_dma = #VPUIP.FetchDMAAttr<<DMA_NN>, tile = 0 : i64, list = 1 : i64, fetchType = <SingleDescriptor>, logicalTaskIdx = 0 : i64, descId = 3 : i64>, is_out_of_order, port = 0 : i64, wlmPage = 0 : i64}> inputs(%0 : memref<1x224xi8, @DDR>) outputs([[VTR3]] : memref<1x224xui8, [@CMX_NN, 0]>)
 }

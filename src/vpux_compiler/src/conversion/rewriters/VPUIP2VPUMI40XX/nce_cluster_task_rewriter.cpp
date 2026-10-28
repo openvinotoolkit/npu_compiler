@@ -102,8 +102,8 @@ mlir::LogicalResult NCEClusterTaskRewriter::matchAndRewrite(VPUIP::NCEClusterTas
     auto maxPerXyBuff = convertOrExtractBuffer(rewriter, adaptor.getMaxPerXyBuff(), tileIndex);
     auto minPerXyBuff = convertOrExtractBuffer(rewriter, adaptor.getMinPerXyBuff(), tileIndex);
 
-    auto invariant = rewriter.create<VPUMI40XX::DPUInvariantOp>(
-            origOp.getLoc(), indexWithOnlyTileSet,
+    auto invariant = VPUMI40XX::DPUInvariantOp::create(
+            rewriter, origOp.getLoc(), indexWithOnlyTileSet,
             nullptr,  // taskLocation
             nullptr,  // previousInvariant
             convertOrExtractBuffer(rewriter, adaptor.getInput(), tileIndex),
@@ -132,8 +132,8 @@ mlir::LogicalResult NCEClusterTaskRewriter::matchAndRewrite(VPUIP::NCEClusterTas
     );
     auto createVPUMI40XXVariant = [&](auto dpuTask, bool sprLutRead = false, bool palletLutRead = false,
                                       bool forceInvRead = false) {
-        rewriter.create<VPUMI40XX::DPUVariantOp>(
-                dpuTask.getLoc(), indexWithOnlyTileSet,
+        VPUMI40XX::DPUVariantOp::create(
+                rewriter, dpuTask.getLoc(), indexWithOnlyTileSet,
                 nullptr,  // taskLocation
                 nullptr,  // previousVariant
                 invariant.getResult(), weights, weightTable, weightTableDataPtr, weightTableSpPtr, weightTableScale,
@@ -184,8 +184,8 @@ mlir::LogicalResult NCEClusterTaskRewriter::matchAndRewrite(VPUIP::NCEClusterTas
         rewriter.setInsertionPointToEnd(&invariantPPERegion.front());
 
         for (auto ppe : origOp.getPpe().getOps<VPUIP::PPETaskOp>()) {
-            rewriter.create<VPUMI40XX::PPETaskOp>(ppe.getLoc(), ppe->getResultTypes(), ppe->getOperands(),
-                                                  ppe->getAttrDictionary().getValue());
+            VPUMI40XX::PPETaskOp::create(rewriter, ppe.getLoc(), ppe->getResultTypes(), ppe->getOperands(),
+                                         ppe->getAttrDictionary().getValue());
         }
     }
 

@@ -27,7 +27,7 @@ config.Resources 1 of @NCE at 6.000000e+02 MHz
   }
   VPUASM.ProfilingBindings profilingDeclarations : {
   }
-  func.func nested @main() {
+  func.func @main() {
     %2 = VPUMI40XX.PlatformInfo -> <0:0:0>
     %miV = VPUMI40XX.MappedInferenceVersion(11 _ 4 _ 10) -> !VPURegMapped.Index<0:0:0>
     %mi = VPUMI40XX.MappedInference dmaCount([[0, 0]]) invariantCount([0]) variantCount([0]) actKernelRangesCount([[0, 0]]) actKernelInvocationsCount([[0, 0]]) mediaCount(0) barrierCount(0) bootstrapBarriersCount(0) mappedInferenceVersion(%miV : !VPURegMapped.Index<0:0:0>) -> !VPURegMapped.Index<0:0:0>

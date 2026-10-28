@@ -6,8 +6,8 @@
 #include <variant>
 #include "intel_npu/utils/zero/zero_utils.hpp"
 #include "level_zero_wrapper/level_zero_wrapper.h"
-#include "npu_interpreter_runtime/npu_vm_runtime.hpp"
 #include "openvino/util/file_util.hpp"
+#include "vm_runtime/npu_vm_runtime.hpp"
 #include "vpux/compiler/network_metadata.hpp"
 #include "vpux/utils/logger/logger.hpp"
 
@@ -692,7 +692,7 @@ DLLEXPORT npu_vm_runtime_result_t NPU_VM_RUNTIME_APICALL npuVMRuntimeGetAPIVersi
     if (pVersion == nullptr) {
         return NPU_VM_RUNTIME_RESULT_ERROR_INVALID_NULL_POINTER;
     }
-    *pVersion = NPU_VM_RUNTIME_VERSION_CURRENT;
+    *pVersion = NPU_VM_RUNTIME_VERSION_1_1;
     return NPU_VM_RUNTIME_RESULT_SUCCESS;
 }
 
@@ -831,7 +831,7 @@ DLLEXPORT npu_vm_runtime_result_t NPU_VM_RUNTIME_APICALL npuVMRuntimeSetMemRef(n
                                                                                int64_t offset, int64_t* pSizes,
                                                                                int64_t* pStrides, int64_t dimsCount) {
     DebugTrace dt("npuVMRuntimeSetMemRef");
-    if (hMemRef == nullptr || pSizes == nullptr || pStrides == nullptr) {
+    if (hMemRef == nullptr) {
         return NPU_VM_RUNTIME_RESULT_ERROR_INVALID_NULL_POINTER;
     }
     try {
@@ -843,8 +843,13 @@ DLLEXPORT npu_vm_runtime_result_t NPU_VM_RUNTIME_APICALL npuVMRuntimeSetMemRef(n
         ref.setAllocated(basePtr);
         ref.setAligned(data);
         ref.setOffset(offset);
-        ref.setSizes(pSizes, memRef->dimCount);
-        ref.setStrides(pStrides, memRef->dimCount);
+        if (pSizes != nullptr) {
+            ref.setSizes(pSizes, memRef->dimCount);
+        }
+
+        if (pStrides != nullptr) {
+            ref.setStrides(pStrides, memRef->dimCount);
+        }
     } catch (const std::exception& e) {
         vpux::Logger::global().error("npuVMRuntimeSetMemRef - Error setting MemRef: {0}", e.what());
         return NPU_VM_RUNTIME_RESULT_ERROR_UNKNOWN;

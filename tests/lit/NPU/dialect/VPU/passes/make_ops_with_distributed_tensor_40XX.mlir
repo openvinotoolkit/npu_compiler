@@ -2256,7 +2256,7 @@ module @DynamicQuantize {
 // CHECK-SAME:  [[INPUT0:%.+]]: tensor<1x1x667x400xf32>, [[INPUT1:%.+]]: tensor<1x1x1x1xf32>, [[INPUT2:%.+]]: tensor<1x1x1x1xf32>
 func.func @DynamicQuantizeSOH(%arg0: tensor<1x1x667x400xf32>, %arg1: tensor<1x1x1x1xf32>, %arg2: tensor<1x1x1x1xf32>)
 -> (tensor<1x1x667x400xui8>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xui8>) {
-     %output, %scale, %zero_point = VPU.DynamicQuantize(%arg0, %arg1, %arg2) {dstElemType = ui8, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>} : tensor<1x1x667x400xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32> -> tensor<1x1x667x400xui8>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xui8>
+     %output, %scale, %zero_point = VPU.DynamicQuantize(%arg0, %arg1, %arg2) {dstElemType = ui8, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, operandSegmentSizes = array<i32: 1, 1, 1>} : tensor<1x1x667x400xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32> -> tensor<1x1x667x400xui8>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xui8>
     return %output, %scale, %zero_point : tensor<1x1x667x400xui8>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xui8>
 
     // CHECK: [[DATA:%.+]] = VPU.UnrolledType([[INPUT0]] : tensor<1x1x667x400xf32>)
@@ -2366,7 +2366,7 @@ module @DynamicQuantize {
 // CHECK-SAME:  [[INPUT0:%.+]]: tensor<1x1x667x400xf32>, [[INPUT1:%.+]]: tensor<1x1x1x1xf32>, [[INPUT2:%.+]]: tensor<1x1x1x1xf32>
 func.func @DynamicQuantizeSOW(%arg0: tensor<1x1x667x400xf32>, %arg1: tensor<1x1x1x1xf32>, %arg2: tensor<1x1x1x1xf32>)
 -> (tensor<1x1x667x400xui8>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xui8>) {
-     %output, %scale, %zero_point = VPU.DynamicQuantize(%arg0, %arg1, %arg2) {dstElemType = ui8, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverWidth>} : tensor<1x1x667x400xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32> -> tensor<1x1x667x400xui8>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xui8>
+     %output, %scale, %zero_point = VPU.DynamicQuantize(%arg0, %arg1, %arg2) {dstElemType = ui8, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverWidth>, operandSegmentSizes = array<i32: 1, 1, 1>} : tensor<1x1x667x400xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32> -> tensor<1x1x667x400xui8>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xui8>
     return %output, %scale, %zero_point : tensor<1x1x667x400xui8>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xui8>
 
     // CHECK: [[DATA:%.+]] = VPU.UnrolledType([[INPUT0]] : tensor<1x1x667x400xf32>)
@@ -2477,7 +2477,7 @@ module @DynamicQuantize {
 // CHECK-SAME:  [[INPUT0:%.+]]: tensor<1x667x400x1xf32>, [[INPUT1:%.+]]: tensor<1x1x1x1xf32>, [[INPUT2:%.+]]: tensor<1x1x1x1xf32>
 func.func @DynamicQuantizeSOC(%arg0: tensor<1x667x400x1xf32>, %arg1: tensor<1x1x1x1xf32>, %arg2: tensor<1x1x1x1xf32>)
 -> (tensor<1x667x400x1xui8>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xui8>) {
-     %output, %scale, %zero_point = VPU.DynamicQuantize(%arg0, %arg1, %arg2) {dstElemType = ui8, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>} : tensor<1x667x400x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32> -> tensor<1x667x400x1xui8>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xui8>
+     %output, %scale, %zero_point = VPU.DynamicQuantize(%arg0, %arg1, %arg2) {dstElemType = ui8, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>, operandSegmentSizes = array<i32: 1, 1, 1>} : tensor<1x667x400x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32> -> tensor<1x667x400x1xui8>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xui8>
     return %output, %scale, %zero_point : tensor<1x667x400x1xui8>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xui8>
 
     // CHECK: [[DATA:%.+]] = VPU.UnrolledType([[INPUT0]] : tensor<1x667x400x1xf32>)
@@ -2587,7 +2587,7 @@ module @DynamicQuantize {
 // CHECK-SAME:  [[INPUT0:%.+]]: tensor<1x6x400x1xf32>, [[INPUT1:%.+]]: tensor<1x1x1x1xf32>, [[INPUT2:%.+]]: tensor<1x1x1x1xf32>
 func.func @DynamicQuantizeClustering(%arg0: tensor<1x6x400x1xf32>, %arg1: tensor<1x1x1x1xf32>, %arg2: tensor<1x1x1x1xf32>)
 -> (tensor<1x6x400x1xui8>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xui8>) {
-     %output, %scale, %zero_point = VPU.DynamicQuantize(%arg0, %arg1, %arg2) {dstElemType = ui8, multiClusterStrategy = #VPU.multi_cluster_strategy<Clustering>} : tensor<1x6x400x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32> -> tensor<1x6x400x1xui8>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xui8>
+     %output, %scale, %zero_point = VPU.DynamicQuantize(%arg0, %arg1, %arg2) {dstElemType = ui8, multiClusterStrategy = #VPU.multi_cluster_strategy<Clustering>, operandSegmentSizes = array<i32: 1, 1, 1>} : tensor<1x6x400x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32> -> tensor<1x6x400x1xui8>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xui8>
     return %output, %scale, %zero_point : tensor<1x6x400x1xui8>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xui8>
 
     // CHECK: [[DATA:%.+]] = VPU.UnrolledType([[INPUT0]] : tensor<1x6x400x1xf32>)
@@ -2827,4 +2827,66 @@ func.func @MaxPool8AssignedSOK(%arg0: tensor<1x4x334x667xf16>) -> (tensor<1x4x16
     // CHECK:       [[OUT1:%.+]] = VPU.UnrolledType([[MAXPOOL8_INDEX]]
 
     // CHECK:       return [[OUT0]], [[OUT1]] : tensor<1x4x167x334xf16>, tensor<1x4x167x334xsi32>
+}
+
+// -----
+
+module @executors {
+config.Resources 4 of @NCE at 6.000000e+02 MHz
+
+// CHECK-LABEL: @GroupQuantCorrectionSOB
+// CHECK-SAME: ([[ACT_OUT:%.+]]: tensor<8x96x1x1xf16>, [[ACT_IN:%.+]]: tensor<8x1x1x64xf16>, [[SCALES:%.+]]: tensor<8x96x1x1xf16>, [[ZP:%.+]]: tensor<8x96x1x1xui2>)
+func.func @GroupQuantCorrectionSOB(%actOut: tensor<8x96x1x1xf16>, %actIn: tensor<8x1x1x64xf16>,
+                                  %scales: tensor<8x96x1x1xf16>, %zp: tensor<8x96x1x1xui2>)
+        -> tensor<8x96x1x1xf16> {
+    %0 = VPU.GroupQuantCorrection(%actOut, %actIn, %scales, %zp) {
+        multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverBatch>}
+        : tensor<8x96x1x1xf16>, tensor<8x1x1x64xf16>, tensor<8x96x1x1xf16>, tensor<8x96x1x1xui2>
+        -> tensor<8x96x1x1xf16>
+    return %0 : tensor<8x96x1x1xf16>
+
+    // CHECK: [[ACT_OUT_DIST:%.+]] = VPU.UnrolledType([[ACT_OUT]] : tensor<8x96x1x1xf16>)
+    // CHECK-SAME: -> !VPU.DistributedTensor<8x96x1x1xf16, #NCHW, @CMX_NN, {mode = "SEGMENTED", num_tiles = [4, 1, 1, 1], num_clusters = 4 : i64, alignment = [1, 1, 1, 1],
+    // CHECK: [[ACT_IN_DIST:%.+]] = VPU.UnrolledType([[ACT_IN]] : tensor<8x1x1x64xf16>)
+    // CHECK-SAME: -> !VPU.DistributedTensor<8x1x1x64xf16, #NCHW, @CMX_NN, {mode = "SEGMENTED", num_tiles = [4, 1, 1, 1], num_clusters = 4 : i64, alignment = [1, 1, 1, 1],
+    // CHECK: [[SCALES_DIST:%.+]] = VPU.UnrolledType([[SCALES]] : tensor<8x96x1x1xf16>)
+    // CHECK-SAME: -> !VPU.DistributedTensor<8x96x1x1xf16, #NCHW, @CMX_NN, {mode = "SEGMENTED", num_tiles = [4, 1, 1, 1], num_clusters = 4 : i64, alignment = [1, 1, 1, 1],
+    // CHECK: [[ZP_DIST:%.+]] = VPU.UnrolledType([[ZP]] : tensor<8x96x1x1xui2>)
+    // CHECK-SAME: -> !VPU.DistributedTensor<8x96x1x1xui2, #NCHW, @CMX_NN, {mode = "SEGMENTED", num_tiles = [4, 1, 1, 1], num_clusters = 4 : i64, alignment = [1, 1, 1, 1],
+    // CHECK: [[GQC:%.+]] = VPU.GroupQuantCorrection([[ACT_OUT_DIST]], [[ACT_IN_DIST]], [[SCALES_DIST]], [[ZP_DIST]])
+    // CHECK-SAME: -> !VPU.DistributedTensor<8x96x1x1xf16, #NCHW, @CMX_NN, {mode = "SEGMENTED", num_tiles = [4, 1, 1, 1], num_clusters = 4 : i64, alignment = [1, 1, 1, 1],
+    // CHECK: [[OUTPUT:%.+]] = VPU.UnrolledType([[GQC]] : !VPU.DistributedTensor<8x96x1x1xf16, #NCHW, @CMX_NN, {mode = "SEGMENTED", num_tiles = [4, 1, 1, 1], num_clusters = 4 : i64, alignment = [1, 1, 1, 1],
+    // CHECK: return [[OUTPUT]] : tensor<8x96x1x1xf16>
+}
+}
+
+// -----
+
+module @executors {
+config.Resources 4 of @NCE at 6.000000e+02 MHz
+
+// CHECK-LABEL: @GroupQuantCorrectionSOK
+// CHECK-SAME: ([[ACT_OUT:%.+]]: tensor<1x128x1x1xf16>, [[ACT_IN:%.+]]: tensor<1x1x1x64xf16>, [[SCALES:%.+]]: tensor<1x128x1x1xf16>, [[ZP:%.+]]: tensor<1x128x1x1xui2>)
+func.func @GroupQuantCorrectionSOK(%actOut: tensor<1x128x1x1xf16>, %actIn: tensor<1x1x1x64xf16>,
+                                  %scales: tensor<1x128x1x1xf16>, %zp: tensor<1x128x1x1xui2>)
+        -> tensor<1x128x1x1xf16> {
+    %0 = VPU.GroupQuantCorrection(%actOut, %actIn, %scales, %zp) {
+        multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>}
+        : tensor<1x128x1x1xf16>, tensor<1x1x1x64xf16>, tensor<1x128x1x1xf16>, tensor<1x128x1x1xui2>
+        -> tensor<1x128x1x1xf16>
+    return %0 : tensor<1x128x1x1xf16>
+
+    // CHECK: [[ACT_OUT_DIST:%.+]] = VPU.UnrolledType([[ACT_OUT]] : tensor<1x128x1x1xf16>)
+    // CHECK-SAME: -> !VPU.DistributedTensor<1x128x1x1xf16, #NCHW, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 4, 1, 1], num_clusters = 4 : i64, alignment = [1, 16, 1, 1],
+    // CHECK: [[ACT_IN_DIST:%.+]] = VPU.UnrolledType([[ACT_IN]] : tensor<1x1x1x64xf16>)
+    // CHECK-SAME: -> !VPU.DistributedTensor<1x1x1x64xf16, #NCHW, @CMX_NN, {mode = "DUPLICATED", num_clusters = 4 : i64,
+    // CHECK: [[SCALES_DIST:%.+]] = VPU.UnrolledType([[SCALES]] : tensor<1x128x1x1xf16>)
+    // CHECK-SAME: -> !VPU.DistributedTensor<1x128x1x1xf16, #NCHW, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 4, 1, 1], num_clusters = 4 : i64, alignment = [1, 16, 1, 1],
+    // CHECK: [[ZP_DIST:%.+]] = VPU.UnrolledType([[ZP]] : tensor<1x128x1x1xui2>)
+    // CHECK-SAME: -> !VPU.DistributedTensor<1x128x1x1xui2, #NCHW, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 4, 1, 1], num_clusters = 4 : i64, alignment = [1, 16, 1, 1],
+    // CHECK: [[GQC:%.+]] = VPU.GroupQuantCorrection([[ACT_OUT_DIST]], [[ACT_IN_DIST]], [[SCALES_DIST]], [[ZP_DIST]])
+    // CHECK-SAME: -> !VPU.DistributedTensor<1x128x1x1xf16, #NCHW, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 4, 1, 1], num_clusters = 4 : i64, alignment = [1, 16, 1, 1],
+    // CHECK: [[OUTPUT:%.+]] = VPU.UnrolledType([[GQC]] : !VPU.DistributedTensor<1x128x1x1xf16, #NCHW, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 4, 1, 1], num_clusters = 4 : i64, alignment = [1, 16, 1, 1],
+    // CHECK: return [[OUTPUT]] : tensor<1x128x1x1xf16>
+}
 }

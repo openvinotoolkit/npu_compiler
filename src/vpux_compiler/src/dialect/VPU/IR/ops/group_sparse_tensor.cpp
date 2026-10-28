@@ -182,7 +182,7 @@ public:
             }
             auto newContentAttr = constOp.transformContentAttr().subview(offsets, sizes).get();
             auto newConstOp =
-                    rewriter.create<Const::DeclareOp>(constOp.getLoc(), newContentAttr.getType(), newContentAttr);
+                    Const::DeclareOp::create(rewriter, constOp.getLoc(), newContentAttr.getType(), newContentAttr);
             return newConstOp.getOutput();
         };
 
@@ -190,9 +190,9 @@ public:
             if (auto constResult = tryFoldIntoConstant(origData, offsets, sizes)) {
                 return constResult;
             }
-            auto sliceOp = rewriter.create<VPU::SliceOp>(origOp->getLoc(), origData,
-                                                         getIntArrayAttr(origOp.getContext(), offsets),
-                                                         getIntArrayAttr(origOp.getContext(), sizes));
+            auto sliceOp = VPU::SliceOp::create(rewriter, origOp->getLoc(), origData,
+                                                getIntArrayAttr(origOp.getContext(), offsets),
+                                                getIntArrayAttr(origOp.getContext(), sizes));
             return sliceOp.getResult();
         };
 
@@ -213,9 +213,9 @@ public:
                 auto newSMShape = VPU::NCESparsity::inferWeightsSparsityMapShape(newDataShape);
                 smSizes = newSMShape.raw();
             }
-            auto sliceOp = rewriter.create<VPU::SliceOp>(origOp->getLoc(), origOp.getSparsityMap(),
-                                                         getIntArrayAttr(origOp.getContext(), smOffsets),
-                                                         getIntArrayAttr(origOp.getContext(), smSizes));
+            auto sliceOp = VPU::SliceOp::create(rewriter, origOp->getLoc(), origOp.getSparsityMap(),
+                                                getIntArrayAttr(origOp.getContext(), smOffsets),
+                                                getIntArrayAttr(origOp.getContext(), smSizes));
             return sliceOp.getResult();
         };
 
@@ -272,7 +272,7 @@ public:
             auto newContentAttr =
                     constOp.transformContentAttr().padWithZero(ShapeRef(padsBegin), ShapeRef(padsEnd)).get();
             auto newConstOp =
-                    rewriter.create<Const::DeclareOp>(constOp.getLoc(), newContentAttr.getType(), newContentAttr);
+                    Const::DeclareOp::create(rewriter, constOp.getLoc(), newContentAttr.getType(), newContentAttr);
             return newConstOp.getOutput();
         };
 
@@ -281,9 +281,9 @@ public:
             if (auto constResult = tryFoldIntoConstant(origData, padsBegin, padsEnd)) {
                 return constResult;
             }
-            auto expandOp = rewriter.create<VPU::ExpandOp>(origOp->getLoc(), origData,
-                                                           getIntArrayAttr(origOp->getContext(), padsBegin),
-                                                           getIntArrayAttr(origOp->getContext(), padsEnd));
+            auto expandOp = VPU::ExpandOp::create(rewriter, origOp->getLoc(), origData,
+                                                  getIntArrayAttr(origOp->getContext(), padsBegin),
+                                                  getIntArrayAttr(origOp->getContext(), padsEnd));
             return expandOp.getOutput();
         };
 
@@ -306,9 +306,9 @@ public:
                     smPadsEnd[i] = static_cast<int64_t>(diff);
                 }
             }
-            auto expandOp = rewriter.create<VPU::ExpandOp>(origOp->getLoc(), origOp.getSparsityMap(),
-                                                           getIntArrayAttr(origOp->getContext(), smPadsBeing),
-                                                           getIntArrayAttr(origOp->getContext(), smPadsEnd));
+            auto expandOp = VPU::ExpandOp::create(rewriter, origOp->getLoc(), origOp.getSparsityMap(),
+                                                  getIntArrayAttr(origOp->getContext(), smPadsBeing),
+                                                  getIntArrayAttr(origOp->getContext(), smPadsEnd));
             return expandOp.getOutput();
         };
 
@@ -345,7 +345,7 @@ public:
             }
             auto newContentAttr = constOp.transformContentAttr().reshape(shape).get();
             auto newConstOp =
-                    rewriter.create<Const::DeclareOp>(constOp.getLoc(), newContentAttr.getType(), newContentAttr);
+                    Const::DeclareOp::create(rewriter, constOp.getLoc(), newContentAttr.getType(), newContentAttr);
             return newConstOp.getOutput();
         };
 
@@ -353,8 +353,8 @@ public:
             if (auto constResult = tryFoldIntoConstant(origData, shape)) {
                 return constResult;
             }
-            auto reshapeOp = rewriter.create<VPU::ReshapeOp>(origOp->getLoc(), origData,
-                                                             getIntArrayAttr(origOp->getContext(), shape));
+            auto reshapeOp = VPU::ReshapeOp::create(rewriter, origOp->getLoc(), origData,
+                                                    getIntArrayAttr(origOp->getContext(), shape));
             return reshapeOp.getOutput();
         };
 
@@ -368,8 +368,8 @@ public:
             }
             auto newDataShape = mlir::cast<NDTypeInterface>(newData.getType()).getShape();
             auto newSMShape = VPU::NCESparsity::inferWeightsSparsityMapShape(newDataShape);
-            auto reshapeOp = rewriter.create<VPU::ReshapeOp>(origOp->getLoc(), origSparsityMap,
-                                                             getIntArrayAttr(origOp->getContext(), newSMShape));
+            auto reshapeOp = VPU::ReshapeOp::create(rewriter, origOp->getLoc(), origSparsityMap,
+                                                    getIntArrayAttr(origOp->getContext(), newSMShape));
             return reshapeOp.getOutput();
         };
 
@@ -389,8 +389,8 @@ public:
         if (!origOp.getIsWeights()) {
             return false;
         }
-        auto dataLayoutCastOp = rewriter.create<VPU::LayoutCastOp>(origOp->getLoc(), origOp.getData(),
-                                                                   layoutCastUserOp.getDstOrderAttr());
+        auto dataLayoutCastOp = VPU::LayoutCastOp::create(rewriter, origOp->getLoc(), origOp.getData(),
+                                                          layoutCastUserOp.getDstOrderAttr());
         // Note: the sparsity map does not have its layout changed, as the GetSparsityMap transformation resets its
         // layout to the default
         rewriter.replaceOpWithNewOp<VPU::GroupSparseTensorOp>(

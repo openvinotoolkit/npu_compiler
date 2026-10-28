@@ -22,11 +22,11 @@ mlir::LLVM::CallOp createLLVMFuncCallOp(mlir::OpBuilder& builder, mlir::ModuleOp
         if (auto function = module.lookupSymbol<mlir::LLVM::LLVMFuncOp>(name)) {
             return function;
         }
-        return mlir::OpBuilder::atBlockBegin(module.getBody())
-                .create<mlir::LLVM::LLVMFuncOp>(builder.getUnknownLoc(), name, funcType);
+        auto moduleBuilder = mlir::OpBuilder::atBlockBegin(module.getBody());
+        return mlir::LLVM::LLVMFuncOp::create(moduleBuilder, builder.getUnknownLoc(), name, funcType);
     }();
 
-    return builder.create<mlir::LLVM::CallOp>(builder.getUnknownLoc(), funcOp, args);
+    return mlir::LLVM::CallOp::create(builder, builder.getUnknownLoc(), funcOp, args);
 }
 
 }  // namespace vpux::HostExec

@@ -22,11 +22,12 @@ typedef std::function<void(int64_t, mlir::Operation*, mlir::Value&, Shape&)> Til
 class VerticalFusionTilingRewriter : public VerticalFusionTilingRewriterBase<VFConfig, VFSchedulingFactory> {
 public:
     VerticalFusionTilingRewriter(mlir::MLIRContext* ctx, bool enableVerticalFusionPipelining,
-                                 const std::unique_ptr<VPU::LayerVPUNNCost>& costFunction, Logger log,
-                                 VFCacheAnalysis& cache)
+                                 const std::unique_ptr<VPU::LayerVPUNNCost>& costFunction,
+                                 bool enableOutputTileAdjustmentForSW, Logger log, VFCacheAnalysis& cache)
             : VerticalFusionTilingRewriterBase<VFConfig, VFSchedulingFactory>(ctx, enableVerticalFusionPipelining,
                                                                               costFunction, log),
-              _cache(cache) {
+              _cache(cache),
+              _enableOutputTileAdjustmentForSW(enableOutputTileAdjustmentForSW) {
     }
 
 protected:
@@ -50,7 +51,8 @@ protected:
 
     virtual TilingStorage restoreTilingStorage(VFConfig& config, ArrayRef<int64_t> strategy,
                                                TilingOperationStorage::UPtr& operationStorage) const override {
-        auto storage = calculateTilingRegions(config, strategy, _log, operationStorage);
+        auto storage =
+                calculateTilingRegions(config, strategy, _log, operationStorage, _enableOutputTileAdjustmentForSW);
 
         VPUX_THROW_WHEN(mlir::failed(storage), "Cannot restore tiling regions for VF {0}", config.getSubgraph());
 
@@ -59,5 +61,6 @@ protected:
 
 private:
     VFCacheAnalysis& _cache;
+    bool _enableOutputTileAdjustmentForSW;
 };
 }  // namespace vpux::VPU::VF::v2

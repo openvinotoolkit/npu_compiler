@@ -48,16 +48,17 @@ SmallVector<VFSplit> getSplitFromDimArr(DimArrRef dimsToCheck, DimArrRef allowed
 // get the maximal valid tiling strategy for VF block between the given range of tiling strategy
 mlir::FailureOr<SmallVector<int64_t>> getMaximalValidTilingStrategyFromRange(
         VFConfig& config, ArrayRef<int64_t> lowerTilingStrategy, ArrayRef<int64_t> upperTilingStrategy, Dim tilingAxis,
-        TilingOperationStorage::UPtr& opStorage, Logger log);
+        TilingOperationStorage::UPtr& opStorage, bool enableOutputTileAdjustmentForSW, Logger log);
 
 // get the minimal valid tiling strategy for VF block between the given range of tiling strategy
 mlir::FailureOr<SmallVector<int64_t>> getMinimalValidTilingStrategyFromRange(
         VFConfig& config, ArrayRef<int64_t> lowerTilingStrategy, ArrayRef<int64_t> upperTilingStrategy, Dim tilingAxis,
-        TilingOperationStorage::UPtr& opStorage, Logger log);
+        TilingOperationStorage::UPtr& opStorage, bool enableOutputTileAdjustmentForSW, Logger log);
 
 // calculate tiling regions based on particular tiling strategy
 mlir::FailureOr<TilingStorage> calculateTilingRegions(VFConfig& config, ArrayRef<int64_t> tilingStrategy, Logger log,
-                                                      const TilingOperationStorage::UPtr& opStorage);
+                                                      const TilingOperationStorage::UPtr& opStorage,
+                                                      bool enableOutputTileAdjustmentForSW = false);
 
 // Restore tiling strategy by VF split
 SmallVector<int64_t> restoreTilingBySplit(int64_t rank, const VFSplit& split);
@@ -70,6 +71,12 @@ std::optional<Dim> getNonTiledDimForVFOptimization(const VFSplit& vfSplit);
 
 // Get number of tiles from split
 int64_t getVFTilesLen(const VFSplit& vfSplit);
+
+// Back-infer the tiling dimension of `producer` from the tiling dimension of its `consumer`.
+// The producer may hold its data in a different layout than the consumer output, e.g. the weights of an NCE
+// operation are in filter layout, so the activation channel maps to the filter output channel.
+// Returns std::nullopt when the producer cannot be tiled for the given consumer axis.
+std::optional<Dim> backInferProducerTilingDim(mlir::Operation* consumer, mlir::Value input, Dim consumerAxis);
 
 // Build a map from each VF operation to its back-inferred tiling dimension.
 mlir::DenseMap<mlir::Operation*, Dim> buildOpDimMap(VFConfig& config, Dim outputDim);

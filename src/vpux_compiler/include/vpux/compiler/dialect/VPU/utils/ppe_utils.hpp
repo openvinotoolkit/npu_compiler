@@ -30,6 +30,9 @@ private:
     QuantizationApproximation _output;
 };
 
+bool isEltwiseRequantizationRepresentable(double input1Scale, double input2Scale, double outputScale);
+
+bool computeMultShiftApproximation(double target, int64_t& mult, int64_t& shift);
 double computeQuantScale(mlir::Type inputType, mlir::Type outputType);
 double computeQuantScaleWithWeightedOps(mlir::Type inputType, mlir::Type outputType, mlir::Type weightsType);
 int64_t computeQuantZPForEltwise(mlir::Type type);

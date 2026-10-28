@@ -84,6 +84,7 @@ TEST_F(InvalidFqCreatedByCompiler, NPU5010_TestKindSubgraph) {
     setDefaultHardwareMode();
     run(Platform::NPU5010);
 }
+
 TEST_F(InvalidFqCreatedByCompiler, NPU5020_TestKindSubgraph) {
     setDefaultHardwareMode();
     run(Platform::NPU5020);

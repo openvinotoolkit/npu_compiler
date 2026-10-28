@@ -25,6 +25,7 @@
 
 #include "mlir/Dialect/Affine/Utils.h"
 #include "mlir/Dialect/SCF/Transforms/TileUsingInterface.h"
+#include "mlir/Dialect/Utils/StaticValueUtils.h"
 #include "mlir/IR/BuiltinTypeInterfaces.h"
 #include "mlir/IR/Dominance.h"
 #include "vpux/utils/logger/logger.hpp"
@@ -48,12 +49,14 @@ namespace {
 
     Algorithm:
         1. tileIndex = iv floorDiv loopStep  (which tile are we in?)
-        2. clampedTileIndex = min(tileIndex, mainTilesCount)  (cap to prevent overflow)
+        2. tileIndexForRemainderSize = min(tileIndex, mainTilesCount)
+           (Keep the size formula at remainderStep after the first remainder tile)
         3. adjustedOffset = min(loopStep * tileIndex,
                                remainderStep * tileIndex + (loopStep - remainderStep) * mainTilesCount)
            (Blends uniform and remainder offsets based on tile index)
         4. adjustedSize = min(loopStep,
-                             remainderStep + (mainTilesCount - clampedTileIndex) * (loopStep - remainderStep))
+                             remainderStep +
+                                 (mainTilesCount - tileIndexForRemainderSize) * (loopStep - remainderStep))
            (Adjusts tile size near boundaries)
 
     All uses of the raw induction variable in slice offsets are replaced with adjustedOffset;
@@ -150,49 +153,69 @@ void correctOffsetAndSizeByRemainder(mlir::RewriterBase& builder, mlir::OffsetSi
         mlir::AffineExpr d0;
         bindDims(builder.getContext(), d0);
 
-        // tileIndex = iv floordiv loopStep
+        // tileIndex = iv floordiv loopStep.
         auto tileIndexMap = mlir::AffineMap::get(1, 0, {d0.floorDiv(loopStepValue)}, builder.getContext());
-        auto tileIndex = mlir::affine::makeComposedAffineApply(builder, appendLoc(loopOp.getLoc(), "tile_index"),
-                                                               tileIndexMap, {inductionVar});
+        // Fold to a constant when possible so consumers (getConstantIntValue on slice sizes/offsets) can
+        // pick up the constant without waiting for a separate canonicalize run
+        auto tileIndexOfr = mlir::affine::makeComposedFoldedAffineApply(
+                builder, appendLoc(loopOp.getLoc(), "tile_index"), tileIndexMap, {mlir::OpFoldResult(inductionVar)});
+        auto tileIndex =
+                mlir::getValueOrCreateConstantIndexOp(builder, appendLoc(loopOp.getLoc(), "tile_index"), tileIndexOfr);
 
         // offset = min(loopStep * tileIndex,
         //              remainderStep * tileIndex + (loopStep - remainderStep) * mainTilesCount)
         auto adjustedOffsetMap = mlir::AffineMap::get(
                 1, 0, {loopStepExpr * d0, remainderStepExpr * d0 + (loopStepExpr - remainderStepExpr) * mainTilesExpr},
                 builder.getContext());
-        auto newOffset = builder.create<mlir::affine::AffineMinOp>(appendLoc(loopOp.getLoc(), "adjusted_offset"),
-                                                                   adjustedOffsetMap, mlir::ValueRange{tileIndex});
+        auto newOffsetOfr =
+                mlir::affine::makeComposedFoldedAffineMin(builder, appendLoc(loopOp.getLoc(), "adjusted_offset"),
+                                                          adjustedOffsetMap, {mlir::OpFoldResult(tileIndex)});
+        auto newOffset = mlir::getValueOrCreateConstantIndexOp(builder, appendLoc(loopOp.getLoc(), "adjusted_offset"),
+                                                               newOffsetOfr);
 
-        // clampedTileIndex = min(tileIndex, mainTilesCount)
-        auto clampedTileIndexMap = mlir::AffineMap::get(1, 0, {d0, mainTilesExpr}, builder.getContext());
-        auto clampedTileIndex = builder.create<mlir::affine::AffineMinOp>(
-                appendLoc(loopOp.getLoc(), "tile_index_cap"), clampedTileIndexMap, mlir::ValueRange{tileIndex});
+        // tileIndexForRemainderSize = min(tileIndex, mainTilesCount)
+        auto tileIndexForRemainderSizeMap = mlir::AffineMap::get(1, 0, {d0, mainTilesExpr}, builder.getContext());
+        auto tileIndexForRemainderSizeOfr = mlir::affine::makeComposedFoldedAffineMin(
+                builder, appendLoc(loopOp.getLoc(), "tile_index_cap"), tileIndexForRemainderSizeMap,
+                {mlir::OpFoldResult(tileIndex)});
+        auto tileIndexForRemainderSize = mlir::getValueOrCreateConstantIndexOp(
+                builder, appendLoc(loopOp.getLoc(), "tile_index_cap"), tileIndexForRemainderSizeOfr);
 
         // size = min(loopStep,
-        //            remainderStep + (mainTilesCount - clampedTileIndex) * (loopStep - remainderStep))
+        //            remainderStep + (mainTilesCount - tileIndexForRemainderSize) *
+        //                    (loopStep - remainderStep))
         auto adjustedSizeMap = mlir::AffineMap::get(
                 1, 0, {loopStepExpr, remainderStepExpr + (mainTilesExpr - d0) * (loopStepExpr - remainderStepExpr)},
                 builder.getContext());
-        auto newSize = builder.create<mlir::affine::AffineMinOp>(appendLoc(loopOp.getLoc(), "adjusted_size"),
-                                                                 adjustedSizeMap, mlir::ValueRange{clampedTileIndex});
+        auto newSizeOfr = mlir::affine::makeComposedFoldedAffineMin(
+                builder, appendLoc(loopOp.getLoc(), "adjusted_size"), adjustedSizeMap,
+                {mlir::OpFoldResult(tileIndexForRemainderSize)});
+        auto newSize =
+                mlir::getValueOrCreateConstantIndexOp(builder, appendLoc(loopOp.getLoc(), "adjusted_size"), newSizeOfr);
 
         auto& dominanceInfo = loopDominanceCache.getDominanceInfoForLoop(loopOp.getOperation());
 
-        blockArgOffset.replaceUsesWithIf(newOffset.getResult(), [&](mlir::OpOperand& opOperand) {
+        // Skip replacing users we just created — using getDefiningOp() so constant-folded
+        // materializations (arith.constant) are handled the same way as real affine ops.
+        auto* newOffsetDefiningOp = newOffset.getDefiningOp();
+        auto* newSizeDefiningOp = newSize.getDefiningOp();
+        auto* tileIndexDefiningOp = tileIndex.getDefiningOp();
+        auto* tileIndexForRemainderSizeDefiningOp = tileIndexForRemainderSize.getDefiningOp();
+        blockArgOffset.replaceUsesWithIf(newOffset, [&](mlir::OpOperand& opOperand) {
             auto* user = opOperand.getOwner();
-            if (user == tileIndex.getOperation() || user == newOffset.getOperation() ||
-                user == newSize.getOperation()) {
+            if (user == tileIndexDefiningOp || user == tileIndexForRemainderSizeDefiningOp ||
+                user == newOffsetDefiningOp || user == newSizeDefiningOp) {
                 return false;
             }
-            return dominanceInfo.properlyDominates(newOffset.getResult(), user);
+            return dominanceInfo.properlyDominates(newOffset, user);
         });
         auto oldSize = affineMin.getResult();
-        oldSize.replaceUsesWithIf(newSize.getResult(), [&](mlir::OpOperand& opOperand) {
+        oldSize.replaceUsesWithIf(newSize, [&](mlir::OpOperand& opOperand) {
             auto* user = opOperand.getOwner();
-            if (user == newSize.getOperation()) {
+            if (user == newSizeDefiningOp) {
                 return false;
             }
-            return dominanceInfo.properlyDominates(newSize.getResult(), user);
+            return dominanceInfo.properlyDominates(newSize, user);
         });
     }
 }
@@ -343,6 +366,49 @@ bool groupEnclosesLongSkip(const llvm::SetVector<mlir::Operation*>& groupOps) {
         }
     }
     return false;
+}
+
+/*
+  Map every fused operation to a tiling strategy expressed in its own dimension space.
+
+  The group strategy describes the output of the fused chain. An operation may hold its data in a
+  different layout than that output - the weights of an NCE operation are in filter layout, and view
+  like operations permute or merge dimensions - so attaching the group strategy verbatim would tile
+  the wrong dimension. The tiled axis is back-inferred bottom-up for the whole group instead.
+
+  Operations for which no axis can be back-inferred are absent from the result; the caller declines
+  to fuse them.
+*/
+llvm::DenseMap<mlir::Operation*, mlir::ArrayAttr> buildFusedOpsTilingStrategies(VPU::VF::v2::VFConfig& config,
+                                                                                mlir::ArrayAttr groupTiling) {
+    const auto groupTilingValues = parseIntArrayAttr<int64_t>(groupTiling);
+
+    llvm::DenseMap<mlir::Operation*, SmallVector<int64_t>> tilingPerOp;
+    for (auto dimIdx : irange(groupTilingValues.size())) {
+        const auto tiles = groupTilingValues[dimIdx];
+        if (tiles <= 1) {
+            continue;
+        }
+
+        for (const auto& [op, axis] : VPU::VF::v2::buildOpDimMap(config, Dim(dimIdx))) {
+            const auto rank = getShape(op->getResult(0)).size();
+            if (tilingPerOp.count(op) == 0) {
+                tilingPerOp[op] = SmallVector<int64_t>(rank, 1);
+            }
+            auto& opTiling = tilingPerOp[op];
+            const auto axisIdx = checked_cast<size_t>(axis.ind());
+            VPUX_THROW_WHEN(axisIdx >= opTiling.size(), "Axis index {0} is out of range for tiling {1}", axisIdx,
+                            opTiling);
+            opTiling[axisIdx] = tiles;
+        }
+    }
+
+    llvm::DenseMap<mlir::Operation*, mlir::ArrayAttr> strategies;
+    strategies.reserve(tilingPerOp.size());
+    for (const auto& [op, opTiling] : tilingPerOp) {
+        strategies[op] = getIntArrayAttr(op->getContext(), opTiling);
+    }
+    return strategies;
 }
 
 }  // namespace
@@ -631,13 +697,33 @@ SmallVector<mlir::Operation*> vpux::VPU::applySCFVerticalFusion(mlir::Operation*
 
     std::optional<VF::v2::VFCase> bestVFCaseOpt;
 
-    // Cost-based candidates collected while shrinking from the maximal fused cone toward the anchor,
+    // Candidates collected while shrinking from the maximal fused cone toward the anchor,
     // ordered from the largest group (front) to the smallest group nearest the anchor (back).
-    SmallVector<VF::v2::VFCase, 4> costBasedCandidates;
+    SmallVector<VF::v2::VFCase, 4> enumeratedCandidates;
     VF::v2::VFCacheAnalysis cache(operation);
 
+    // E-229799 Refactoring of greedy search
+    const bool greedySearch = mergeConfig.selectBetterCase != nullptr;
+
+    // Evaluates a candidate group: builds its config and asks the merge policy for the best split,
+    // retrying once without dynamic dim alignment when the first attempt yields no valid case.
+    const auto evaluateCandidate = [&](const llvm::SetVector<mlir::Operation*>& groupOps,
+                                       DimArrRef allowedDims) -> VF::v2::VFCase {
+        VF::v2::VFConfig config(groupOps, cache);
+        auto vfCase = mergeConfig.splitGetter(config, allowedDims);
+        if (VPU::hasDynamicDimAlignment(operation) && !vfCase.isInitialized()) {
+            VPU::removeDynamicDimAlignment(operation);
+            vfCase = mergeConfig.splitGetter(config, allowedDims);
+        }
+        return vfCase;
+    };
+
+    // Smallest group that encloses a long skip, kept only as a fallback seed for the pathological
+    // case where every enumerated group encloses a long skip (see the growth phase below).
+    std::optional<llvm::SetVector<mlir::Operation*>> fallbackEnclosingOps;
+    bool reachedNonEnclosing = false;
+
     while (allOpsToFuse.size() > 1) {
-        VF::v2::VFConfig config(allOpsToFuse, cache);
         // Stop once only view-like operations remain: they cannot be tiled/fused on their own.
         const auto nonViewLikeOpCount = llvm::count_if(allOpsToFuse, [](mlir::Operation* op) {
             return !mlir::isa<VPU::TilingViewLikeOpInterface>(op);
@@ -654,25 +740,33 @@ SmallVector<mlir::Operation*> vpux::VPU::applySCFVerticalFusion(mlir::Operation*
             continue;
         }
 
-        auto vfCase = mergeConfig.splitGetter(config, allowedDims);
-
-        if (VPU::hasDynamicDimAlignment(operation) && !vfCase.isInitialized()) {
-            VPU::removeDynamicDimAlignment(operation);
-            vfCase = mergeConfig.splitGetter(config, allowedDims);
+        // The growth phase never selects a group that encloses a long skip (it stops at
+        // that boundary), so evaluating one is wasted work — and these are the largest groups, whose
+        // split/cost evaluation is the most expensive. Skip the leading enclosing prefix, recording
+        // the smallest such group as a fallback seed, and keep shrinking toward the anchor.
+        if (greedySearch && !reachedNonEnclosing && groupEnclosesLongSkip(allOpsToFuse)) {
+            fallbackEnclosingOps = allOpsToFuse;
+            if (!popInputOperation()) {
+                break;
+            }
+            continue;
         }
+        reachedNonEnclosing = true;
+
+        auto vfCase = evaluateCandidate(allOpsToFuse, allowedDims);
 
         // Use the merge policy from the configuration to decide whether to proceed
         if (vfCase.isInitialized() && mergeConfig.mergeDecision(vfCase)) {
-            if (mergeConfig.selectBetterCase == nullptr) {
+            if (!greedySearch) {
                 // Greedy configuration: prioritize merging by keeping the first (largest)
                 // valid candidate found while shrinking from the input side.
                 bestVFCaseOpt = std::move(vfCase);
                 break;
             }
 
-            // Cost-based configuration: record every valid candidate; the fusion boundary is
+            // Growth configuration: record every valid candidate; the fusion boundary is
             // selected after the full nested-subset sequence has been enumerated.
-            costBasedCandidates.push_back(std::move(vfCase));
+            enumeratedCandidates.push_back(std::move(vfCase));
         }
 
         if (!popInputOperation()) {
@@ -680,16 +774,29 @@ SmallVector<mlir::Operation*> vpux::VPU::applySCFVerticalFusion(mlir::Operation*
         }
     }
 
-    if (mergeConfig.selectBetterCase != nullptr) {
+    // Fallback: if every enumerated group enclosed a long skip (no non-enclosing candidate exists),
+    // seed the growth phase with the smallest enclosing group, matching the previous behavior for
+    // that pathological case.
+    if (greedySearch && enumeratedCandidates.empty() && fallbackEnclosingOps.has_value()) {
+        DimArr allowedDims = getAllowedDims(fallbackEnclosingOps.value().getArrayRef(), log);
+        if (!allowedDims.empty()) {
+            auto vfCase = evaluateCandidate(fallbackEnclosingOps.value(), allowedDims);
+            if (vfCase.isInitialized() && mergeConfig.mergeDecision(vfCase)) {
+                enumeratedCandidates.push_back(std::move(vfCase));
+            }
+        }
+    }
+
+    if (greedySearch) {
         // Bottom-up growth over the enumerated candidates. Starting from the smallest valid group
         // nearest the anchor (back of the list), extend the group toward the inputs only while
-        // fusing the additional operations stays profitable (selectBetterCase), and stop at the
+        // fusing the additional operations stays profitable (greedySearch), and stop at the
         // first non-profitable boundary. Operations left outside the group are fused at a later
         // anchor of the reverse walk. This mirrors the incremental pairwise merge of the default
         // (non-scf) VF path and avoids over-merging a large group whose best-split cost hides the
         // true per-operation cost.
-        for (int idx = costBasedCandidates.size(); idx-- > 0;) {
-            auto& candidate = costBasedCandidates[idx];
+        for (int idx = enumeratedCandidates.size(); idx-- > 0;) {
+            auto& candidate = enumeratedCandidates[idx];
             if (!bestVFCaseOpt.has_value()) {
                 bestVFCaseOpt = std::move(candidate);
                 continue;
@@ -735,6 +842,9 @@ SmallVector<mlir::Operation*> vpux::VPU::applySCFVerticalFusion(mlir::Operation*
     }
 
     operation->setAttr(tilingStrategy, bestVFCase.getTiling());
+
+    const auto fusedOpsTiling = buildFusedOpsTilingStrategies(bestVFCase.getConfig(), bestVFCase.getTiling());
+
     std::unordered_map<Dim, std::pair<int64_t, int64_t>> remainders;
 
     auto* lastOp = outputs.back();
@@ -769,9 +879,17 @@ SmallVector<mlir::Operation*> vpux::VPU::applySCFVerticalFusion(mlir::Operation*
         if (!allOpsToFuse.contains(originalProducer.getOwner())) {
             return std::nullopt;
         }
+        auto producerTilingIter = fusedOpsTiling.find(originalProducer.getOwner());
+        if (producerTilingIter == fusedOpsTiling.end()) {
+            log.debug("Cannot back-infer the tiling dim for producer {0} at loc: {1}. Skipping fusion",
+                      originalProducer.getOwner()->getName(), originalProducer.getOwner()->getLoc());
+            return std::nullopt;
+        }
+        const auto producerTiling = producerTilingIter->second;
+
         auto skipConnectionIter = skipConnectionMap.find(originalProducer.getOwner());
         if (skipConnectionIter == skipConnectionMap.end()) {
-            originalProducer.getOwner()->setAttr(tilingStrategy, bestVFCase.getTiling());
+            originalProducer.getOwner()->setAttr(tilingStrategy, producerTiling);
             listener.expectProducerFusion(originalProducer.getOwner());
             return mlir::scf::SCFTileAndFuseOptions::ControlFnResult{};
         }
@@ -795,7 +913,7 @@ SmallVector<mlir::Operation*> vpux::VPU::applySCFVerticalFusion(mlir::Operation*
         log.debug("Biggest User tiled (or all users have the same tile size), allowing fusion");
         deferredReplacement.biggestTileExtractSlice = sliceOp;
 
-        originalProducer.getOwner()->setAttr(tilingStrategy, bestVFCase.getTiling());
+        originalProducer.getOwner()->setAttr(tilingStrategy, producerTiling);
         listener.expectProducerFusion(originalProducer.getOwner());
         hasSkipConnection = true;
         return mlir::scf::SCFTileAndFuseOptions::ControlFnResult{};

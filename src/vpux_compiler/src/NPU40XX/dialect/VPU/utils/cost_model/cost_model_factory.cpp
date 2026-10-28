@@ -41,9 +41,10 @@ std::shared_ptr<VPUNN::VPUCostModel> CostModelFactory::createCostModel() const {
     bool isFastModel = false;
     const auto costModelData = getCostModelData(isFastModel);
     const auto costModelCacheData = getCostModelCacheData();
-    return std::make_shared<VPUNN::VPUCostModel>(
-            costModelData.data(), costModelData.size(), /*copy_model_data*/ false, /*profile*/ false, VPUNN_CACHE_SIZE,
-            /*batch_size*/ 1, costModelCacheData.data(), costModelCacheData.size());
+    return std::make_shared<VPUNN::VPUCostModel>(VPUNN::VPUDevice::VPU_4_0, costModelData.data(), costModelData.size(),
+                                                 /*copy_model_data*/ false, /*profile*/ false, VPUNN_CACHE_SIZE,
+                                                 /*batch_size*/ 1, costModelCacheData.data(),
+                                                 costModelCacheData.size());
 }
 
 std::shared_ptr<VPUNN::VPULayerCostModel> CostModelFactory::createLayerCostModel() const {
@@ -54,7 +55,8 @@ std::shared_ptr<VPUNN::VPULayerCostModel> CostModelFactory::createLayerCostModel
     const auto costModelData = getCostModelData(isFastModel);
     const auto costModelCacheData = getCostModelCacheData();
     auto layerCostModel = std::make_shared<VPUNN::VPULayerCostModel>(
-            costModelData.data(), costModelData.size(), /*copy_model_data*/ false, /*profile*/ false, VPUNN_CACHE_SIZE,
+            VPUNN::VPUDevice::VPU_4_0, costModelData.data(), costModelData.size(), /*copy_model_data*/ false,
+            /*profile*/ false, VPUNN_CACHE_SIZE,
             /*batch_size*/ 1, costModelCacheData.data(), costModelCacheData.size());
     return layerCostModel;
 }

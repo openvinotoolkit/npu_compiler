@@ -262,7 +262,7 @@ mlir::Value createNewConstValue(Const::DeclareOp constOp, Dim expandAxisVal, Sha
     SmallVector<int64_t> padEnd(constShape.size(), 0);
     padEnd[expandAxisVal.ind()] = padding;
     auto contentAttr = constOp.transformContentAttr().padWithZero(ShapeRef(padBegin), ShapeRef(padEnd)).get();
-    return rewriter.create<Const::DeclareOp>(constOp->getLoc(), contentAttr.getType(), std::move(contentAttr))
+    return Const::DeclareOp::create(rewriter, constOp->getLoc(), contentAttr.getType(), std::move(contentAttr))
             .getResult();
 }
 
@@ -532,8 +532,8 @@ mlir::LogicalResult vpux::IE::OptimizeSliceLayoutCastExpand::matchAndRewrite(IE:
         return mlir::failure();
     }
 
-    auto newExpand = rewriter.create<IE::ExpandOp>(expandOp->getLoc(), sliceOp.getOutput(), expandOp.getPadsBegin(),
-                                                   expandOp.getPadsEnd());
+    auto newExpand = IE::ExpandOp::create(rewriter, expandOp->getLoc(), sliceOp.getOutput(), expandOp.getPadsBegin(),
+                                          expandOp.getPadsEnd());
 
     rewriter.replaceOpWithNewOp<IE::LayoutCastOp>(expandOp, newExpand.getOutput(), layoutCastOp.getDstOrder());
 
@@ -608,13 +608,216 @@ mlir::LogicalResult vpux::IE::OptimizeSlicePermuteCastExpand::matchAndRewrite(IE
     const auto newPadBeginLogicShape = sliceDstOrder.toLogicalOrder(newPadsBeginMemShape);
     const auto newPadEndLogicShape = sliceDstOrder.toLogicalOrder(newPadsEndMemShape);
 
-    auto newExpandOp = rewriter.create<IE::ExpandOp>(expandOp->getLoc(), sliceOp.getOutput(),
-                                                     getIntArrayAttr(expandOp.getContext(), newPadBeginLogicShape),
-                                                     getIntArrayAttr(expandOp.getContext(), newPadEndLogicShape));
+    auto newExpandOp = IE::ExpandOp::create(rewriter, expandOp->getLoc(), sliceOp.getOutput(),
+                                            getIntArrayAttr(expandOp.getContext(), newPadBeginLogicShape),
+                                            getIntArrayAttr(expandOp.getContext(), newPadEndLogicShape));
 
     rewriter.replaceOpWithNewOp<IE::PermuteCastOp>(expandOp, newExpandOp.getOutput(), permuteCastOp.getDstOrderAttr(),
                                                    permuteCastOp.getMemPermAttr());
 
+    return mlir::success();
+}
+
+//
+// OptimizeSliceViewLikeChainExpand
+//
+
+mlir::LogicalResult vpux::IE::OptimizeSliceViewLikeChainExpand::matchAndRewrite(IE::ExpandOp expandOp,
+                                                                                mlir::PatternRewriter& rewriter) const {
+    _log.trace("[{0}] Got '{1}' at '{2}'", getDebugName(), expandOp->getName(), expandOp->getLoc());
+    const auto innerLog = _log.nest();
+
+    // Walk backwards through PermuteCast/AffineReshape ops to find Slice
+    auto currentOp = expandOp.getInput().getDefiningOp();
+    SmallVector<mlir::Operation*> viewLikeOps;
+    while (mlir::isa_and_present<IE::ViewLikeOpInterface>(currentOp)) {
+        if (!currentOp->hasOneUse()) {
+            return mlir::failure();
+        }
+
+        auto inShape = getShape(currentOp->getOperand(0));
+        auto outShape = getShape(currentOp->getResult(0));
+        if (inShape.size() > 4 || outShape.size() > 4) {
+            return mlir::failure();
+        }
+
+        if (mlir::isa<IE::LayoutCastOp>(currentOp)) {
+            return mlir::failure();
+        }
+
+        if (auto quantCastOp = mlir::dyn_cast<IE::QuantizeCastOp>(currentOp)) {
+            auto inElemType = mlir::cast<vpux::NDTypeInterface>(quantCastOp.getInput().getType()).getElementType();
+            auto outElemType = mlir::cast<vpux::NDTypeInterface>(quantCastOp.getResult().getType()).getElementType();
+            if (!mlir::isa<mlir::quant::UniformQuantizedType>(inElemType) ||
+                !mlir::isa<mlir::quant::UniformQuantizedType>(outElemType)) {
+                return mlir::failure();
+            }
+        }
+
+        viewLikeOps.push_back(currentOp);
+        currentOp = currentOp->getOperand(0).getDefiningOp();
+    }
+    // Need at least 2 view-like ops
+    if (viewLikeOps.size() < 2) {
+        return mlir::failure();
+    }
+
+    auto sliceOp = mlir::dyn_cast_or_null<IE::SliceOp>(currentOp);
+    if (sliceOp == nullptr) {
+        return mlir::failure();
+    }
+
+    // Find expand memory axis (single axis that differs between input and output memShapes)
+    auto expandInMemShape = Shape(getMemShape(expandOp.getInput()).raw());
+    auto expandOutMemShape = Shape(getMemShape(expandOp.getResult()).raw());
+    auto expandMemAxis = IE::getSingleDiffAxis(expandInMemShape, expandOutMemShape);
+    if (!expandMemAxis.has_value()) {
+        return mlir::failure();
+    }
+
+    // Reject non-zero pads_begin and multi-axis pads_end to ensure the memShape delta
+    // accurately reflects the Expand padding semantics
+    const auto padsBegin = parseIntArrayAttr<int64_t>(expandOp.getPadsBegin());
+    const auto padsEnd = parseIntArrayAttr<int64_t>(expandOp.getPadsEnd());
+    if (llvm::any_of(padsBegin, [](int64_t v) {
+            return v != 0;
+        })) {
+        return mlir::failure();
+    }
+    const auto nonZeroPadsEnd = llvm::count_if(padsEnd, [](int64_t v) {
+        return v != 0;
+    });
+    if (nonZeroPadsEnd != 1) {
+        return mlir::failure();
+    }
+
+    // Find slice memory axis
+    auto sliceInMemShape = Shape(getMemShape(sliceOp.getSource()).raw());
+    auto sliceOutMemShape = Shape(getMemShape(sliceOp.getResult()).raw());
+    auto sliceMemAxis = IE::getSingleDiffAxis(sliceInMemShape, sliceOutMemShape);
+    if (!sliceMemAxis.has_value()) {
+        return mlir::failure();
+    }
+
+    // sliceOutShape: [A, slicedSize, B, C] => [A, sliceSize, B*C]
+    // expandInShape: [A', expandedSize, B', C'] => [A', expandedSize, B'*C']
+    // The legal case should be sliceSize == expandedSize and B*C == B'*C'
+    const auto sliceTailElements = std::accumulate(sliceOutMemShape.begin() + sliceMemAxis.value().ind() + 1,
+                                                   sliceOutMemShape.end(), int64_t{1}, std::multiplies<>());
+    const auto expandTailElements = std::accumulate(expandInMemShape.begin() + expandMemAxis.value().ind() + 1,
+                                                    expandInMemShape.end(), int64_t{1}, std::multiplies<>());
+    if (sliceOutMemShape[sliceMemAxis.value()] != expandInMemShape[expandMemAxis.value()] ||
+        sliceTailElements != expandTailElements) {
+        return mlir::failure();
+    }
+
+    // The expand padding amount in memory.
+    // Invariant: this optimization assumes the Expand padding content is semantically irrelevant
+    // (alignment-only). The enlarged Slice reads source data at extended positions instead of
+    // the uninitialized Expand regions. Downstream consumers must not depend on specific padding values.
+    const auto expandMemPadding = expandOutMemShape[expandMemAxis.value()] - expandInMemShape[expandMemAxis.value()];
+
+    // Convert slice memory axis to logical axis
+    const auto sliceDimsOrder = DimsOrder::fromValue(sliceOp.getResult());
+    const auto sliceLogicalAxis = sliceDimsOrder.toDim(MemDim(sliceMemAxis.value().ind()));
+    const auto sliceLogicalIdx = sliceLogicalAxis.ind();
+
+    const auto sliceOffsets = parseIntArrayAttr<int64_t>(sliceOp.getStaticOffsets());
+    const auto sliceSizes = parseIntArrayAttr<int64_t>(sliceOp.getStaticSizes());
+    const auto sliceSourceShape = getShape(sliceOp.getSource());
+
+    // Compute new slice size and verify the enlarged Slice covers the entire source on the slice axis.
+    // Only fuse when the enlarged Slice becomes the full source extent — this guarantees no out-of-bounds
+    // access into potentially unmapped memory regions during preemption scenarios.
+    const auto newSliceSize = sliceSizes[sliceLogicalIdx] + expandMemPadding;
+    if (sliceOffsets[sliceLogicalIdx] != 0 || newSliceSize != sliceSourceShape[sliceLogicalAxis]) {
+        innerLog.trace("Enlarged Slice does not cover the full source on slice axis, skip to avoid "
+                       "potential out-of-bounds access");
+        return mlir::failure();
+    }
+
+    // Verify total element count: new slice elements should equal expand output elements
+    int64_t newSliceElements = 1;
+    for (size_t i = 0; i < sliceSizes.size(); i++) {
+        newSliceElements *= (static_cast<int64_t>(i) == sliceLogicalIdx) ? newSliceSize : sliceSizes[i];
+    }
+    auto expandOutType = mlir::cast<vpux::NDTypeInterface>(expandOp.getResult().getType());
+    if (newSliceElements != expandOutType.getNumElements()) {
+        innerLog.trace("Element count mismatch after fusion");
+        return mlir::failure();
+    }
+
+    mlir::Value newValue = sliceOp.getSource();
+    SmallVector<int64_t> newSliceSizes(sliceSizes);
+    newSliceSizes[sliceLogicalIdx] = newSliceSize;
+    newValue = rewriter.createOrFold<IE::SliceOp>(sliceOp.getLoc(), sliceOp.getSource(), sliceOp.getStaticOffsetsAttr(),
+                                                  getIntArrayAttr(expandOp.getContext(), newSliceSizes));
+
+    // Slight regression is observed on this special case:
+    //      Input -> Slice -> PermuteCast -> AffineReshape -> PermuteCast -> Expand -> Output
+    // The input type is the same as the output type, so theoretically all ops between input and output can be removed.
+    // However, the view-like ops finally affect scheduling and cause performance regression which can only be
+    // reproduced with TURBO, so here we choose to clone the view-like chain for this case.
+    if (sliceOp.getSource().getType() == expandOp.getResult().getType()) {
+        if (llvm::all_of(viewLikeOps, [](mlir::Operation* op) {
+                return mlir::isa_and_present<IE::AffineReshapeOp, IE::PermuteCastOp>(op);
+            })) {
+            for (auto viewOp : llvm::reverse(viewLikeOps)) {
+                mlir::IRMapping mapper;
+                mapper.map(viewOp->getOperands(), ArrayRef(newValue));
+                auto* newViewOp = rewriter.clone(*viewOp, mapper);
+                if (auto affineReshape = mlir::dyn_cast<IE::AffineReshapeOp>(newViewOp)) {
+                    auto newOutShape = vpux::IE::computeShapeValueFromAffineReshape(affineReshape, getShape(newValue));
+                    if (!newOutShape.has_value()) {
+                        return mlir::failure();
+                    }
+                    newViewOp->setAttr("shape_value", getIntArrayAttr(expandOp.getContext(), newOutShape.value()));
+                }
+                vpux::inferReturnTypes(newViewOp, vpux::InferShapedTypeMode::SHAPE);
+                newValue = newViewOp->getResult(0);
+            }
+
+            rewriter.replaceAllUsesWith(expandOp, newValue);
+            return mlir::success();
+        }
+    }
+
+    // Criterion: view-like op chain can be replaced by the combination of
+    // PermuteCast + ShapeCast + PermuteCast + QuantizeCast
+    auto newValueNDType = mlir::cast<vpux::NDTypeInterface>(newValue.getType());
+    auto expandOutNDType = mlir::cast<vpux::NDTypeInterface>(expandOp.getResult().getType());
+    const auto newValueOrder = newValueNDType.getDimsOrder();
+    const auto expandOutOrder = expandOutNDType.getDimsOrder();
+    const auto newValueMemShape = newValueNDType.getMemShape();
+    auto maybeTrivialAffineMap = vpux::IE::createTrivialAffineMap(newValueMemShape.size(), rewriter.getContext());
+    VPUX_THROW_UNLESS(maybeTrivialAffineMap.has_value(), "Failed to create trivial affine map");
+    auto trivialAffineMap = maybeTrivialAffineMap.value();
+    if (newValueMemShape.raw() != expandOutMemShape.raw()) {
+        if (newValueOrder != DimsOrder::fromAffineMap(trivialAffineMap)) {
+            newValue = rewriter.createOrFold<IE::PermuteCastOp>(expandOp.getLoc(), newValue, trivialAffineMap,
+                                                                trivialAffineMap);
+        }
+
+        newValue = rewriter.createOrFold<IE::ShapeCastOp>(
+                expandOp.getLoc(), newValue, getIntArrayAttr(rewriter.getContext(), expandOutMemShape.raw()));
+        maybeTrivialAffineMap = vpux::IE::createTrivialAffineMap(getShape(newValue).size(), rewriter.getContext());
+        VPUX_THROW_UNLESS(maybeTrivialAffineMap.has_value(), "Failed to create trivial affine map");
+        trivialAffineMap = maybeTrivialAffineMap.value();
+        newValue = rewriter.createOrFold<IE::PermuteCastOp>(
+                expandOp.getLoc(), newValue, expandOutOrder.toAffineMap(rewriter.getContext()), trivialAffineMap);
+    } else if (newValueOrder != expandOutOrder) {
+        newValue = rewriter.createOrFold<IE::PermuteCastOp>(
+                expandOp.getLoc(), newValue, expandOutOrder.toAffineMap(rewriter.getContext()), trivialAffineMap);
+    }
+
+    auto newValueElemType = mlir::cast<vpux::NDTypeInterface>(newValue.getType()).getElementType();
+    auto expandOutElemType = expandOutNDType.getElementType();
+    if (newValueElemType != expandOutElemType) {
+        newValue = rewriter.createOrFold<IE::QuantizeCastOp>(expandOp.getLoc(), newValue, expandOutElemType);
+    }
+
+    rewriter.replaceAllUsesWith(expandOp, newValue);
+    rewriter.eraseOp(expandOp);
     return mlir::success();
 }
 
@@ -732,8 +935,8 @@ mlir::LogicalResult vpux::IE::genericOptimizeSliceImplicitExpand(IE::ExpandOp ex
     if (fuseMode == IE::FuseMode::CONVERT_TO_SLICE) {
         innerLog.trace("Convert to 'Slice' completed successfully at '{0}'", expandOp->getLoc());
         rewriter.setInsertionPoint(implicitOp);
-        auto newSliceOp = rewriter.create<IE::SliceOp>(expandOp.getLoc(), sliceOp.getSource(), padsBeginOrOffsetsAttr,
-                                                       padsEndOrStaticSizesAttr);
+        auto newSliceOp = IE::SliceOp::create(rewriter, expandOp.getLoc(), sliceOp.getSource(), padsBeginOrOffsetsAttr,
+                                              padsEndOrStaticSizesAttr);
         implicitOp->getOpOperand(0).set(newSliceOp.getResult());
         vpux::inferReturnTypes(implicitOp, vpux::InferShapedTypeMode::SHAPE);
         expandOp->replaceAllUsesWith(implicitOp);
@@ -852,8 +1055,9 @@ mlir::LogicalResult vpux::IE::genericOptimizeSliceImplicitShapeCastExpand(IE::Ex
 
     rewriter.setInsertionPointAfter(implicitOp);
     const auto newShapeCastOutShape = getShape(origOp.getResult());
-    auto newShapeCastOp = rewriter.create<IE::ShapeCastOp>(origOp->getLoc(), origOp.getType(), implicitOp->getResult(0),
-                                                           getIntArrayAttr(origOp.getContext(), newShapeCastOutShape));
+    auto newShapeCastOp =
+            IE::ShapeCastOp::create(rewriter, origOp->getLoc(), origOp.getType(), implicitOp->getResult(0),
+                                    getIntArrayAttr(origOp.getContext(), newShapeCastOutShape));
 
     rewriter.replaceOp(origOp, newShapeCastOp.getResult());
     return mlir::success();
@@ -1014,11 +1218,11 @@ mlir::LogicalResult IE::OptimizeSliceOpsExpand::matchAndRewrite(IE::ExpandOp exp
 
         if (iter != ops.rend() - 1) {
             auto insertExpandOp =
-                    rewriter.create<IE::ExpandOp>(expandOp->getLoc(), newOp->getResult(0), padBegin, padEnd);
+                    IE::ExpandOp::create(rewriter, expandOp->getLoc(), newOp->getResult(0), padBegin, padEnd);
             auto sliceOffset = sliceOp.getStaticOffsetsAttr();
             auto insertSliceOp =
-                    rewriter.create<IE::SliceOp>(expandOp->getLoc(), insertExpandOp.getResult(), sliceOffset,
-                                                 getIntArrayAttr(expandOp.getContext(), getShape(newOp->getResult(0))));
+                    IE::SliceOp::create(rewriter, expandOp->getLoc(), insertExpandOp.getResult(), sliceOffset,
+                                        getIntArrayAttr(expandOp.getContext(), getShape(newOp->getResult(0))));
             preOutput = insertSliceOp.getResult();
         } else {
             preOutput = newOp->getResult(0);
@@ -1162,9 +1366,9 @@ mlir::LogicalResult IE::OptimizeSliceConcatExpandWithViewLikeOps::matchAndRewrit
     auto newConcatAxis = expandDimOrder.toDim(concatMemAxis);
     const auto newInputShapes = to_small_vector(llvm::map_range(newInputValues, getShape));
     const auto newConcatOffsetsAttr = inferConcatOffsets(newInputShapes, newConcatAxis, ctx);
-    auto resultValue =
-            rewriter.create<IE::ConcatOp>(concatOp.getLoc(), newInputValues, /*per_axis*/ nullptr, newConcatOffsetsAttr)
-                    .getResult();
+    auto resultValue = IE::ConcatOp::create(rewriter, concatOp.getLoc(), newInputValues, /*per_axis*/ nullptr,
+                                            newConcatOffsetsAttr)
+                               .getResult();
 
     const auto padsBeginVal = parseIntArrayAttr<int64_t>(expandOp.getPadsBegin())[expandAxis.ind()];
     const auto padsEndVal = parseIntArrayAttr<int64_t>(expandOp.getPadsEnd())[expandAxis.ind()];
@@ -1173,21 +1377,21 @@ mlir::LogicalResult IE::OptimizeSliceConcatExpandWithViewLikeOps::matchAndRewrit
     auto newExpandAxis = getHighestNonTrivialDim(getShape(resultValue), expandDimOrder).value();
     newPadsBegin[newExpandAxis.ind()] = padsBeginVal;
     newPadsEnd[newExpandAxis.ind()] = padsEndVal;
-    resultValue = rewriter.create<IE::ExpandOp>(expandOp.getLoc(), resultValue, getIntArrayAttr(ctx, newPadsBegin),
-                                                getIntArrayAttr(ctx, newPadsEnd))
+    resultValue = IE::ExpandOp::create(rewriter, expandOp.getLoc(), resultValue, getIntArrayAttr(ctx, newPadsBegin),
+                                       getIntArrayAttr(ctx, newPadsEnd))
                           .getResult();
 
     auto outputShape = getShape(expandOp.getResult());
     if (getShape(resultValue) != outputShape) {
         resultValue =
-                rewriter.create<IE::ShapeCastOp>(expandOp.getLoc(), resultValue, getIntArrayAttr(ctx, outputShape))
+                IE::ShapeCastOp::create(rewriter, expandOp.getLoc(), resultValue, getIntArrayAttr(ctx, outputShape))
                         .getResult();
     }
 
     auto newElemType = mlir::cast<vpux::NDTypeInterface>(resultValue.getType()).getElementType();
     auto origElemType = mlir::cast<vpux::NDTypeInterface>(expandOp.getResult().getType()).getElementType();
     if (newElemType != origElemType) {
-        resultValue = rewriter.create<IE::QuantizeCastOp>(expandOp.getLoc(), resultValue, origElemType).getOutput();
+        resultValue = IE::QuantizeCastOp::create(rewriter, expandOp.getLoc(), resultValue, origElemType).getOutput();
     }
 
     _log.trace("Optimization completed successfully at '{0}'", expandOp->getLoc());
@@ -1427,12 +1631,12 @@ mlir::LogicalResult SliceAfterAddForLayoutCastExpandAddRewriter::matchAndRewrite
     // 6a) LayoutCast on Slice source to match original LayoutCast dst order (NCHW -> NHWC usually)
     auto newLc0Type =
             mlir::cast<vpux::NDTypeInterface>(preAddLayoutCastOp.getOutput().getType()).changeShape(sliceInShape);
-    auto newLc0 = rewriter.create<IE::LayoutCastOp>(preAddLayoutCastOp.getLoc(), newLc0Type, preAddSliceOp.getSource(),
-                                                    preAddLayoutCastOp.getDstOrderAttr());
+    auto newLc0 = IE::LayoutCastOp::create(rewriter, preAddLayoutCastOp.getLoc(), newLc0Type, preAddSliceOp.getSource(),
+                                           preAddLayoutCastOp.getDstOrderAttr());
 
     // 6b) Expand on the new, larger layout cast output
-    auto newExpand = rewriter.create<IE::ExpandOp>(expandOp.getLoc(), newLc0.getOutput(), expandOp.getPadsBeginAttr(),
-                                                   expandOp.getPadsEndAttr());
+    auto newExpand = IE::ExpandOp::create(rewriter, expandOp.getLoc(), newLc0.getOutput(), expandOp.getPadsBeginAttr(),
+                                          expandOp.getPadsEndAttr());
 
     // 6c) Create new Const with injected padding
     auto newConstContentAttr = Const::ContentAttr::get(constContentAttr.getBaseContent(), newTransformations);
@@ -1443,15 +1647,15 @@ mlir::LogicalResult SliceAfterAddForLayoutCastExpandAddRewriter::matchAndRewrite
     }
     newConstType = newConstType.changeShape(newConstShape);
 
-    auto newConstOp = rewriter.create<Const::DeclareOp>(constOp.getLoc(), newConstType, newConstContentAttr);
+    auto newConstOp = Const::DeclareOp::create(rewriter, constOp.getLoc(), newConstType, newConstContentAttr);
     auto newConstValue = newConstOp.getOutput();
 
     // 6d) Add on expanded space
     const auto origType = mlir::cast<vpux::NDTypeInterface>(addOp.getType());
     const auto newType = origType.changeShape(getShape(newExpand.getOutput()));
-    auto newAdd = rewriter.create<IE::AddOp>(addOp.getLoc(), newType, newExpand.getOutput(), newConstValue,
-                                             addOp.getAutoBroadcast(), addOp.getPostOpAttr(), addOp.getClampAttr(),
-                                             addOp.getOutputPaddingAttr(), addOp.getInputPaddingAttr());
+    auto newAdd = IE::AddOp::create(rewriter, addOp.getLoc(), newType, newExpand.getOutput(), newConstValue,
+                                    addOp.getAutoBroadcast(), addOp.getPostOpAttr(), addOp.getClampAttr(),
+                                    addOp.getOutputPaddingAttr(), addOp.getInputPaddingAttr());
 
     // 6e) Update the downstream Slice (postAddSliceOp) to handle the larger input
     // It was slicing the small Add output. Now it slices the large Add output.
@@ -1482,9 +1686,9 @@ mlir::LogicalResult SliceAfterAddForLayoutCastExpandAddRewriter::matchAndRewrite
     // 6g) Insert the original pre-Add Slice at the very end
     rewriter.setInsertionPointAfter(postAddLayoutCastOp);
     SmallVector<int64_t> newSlice0Sizes(sliceSizes.begin(), sliceSizes.end());
-    auto newSlice0 = rewriter.create<IE::SliceOp>(preAddSliceOp.getLoc(), postAddLayoutCastOp.getOutput(),
-                                                  preAddSliceOp.getStaticOffsetsAttr(),
-                                                  getIntArrayAttr(rewriter.getContext(), newSlice0Sizes));
+    auto newSlice0 = IE::SliceOp::create(rewriter, preAddSliceOp.getLoc(), postAddLayoutCastOp.getOutput(),
+                                         preAddSliceOp.getStaticOffsetsAttr(),
+                                         getIntArrayAttr(rewriter.getContext(), newSlice0Sizes));
 
     // Replace usages of the old downstream LayoutCast with the new final Slice
     postAddLayoutCastOp.getOutput().replaceAllUsesExcept(newSlice0.getResult(), newSlice0);
@@ -1525,6 +1729,7 @@ void OptimizeSliceExpandPass::safeRunOnFunc() {
     patterns.add<OptimizeSliceSoftmaxExpand>(&ctx, _log);
     patterns.add<IE::OptimizeSliceLayoutCastExpand>(&ctx, _log);
     patterns.add<IE::OptimizeSlicePermuteCastExpand>(&ctx, _log);
+    patterns.add<IE::OptimizeSliceViewLikeChainExpand>(&ctx, _log);
 
     patterns.add<IE::OptimizeSliceShapeCastExpand<IE::HSwishOp>>(&ctx, _log);
     patterns.add<IE::OptimizeSliceShapeCastExpand<IE::SwishOp>>(&ctx, _log);

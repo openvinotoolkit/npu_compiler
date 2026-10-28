@@ -120,25 +120,46 @@ protected:
                                    SmallVector<mlir::OpFoldResult>& resultSizes) const {
         auto outputType = mlir::cast<mlir::ShapedType>(operation->getResult(resultNumber).getType());
 
+        resultOffsets = SmallVector<mlir::OpFoldResult>(outputType.getRank(), builder.getIndexAttr(0));
+        resultSizes = mlir::getAsIndexOpFoldResult(builder.getContext(), outputType.getShape());
+
         const auto strategy =
                 Shape(parseIntArrayAttr<int64_t>(mlir::cast<mlir::ArrayAttr>(operation->getAttr(tilingStrategy))));
         auto tilingDims = getSCFTilingOrderedDims(operation, strategy);
-        resultOffsets = SmallVector<mlir::OpFoldResult>(outputType.getRank(), builder.getIndexAttr(0));
-        resultSizes.reserve(outputType.getRank());
-        resultSizes = mlir::getAsIndexOpFoldResult(builder.getContext(), outputType.getShape());
 
-        for (auto dimIndex : irange(outputType.getRank())) {
-            auto tilingDim = std::find(tilingDims.begin(), tilingDims.end(), Dim(dimIndex));
-            if (tilingDim != tilingDims.end()) {
-                auto index = sizes.size() == resultOffsets.size() ? static_cast<size_t>(tilingDim->ind())
-                                                                  : std::distance(tilingDims.begin(), tilingDim);
-                resultOffsets[tilingDim->ind()] = offsets[index];
-                resultSizes[tilingDim->ind()] = sizes[index];
-            } else {
-                resultOffsets[dimIndex] = builder.getIndexAttr(0);
-                resultSizes[dimIndex] =
-                        getAsIndexOpFoldResult(builder.getContext(), getBoundedShape(outputType)[Dim(dimIndex)]);
+        // Offsets/sizes can be either full-rank result coordinates (already mapped to result
+        // dimensions, e.g. from the balanced-multiclustering fallback) or compact loop coordinates
+        // (one entry per tiled dim, expanded via tilingStrategy below). Distinguish using
+        // tilingDims.size() rather than this result's own rank: for multi-result ops with
+        // differing per-result ranks, comparing against rank could misclassify compact data as
+        // full-rank by coincidence, since tilingDims is the same for every result of this op.
+        if (sizes.size() != tilingDims.size()) {
+            VPUX_THROW_UNLESS(
+                    sizes.size() == static_cast<size_t>(outputType.getRank()) && offsets.size() == sizes.size(),
+                    "Unexpected offsets/sizes rank for '{0}' result {1}: offsets={2}, sizes={3}, rank={4}",
+                    operation->getLoc(), resultNumber, offsets.size(), sizes.size(), outputType.getRank());
+            for (auto dimIndex : irange(outputType.getRank())) {
+                resultOffsets[dimIndex] = offsets[dimIndex];
+                resultSizes[dimIndex] = sizes[dimIndex];
             }
+            return;
+        }
+
+        // fill as fullSize on dim for non-tiled dynamic dimensions
+        for (auto dimIndex : irange(outputType.getRank())) {
+            if (llvm::is_contained(tilingDims, Dim(dimIndex))) {
+                continue;
+            }
+            if (outputType.isDynamicDim(dimIndex)) {
+                resultSizes[dimIndex] = getDimValue(builder, operation, dimIndex);
+            }
+        }
+
+        for (const auto [loopIndex, tilingDim] : tilingDims | indexed) {
+            const auto resultDim = checked_cast<size_t>(tilingDim.ind());
+
+            resultOffsets[resultDim] = offsets[loopIndex];
+            resultSizes[resultDim] = sizes[loopIndex];
         }
     }
 
@@ -152,7 +173,7 @@ public:
 
         const auto tilingRank = static_cast<int64_t>(tilingDims.size());
         SmallVector<mlir::Range> loops(tilingRank);
-        mlir::Value zero = builder.create<mlir::arith::ConstantIndexOp>(loc, 0);
+        mlir::Value zero = mlir::arith::ConstantIndexOp::create(builder, loc, 0);
 
         for (auto dim : llvm::seq<int64_t>(0, tilingRank)) {
             loops[dim].offset = zero;
@@ -407,7 +428,7 @@ public:
         if (!inputTile.bounds.empty()) {
             inputTile.bounds[*paddedDim] = inputShape[*paddedDim];
         }
-        return SCFTilingInfo{{std::move(inputTile)}};
+        return SCFTilingInfo(std::move(inputTile));
     }
 };
 
@@ -471,9 +492,9 @@ public:
             inChannelsTile = mlir::affine::makeComposedFoldedAffineApply(builder, appendLoc(loc, "inputChSize"),
                                                                          alignMap, {inChannelsTile});
 
-            inputTiles.push_back(curTile);
+            inputTiles.push_back(std::move(curTile));
         }
-        return SCFTilingInfo{std::move(inputTiles)};
+        return SCFTilingInfo(std::move(inputTiles));
     }
 };
 
@@ -537,7 +558,7 @@ protected:
                                                                          alignMap, {inChannelsTile});
         }
 
-        return {std::move(inputTile), std::move(pads)};
+        return SCFTilingInfo(std::move(inputTile), std::move(pads));
     }
 
 public:
@@ -665,7 +686,7 @@ protected:
             }
         }
 
-        return SCFTilingInfo(inputTile, pads);
+        return SCFTilingInfo(std::move(inputTile), std::move(pads));
     }
 
 public:
@@ -692,7 +713,7 @@ public:
             filterTile.shape[Dims4D::Filter::OC.ind()] = outputTile.shape[Dims4D::Act::C.ind()];
             filterTile.offsets[Dims4D::Filter::OC.ind()] = outputTile.offsets[Dims4D::Act::C.ind()];
 
-            tilingInfo.tiles.emplace_back(filterTile);
+            tilingInfo.tiles.emplace_back(std::move(filterTile));
 
             auto nceOp = mlir::dyn_cast<NCEOpInterface>(operation);
             if (nceOp != nullptr && nceOp.getWeightsTableOperand() != nullptr) {
@@ -928,7 +949,7 @@ public:
                     builder, appendLoc(loc, "inputSpatialSize"), outToInExprMap, {outShape});
         }
 
-        return SCFTilingInfo(inputTile);
+        return SCFTilingInfo(std::move(inputTile));
     }
 
     mlir::Operation* createTiledOperation(OpGeneratorFunc opGenerator, OpTilingOperandsFunc operandsGenerator,
@@ -962,7 +983,7 @@ public:
         if (!outputTile.bounds.raw().empty()) {
             inputTile.bounds[Dims4D::Act::C] = origBoundedInputShape[Dims4D::Act::C];
         }
-        return SCFTilingInfo(inputTile);
+        return SCFTilingInfo(std::move(inputTile));
     }
 
     mlir::Operation* createTiledOperation(OpGeneratorFunc opGenerator, OpTilingOperandsFunc operandsGenerator,
@@ -1065,7 +1086,7 @@ public:
             }
         }
 
-        return SCFTilingInfo(inputTile);
+        return SCFTilingInfo(std::move(inputTile));
     }
 
     mlir::Operation* createTiledOperation(OpGeneratorFunc opGenerator, OpTilingOperandsFunc operandsGenerator,
@@ -1126,14 +1147,15 @@ public:
                 for (auto i : irange(numDims)) {
                     mlir::OpFoldResult ofr = offsets[i];
                     if (auto val = mlir::getConstantIntValue(ofr)) {
-                        values.push_back(opBuilder.create<mlir::arith::ConstantIntOp>(newOp.getLoc(), val.value(), 64));
+                        values.push_back(
+                                mlir::arith::ConstantIntOp::create(opBuilder, newOp.getLoc(), val.value(), 64));
                         continue;
                     }
                     auto offsetVal = mlir::getValueOrCreateConstantIndexOp(opBuilder, newOp.getLoc(), ofr);
                     if (offsetVal.getType().isIndex()) {
-                        offsetVal = opBuilder.create<mlir::arith::IndexCastOp>(newOp.getLoc(), i64Type, offsetVal);
+                        offsetVal = mlir::arith::IndexCastOp::create(opBuilder, newOp.getLoc(), i64Type, offsetVal);
                     } else if (!offsetVal.getType().isSignlessInteger(64)) {
-                        offsetVal = opBuilder.create<mlir::arith::ExtSIOp>(newOp.getLoc(), i64Type, offsetVal);
+                        offsetVal = mlir::arith::ExtSIOp::create(opBuilder, newOp.getLoc(), i64Type, offsetVal);
                     }
                     values.push_back(offsetVal);
                 }
@@ -1151,7 +1173,7 @@ public:
                     return;
                 }
                 auto offsetsTensor =
-                        opBuilder.create<mlir::tensor::FromElementsOp>(newOp.getLoc(), offsetsTensorType, values);
+                        mlir::tensor::FromElementsOp::create(opBuilder, newOp.getLoc(), offsetsTensorType, values);
                 mutableAccessor().assign(mlir::ValueRange{offsetsTensor.getResult()});
             };
             assignDynamicOffsets(hasDynamicInputOffset, inputOffsetValues, [&]() {
@@ -1269,7 +1291,7 @@ public:
             }
         }
 
-        return SCFTilingInfo(inTile);
+        return SCFTilingInfo(std::move(inTile));
     }
 
     mlir::Operation* createTiledOperation(OpGeneratorFunc opGenerator, OpTilingOperandsFunc operandsGenerator,
@@ -1348,7 +1370,7 @@ public:
                 inputTile.bounds[Dims4D::Act::H] = outputTile.bounds[Dims4D::Act::H];
             }
 
-            return SCFTilingInfo{inputTile};
+            return SCFTilingInfo(std::move(inputTile));
         }
 
         // Multi-plane (2 inputs = NV12, 3 inputs = I420)
@@ -1412,7 +1434,7 @@ public:
             inputTiles.push_back(std::move(chromaTile));
         }
 
-        return SCFTilingInfo{inputTiles};
+        return SCFTilingInfo(std::move(inputTiles));
     }
 };
 
@@ -1452,7 +1474,7 @@ public:
         }
 
         SmallVector<SCFTileInfo> inputTiles;
-        inputTiles.push_back(inputTile);
+        inputTiles.push_back(std::move(inputTile));
 
         // k operand (scalar) — pass through untiled
         if (topKOp.getK()) {
@@ -1467,7 +1489,7 @@ public:
             inputTiles.emplace_back(bufShape, builder);
         }
 
-        return SCFTilingInfo{std::move(inputTiles)};
+        return SCFTilingInfo(std::move(inputTiles));
     }
 };
 class SCFTopKModelOp : public SCFTilingTopKModelOp<SCFTopKModelOp, VPU::TopKOp> {};
@@ -1506,10 +1528,10 @@ public:
             if (!outputTile.bounds.raw().empty()) {
                 curTile.bounds[Dim(lastDim)] = origBoundedInputShape[Dim(lastDim)];
             }
-            inputTiles.push_back(curTile);
+            inputTiles.push_back(std::move(curTile));
         }
 
-        return SCFTilingInfo{std::move(inputTiles)};
+        return SCFTilingInfo(std::move(inputTiles));
     }
     mlir::Operation* createTiledOperation(OpGeneratorFunc opGenerator, OpTilingOperandsFunc operandsGenerator,
                                           mlir::OpBuilder&, SCFTilingInfo& tiling, const SCFTileInfo&, DimArrRef,
@@ -1545,7 +1567,7 @@ public:
                 mlir::getAsIndexOpFoldResult(builder.getContext(), getShape(mvnOp.getMeanVar()).raw());
         inputTiles.emplace_back(meanVarShape, builder);
 
-        return SCFTilingInfo{std::move(inputTiles)};
+        return SCFTilingInfo(std::move(inputTiles));
     }
 
     mlir::Operation* createTiledOperation(OpGeneratorFunc opGenerator, OpTilingOperandsFunc operandsGenerator,

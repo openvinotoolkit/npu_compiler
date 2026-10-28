@@ -112,6 +112,7 @@ std::optional<size_t> getStaticInstructionSize(OpCode opcode) {
             {OpCode::CONVERT_F64_TO_I32, OPCODE_SIZE + 2 * OPERAND_SIZE},     // opcode + dst + src
             {OpCode::CONVERT_F64_TO_I64, OPCODE_SIZE + 2 * OPERAND_SIZE},     // opcode + dst + src
             {OpCode::CONVERT_F64_TO_F32, OPCODE_SIZE + 2 * OPERAND_SIZE},     // opcode + dst + src
+            {OpCode::BUFFER_COPY, OPCODE_SIZE + 2 * OPERAND_SIZE},            // opcode + dst + src
     };
 
     const auto it = staticInstructionSizes.find(opcode);
@@ -128,6 +129,7 @@ std::optional<size_t> getInstructionSizeDecodeByteSize(OpCode opcode) {
     case OpCode::RETV:
         return OPCODE_SIZE + OPERAND_SIZE;
     case OpCode::BUFFER_CREATE:
+    case OpCode::BUFFER_FROM_CONST:
     case OpCode::BUFFER_LOAD:
     case OpCode::BUFFER_SUBVIEW:
     case OpCode::BUFFER_STORE: {
@@ -174,6 +176,12 @@ std::optional<size_t> getVariadicInstructionSize(OpCode opcode, const uint8_t* i
         constexpr auto baseOperands = 3;    // dst + size + rank
         constexpr auto operandsPerDim = 2;  // size + stride per dimension
         constexpr auto rankOperandIndex = 2;
+        return decodeRankBasedVariadicInstructionSize(instructionBegin, baseOperands, operandsPerDim, rankOperandIndex);
+    }
+    case OpCode::BUFFER_FROM_CONST: {
+        constexpr auto baseOperands = 4;    // dst + constant index + element type + rank
+        constexpr auto operandsPerDim = 2;  // size + stride per dimension
+        constexpr auto rankOperandIndex = 3;
         return decodeRankBasedVariadicInstructionSize(instructionBegin, baseOperands, operandsPerDim, rankOperandIndex);
     }
     case OpCode::BUFFER_LOAD: {

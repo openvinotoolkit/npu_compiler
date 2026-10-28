@@ -59,7 +59,7 @@ TEST_F(MLIR_FeasibleMemorySchedulerSpilling, RemoveComputeOpRelocationSpillsForI
                 }
 
                 %t2, %r2 = async.execute [%t0, %t1] (%r0 as %arg2: !async.value<!Type_CMX>, %r1 as %arg3: !async.value<!Type_CMX>) -> !async.value<!Type_CMX> attributes {VPUIP.executor = @DPU, VPUIP.num_units = 1 : i64} {
-                    %1 = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 21125 : i64, resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{is_inplace = true, task_type = #VPUIP.nce_task_type<ELTWISE>}> input(%arg2 : !Type_CMX) weights(%arg3 : !Type_CMX) parent_input(%arg2 : !Type_CMX) parent_output(%buf_cmx_1 : !Type_CMX) outputs(%buf_cmx_1 : !Type_CMX) -> !Type_CMX  variants : {
+                    %1 = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 21125 : i64} <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>, is_inplace = true, task_type = #VPUIP.nce_task_type<ELTWISE>}> input(%arg2 : !Type_CMX) weights(%arg3 : !Type_CMX) parent_input(%arg2 : !Type_CMX) parent_output(%buf_cmx_1 : !Type_CMX) outputs(%buf_cmx_1 : !Type_CMX) -> !Type_CMX  variants : {
                             DPUTask {cluster_id = 0 : i64, mpe_mode = #VPU.mpe_mode<CUBOID_8x16>, outEnd = [31, 31, 31], outStart = [0, 0, 0], pad = #VPU.Padding<bottom = 0 : i64, left = 0 : i64, right = 0 : i64, top = 0 : i64>}
                         } PPE : {
                             PPETask {ppe = #VPU.PPEStub<>}
@@ -223,7 +223,7 @@ TEST_F(MLIR_FeasibleMemorySchedulerSpilling, RemoveComputeOpRelocationSpillsForR
                 }
 
                 %t2, %r2 = async.execute [%t0] (%r0 as %arg8: !async.value<!Conv_In_CMX>) -> !async.value<!Conv_Out_CMX> attributes {VPUIP.executor = @DPU, VPUIP.num_units = 1 : i64} {
-                    %270 = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 11735 : i64, constantsFused = true, resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [1, 1], kernel_strides = [1, 1], mpe_engine = #VPU.MPEEngine37XX<mode = <SCL>>, task_type = #VPUIP.nce_task_type<CONV>}>
+                    %270 = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 11735 : i64, constantsFused = true} <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>, kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [1, 1], kernel_strides = [1, 1], mpe_engine = #VPU.MPEEngine37XX<mode = <SCL>>, task_type = #VPUIP.nce_task_type<CONV>}>
                         input(%arg8 : !Conv_In_CMX) weights(%arg1 : !Conv_Weights_CMX)  weight_table(%arg2 : !Conv_WT_CMX) parent_input(%arg8 : !Conv_In_CMX) parent_output(%conv1_out_cmx : !Conv_Out_CMX) outputs(%conv1_out_cmx : !Conv_Out_CMX) -> !Conv_Out_CMX  variants : {
                             DPUTask {cluster_id = 0 : i64, inEnd = [27, 27, 127], inStart = [0, 0, 0], mpe_mode = #VPU.mpe_mode<CUBOID_8x16>, outEnd = [27, 27, 511], outStart = [0, 0, 0], pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>}
                         } PPE : {
@@ -233,7 +233,7 @@ TEST_F(MLIR_FeasibleMemorySchedulerSpilling, RemoveComputeOpRelocationSpillsForR
                 }
 
                 %t4, %r4 = async.execute [%t1, %t2] (%r1 as %arg8: !async.value<!EltWise_CMX>, %r2 as %arg9: !async.value<!Conv_Out_CMX>) -> !async.value<!EltWise_CMX> attributes {VPUIP.executor = @DPU, VPUIP.num_units = 1 : i64} {
-                    %270 = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 21125 : i64, resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{is_inplace = true, task_type = #VPUIP.nce_task_type<ELTWISE>}>
+                    %270 = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 21125 : i64} <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>, is_inplace = true, task_type = #VPUIP.nce_task_type<ELTWISE>}>
                         input(%arg9 : !Conv_Out_CMX) weights(%arg8 : !EltWise_CMX) parent_input(%arg9 : !Conv_Out_CMX) parent_output(%conv1_out_cmx : !Conv_Out_CMX) outputs(%conv1_out_cmx : !Conv_Out_CMX) -> !EltWise_CMX  variants : {
                             DPUTask {cluster_id = 0 : i64, inEnd = [27, 27, 511], inStart = [0, 0, 0], mpe_mode = #VPU.mpe_mode<CUBOID_8x16>, outEnd = [27, 27, 511], outStart = [0, 0, 0], pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>}
                             } PPE : {
@@ -244,7 +244,7 @@ TEST_F(MLIR_FeasibleMemorySchedulerSpilling, RemoveComputeOpRelocationSpillsForR
                 }
 
                 %t5, %r5 = async.execute [%t4] (%r4 as %arg8: !async.value<!EltWise_CMX>) -> !async.value<!DWConv_OUT_CMX> attributes {VPUIP.executor = @DPU, VPUIP.num_units = 1 : i64} {
-                        %270 = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 8240 : i64, constantsFused = true, resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [1, 1], kernel_strides = [1, 1], mpe_engine = #VPU.MPEEngine37XX<mode = <SCL>>, task_type = #VPUIP.nce_task_type<DWCONV>}>
+                        %270 = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 8240 : i64, constantsFused = true} <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>, kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [1, 1], kernel_strides = [1, 1], mpe_engine = #VPU.MPEEngine37XX<mode = <SCL>>, task_type = #VPUIP.nce_task_type<DWCONV>}>
                         input(%arg8 : !EltWise_CMX) weights(%arg4 : !DWConv_Weights_CMX)  weight_table(%arg5 : !DWConv_WT_CMX) parent_input(%arg8 : !EltWise_CMX) parent_output(%dwconv_out_cmx : !DWConv_OUT_CMX) outputs(%dwconv_out_cmx : !DWConv_OUT_CMX) -> !DWConv_OUT_CMX  variants : {
                         DPUTask {cluster_id = 0 : i64, inEnd = [27, 9, 63], inStart = [0, 0, 0], mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, outEnd = [27, 9, 63], outStart = [0, 0, 0], pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>}
                         } PPE : {
@@ -440,7 +440,7 @@ TEST_F(MLIR_FeasibleMemorySchedulerSpilling, RemoveComputeOpRelocationSpillsForS
                 }
 
                 %t2, %r2 = async.execute [%t0, %t1] (%r0 as %arg2: !async.value<!Type_CMX>, %r1 as %arg3: !async.value<!Type_CMX>) -> !async.value<!Type_CMX> attributes {VPUIP.executor = @DPU, VPUIP.num_units = 1 : i64} {
-                    %270 = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 21125 : i64, resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{is_inplace = true, task_type = #VPUIP.nce_task_type<ELTWISE>}> input(%arg2 : !Type_CMX) weights(%arg3 : !Type_CMX) parent_input(%arg2 : !Type_CMX) parent_output(%buf_cmx_3 : !Type_CMX) outputs(%buf_cmx_3 : !Type_CMX) -> !Type_CMX  variants : {
+                    %270 = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 21125 : i64} <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>, is_inplace = true, task_type = #VPUIP.nce_task_type<ELTWISE>}> input(%arg2 : !Type_CMX) weights(%arg3 : !Type_CMX) parent_input(%arg2 : !Type_CMX) parent_output(%buf_cmx_3 : !Type_CMX) outputs(%buf_cmx_3 : !Type_CMX) -> !Type_CMX  variants : {
                             DPUTask {cluster_id = 0 : i64, mpe_mode = #VPU.mpe_mode<CUBOID_8x16>, outEnd = [15, 71, 127], outStart = [0, 0, 0], pad = #VPU.Padding<bottom = 0 : i64, left = 0 : i64, right = 0 : i64, top = 0 : i64>}
                         } PPE : {
                             PPETask {ppe = #VPU.PPEStub<>}
@@ -647,7 +647,7 @@ TEST_F(MLIR_FeasibleMemorySchedulerSpilling, OptimizeDataOpsSpillsForReRead) {
 
                 %t2, %r2 = async.execute [%t0, %t1] (%r0 as %arg2: !async.value<!Type_CMX>, %r1 as %arg3: !async.value<!Type_CMX>)
                         -> !async.value<!Type_CMX> attributes {VPUIP.executor = @DPU, VPUIP.num_units = 1 : i64} {
-                    %1 = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 21125 : i64, resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{is_inplace = true, task_type = #VPUIP.nce_task_type<ELTWISE>}>
+                    %1 = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 21125 : i64} <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>, is_inplace = true, task_type = #VPUIP.nce_task_type<ELTWISE>}>
                     input(%arg2 : !Type_CMX) weights(%arg3 : !Type_CMX) parent_input(%arg2 : !Type_CMX) parent_output(%buf_cmx_1 : !Type_CMX) outputs(%buf_cmx_1 : !Type_CMX) -> !Type_CMX  variants : {
                             DPUTask {cluster_id = 0 : i64, mpe_mode = #VPU.mpe_mode<CUBOID_8x16>, outEnd = [31, 31, 31], outStart = [0, 0, 0], pad = #VPU.Padding<bottom = 0 : i64, left = 0 : i64, right = 0 : i64, top = 0 : i64>}
                         } PPE : {
@@ -1139,7 +1139,7 @@ TEST_F(MLIR_FeasibleMemorySchedulerSpilling, RemoveRedundantSpillWrite) {
                 }
 
                 %t2, %r2 = async.execute [%t0, %t1] (%r0 as %arg2: !async.value<!Type_CMX>, %r1 as %arg3: !async.value<!Type_CMX>) -> !async.value<!Type_CMX> attributes {VPUIP.executor = @DPU, VPUIP.num_units = 1 : i64} {
-                    %1 = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 21125 : i64, resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{task_type = #VPUIP.nce_task_type<ELTWISE>}> input(%arg2 : !Type_CMX) weights(%arg3 : !Type_CMX) parent_input(%arg2 : !Type_CMX) parent_output(%buf_cmx_3 : !Type_CMX) outputs(%buf_cmx_3 : !Type_CMX) -> !Type_CMX  variants : {
+                    %1 = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 21125 : i64} <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>, task_type = #VPUIP.nce_task_type<ELTWISE>}> input(%arg2 : !Type_CMX) weights(%arg3 : !Type_CMX) parent_input(%arg2 : !Type_CMX) parent_output(%buf_cmx_3 : !Type_CMX) outputs(%buf_cmx_3 : !Type_CMX) -> !Type_CMX  variants : {
                             DPUTask {cluster_id = 0 : i64, mpe_mode = #VPU.mpe_mode<CUBOID_8x16>, outEnd = [31, 31, 31], outStart = [0, 0, 0], pad = #VPU.Padding<bottom = 0 : i64, left = 0 : i64, right = 0 : i64, top = 0 : i64>}
                         } PPE : {
                             PPETask {ppe = #VPU.PPEStub<>}
@@ -1264,8 +1264,7 @@ TEST_F(MLIR_FeasibleMemorySchedulerSpilling, SkipOptimizationForMultipleSpillRea
 
                 %t2, %r2 = async.execute [%t0, %t1] (%r0 as %arg2: !async.value<!Type_CMX>, %r1 as %arg3: !async.value<!Type_CMX>)
                         -> !async.value<!Type_CMX> attributes {VPUIP.executor = @DPU} {
-                    %1 = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 21125 : i64, resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>}
-                        <{is_inplace = true, task_type = #VPUIP.nce_task_type<ELTWISE>}>
+                    %1 = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 21125 : i64} <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>, is_inplace = true, task_type = #VPUIP.nce_task_type<ELTWISE>}>
                         input(%arg2 : !Type_CMX) weights(%arg3 : !Type_CMX)
                         parent_input(%arg2 : !Type_CMX) parent_output(%buf_cmx_1 : !Type_CMX)
                         outputs(%buf_cmx_1 : !Type_CMX) -> !Type_CMX variants : {

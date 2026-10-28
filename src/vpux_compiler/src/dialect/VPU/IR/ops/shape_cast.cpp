@@ -40,20 +40,28 @@ mlir::LogicalResult vpux::VPU::ShapeCastOp::inferReturnTypes(mlir::MLIRContext* 
     }
 
     const auto outShape = parseIntArrayAttr<int64_t>(shapeCast.getShape());
+    const auto order = DimsOrder::fromValue(shapeCast.getInput());
     const auto inType = mlir::cast<vpux::NDTypeInterface>(shapeCast.getInput().getType());
 
-    auto getDistType = [&](VPU::DistributedTypeInterface inDistInterface, bool hasNewElementType,
-                           mlir::quant::UniformQuantizedPerAxisType newElementType) {
+    auto getDistType =
+            [&](VPU::DistributedTypeInterface inDistInterface, bool hasNewElementType,
+                mlir::quant::UniformQuantizedPerAxisType newElementType) -> mlir::FailureOr<vpux::NDTypeInterface> {
+        const auto distTensorType =
+                mlir::cast<VPU::DistributedTensorType>(inDistInterface.getDistributedTypes().front());
         const auto arch = config::getArch(mlir::isa<mlir::BlockArgument>(operands[0])
                                                   ? operands[0].getParentRegion()->getParentOfType<mlir::ModuleOp>()
                                                   : operands[0].getDefiningOp());
-        const auto distAttr =
-                VPUIP::getDistributedAttrAfterShapeCast<VPU::DistributedTensorType>(inDistInterface, outShape, arch);
+        const auto distAttr = VPUIP::tryInferNewDistInfoAfterShapeChange<VPU::DistributedTensorType>(
+                distTensorType, ShapeRef(outShape), order, arch);
+        if (mlir::failed(distAttr)) {
+            return mlir::failure();
+        }
+
         if (hasNewElementType) {
             return inDistInterface.changeShapeElemTypeForExplicitDistribution(ShapeRef(outShape), newElementType,
-                                                                              distAttr);
+                                                                              distAttr.value());
         }
-        return inDistInterface.changeShapeForExplicitDistribution(ShapeRef(outShape), distAttr);
+        return inDistInterface.changeShapeForExplicitDistribution(ShapeRef(outShape), distAttr.value());
     };
 
     vpux::NDTypeInterface outType;
@@ -69,7 +77,11 @@ mlir::LogicalResult vpux::VPU::ShapeCastOp::inferReturnTypes(mlir::MLIRContext* 
 
     const auto distributedIn = mlir::dyn_cast<VPU::DistributedTypeInterface>(inType);
     if (distributedIn != nullptr && distributedIn.containsDistributedTypes()) {
-        outType = getDistType(distributedIn, hasNewElementType, newElementType);
+        const auto maybeOutType = getDistType(distributedIn, hasNewElementType, newElementType);
+        if (mlir::failed(maybeOutType)) {
+            return mlir::failure();
+        }
+        outType = maybeOutType.value();
     } else if (hasNewElementType) {
         outType = inType.changeShapeElemType(ShapeRef(outShape), newElementType);
     } else {
@@ -281,7 +293,7 @@ mlir::OpFoldResult vpux::VPU::ShapeCastOp::fold(FoldAdaptor adaptor) {
         return getInput();
     }
 
-    VPUX_THROW_UNLESS(!operands.empty(), "Wrong number of operands : {0}", operands.size());
+    VPUX_THROW_WHEN(operands.empty(), "Wrong number of operands : {0}", operands.size());
     if (mlir::dyn_cast_or_null<mlir::quant::UniformQuantizedPerAxisType>(inputType.getElementType())) {
         return nullptr;
     }
@@ -464,8 +476,8 @@ mlir::LogicalResult UniquifyShapeCast::matchAndRewrite(VPU::ShapeCastOp origOp, 
     newShape[reshapedDims[1]] = enlargeOnDim0 ? newShape[reshapedDims[1]] / factor : newShape[reshapedDims[1]] * factor;
 
     rewriter.setInsertionPointAfterValue(source);
-    auto newShapeCast = rewriter.create<VPU::ShapeCastOp>(source.getLoc(), source,
-                                                          getIntArrayAttr(rewriter.getContext(), newShape));
+    auto newShapeCast = VPU::ShapeCastOp::create(rewriter, source.getLoc(), source,
+                                                 getIntArrayAttr(rewriter.getContext(), newShape));
 
     if (sliceOnReshapedDims) {
         /*

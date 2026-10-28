@@ -38,24 +38,29 @@ public:
         return true;
     }
 
-    static bool isSupportedHWPostOp(mlir::Operation* mainOp, mlir::Operation* postOp, const LogCb& logCb) {
-        return llvm::TypeSwitch<mlir::Operation*, bool>(postOp)
-                .template Case<IE::ReLUOp, IE::LeakyReluOp>([](auto) {
+    static bool isSupportedHWPostOp(mlir::Operation* mainOp, IE::PostOpAttr postOpAttr, mlir::Value fusedOutput,
+                                    const LogCb& logCb) {
+        const auto isSprLUTSupported = [&]() {
+            return config::isSprLUTEnabled(mainOp) && !VPU::hasPerChannelQuantizedOutput(fusedOutput);
+        };
+
+        return llvm::TypeSwitch<mlir::Attribute, bool>(postOpAttr)
+                .template Case<IE::ReluAttr, IE::LeakyReluAttr>([](auto) {
                     return true;
                 })
-                .template Case<IE::TanhOp, IE::SigmoidOp, IE::SwishOp, IE::GeluOp, IE::HSwishOp>([](auto postOp) {
-                    if constexpr (std::is_same_v<std::decay_t<decltype(postOp)>, IE::SwishOp>) {
-                        auto betaAttr = postOp.getBetaValue();
-                        // Only beta >= 1.0 is supported in sprLUT
-                        if (betaAttr.has_value() && betaAttr.value().convertToDouble() < 1.0) {
-                            return false;
-                        }
-                    }
-                    // Cannot apply per-channel output scale when using sprLUT.
-                    return config::isSprLUTEnabled(postOp) && !VPU::hasPerChannelQuantizedOutput(postOp);
+                .template Case<IE::TanhAttr, IE::SigmoidAttr, IE::GeluAttr, IE::HSwishAttr>([&](auto) {
+                    return isSprLUTSupported();
                 })
-                .template Case<IE::ExpOp>([&](auto) {
-                    // if postOp output is in fp32, we cannot use sprlut to estimate exp function
+                .template Case<IE::SwishAttr>([&](IE::SwishAttr swish) {
+                    // Only beta >= 1.0 is supported in sprLUT
+                    if (swish.getBeta().getValueAsDouble() < 1.0) {
+                        return false;
+                    }
+
+                    return isSprLUTSupported();
+                })
+                .template Case<IE::ExpAttr>([&](auto) {
+                    // if the output is in fp32, we cannot use sprlut to estimate exp function
                     for (auto result : mainOp->getResults()) {
                         auto type = result.getType();
                         if (auto shapedType = mlir::dyn_cast<mlir::ShapedType>(type)) {
@@ -64,11 +69,12 @@ public:
                             }
                         }
                     }
-                    return config::isSprLUTEnabled(postOp) && !VPU::hasPerChannelQuantizedOutput(postOp);
+
+                    return isSprLUTSupported();
                 })
-                .Default([&](mlir::Operation*) {
-                    logCb(llvm::formatv("{0} at `{1}` is not supported on this HW platform", postOp->getName(),
-                                        postOp->getLoc()));
+                .Default([&](mlir::Attribute) {
+                    logCb(llvm::formatv("{0} at '{1}' is not supported on this HW platform", postOpAttr,
+                                        mainOp->getLoc()));
                     return false;
                 });
     }

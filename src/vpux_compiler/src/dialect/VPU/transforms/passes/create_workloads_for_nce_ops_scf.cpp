@@ -10,6 +10,7 @@
 #include "vpux/compiler/dialect/VPU/interfaces/strategies.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
 #include "vpux/compiler/dialect/VPU/utils/cost_model/cost_model.hpp"
+#include "vpux/compiler/dialect/VPU/utils/nce_invariant.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/scf/scf_analysis_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/workload_split_utils.hpp"
@@ -20,6 +21,7 @@
 #include "vpux/compiler/dialect/core/types.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
 #include "vpux/compiler/utils/types.hpp"
+#include "vpux/utils/core/scope_exit.hpp"
 
 #include <mlir/Dialect/Arith/IR/Arith.h>
 #include <mlir/Dialect/SCF/IR/SCF.h>
@@ -28,7 +30,6 @@
 #include <vpu_cost_model.h>
 
 #include <algorithm>
-#include <functional>
 #include <set>
 #include <utility>
 #include <vector>
@@ -44,19 +45,25 @@ using namespace VPU;
 
 namespace {
 
+struct InsertionPath {
+    mlir::OffsetSizeAndStrideOpInterface insertionOp;
+    SmallVector<VPU::TilingBuilderOpInterface> shapeTransforms;
+};
+
 /**
  * Find the insertion op (OffsetSizeAndStrideOpInterface) that consumes the NCE result.
- * Looks through tensor.cast ops. Returns nullptr if not found.
+ * Records shape-changing operations that must be back-inferred from the inserted tile.
+ * Returns std::nullopt if not found.
  *
  * Uses DestinationStyleOpInterface to identify insert-like ops (covers tensor.insert_slice).
  * tensor.parallel_insert_slice is also an insertion op but lives in the forall terminator
  * region and does not implement DestinationStyleOpInterface.
  */
-mlir::OffsetSizeAndStrideOpInterface findInsertionOp(VPU::NCEOpInterface nceOp) {
+std::optional<InsertionPath> findInsertionPath(VPU::NCEOpInterface nceOp) {
     // If the NCE result has multiple users, the insertion op is ambiguous (could lead to
     // non-deterministic shape enumeration). Fall back to bounded-shape handling.
     if (!nceOp->getResult(0).hasOneUse()) {
-        return nullptr;
+        return std::nullopt;
     }
     auto isInsertionOp = [](mlir::Operation* op) {
         return mlir::isa<mlir::DestinationStyleOpInterface>(op) || mlir::isa<mlir::tensor::ParallelInsertSliceOp>(op);
@@ -68,36 +75,54 @@ mlir::OffsetSizeAndStrideOpInterface findInsertionOp(VPU::NCEOpInterface nceOp) 
         return nullptr;
     };
 
-    // Follow the single-use chain: NCE → [tensor.cast|VPU.Copy]* → insertion_op
+    SmallVector<VPU::TilingBuilderOpInterface> shapeTransforms;
+
+    // Follow the single-use chain: NCE -> [pass-through | shape-transform]* -> insertion_op, where
+    //   pass-through   = tensor.cast | VPU.Copy | VPU.NCEEltwise  (shape-preserving, skipped silently)
+    //   shape-transform = VPU.DepthToSpace                        (recorded in shapeTransforms so the
+    //                                                              NCE tile shape can be back-inferred
+    //                                                              from the inserted slice)
     // Handles patterns like:
-    //   NCE → insert_slice
-    //   NCE → tensor.cast → insert_slice
-    //   NCE → VPU.Copy → insert_slice
-    //   NCE → tensor.cast → VPU.Copy → insert_slice
-    //   NCE → VPU.Copy → tensor.cast → insert_slice (unlikely but handled)
+    //   NCE -> insert_slice
+    //   NCE -> tensor.cast -> insert_slice
+    //   NCE -> VPU.Copy -> insert_slice
+    //   NCE -> VPU.NCEEltwise -> insert_slice
+    //   NCE -> tensor.cast -> VPU.Copy -> insert_slice
+    //   NCE -> VPU.Copy -> tensor.cast -> insert_slice (unlikely but handled)
+    //   NCE -> VPU.DepthToSpace -> insert_slice
+    // Any other user aborts the walk. The depth cap bounds the search; longer chains fall back to
+    // bounded-shape handling.
     mlir::Operation* cur = nceOp.getOperation();
-    for (int depth = 0; depth < 4; ++depth) {
+    constexpr int maxChainDepth = 4;
+    for (int depth = 0; depth < maxChainDepth; ++depth) {
         // Get the single user of the current op's result(0).
         mlir::Value result = cur->getResult(0);
         if (!result.hasOneUse()) {
-            return nullptr;
+            return std::nullopt;
         }
         mlir::Operation* user = *result.getUsers().begin();
 
         // Check if this user is the insertion op.
         if (auto iface = checkUser(user)) {
-            return iface;
+            return InsertionPath{iface, std::move(shapeTransforms)};
         }
 
-        // If it's a transparent op, continue through it.
-        if (mlir::isa<mlir::tensor::CastOp, VPU::CopyOp>(user)) {
+        // Shape-preserving user: walk through it without recording a transform. VPU.NCEEltwise
+        // qualifies because its output shape matches the operand shape.
+        if (mlir::isa<mlir::tensor::CastOp, VPU::CopyOp, VPU::NCEEltwiseOp>(user)) {
             cur = user;
             continue;
         }
 
-        return nullptr;
+        if (auto depthToSpace = mlir::dyn_cast<VPU::DepthToSpaceOp>(user)) {
+            shapeTransforms.push_back(mlir::cast<VPU::TilingBuilderOpInterface>(depthToSpace.getOperation()));
+            cur = user;
+            continue;
+        }
+
+        return std::nullopt;
     }
-    return nullptr;
+    return std::nullopt;
 }
 
 /**
@@ -115,12 +140,30 @@ struct TileShapes {
     Shape inputShape;
 };
 
+// Resolve a bounded tensor to a concrete shape for workload calculation. Bounds are substitutes only for dynamic
+// dimensions; a static dimension remains authoritative even when its carried bound is stale or less precise. For
+// example, tensor<1x?x11x16, bounds=[1, 48, 64, 16]> resolves to [1, 48, 11, 16], not [1, 48, 64, 16]. Such types
+// appear when SCF tiling makes a dimension static while preserving bounds propagated from the untiled tensor.
+Shape getShapeUsingBoundsForDynamicDims(mlir::Type type) {
+    const auto ndType = mlir::cast<vpux::NDTypeInterface>(type);
+    const auto shape = ndType.getShape();
+    auto resolvedShape = Shape(getBoundedShape(ndType));
+
+    for (const auto dim : irange(shape.size())) {
+        if (shape[Dim(dim)] != mlir::ShapedType::kDynamic) {
+            resolvedShape[Dim(dim)] = shape[Dim(dim)];
+        }
+    }
+
+    return resolvedShape;
+}
+
 /**
  * Find the OffsetSizeAndStrideOpInterface op (typically tensor.extract_slice) that
  * provides the activation slice feeding the NCE op. The lookup walks backwards through
  * optional tensor.cast / VPU.Copy ops and an optional tensor.pad in any order:
  *
- *   extract_slice → [tensor.cast|VPU.Copy|tensor.pad]* → NCE
+ *   extract_slice -> [tensor.cast|VPU.Copy|tensor.pad]* -> NCE
  *
  * If a tensor.pad is encountered anywhere in the chain, it is returned via `outPadOp`
  * so the caller can account for low/high padding when computing the effective NCE input
@@ -138,7 +181,7 @@ mlir::OffsetSizeAndStrideOpInterface findInputExtractionOp(VPU::NCEOpInterface n
         if (!defOp) {
             return nullptr;
         }
-        if (mlir::isa<mlir::tensor::CastOp, VPU::CopyOp>(defOp)) {
+        if (mlir::isa<mlir::tensor::CastOp, VPU::CopyOp, VPU::ConvertOp>(defOp)) {
             input = defOp->getOperand(0);
             continue;
         }
@@ -183,14 +226,14 @@ SmallVector<TileShapes> getUniqueDynamicTileShapes(VPU::NCEOpInterface nceOp, Lo
         return {};
     }
     const auto outShapeView = mlir::cast<vpux::NDTypeInterface>(outputType).getShape();
-    const auto outBounds = outBounded.getBounds();
+    const auto outBaseShape = getShapeUsingBoundsForDynamicDims(outputType);
 
     auto inputType = nceOp->getOperand(0).getType();
     auto inNd = mlir::cast<vpux::NDTypeInterface>(inputType);
     const auto inShapeView = inNd.getShape();
     auto inBounded = mlir::dyn_cast<vpux::Core::BoundedTensorType>(inputType);
     // Baseline input shape uses bounds (static dims) and gets dynamic dims overridden per iteration.
-    Shape inBaseShape = inBounded ? Shape(inBounded.getBounds().raw()) : inNd.getShape().toValues();
+    Shape inBaseShape = inBounded ? getShapeUsingBoundsForDynamicDims(inputType) : inNd.getShape().toValues();
 
     // Identify which dimensions are dynamic for the output and the input.
     SmallVector<int64_t> outDynDims;
@@ -210,12 +253,12 @@ SmallVector<TileShapes> getUniqueDynamicTileShapes(VPU::NCEOpInterface nceOp, Lo
         // TODO: #E220233 — Support position-dependent DPU workload padding for halo-extracted tiles
         // When the output shape is fully static, all tiles share the same output shape but may
         // still need different effective DPU padding depending on their position in the spatial
-        // grid (first/middle/last along H × W → up to 9 unique workload configurations).
+        // grid (first/middle/last along H × W -> up to 9 unique workload configurations).
         // This applies only when the SCF tiling infrastructure uses halo-based input extraction
         // (input tile is sized to provide halo data from adjacent tiles, so interior tiles can
         // run with pad=0). The current SCF flow does NOT use halo-based extraction:
-        //   - With tensor.pad: NCE pad is already 0 → all positions equivalent.
-        //   - Without tensor.pad: each tile applies its own NCE pad → all positions equivalent.
+        //   - With tensor.pad: NCE pad is already 0 -> all positions equivalent.
+        //   - Without tensor.pad: each tile applies its own NCE pad -> all positions equivalent.
         // Implementing position-dependent workloads here is a no-op for the current flow and
         // would require a halo-based input-tile detection (e.g., inputTile_H == outputTile_H +
         // (kernel_H - 1)) plus runtime offset comparisons in the workloads region.
@@ -226,11 +269,6 @@ SmallVector<TileShapes> getUniqueDynamicTileShapes(VPU::NCEOpInterface nceOp, Lo
     // the real Cartesian-product iteration count of the parent loops below.
     constexpr int64_t kMaxGeneratedShapes = 4096;
 
-    auto insertionOp = findInsertionOp(nceOp);
-    if (!insertionOp) {
-        log.trace("No insertion op found — cannot derive per-iteration output shapes");
-        return {};
-    }
     mlir::tensor::PadOp inputPadOp;
     auto extractionOp = findInputExtractionOp(nceOp, inputPadOp);
     if (!extractionOp) {
@@ -242,7 +280,16 @@ SmallVector<TileShapes> getUniqueDynamicTileShapes(VPU::NCEOpInterface nceOp, Lo
                   "input variation)");
     }
 
-    auto outMixedSizes = llvm::to_vector(insertionOp.getMixedSizes());
+    auto insertionPath = findInsertionPath(nceOp);
+    if (!insertionPath.has_value() && !extractionOp) {
+        log.trace("No insertion or input extraction op found — cannot derive per-iteration output shapes");
+        return {};
+    }
+
+    SmallVector<mlir::OpFoldResult> outMixedSizes;
+    if (insertionPath.has_value()) {
+        outMixedSizes = llvm::to_vector(insertionPath->insertionOp.getMixedSizes());
+    }
     SmallVector<mlir::OpFoldResult> inMixedSizes;
     if (extractionOp) {
         inMixedSizes = llvm::to_vector(extractionOp.getMixedSizes());
@@ -334,26 +381,10 @@ SmallVector<TileShapes> getUniqueDynamicTileShapes(VPU::NCEOpInterface nceOp, Lo
             singleMap[ivOrder[i]] = {ivValuesOrder[i][idx[i]]};
         }
 
-        // Evaluate output shape for the current iteration.
-        Shape outShape(outBounds.raw());
-        bool ok = true;
-        for (auto dimI : outDynDims) {
-            if (dimI >= static_cast<int64_t>(outMixedSizes.size())) {
-                ok = false;
-                break;
-            }
-            auto v = evalSingle(outMixedSizes[dimI], singleMap);
-            if (!v.has_value() || *v <= 0) {
-                ok = false;
-                break;
-            }
-            outShape[Dim(dimI)] = *v;
-        }
-
         // Evaluate input shape for the current iteration (extract_slice + optional tensor.pad).
-        // If there is no extractionOp, input is iteration-invariant — keep the baseline.
         Shape inShape(inBaseShape);
-        if (ok && extractionOp) {
+        bool ok = true;
+        if (extractionOp) {
             for (auto dimI : inDynDims) {
                 if (dimI >= static_cast<int64_t>(inMixedSizes.size())) {
                     ok = false;
@@ -381,6 +412,60 @@ SmallVector<TileShapes> getUniqueDynamicTileShapes(VPU::NCEOpInterface nceOp, Lo
                     }
                 }
                 inShape[Dim(dimI)] = sz;
+            }
+        }
+
+        // Prefer the insertion tile because it also captures downstream shape transforms. Intermediate NCE ops may
+        // not have an insertion path; derive their dynamic spatial output dimensions from the concrete activation
+        // tile instead of using the full bounded tensor shape.
+        Shape outShape(outBaseShape);
+        if (ok && insertionPath.has_value()) {
+            Shape insertedShape(outMixedSizes.size());
+            for (const auto dimI : irange(outMixedSizes.size())) {
+                auto v = evalSingle(outMixedSizes[dimI], singleMap);
+                if (!v.has_value() || *v <= 0) {
+                    ok = false;
+                    break;
+                }
+                insertedShape[Dim(dimI)] = *v;
+            }
+
+            if (ok) {
+                TileInfo outputTile(insertedShape);
+                for (auto shapeTransform : insertionPath->shapeTransforms | reversed) {
+                    auto inputTiling = shapeTransform.backInferTileInfo(outputTile, log.nest());
+                    if (inputTiling.tiles.size() != 1) {
+                        ok = false;
+                        break;
+                    }
+                    outputTile = inputTiling.tiles.front();
+                }
+                if (ok) {
+                    outShape = outputTile.shape;
+                }
+            }
+        } else if (ok) {
+            const auto kernel = nceOp.getKernelSizeVal();
+            const auto strides = nceOp.getStridesVal();
+            const auto padding = VPU::toPadInfo(nceOp.getPad());
+            const std::array spatialDims = {std::tuple{Dims4D::Act::H, kernel[Dims4D::Kernel::Y.ind()],
+                                                       strides[Dims4D::Strides::Y.ind()], padding.top, padding.bottom},
+                                            std::tuple{Dims4D::Act::W, kernel[Dims4D::Kernel::X.ind()],
+                                                       strides[Dims4D::Strides::X.ind()], padding.left, padding.right}};
+            for (const auto& [dim, kernelSize, stride, padBefore, padAfter] : spatialDims) {
+                if (outShapeView[dim] != mlir::ShapedType::kDynamic) {
+                    continue;
+                }
+                outShape[dim] = (inShape[dim] + padBefore + padAfter - kernelSize) / stride + 1;
+                if (outShape[dim] <= 0) {
+                    ok = false;
+                    break;
+                }
+            }
+            if (llvm::any_of(outDynDims, [&](int64_t dim) {
+                    return dim != Dims4D::Act::H.ind() && dim != Dims4D::Act::W.ind();
+                })) {
+                ok = false;
             }
         }
 
@@ -496,6 +581,18 @@ ShapeWorkloads computeWorkloadsForShape(VPU::NCEOpInterface nceOp, const Shape& 
     // Uses the pre-built cost params and explicit output shape for MPE mode computation.
     // generateWorkloadDescriptors sets DPUCost on the op as a side-effect.
     auto originalDPUCostAttr = nceOp->getAttrOfType<mlir::IntegerAttr>(DPUCost);
+    SmallVector<std::pair<unsigned, mlir::Type>> originalInputTypes;
+    VPUX_SCOPE_EXIT {
+        for (auto& [idx, origType] : originalInputTypes) {
+            nceOp->getOperand(idx).setType(origType);
+        }
+
+        if (originalDPUCostAttr) {
+            nceOp->setAttr(DPUCost, originalDPUCostAttr);
+        } else {
+            nceOp->removeAttr(DPUCost);
+        }
+    };
 
     int64_t dpuCost = 0;
     result.descriptors =
@@ -505,8 +602,6 @@ ShapeWorkloads computeWorkloadsForShape(VPU::NCEOpInterface nceOp, const Shape& 
     // Apply corrections and back-infer input workloads
     // These functions still read from the op's input types, so we temporarily set them
     // to the resolved static shapes. The output type is NOT mutated.
-    SmallVector<std::pair<unsigned, mlir::Type>> originalInputTypes;
-
     for (unsigned i = 0; i < nceOp->getNumOperands(); ++i) {
         auto opInputType = nceOp->getOperand(i).getType();
         auto opInputNdType = mlir::dyn_cast<vpux::NDTypeInterface>(opInputType);
@@ -536,9 +631,6 @@ ShapeWorkloads computeWorkloadsForShape(VPU::NCEOpInterface nceOp, const Shape& 
             inShape[Dims4D::Act::C] = channelSize;
         }
         auto operandVal = nceOp->getOperand(i);
-        VPUX_THROW_UNLESS(operandVal.hasOneUse(),
-                          "WorkloadsForNCEOpsSCF: temporary type mutation requires operand #{0} to have a single use",
-                          i);
         originalInputTypes.push_back({i, opInputType});
         operandVal.setType(vpux::getTensorType(ShapeRef(inShape), opInputNdType.getElementType(),
                                                opInputNdType.getDimsOrder(), opInputNdType.getMemSpace()));
@@ -547,18 +639,6 @@ ShapeWorkloads computeWorkloadsForShape(VPU::NCEOpInterface nceOp, const Shape& 
     VPU::correctWorkloadDescriptors(nceOp, result.descriptors, ctx, log, &result.supportedChannels);
 
     VPU::backInferInputWorkloads(nceOp, result.descriptors, log);
-
-    // Restore mutated state
-    for (auto& [idx, origType] : originalInputTypes) {
-        nceOp->getOperand(idx).setType(origType);
-    }
-
-    // Restore original DPUCost attribute (generateWorkloadDescriptors overwrites it).
-    if (originalDPUCostAttr) {
-        nceOp->setAttr(DPUCost, originalDPUCostAttr);
-    } else {
-        nceOp->removeAttr(DPUCost);
-    }
 
     return result;
 }
@@ -591,10 +671,10 @@ void WorkloadsForNCEOpsSCFPass::safeRunOnFunc() {
     const auto arch = config::getArch(module);
 
     auto nceCluster = config::getTileExecutor(module);
-    VPUX_THROW_UNLESS(nceCluster != nullptr, "Failed to get NCE_Cluster information");
+    VPUX_THROW_WHEN(nceCluster == nullptr, "Failed to get NCE_Cluster information");
 
     auto dpuExec = nceCluster.getSubExecutor(config::ExecutorKind::DPU);
-    VPUX_THROW_UNLESS(dpuExec != nullptr, "Failed to get DPU information");
+    VPUX_THROW_WHEN(dpuExec == nullptr, "Failed to get DPU information");
     const auto numDPUs = dpuExec.getCount();
 
     auto maybeCostModelAnalysis = getCachedParentAnalysis<VPU::CostModelAnalysis>(module);
@@ -627,17 +707,14 @@ void WorkloadsForNCEOpsSCFPass::safeRunOnFunc() {
         // border tiles whose input slice differs from interior tiles with the same output shape).
         SmallVector<TileShapes> tileShapes;
         if (!outputShape.isDynamic()) {
-            Shape inShape;
-            if (auto ib = mlir::dyn_cast<vpux::Core::BoundedTensorType>(inputType)) {
-                inShape = Shape(ib.getBounds().raw());
-            } else {
-                inShape = inputNdType.getShape().toValues();
-            }
+            Shape inShape = mlir::isa<vpux::Core::BoundedTensorType>(inputType)
+                                    ? getShapeUsingBoundsForDynamicDims(inputType)
+                                    : inputNdType.getShape().toValues();
             tileShapes.push_back({outputShape.toValues(), std::move(inShape)});
         } else {
             auto boundedType = mlir::dyn_cast<vpux::Core::BoundedTensorType>(outputType);
-            VPUX_THROW_UNLESS(boundedType != nullptr, "NCE op at '{0}' has dynamic output without bounds",
-                              nceOp->getLoc());
+            VPUX_THROW_WHEN(boundedType == nullptr, "NCE op at '{0}' has dynamic output without bounds",
+                            nceOp->getLoc());
 
             // Enumerate per-iteration (output, input) tile shapes from parent scf.for / scf.forall
             // loops, accounting for tensor.pad on the input. Two iterations sharing an output
@@ -650,13 +727,10 @@ void WorkloadsForNCEOpsSCFPass::safeRunOnFunc() {
                 // insert_slice (e.g., multi-step reductions where the first NCE feeds
                 // a second reduction op rather than being inserted back into an accumulator).
                 _log.trace("Falling back to bounded shapes for op at '{0}'", nceOp->getLoc());
-                Shape outShape(boundedType.getBounds().raw());
-                Shape inShape;
-                if (auto ib = mlir::dyn_cast<vpux::Core::BoundedTensorType>(inputType)) {
-                    inShape = Shape(ib.getBounds().raw());
-                } else {
-                    inShape = inputNdType.getShape().toValues();
-                }
+                Shape outShape = getShapeUsingBoundsForDynamicDims(outputType);
+                Shape inShape = mlir::isa<vpux::Core::BoundedTensorType>(inputType)
+                                        ? getShapeUsingBoundsForDynamicDims(inputType)
+                                        : inputNdType.getShape().toValues();
                 tileShapes.push_back({std::move(outShape), std::move(inShape)});
             }
         }
@@ -671,17 +745,18 @@ void WorkloadsForNCEOpsSCFPass::safeRunOnFunc() {
         if (VPU::isDepthwiseOp(nceOp.getOperation())) {
             const auto& strategyFactory = VPU::getVPUStrategyFactory(&ctx);
             const auto supportedDW = strategyFactory->getSupportedChannelsDW();
-            const int64_t minDW = supportedDW.empty() ? 16 : supportedDW.back();
+            const int64_t minDW = !supportedDW.empty() ? supportedDW.back() : VPU::NCEInvariant::VPU_CHANNEL_ALIGNMENT;
             bool hasInvalidChannels = false;
             for (const auto& ts : tileShapes) {
                 auto ch = ts.outputShape[Dims4D::Act::C];
-                if (ch % minDW != 0) {
-                    _log.warning("Skipping workload generation for DW op at '{0}': channel count {1} is not a "
-                                 "multiple of minimum supported DW channel size {2}",
-                                 nceOp->getLoc(), ch, minDW);
-                    hasInvalidChannels = true;
-                    break;
+                if (ch % minDW == 0) {
+                    continue;
                 }
+                _log.warning("Skipping workload generation for DW op at '{0}': channel count {1} is not a "
+                             "multiple of minimum supported DW channel size {2}",
+                             nceOp->getLoc(), ch, minDW);
+                hasInvalidChannels = true;
+                break;
             }
             if (hasInvalidChannels) {
                 return;
@@ -713,19 +788,19 @@ void WorkloadsForNCEOpsSCFPass::safeRunOnFunc() {
                 mlir::IntegerAttr clusterIdAttr =
                         wl.clusterId.has_value() ? getIntAttr(&ctx, wl.clusterId.value()) : nullptr;
                 auto padAttr = VPU::getPaddingAttr(&ctx, wl.padding);
-                if (!wl.inOffsets.empty() && !wl.inSizes.empty()) {
-                    auto outOffsetsAttr = mlir::DenseI64ArrayAttr::get(&ctx, wl.outOffsets.raw());
-                    auto outSizesAttr = mlir::DenseI64ArrayAttr::get(&ctx, wl.outSizes.raw());
-                    auto inOffsetsAttr = mlir::DenseI64ArrayAttr::get(&ctx, wl.inOffsets.raw());
-                    auto inSizesAttr = mlir::DenseI64ArrayAttr::get(&ctx, wl.inSizes.raw());
-                    b.create<VPU::DPUWorkloadOp>(nceOp->getLoc(), outOffsetsAttr, outSizesAttr, inOffsetsAttr,
-                                                 inSizesAttr, padAttr, mpeModeAttr, clusterIdAttr);
-                } else {
-                    auto outOffsetsAttr = mlir::DenseI64ArrayAttr::get(&ctx, wl.outOffsets.raw());
-                    auto outSizesAttr = mlir::DenseI64ArrayAttr::get(&ctx, wl.outSizes.raw());
-                    b.create<VPU::DPUWorkloadOp>(nceOp->getLoc(), outOffsetsAttr, outSizesAttr, padAttr, mpeModeAttr,
-                                                 clusterIdAttr);
+
+                auto outOffsetsAttr = mlir::DenseI64ArrayAttr::get(&ctx, wl.outOffsets.raw());
+                auto outSizesAttr = mlir::DenseI64ArrayAttr::get(&ctx, wl.outSizes.raw());
+
+                if (wl.inOffsets.empty() || wl.inSizes.empty()) {
+                    VPU::DPUWorkloadOp::create(b, nceOp->getLoc(), outOffsetsAttr, outSizesAttr, padAttr, mpeModeAttr,
+                                               clusterIdAttr);
+                    continue;
                 }
+                auto inOffsetsAttr = mlir::DenseI64ArrayAttr::get(&ctx, wl.inOffsets.raw());
+                auto inSizesAttr = mlir::DenseI64ArrayAttr::get(&ctx, wl.inSizes.raw());
+                VPU::DPUWorkloadOp::create(b, nceOp->getLoc(), outOffsetsAttr, outSizesAttr, inOffsetsAttr, inSizesAttr,
+                                           padAttr, mpeModeAttr, clusterIdAttr);
             }
         };
 
@@ -739,93 +814,87 @@ void WorkloadsForNCEOpsSCFPass::safeRunOnFunc() {
                 preBuilder.setInsertionPoint(nceOp);
                 auto input = nceOp->getOperand(0);
                 auto channelDimIdx =
-                        preBuilder.create<mlir::arith::ConstantIndexOp>(nceOp->getLoc(), Dims4D::Act::C.ind());
-                auto dynChannelCount = preBuilder.create<mlir::tensor::DimOp>(nceOp->getLoc(), input, channelDimIdx);
+                        mlir::arith::ConstantIndexOp::create(preBuilder, nceOp->getLoc(), Dims4D::Act::C.ind());
+                auto dynChannelCount = mlir::tensor::DimOp::create(preBuilder, nceOp->getLoc(), input, channelDimIdx);
                 VPU::materializeWorkloadsDynamic(nceOp, builder, sw.descriptors, dynChannelCount, sw.supportedChannels,
                                                  _log);
             } else {
                 VPU::materializeWorkloads(nceOp, builder, sw.descriptors);
             }
-        } else {
-            // Multiple unique tile shapes — emit conditional materialization.
-            // Dispatch on the NCE op's INPUT dynamic dims via tensor.dim: input is fully
-            // accessible before the NCE op, and each tile is uniquely identified by its
-            // input shape (border-vs-interior distinction is captured in the input shape
-            // when tensor.pad augments the extract_slice).
-            mlir::OpBuilder preBuilder(&ctx);
-            preBuilder.setInsertionPoint(nceOp);
-            auto input = nceOp->getOperand(0);
+            // computeWorkloadsForShape restores/removes DPUCost internally (to avoid
+            // side-effects from multi-shape calls), so without this the final IR would
+            // have no DPUCost even though workloads were generated.
+            nceOp->setAttr(DPUCost, getIntAttr(&ctx, sw.dpuCost));
+            return;
+        }
 
-            // Capture runtime sizes for every dynamic dim of the NCE input.
-            // If the input is fully static, fall back to dispatching on output dynamic dims.
-            SmallVector<int64_t> dispatchDimIndices;
-            SmallVector<mlir::Value> runtimeDimSizes;
+        // Multiple unique tile shapes — emit conditional materialization.
+        // Dispatch on the NCE op's INPUT dynamic dims via tensor.dim: input is fully
+        // accessible before the NCE op, and each tile is uniquely identified by its
+        // input shape (border-vs-interior distinction is captured in the input shape
+        // when tensor.pad augments the extract_slice).
+        mlir::OpBuilder preBuilder(&ctx);
+        preBuilder.setInsertionPoint(nceOp);
+        auto input = nceOp->getOperand(0);
 
-            for (int64_t i = 0; i < static_cast<int64_t>(inputShapeView.size()); ++i) {
-                if (inputShapeView[Dim(i)] == mlir::ShapedType::kDynamic) {
-                    dispatchDimIndices.push_back(i);
-                    auto dimIdx = preBuilder.create<mlir::arith::ConstantIndexOp>(nceOp->getLoc(), i);
-                    auto dynSize = preBuilder.create<mlir::tensor::DimOp>(nceOp->getLoc(), input, dimIdx);
-                    runtimeDimSizes.push_back(dynSize);
-                }
+        // Capture runtime sizes for every dynamic dim of the NCE input.
+        // Note: multi-shape materialization requires at least one dynamic input dim to dispatch on.
+        SmallVector<int64_t> dispatchDimIndices;
+        SmallVector<mlir::Value> runtimeDimSizes;
+
+        for (int64_t i = 0; i < static_cast<int64_t>(inputShapeView.size()); ++i) {
+            if (inputShapeView[Dim(i)] != mlir::ShapedType::kDynamic) {
+                continue;
             }
+            dispatchDimIndices.push_back(i);
+            auto dimIdx = mlir::arith::ConstantIndexOp::create(preBuilder, nceOp->getLoc(), i);
+            auto dynSize = mlir::tensor::DimOp::create(preBuilder, nceOp->getLoc(), input, dimIdx);
+            runtimeDimSizes.push_back(dynSize);
+        }
 
-            if (dispatchDimIndices.empty()) {
-                VPUX_THROW("Cannot materialize multi-shape workloads for op at '{0}': input has no "
-                           "dynamic dimensions to dispatch on (output dimensions are not available "
-                           "before the op is defined)",
-                           nceOp->getLoc());
-            }
+        VPUX_THROW_WHEN(dispatchDimIndices.empty(),
+                        "Cannot materialize multi-shape workloads for op at '{0}': input has no "
+                        "dynamic dimensions to dispatch on (output dimensions are not available "
+                        "before the op is defined)",
+                        nceOp->getLoc());
 
-            // Pre-create comparison conditions for each tile (AND over dispatch dynamic dims).
-            SmallVector<mlir::Value> conditions;
-            for (size_t i = 0; i + 1 < perShapeWorkloads.size(); ++i) {
-                const auto& shape = perShapeWorkloads[i].inputShape;
-                mlir::Value cond;
-                for (size_t d = 0; d < dispatchDimIndices.size(); ++d) {
-                    auto expectedSize = shape[Dim(dispatchDimIndices[d])];
-                    auto sizeConst = preBuilder.create<mlir::arith::ConstantIndexOp>(nceOp->getLoc(), expectedSize);
-                    auto dimCmp = preBuilder.create<mlir::arith::CmpIOp>(
-                            nceOp->getLoc(), mlir::arith::CmpIPredicate::eq, runtimeDimSizes[d], sizeConst);
-                    if (!cond) {
-                        cond = dimCmp;
-                    } else {
-                        cond = preBuilder.create<mlir::arith::AndIOp>(nceOp->getLoc(), cond, dimCmp);
-                    }
-                }
-                conditions.push_back(cond);
-            }
-
-            auto& workloadRegion = nceOp.getWorkloads();
-            if (workloadRegion.empty()) {
-                workloadRegion.emplaceBlock();
-            }
-
-            builder.setInsertionPointToEnd(&workloadRegion.front());
-
-            // Build nested scf.if chain inside the workloads region:
-            //   if (cond[0]) { wl0 } else if (cond[1]) { wl1 } ... else { wlN }
-            std::function<void(mlir::OpBuilder&, size_t)> emitConditional;
-            emitConditional = [&](mlir::OpBuilder& b, size_t idx) {
-                if (idx == perShapeWorkloads.size() - 1) {
-                    emitWorkloads(b, perShapeWorkloads[idx].descriptors);
-                    return;
-                }
-
-                auto ifOp = b.create<mlir::scf::IfOp>(nceOp->getLoc(), conditions[idx],
-                                                      /*withElseRegion=*/true);
-                {
-                    auto thenBuilder = ifOp.getThenBodyBuilder();
-                    emitWorkloads(thenBuilder, perShapeWorkloads[idx].descriptors);
-                }
-                {
-                    auto elseBuilder = ifOp.getElseBodyBuilder();
-                    emitConditional(elseBuilder, idx + 1);
-                }
+        // Pre-create comparison conditions for each tile (AND over dispatch dynamic dims).
+        SmallVector<mlir::Value> conditions;
+        for (size_t i = 0; i + 1 < perShapeWorkloads.size(); ++i) {
+            const auto& shape = perShapeWorkloads[i].inputShape;
+            auto dimCmp = [&](size_t d) {
+                auto expectedSize = shape[Dim(dispatchDimIndices[d])];
+                auto sizeConst = mlir::arith::ConstantIndexOp::create(preBuilder, nceOp->getLoc(), expectedSize);
+                return mlir::arith::CmpIOp::create(preBuilder, nceOp->getLoc(), mlir::arith::CmpIPredicate::eq,
+                                                   runtimeDimSizes[d], sizeConst);
             };
 
-            emitConditional(builder, 0);
+            mlir::Value cond = dimCmp(0);
+            for (size_t d = 1; d < dispatchDimIndices.size(); ++d) {
+                cond = mlir::arith::AndIOp::create(preBuilder, nceOp->getLoc(), cond, dimCmp(d));
+            }
+            conditions.push_back(cond);
         }
+
+        auto& workloadRegion = nceOp.getWorkloads();
+        if (workloadRegion.empty()) {
+            workloadRegion.emplaceBlock();
+        }
+
+        builder.setInsertionPointToEnd(&workloadRegion.front());
+
+        // Build nested scf.if chain inside the workloads region:
+        //   if (cond[0]) { wl0 } else if (cond[1]) { wl1 } ... else { wlN }
+        // Each else-region builder is used exactly once, so the chain is a plain loop.
+        auto curBuilder = builder;
+        for (size_t idx = 0; idx + 1 < perShapeWorkloads.size(); ++idx) {
+            auto ifOp = mlir::scf::IfOp::create(curBuilder, nceOp->getLoc(), conditions[idx],
+                                                /*withElseRegion=*/true);
+            auto thenBuilder = ifOp.getThenBodyBuilder();
+            emitWorkloads(thenBuilder, perShapeWorkloads[idx].descriptors);
+            curBuilder = ifOp.getElseBodyBuilder();
+        }
+        emitWorkloads(curBuilder, perShapeWorkloads.back().descriptors);
 
         // Set a deterministic DPUCost attribute on the NCE op. computeWorkloadsForShape
         // restores/removes DPUCost internally (to avoid side-effects from multi-shape calls),

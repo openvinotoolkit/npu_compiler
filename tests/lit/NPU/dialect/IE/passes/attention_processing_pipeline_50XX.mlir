@@ -74,7 +74,7 @@ func.func @GQAPrefillAttentionPipeline(
   return %out : tensor<1x32x1024x128xf16>
 
   // CHECK-DAG: [[CST_SUM:%.+]] = const.Declare tensor<1x32x1024xf32> = dense<0.000000e+00>
-  // CHECK-DAG: [[CST_MAX:%.+]] = const.Declare tensor<1x32x1024xf16> = dense<0xFC00>
+  // CHECK-DAG: [[CST_MAX:%.+]] = const.Declare tensor<1x32x1024xf16> = dense<-6.550400e+04>
   // CHECK-DAG: [[CST_OUT:%.+]] = const.Declare tensor<1x32x1024x128xf16> = dense<0.000000e+00>
   // Q is [1,32,1024,128] (batch=1, 32 Q heads); K/V tiles are [1,8,...] (8 KV heads).
   // FlashSDPA handles GQA natively (qH=32 > kvH=8). The FuseAttention GQA fold
@@ -191,7 +191,7 @@ func.func @GQADecodeAttentionPipeline(
   return %out : tensor<1x32x1x128xf16>
 
   // CHECK-DAG: [[CST_SUM:%.+]] = const.Declare tensor<1x32x1xf32> = dense<0.000000e+00>
-  // CHECK-DAG: [[CST_MAX:%.+]] = const.Declare tensor<1x32x1xf16> = dense<0xFC00>
+  // CHECK-DAG: [[CST_MAX:%.+]] = const.Declare tensor<1x32x1xf16> = dense<-6.550400e+04>
   // CHECK-DAG: [[CST_OUT:%.+]] = const.Declare tensor<1x32x1x128xf16> = dense<0.000000e+00>
   // Q is [1,32,1,128] (batch=1, 32 Q heads); K/V tiles are [1,8,...] (8 KV heads).
   // FlashSDPA handles GQA natively (qH=32 > kvH=8). The FuseAttention GQA fold

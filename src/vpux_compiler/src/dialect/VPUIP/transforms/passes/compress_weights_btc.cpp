@@ -3,8 +3,9 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
+#include "mlir/Dialect/Quant/IR/QuantTypes.h"
 #include "vpux/compiler/core/attributes/stride_reqs.hpp"
-#include "vpux/compiler/core/types/quantile_float/types.hpp"
+#include "vpux/compiler/core/types/quantile_types/types.hpp"
 #include "vpux/compiler/dialect/VPU/utils/explicit_distribution_utils.hpp"
 #include "vpux/compiler/dialect/VPUIP/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPUIP/IR/ops.hpp"
@@ -207,20 +208,20 @@ mlir::LogicalResult NNDMAOpConverter::matchAndRewrite(VPUIP::NNDMAOp origOp, mli
     newDstType = newDstType.changeDimsOrder(DimsOrder::NCHW);
 
     rewriter.setInsertionPointAfter(outBufferOp);
-    auto newDstBufferOp = rewriter.create<VPURT::DeclareBufferOp>(
-            outBufferOp->getLoc(), newDstType, outBufferOp.getSectionAttr(), outBufferOp.getSectionIndexAttr(),
-            outBufferOp.getByteOffsetAttr(), outBufferOp.getSwizzlingKeyAttr());
+    auto newDstBufferOp = VPURT::DeclareBufferOp::create(
+            rewriter, outBufferOp->getLoc(), newDstType, outBufferOp.getSectionAttr(),
+            outBufferOp.getSectionIndexAttr(), outBufferOp.getByteOffsetAttr(), outBufferOp.getSwizzlingKeyAttr());
 
     rewriter.setInsertionPointAfter(inConstOp);
-    auto newSrcConstOp = rewriter.create<Const::DeclareOp>(inConstOp->getLoc(), newSrcType,
-                                                           Const::ContentAttr::get(newSrcContentAttr));
+    auto newSrcConstOp = Const::DeclareOp::create(rewriter, inConstOp->getLoc(), newSrcType,
+                                                  Const::ContentAttr::get(newSrcContentAttr));
 
     VPUIP::DMAEncodingAlgoAttr dmaEncodingAlgoAttr = nullptr;
     rewriter.setInsertionPoint(origOp);
-    rewriter.create<VPUIP::DecompressDMAOp>(loc, newSrcConstOp.getOutput(), /*act_compression_size_entry*/ nullptr,
-                                            /*act_compression_sparsity_map*/ nullptr, newDstBufferOp.getBuffer(),
-                                            origOp.getPortAttr(), origOp.getIsOutOfOrder(), origOp.getIsCritical(),
-                                            /*dmaHwpId=*/nullptr, /*profilingMetadata=*/nullptr, dmaEncodingAlgoAttr);
+    VPUIP::DecompressDMAOp::create(rewriter, loc, newSrcConstOp.getOutput(), /*act_compression_size_entry*/ nullptr,
+                                   /*act_compression_sparsity_map*/ nullptr, newDstBufferOp.getBuffer(),
+                                   origOp.getPortAttr(), origOp.getIsOutOfOrder(), origOp.getIsCritical(),
+                                   /*dmaHwpId=*/nullptr, /*profilingMetadata=*/nullptr, dmaEncodingAlgoAttr);
     rewriter.replaceOp(origOp, {outBufferOp.getBuffer()});
 
     const auto uncompressed = totalInputSize.count();

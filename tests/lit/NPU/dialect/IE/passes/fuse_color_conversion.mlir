@@ -47,11 +47,11 @@ func.func @FuseYuvToRgbWithFQ(%arg0: tensor<1x368x432x1xui8>, %arg1: tensor<1x18
     %cst_11 = const.Declare tensor<1x1x1x1xf32> = dense<255.0> : tensor<1x1x1x1xf32>
     %cst_12 = const.Declare tensor<1x1x1x1xf32> = dense<0.000000e+00> : tensor<1x1x1x1xf32>
     %cst_13 = const.Declare tensor<1x1x1x1xf32> = dense<255.0> : tensor<1x1x1x1xf32>
-    %cst_14 = const.Declare tensor<1x1x1x1xf32> = dense<-0.00317719812> : tensor<1x1x1x1xf32>
-    %cst_15 = const.Declare tensor<1x1x1x1xf32> = dense<0.00792123377> : tensor<1x1x1x1xf32>
-    %cst_16 = const.Declare tensor<3x3x1x1xf32> = dense<[[[[0.00456994]], [[0.00792123]], [[0.00000000]]], [[[0.00456994]], [[-0.00152331]], [[-0.00317720]]], [[[0.00456994]], [[0.00000000]], [[0.00626735]]]]> : tensor<3x3x1x1xf32>
 
-    %conv_weights_fq = IE.FakeQuantize(%cst_16, %cst_12, %cst_13, %cst_14, %cst_15) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i64} : tensor<3x3x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32> -> tensor<3x3x1x1xf32>
+    %conv_weights_raw = const.Declare tensor<3x3x1x1xsi8> = dense<[[[[3]], [[5]], [[0]]], [[[3]], [[-1]], [[-2]]], [[[3]], [[0]], [[4]]]]> : tensor<3x3x1x1xsi8>
+    %conv_weights_scale = const.Declare tensor<1x1x1x1xf32> = dense<0.00152331> : tensor<1x1x1x1xf32>
+    %conv_weights_dq = IE.DynamicDequantize(%conv_weights_raw, %conv_weights_scale) {dstElemType = f32} : tensor<3x3x1x1xsi8>, tensor<1x1x1x1xf32> -> tensor<3x3x1x1xf32>
+
     %y_convert = IE.Convert(%arg0) {dstElemType = f32} : tensor<1x368x432x1xui8> -> tensor<1x368x432x1xf32>
     %y_reshape = IE.AffineReshape(%y_convert) {dim_mapping = [[0, 1], [2], [3], [3]], shape_value = [1, 1, 368, 432]} : tensor<1x368x432x1xf32> -> tensor<1x1x368x432xf32>
     %uv_convert = IE.Convert(%arg1) {dstElemType = f32} : tensor<1x184x216x2xui8> -> tensor<1x184x216x2xf32>
@@ -60,7 +60,7 @@ func.func @FuseYuvToRgbWithFQ(%arg0: tensor<1x368x432x1xui8>, %arg1: tensor<1x18
     %uv_fq = IE.FakeQuantize(%uv_interpolate, %cst, %cst_0, %cst_1, %cst_2) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i64} : tensor<1x2x368x432xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32> -> tensor<1x2x368x432xf32>
     %concat = IE.Concat(%y_reshape, %uv_fq) {static_offsets = [[0, 0, 0, 0], [0, 1, 0, 0]]} : tensor<1x1x368x432xf32>, tensor<1x2x368x432xf32> -> tensor<1x3x368x432xf32>
     %concat_fq = IE.FakeQuantize(%concat, %cst_3, %cst_4, %cst_5, %cst_6) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i64} : tensor<1x3x368x432xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32> -> tensor<1x3x368x432xf32>
-    %conv = IE.Convolution(%concat_fq, %conv_weights_fq) {dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]} : tensor<1x3x368x432xf32>, tensor<3x3x1x1xf32> -> tensor<1x3x368x432xf32>
+    %conv = IE.Convolution(%concat_fq, %conv_weights_dq) {dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]} : tensor<1x3x368x432xf32>, tensor<3x3x1x1xf32> -> tensor<1x3x368x432xf32>
     %add = IE.Add(%conv, %cst_7) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x3x368x432xf32>, tensor<1x3x1x1xf32> -> tensor<1x3x368x432xf32>
     %final_fq = IE.FakeQuantize(%add, %cst_8, %cst_9, %cst_10, %cst_11) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i64} : tensor<1x3x368x432xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32> -> tensor<1x3x368x432xf32>
 
@@ -71,7 +71,6 @@ func.func @FuseYuvToRgbWithFQ(%arg0: tensor<1x368x432x1xui8>, %arg1: tensor<1x18
     // CHECK: [[YUV_TO_RGB:%.+]] = IE.YuvToRgb([[Y_CONVERT]], [[UV_CONVERT]]) {inFmt = #IE.color_fmt<NV12>, operandSegmentSizes = array<i32: 1, 1, 0>, outFmt = #IE.color_fmt<BGR>, scale = 1.000000e+00 : f32} : tensor<1x368x432x1xf32>, tensor<1x184x216x2xf32> -> tensor<1x368x432x3xf32>
     // CHECK: [[TRANSPOSE:%.+]] = IE.Transpose([[YUV_TO_RGB]]) {order_value = #NWCH} : tensor<1x368x432x3xf32> -> tensor<1x3x368x432xf32>
     // CHECK: return [[TRANSPOSE]] : tensor<1x3x368x432xf32>
-
 }
 
 // -----
@@ -257,11 +256,9 @@ func.func @FuseDynamicColorSpaceConversion(%arg0: tensor<1x?x?x1xf16, {bounds = 
     %cst_2 = const.Declare tensor<1x3x1x1xf32> = dense<[[[[-1.0332917]], [[0.529001474]], [[-0.884533047]]]]> : tensor<1x3x1x1xf32>
     %cst_3 = const.Declare tensor<1x1x1x1xf32> = dense<1.000000e+00> : tensor<1x1x1x1xf32>
     %cst_4 = const.Declare tensor<1x1x1x1xf32> = dense<0.000000e+00> : tensor<1x1x1x1xf32>
-    %cst_5 = const.Declare tensor<1x1x1x1xf32> = dense<2.550000e+02> : tensor<1x1x1x1xf32>
-    %cst_6 = const.Declare tensor<1x1x1x1xf32> = dense<-0.00313748303> : tensor<1x1x1x1xf32>
-    %cst_7 = const.Declare tensor<1x1x1x1xf32> = dense<0.00782221835> : tensor<1x1x1x1xf32>
-    %cst_8 = const.Declare tensor<3x3x1x1xf32> = dense<[[[[200]], [[189]], [[134]]], [[[23]], [[52]], [[0]]], [[[209]], [[38]], [[169]]]]> : tensor<3x3x1x1xui8>, [#const.CastElemType<f32>]
-    %0 = IE.FakeQuantize(%cst_8, %cst_4, %cst_5, %cst_6, %cst_7) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i64} : tensor<3x3x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32> -> tensor<3x3x1x1xf32>
+    %conv_weights_raw = const.Declare tensor<3x3x1x1xsi8> = dense<[[[[3]], [[5]], [[0]]], [[[3]], [[-1]], [[-2]]], [[[3]], [[0]], [[4]]]]> : tensor<3x3x1x1xsi8>
+    %conv_weights_scale = const.Declare tensor<1x1x1x1xf32> = dense<0.00152331> : tensor<1x1x1x1xf32>
+    %0 = IE.DynamicDequantize(%conv_weights_raw, %conv_weights_scale) {dstElemType = f32} : tensor<3x3x1x1xsi8>, tensor<1x1x1x1xf32> -> tensor<3x3x1x1xf32>
     %1 = IE.Convert(%arg0) {dstElemType = f32} : tensor<1x?x?x1xf16, {bounds = #const.OpaqueI64Elements<[1, 1440, 2560, 1]> : tensor<4xsi64>}> -> tensor<1x?x?x1xf32, {bounds = #const.OpaqueI64Elements<[1, 1440, 2560, 1]> : tensor<4xsi64>}>
     %2 = IE.ShapeOf(%1) {dstElemType = si64} : tensor<1x?x?x1xf32, {bounds = #const.OpaqueI64Elements<[1, 1440, 2560, 1]> : tensor<4xsi64>}> -> tensor<4xsi64>
     %3 = IE.Gather(%2, %cst) {axis_value = 0 : i64, batch_dims = 0 : i64, indices_rank = 1 : i64} : tensor<4xsi64>, tensor<4xsi64> -> tensor<4xsi64>

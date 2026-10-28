@@ -1754,3 +1754,144 @@ module @SparseBilinearNCEInterpolateInputWorkloadsSOHExtraLines  {
   // CHECK-SAME:          cluster_id = 1
 
 }
+
+// -----
+
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+
+// CHECK-LABEL: @ConvInputWorkloadsDynamicOCFromSCFTiling
+func.func @ConvInputWorkloadsDynamicOCFromSCFTiling(%arg0: tensor<1x16x16x16xf16, {mem_space = @CMX_NN, order = #NHWC}>)
+        -> tensor<1x144x16x16xf16, {mem_space = @CMX_NN, order = #NHWC}> {
+  %cst = const.Declare tensor<144x16x1x1xf16, {mem_space = @CMX_NN, order = #NHWC}> = dense<1.000000e+00> : tensor<144x16x1x1xf16>, [#const.Reorder<#NHWC>]
+  %c0 = arith.constant 0 : index
+  %c144 = arith.constant 144 : index
+  %c48 = arith.constant 48 : index
+  %out = tensor.empty() : tensor<1x144x16x16xf16, {mem_space = @CMX_NN, order = #NHWC}>
+
+  %result = scf.for %k = %c0 to %c144 step %c48 iter_args(%acc = %out) -> (tensor<1x144x16x16xf16, {mem_space = @CMX_NN, order = #NHWC}>) {
+    %tile_sz = affine.min affine_map<(d0) -> (-d0 + 144, 48)>(%k)
+
+    %w_slice = tensor.extract_slice %cst[%k, 0, 0, 0] [%tile_sz, 16, 1, 1] [1, 1, 1, 1]
+      : tensor<144x16x1x1xf16, {mem_space = @CMX_NN, order = #NHWC}>
+      to tensor<?x16x1x1xf16, {bounds = #const.OpaqueI64Elements<[144, 16, 1, 1]> : tensor<4xsi64>, mem_space = @CMX_NN, order = #NHWC}>
+
+    %conv = VPU.NCE.Convolution(%arg0, %w_slice) rawFilterShape [%tile_sz, 16, 1, 1] {
+      resultSegmentSizes = array<i32: 1, 0, 0, 0>,
+      pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
+      ppe = #VPU.PPEStub<>,
+      strides = [1, 1]
+    } : tensor<1x16x16x16xf16, {mem_space = @CMX_NN, order = #NHWC}>, tensor<?x16x1x1xf16, {bounds = #const.OpaqueI64Elements<[144, 16, 1, 1]> : tensor<4xsi64>, mem_space = @CMX_NN, order = #NHWC}>, index
+      -> tensor<1x?x16x16xf16, {bounds = #const.OpaqueI64Elements<[1, 144, 16, 16]> : tensor<4xsi64>, mem_space = @CMX_NN, order = #NHWC}> {
+        VPU.DPU.Workload outOffsets [0, 0, 0, 0] outSizes [1, 48, 16, 16] pad [0, 0, 0, 0] #VPU.mpe_mode<CUBOID_16x16>
+    }
+
+    %insert = tensor.insert_slice %conv into %acc[0, %k, 0, 0] [1, %tile_sz, 16, 16] [1, 1, 1, 1]
+      : tensor<1x?x16x16xf16, {bounds = #const.OpaqueI64Elements<[1, 144, 16, 16]> : tensor<4xsi64>, mem_space = @CMX_NN, order = #NHWC}>
+      into tensor<1x144x16x16xf16, {mem_space = @CMX_NN, order = #NHWC}>
+    scf.yield %insert : tensor<1x144x16x16xf16, {mem_space = @CMX_NN, order = #NHWC}>
+  }
+
+  return %result : tensor<1x144x16x16xf16, {mem_space = @CMX_NN, order = #NHWC}>
+
+  // inOffsets/inSizes are new
+  // CHECK:           VPU.DPU.Workload
+  // CHECK-SAME:          inOffsets [0, 0, 0, 0]
+  // CHECK-SAME:          inSizes [1, 16, 16, 16]
+  // CHECK-SAME:          outOffsets [0, 0, 0, 0]
+  // CHECK-SAME:          outSizes [1, 48, 16, 16]
+  // CHECK-SAME:          pad [0, 0, 0, 0]
+}
+
+// -----
+
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+
+// CHECK-LABEL: @DepthConvInputWorkloadsDynamicOCFromSCFTiling
+func.func @DepthConvInputWorkloadsDynamicOCFromSCFTiling(%arg0: tensor<1x144x16x16xf16, {mem_space = @CMX_NN, order = #NHWC}>)
+        -> tensor<1x144x16x16xf16, {mem_space = @CMX_NN, order = #NHWC}> {
+  %weights = const.Declare tensor<144x16x1x1xf16, {mem_space = @CMX_NN, order = #NHWC}> = dense<1.000000e+00> : tensor<144x16x1x1xf16>, [#const.Reorder<#NHWC>]
+  %c0 = arith.constant 0 : index
+  %c144 = arith.constant 144 : index
+  %c48 = arith.constant 48 : index
+  %out = tensor.empty() : tensor<1x144x16x16xf16, {mem_space = @CMX_NN, order = #NHWC}>
+
+  %result = scf.for %k = %c0 to %c144 step %c48 iter_args(%acc = %out) -> (tensor<1x144x16x16xf16, {mem_space = @CMX_NN, order = #NHWC}>) {
+    %tile_sz = affine.min affine_map<(d0) -> (-d0 + 144, 48)>(%k)
+
+    %input_slice = tensor.extract_slice %arg0[0, %k, 0, 0] [1, %tile_sz, 16, 16] [1, 1, 1, 1]
+      : tensor<1x144x16x16xf16, {mem_space = @CMX_NN, order = #NHWC}>
+      to tensor<1x?x16x16xf16, {bounds = #const.OpaqueI64Elements<[1, 144, 16, 16]> : tensor<4xsi64>, mem_space = @CMX_NN, order = #NHWC}>
+    %w_slice = tensor.extract_slice %weights[%k, 0, 0, 0] [%tile_sz, 16, 1, 1] [1, 1, 1, 1]
+      : tensor<144x16x1x1xf16, {mem_space = @CMX_NN, order = #NHWC}>
+      to tensor<?x16x1x1xf16, {bounds = #const.OpaqueI64Elements<[144, 16, 1, 1]> : tensor<4xsi64>, mem_space = @CMX_NN, order = #NHWC}>
+
+    %depth_conv = VPU.NCE.DepthConvolution(%input_slice, %w_slice) rawFilterShape [%tile_sz, 1, 1, 1] {
+      resultSegmentSizes = array<i32: 1, 0, 0, 0>,
+      pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
+      ppe = #VPU.PPEStub<>,
+      strides = [1, 1]
+    } -> tensor<1x?x16x16xf16, {bounds = #const.OpaqueI64Elements<[1, 144, 16, 16]> : tensor<4xsi64>, mem_space = @CMX_NN, order = #NHWC}> {
+        VPU.DPU.Workload outOffsets [0, 0, 0, 0] outSizes [1, 48, 16, 16] pad [0, 0, 0, 0] #VPU.mpe_mode<CUBOID_16x16>
+    }
+
+    %insert = tensor.insert_slice %depth_conv into %acc[0, %k, 0, 0] [1, %tile_sz, 16, 16] [1, 1, 1, 1]
+      : tensor<1x?x16x16xf16, {bounds = #const.OpaqueI64Elements<[1, 144, 16, 16]> : tensor<4xsi64>, mem_space = @CMX_NN, order = #NHWC}>
+      into tensor<1x144x16x16xf16, {mem_space = @CMX_NN, order = #NHWC}>
+    scf.yield %insert : tensor<1x144x16x16xf16, {mem_space = @CMX_NN, order = #NHWC}>
+  }
+
+  return %result : tensor<1x144x16x16xf16, {mem_space = @CMX_NN, order = #NHWC}>
+
+  // CHECK:           VPU.DPU.Workload
+  // CHECK-SAME:          inOffsets [0, 0, 0, 0]
+  // CHECK-SAME:          inSizes [1, 48, 16, 16]
+  // CHECK-SAME:          outOffsets [0, 0, 0, 0]
+  // CHECK-SAME:          outSizes [1, 48, 16, 16]
+  // CHECK-SAME:          pad [0, 0, 0, 0]
+}
+
+// -----
+
+#GNHWC = affine_map<(d0, d1, d2, d3, d4) -> (d0, d1, d3, d4, d2)>
+
+// CHECK-LABEL: @MatMulInputWorkloadsDynamicOCFromSCFTiling
+func.func @MatMulInputWorkloadsDynamicOCFromSCFTiling(%arg0: tensor<1x1x16x4x1xf16, {mem_space = @CMX_NN, order = #GNHWC}>)
+        -> tensor<1x1x144x4x1xf16, {mem_space = @CMX_NN, order = #GNHWC}> {
+  %weights = const.Declare tensor<1x144x16x1x1xf16, {mem_space = @CMX_NN, order = #GNHWC}> = dense<1.000000e+00> : tensor<1x144x16x1x1xf16>, [#const.Reorder<#GNHWC>]
+  %c0 = arith.constant 0 : index
+  %c144 = arith.constant 144 : index
+  %c48 = arith.constant 48 : index
+  %out = tensor.empty() : tensor<1x1x144x4x1xf16, {mem_space = @CMX_NN, order = #GNHWC}>
+
+  %result = scf.for %k = %c0 to %c144 step %c48 iter_args(%acc = %out) -> (tensor<1x1x144x4x1xf16, {mem_space = @CMX_NN, order = #GNHWC}>) {
+    %tile_sz = affine.min affine_map<(d0) -> (-d0 + 144, 48)>(%k)
+
+    %w_slice = tensor.extract_slice %weights[0, %k, 0, 0, 0] [1, %tile_sz, 16, 1, 1] [1, 1, 1, 1, 1]
+      : tensor<1x144x16x1x1xf16, {mem_space = @CMX_NN, order = #GNHWC}>
+      to tensor<1x?x16x1x1xf16, {bounds = #const.OpaqueI64Elements<[1, 144, 16, 1, 1]> : tensor<5xsi64>, mem_space = @CMX_NN, order = #GNHWC}>
+
+    %matmul = VPU.NCE.MatMul(%arg0, %w_slice) rawFilterShape [1, %tile_sz, 16, 1, 1] {
+      resultSegmentSizes = array<i32: 1, 0, 0, 0>,
+      pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
+      ppe = #VPU.PPEStub<>,
+      strides = [1, 1]
+    } : tensor<1x1x16x4x1xf16, {mem_space = @CMX_NN, order = #GNHWC}>, tensor<1x?x16x1x1xf16, {bounds = #const.OpaqueI64Elements<[1, 144, 16, 1, 1]> : tensor<5xsi64>, mem_space = @CMX_NN, order = #GNHWC}>
+      -> tensor<1x1x?x4x1xf16, {mem_space = @CMX_NN, order = #GNHWC}> {
+        VPU.DPU.Workload outOffsets [0, 0, 0, 0, 0] outSizes [1, 1, 48, 4, 1] pad [0, 0, 0, 0] #VPU.mpe_mode<CUBOID_16x16>
+    }
+
+    %insert = tensor.insert_slice %matmul into %acc[0, 0, %k, 0, 0] [1, 1, %tile_sz, 4, 1] [1, 1, 1, 1, 1]
+      : tensor<1x1x?x4x1xf16, {mem_space = @CMX_NN, order = #GNHWC}>
+      into tensor<1x1x144x4x1xf16, {mem_space = @CMX_NN, order = #GNHWC}>
+    scf.yield %insert : tensor<1x1x144x4x1xf16, {mem_space = @CMX_NN, order = #GNHWC}>
+  }
+
+  return %result : tensor<1x1x144x4x1xf16, {mem_space = @CMX_NN, order = #GNHWC}>
+
+  // CHECK:           VPU.DPU.Workload
+  // CHECK-SAME:          inOffsets [0, 0, 0, 0, 0]
+  // CHECK-SAME:          inSizes [1, 1, 16, 4, 1]
+  // CHECK-SAME:          outOffsets [0, 0, 0, 0, 0]
+  // CHECK-SAME:          outSizes [1, 1, 48, 4, 1]
+  // CHECK-SAME:          pad [0, 0, 0, 0]
+}

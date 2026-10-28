@@ -29,17 +29,13 @@ using namespace vpux;
 
 class InsertDelayDPUVariant final : public VPUIP::arch50xx::impl::InsertDelayDPUVariantBase<InsertDelayDPUVariant> {
 public:
-    explicit InsertDelayDPUVariant(bool dpuProfilingEnabled, bool fwPdecDelayEnabled, Logger log)
-            : _dpuProfilingEnabled(dpuProfilingEnabled), _fwPdecDelayEnabled(fwPdecDelayEnabled) {
+    explicit InsertDelayDPUVariant(bool fwPdecDelayEnabled, Logger log): _fwPdecDelayEnabled(fwPdecDelayEnabled) {
         Base::initLogger(log, Base::getArgumentName());
     }
 
     mlir::LogicalResult initialize(mlir::MLIRContext* ctx) final {
         if (mlir::failed(Base::initialize(ctx))) {
             return mlir::failure();
-        }
-        if (dpuProfilingEnabled.hasValue()) {
-            _dpuProfilingEnabled = dpuProfilingEnabled.getValue();
         }
         if (fwPdecDelayEnabled.hasValue()) {
             _fwPdecDelayEnabled = fwPdecDelayEnabled.getValue();
@@ -50,7 +46,6 @@ public:
 private:
     void safeRunOnFunc() final;
 
-    bool _dpuProfilingEnabled;
     bool _fwPdecDelayEnabled;
 };
 
@@ -136,13 +131,6 @@ void InsertDelayDPUVariant::safeRunOnFunc() {
         // Note: If the PDEC delay feature is enabled in the firmware, this variant should not be added, as the firmware
         // will take care of the delay itself
         if (usesAutopad && !_fwPdecDelayEnabled) {
-            // There is currently no per-variant HWP control, so the dummy variant that is added at the end would be
-            // profiled. This would result in incorrect numbers, so avoid inserting this variant when profiling
-            // E#160727: remove this skip once per-variant HWP is supported
-            if (_dpuProfilingEnabled) {
-                _log.nest().trace("Skip inserting variant at the end as DPU profiling is enabled");
-                return;
-            }
             createVariant(nceClusterTask, /*atTheStart=*/false);
         }
     });
@@ -152,8 +140,7 @@ void InsertDelayDPUVariant::safeRunOnFunc() {
 // createInsertDelayDPUVariantPass
 //
 
-std::unique_ptr<mlir::Pass> vpux::VPUIP::arch50xx::createInsertDelayDPUVariantPass(bool dpuProfilingEnabled,
-                                                                                   bool fwPdecDelayEnabled,
+std::unique_ptr<mlir::Pass> vpux::VPUIP::arch50xx::createInsertDelayDPUVariantPass(bool fwPdecDelayEnabled,
                                                                                    Logger log) {
-    return std::make_unique<InsertDelayDPUVariant>(dpuProfilingEnabled, fwPdecDelayEnabled, log);
+    return std::make_unique<InsertDelayDPUVariant>(fwPdecDelayEnabled, log);
 }

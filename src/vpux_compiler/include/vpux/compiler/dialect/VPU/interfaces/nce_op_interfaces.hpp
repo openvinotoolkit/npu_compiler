@@ -27,6 +27,13 @@ SmallVector<int64_t> getKernelSize(ConvType op) {
     return {KY, KX};
 }
 
+template <typename ConcreteOp>
+bool hasAnyReduceOutput(mlir::Operation* op) {
+    auto concreteOp = mlir::cast<ConcreteOp>(op);
+    return concreteOp.getReduceXyMax() != nullptr || concreteOp.getReduceXyMin() != nullptr ||
+           concreteOp.getReduceTensorMinMax() != nullptr;
+}
+
 //
 // NCEConvolution-like op models
 //
@@ -42,6 +49,9 @@ public:
     }
     mlir::Value getWeightsTableOperand(mlir::Operation* op) const {
         return mlir::cast<ConcreteOp>(op).getWeightsTable();
+    }
+    bool hasReduceOutput(mlir::Operation*) const {
+        return false;
     }
     VPU::MPEMode getMpeMode(mlir::Operation* op, mlir::Type inElemType, mlir::Type outElemType, ShapeRef shape) const {
         return static_cast<const ConcreteModel*>(this)->getMpeModeImpl(op, inElemType, outElemType, shape);
@@ -66,6 +76,19 @@ public:
     vpux::VPU::PaddingAttr getPad(mlir::Operation* op) const {
         return mlir::cast<ConcreteOp>(op).getPad();
     }
+    SmallVector<vpux::VPU::ODUDimScale> getODUScaling(mlir::Operation* op) const {
+        auto concreteOp = mlir::cast<ConcreteOp>(op);
+        const auto cfg = concreteOp.getS2dd2sConfigAttr();
+        if (!cfg) {
+            return {};
+        }
+        const int64_t rank = mlir::cast<vpux::NDTypeInterface>(concreteOp.getOutput().getType()).getRank();
+        const auto transformInfo = VPU::getODUS2DD2STransformInfo(cfg, rank);
+        if (!transformInfo.has_value()) {
+            return {};
+        }
+        return VPU::getODUS2DD2SScaling(*transformInfo, rank);
+    }
     mlir::Value getReduceXyMax(mlir::Operation* op) const {
         return mlir::cast<ConcreteOp>(op).getReduceXyMax();
     }
@@ -74,6 +97,9 @@ public:
     }
     mlir::Value getReduceTensorMinMax(mlir::Operation* op) const {
         return mlir::cast<ConcreteOp>(op).getReduceTensorMinMax();
+    }
+    bool hasReduceOutput(mlir::Operation* op) const {
+        return hasAnyReduceOutput<ConcreteOp>(op);
     }
 };
 
@@ -103,6 +129,9 @@ public:
     }
     mlir::Value getReduceTensorMinMax(mlir::Operation* op) const {
         return mlir::cast<ConcreteOp>(op).getReduceTensorMinMax();
+    }
+    bool hasReduceOutput(mlir::Operation* op) const {
+        return hasAnyReduceOutput<ConcreteOp>(op);
     }
 };
 
@@ -164,6 +193,9 @@ public:
     mlir::Value getReduceTensorMinMax(mlir::Operation* op) const {
         return mlir::cast<ConcreteOp>(op).getReduceTensorMinMax();
     }
+    bool hasReduceOutput(mlir::Operation* op) const {
+        return hasAnyReduceOutput<ConcreteOp>(op);
+    }
 };
 
 //
@@ -181,6 +213,9 @@ public:
     }
     vpux::VPU::PaddingAttr getPad(mlir::Operation* op) const {
         return mlir::cast<ConcreteOp>(op).getPad();
+    }
+    bool hasReduceOutput(mlir::Operation*) const {
+        return false;
     }
     VPU::MPEMode getMpeMode(mlir::Operation* op, mlir::Type inElemType, mlir::Type outElemType, ShapeRef shape) const {
         return static_cast<const ConcreteModel*>(this)->getMpeModeImpl(op, inElemType, outElemType, shape);
@@ -210,7 +245,6 @@ public:
     mlir::Value getWeightTableBiasOperand(mlir::Operation* op) const {
         return mlir::cast<ConcreteOp>(op).getWeightTableBias();
     }
-
     SmallVector<vpux::VPU::ODUDimScale> getODUScaling(mlir::Operation* op) const {
         auto concreteOp = mlir::cast<ConcreteOp>(op);
         const auto cfg = concreteOp.getS2dd2sConfigAttr();
@@ -233,6 +267,9 @@ public:
     mlir::Value getReduceTensorMinMax(mlir::Operation* op) const {
         return mlir::cast<ConcreteOp>(op).getReduceTensorMinMax();
     }
+    bool hasReduceOutput(mlir::Operation* op) const {
+        return hasAnyReduceOutput<ConcreteOp>(op);
+    }
 };
 
 //
@@ -250,6 +287,9 @@ public:
     }
     vpux::VPU::PaddingAttr getPad(mlir::Operation* op) const {
         return vpux::VPU::getPaddingAttr(mlir::cast<ConcreteOp>(op).getContext(), 0, 0, 0, 0);
+    }
+    bool hasReduceOutput(mlir::Operation*) const {
+        return false;
     }
     VPU::MPEMode getMpeMode(mlir::Operation* op, mlir::Type inElemType, mlir::Type outElemType, ShapeRef shape) const {
         return static_cast<const ConcreteModel*>(this)->getMpeModeImpl(op, inElemType, outElemType, shape);
@@ -271,6 +311,9 @@ public:
     }
     vpux::VPU::PaddingAttr getPad(mlir::Operation* op) const {
         return vpux::VPU::getPaddingAttr(mlir::cast<ConcreteOp>(op).getContext(), 0, 0, 0, 0);
+    }
+    bool hasReduceOutput(mlir::Operation*) const {
+        return false;
     }
     VPU::MPEMode getMpeMode(mlir::Operation* op, mlir::Type inElemType, mlir::Type outElemType, ShapeRef shape) const {
         return static_cast<const ConcreteModel*>(this)->getMpeModeImpl(op, inElemType, outElemType, shape);

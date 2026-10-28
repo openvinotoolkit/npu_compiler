@@ -61,8 +61,12 @@ mlir::LogicalResult inferReduceReturnTypes(mlir::Location loc, mlir::Value input
         return outShapeRes;
     }
 
+    // Attach bounds only while the result is still dynamic. Ask the result and not the input,
+    // because a Reduce over every dynamic axis leaves a static shape behind a bounded input.
+    // IE::inferReduceReturnTypeComponents in reduce_infer.cpp applies the same rule before lowering,
+    // and shows what a static shape with bounds breaks.
     SmallVector<int64_t> outBounds;
-    if (mlir::isa<Core::BoundedTensorType>(inType)) {
+    if (ShapeRef(outShape).isDynamic() && mlir::isa<Core::BoundedTensorType>(inType)) {
         auto inBounds = SmallVector<int64_t>(getBoundedShape(inType).raw());
         auto outBoundsRes = populateReduceOutShape(outBounds, inBounds);
         if (mlir::failed(outBoundsRes)) {
@@ -76,8 +80,7 @@ mlir::LogicalResult inferReduceReturnTypes(mlir::Location loc, mlir::Value input
                     .setShape(ShapeRef(outShape));
     vpux::DimsOrder outOrder = newOutputType.dimsOrder.value();
     const auto tensorAttr = vpux::getTensorAttr(inType.getContext(), outOrder.toAffineMap(input.getType().getContext()),
-                                                inType.getMemSpace(),
-                                                outBounds.empty() ? getBounds(input.getType()) : BoundsRef(outBounds));
+                                                inType.getMemSpace(), BoundsRef(outBounds));
     auto outputType = mlir::RankedTensorType::get(outShape, inType.getElementType(), tensorAttr);
 
     inferredReturnTypes.push_back(outputType);

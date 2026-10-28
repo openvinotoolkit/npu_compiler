@@ -495,30 +495,31 @@ mlir::Value encodeBlockPositionId(mlir::OpBuilder& builder, SmallVector<mlir::Va
                                   ArrayRef<vpux::Dim> accessPattern) {
     assert(inputBlockIdVals.size() == 2 && "Need start and end output block position ids");
 
-    mlir::Value returnVal = builder.create<mlir::arith::ConstantIndexOp>(builder.getUnknownLoc(), 0);
+    mlir::Value returnVal = mlir::arith::ConstantIndexOp::create(builder, builder.getUnknownLoc(), 0);
 
-    auto mask2Bits = builder.create<mlir::arith::ConstantIndexOp>(builder.getUnknownLoc(),
-                                                                  static_cast<int64_t>((1LL << NUMBITS) - 1));
+    auto mask2Bits = mlir::arith::ConstantIndexOp::create(builder, builder.getUnknownLoc(),
+                                                          static_cast<int64_t>((1LL << NUMBITS) - 1));
     for (auto dim : accessPattern) {
         auto pointShift = getTilePositionShift(dim);
-        auto cstPointShift = builder.create<mlir::arith::ConstantIndexOp>(builder.getUnknownLoc(), pointShift);
-        auto dimVal = builder.create<mlir::arith::ShRUIOp>(builder.getUnknownLoc(), inputBlockIdVals[0], cstPointShift);
-        auto dimStart = builder.create<mlir::arith::AndIOp>(builder.getUnknownLoc(), dimVal, mask2Bits);
+        auto cstPointShift = mlir::arith::ConstantIndexOp::create(builder, builder.getUnknownLoc(), pointShift);
+        auto dimVal =
+                mlir::arith::ShRUIOp::create(builder, builder.getUnknownLoc(), inputBlockIdVals[0], cstPointShift);
+        auto dimStart = mlir::arith::AndIOp::create(builder, builder.getUnknownLoc(), dimVal, mask2Bits);
 
         auto dimVal2 =
-                builder.create<mlir::arith::ShRUIOp>(builder.getUnknownLoc(), inputBlockIdVals[1], cstPointShift);
-        auto dimEnd = builder.create<mlir::arith::AndIOp>(builder.getUnknownLoc(), dimVal2, mask2Bits);
+                mlir::arith::ShRUIOp::create(builder, builder.getUnknownLoc(), inputBlockIdVals[1], cstPointShift);
+        auto dimEnd = mlir::arith::AndIOp::create(builder, builder.getUnknownLoc(), dimVal2, mask2Bits);
 
         auto baseShift = getTilePositionShift(dim) * 2;
-        auto cstBlkStart = builder.create<mlir::arith::ConstantIndexOp>(builder.getUnknownLoc(), baseShift);
-        auto cstBlkEnd = builder.create<mlir::arith::ConstantIndexOp>(builder.getUnknownLoc(),
-                                                                      baseShift + static_cast<int64_t>(NUMBITS));
+        auto cstBlkStart = mlir::arith::ConstantIndexOp::create(builder, builder.getUnknownLoc(), baseShift);
+        auto cstBlkEnd = mlir::arith::ConstantIndexOp::create(builder, builder.getUnknownLoc(),
+                                                              baseShift + static_cast<int64_t>(NUMBITS));
 
-        auto shiftedStart = builder.create<mlir::arith::ShLIOp>(builder.getUnknownLoc(), dimStart, cstBlkStart);
-        auto shiftedEnd = builder.create<mlir::arith::ShLIOp>(builder.getUnknownLoc(), dimEnd, cstBlkEnd);
+        auto shiftedStart = mlir::arith::ShLIOp::create(builder, builder.getUnknownLoc(), dimStart, cstBlkStart);
+        auto shiftedEnd = mlir::arith::ShLIOp::create(builder, builder.getUnknownLoc(), dimEnd, cstBlkEnd);
 
-        auto combined = builder.create<mlir::arith::OrIOp>(builder.getUnknownLoc(), shiftedStart, shiftedEnd);
-        returnVal = builder.create<mlir::arith::OrIOp>(builder.getUnknownLoc(), returnVal, combined);
+        auto combined = mlir::arith::OrIOp::create(builder, builder.getUnknownLoc(), shiftedStart, shiftedEnd);
+        returnVal = mlir::arith::OrIOp::create(builder, builder.getUnknownLoc(), returnVal, combined);
     }
     return returnVal;
 }
@@ -595,7 +596,7 @@ mlir::LogicalResult updateUnrolledCaseBlock(mlir::Block& block, const UnrollConf
     auto mergedCallOp = callOps.back();
     mlir::OpBuilder builder(mergedCallOp);
     builder.setInsertionPointAfter(mergedCallOp);
-    builder.create<mlir::scf::YieldOp>(takeOpLoc(mergedCallOp, "yield"), mergedCallOp->getResult(0));
+    mlir::scf::YieldOp::create(builder, takeOpLoc(mergedCallOp, "yield"), mergedCallOp->getResult(0));
 
     return mlir::success();
 }
@@ -656,7 +657,7 @@ SmallVector<vpux::VPU::ConcatOp> insertConcatOp(mlir::OpBuilder& builder, mlir::
             // Concatenate if more than one element
             if (group.size() > 1) {
                 auto lastConcatOp =
-                        builder.create<VPU::ConcatOp>(appendLoc(loc, "concat"), mlir::ValueRange(group), dimInd);
+                        VPU::ConcatOp::create(builder, appendLoc(loc, "concat"), mlir::ValueRange(group), dimInd);
                 builder.setInsertionPointAfter(lastConcatOp);
                 nextLevel.push_back(lastConcatOp.getResult());
                 concatOps.push_back(lastConcatOp);
@@ -861,7 +862,7 @@ mlir::func::FuncOp mergeFuncOps(mlir::FunctionType newFuncType, mlir::ModuleOp m
     while (module.lookupSymbol<mlir::func::FuncOp>(candidateName) != nullptr) {
         candidateName = std::string("merged_vpu_func") + suffix + "_" + std::to_string(functionCounter++);
     }
-    auto newFunc = moduleBuilder.create<mlir::func::FuncOp>(module.getLoc(), candidateName, newFuncType);
+    auto newFunc = mlir::func::FuncOp::create(moduleBuilder, module.getLoc(), candidateName, newFuncType);
 
     // Clone operations into new function
     auto* entryBlock = newFunc.addEntryBlock();
@@ -904,7 +905,7 @@ mlir::func::FuncOp mergeFuncOps(mlir::FunctionType newFuncType, mlir::ModuleOp m
     for (auto resultValue : newReturnValues) {
         funcReturnValues.push_back(mapper.lookup(resultValue));
     }
-    moduleBuilder.create<mlir::func::ReturnOp>(module.getLoc(), funcReturnValues);
+    mlir::func::ReturnOp::create(moduleBuilder, module.getLoc(), funcReturnValues);
     return newFunc;
 }
 
@@ -935,8 +936,8 @@ void handleOpResults(mlir::OpBuilder& builder, mlir::IRMapping& valueMapper, Arr
                 SmallVector<int64_t> vpuSliceSize = to_small_vector(callResultShape);
 
                 builder.setInsertionPoint(firstNonTerminalOp);
-                auto newSliceOp = builder.create<vpux::VPU::SliceOp>(
-                        takeOpLoc(firstOp, "from_merged"), inputOp->getResult(resultIdx),
+                auto newSliceOp = vpux::VPU::SliceOp::create(
+                        builder, takeOpLoc(firstOp, "from_merged"), inputOp->getResult(resultIdx),
                         builder.getI64ArrayAttr(vpuSliceOffset), builder.getI64ArrayAttr(vpuSliceSize));
 
                 currentCallOp->getResult(resultIdx).replaceAllUsesWith(newSliceOp.getResult());
@@ -1081,7 +1082,7 @@ mlir::LogicalResult tryMergeCallOps(mlir::OpBuilder& builder, mlir::IRMapping& v
     }
 
     auto callOpToMergedFunc =
-            builder.create<mlir::func::CallOp>(module.getLoc(), newFuncOp.getName(), resultTypes, inputValues);
+            mlir::func::CallOp::create(builder, module.getLoc(), newFuncOp.getName(), resultTypes, inputValues);
 
     handleOpResults(builder, valueMapper, callOps, callOpToMergedFunc.getOperation(), config);
 
@@ -1343,8 +1344,9 @@ mlir::LogicalResult tryMergeUnrolledExtractSliceOps(mlir::OpBuilder& builder, ml
             mlir::RankedTensorType::get(adjustedParams.mergedSize, firstExtractSliceOp.getType().getElementType(),
                                         firstExtractSliceOp.getType().getEncoding());
 
-    auto mergedExtractSliceOp = builder.create<mlir::tensor::ExtractSliceOp>(
-            vpux::takeOpLoc(firstExtractSliceOp, "merged_block"), newOutputRetType, firstExtractSliceOp.getSource(),
+    auto mergedExtractSliceOp = mlir::tensor::ExtractSliceOp::create(
+            builder, vpux::takeOpLoc(firstExtractSliceOp, "merged_block"), newOutputRetType,
+            firstExtractSliceOp.getSource(),
             firstExtractSliceOp.getMixedOffsets(),  // Original offsets (may have runtime values)
             mergedSliceOpSize,                      // Calculated merged sizes
             firstExtractSliceOp.getMixedStrides());
@@ -1353,10 +1355,10 @@ mlir::LogicalResult tryMergeUnrolledExtractSliceOps(mlir::OpBuilder& builder, ml
     for (size_t i = 0; i < extractSliceOps.size(); ++i) {
         auto extractOp = extractSliceOps[i];
 
-        auto newSliceOp = builder.create<vpux::VPU::SliceOp>(takeOpLoc(extractOp, "from_merged"),
-                                                             mergedExtractSliceOp.getResult(),
-                                                             builder.getI64ArrayAttr(adjustedParams.sliceOffsets[i]),
-                                                             builder.getI64ArrayAttr(adjustedParams.sliceSizes[i]));
+        auto newSliceOp = vpux::VPU::SliceOp::create(builder, takeOpLoc(extractOp, "from_merged"),
+                                                     mergedExtractSliceOp.getResult(),
+                                                     builder.getI64ArrayAttr(adjustedParams.sliceOffsets[i]),
+                                                     builder.getI64ArrayAttr(adjustedParams.sliceSizes[i]));
         builder.setInsertionPointAfter(newSliceOp);
         extractOp.replaceAllUsesWith(newSliceOp.getResult());
 
@@ -1426,8 +1428,8 @@ mlir::LogicalResult tryMergeUnrolledInsertSliceOps(mlir::OpBuilder& builder, mli
         auto castOpOutShape = mlir::cast<mlir::RankedTensorType>(srcOperation->getResult(0).getType()).getShape();
         for (auto [idx, shape] : llvm::enumerate(castOpOutShape)) {
             if (shape == mlir::ShapedType::kDynamic) {
-                auto cstVal = builder.create<mlir::arith::ConstantIndexOp>(takeOpLoc(srcOperation, "dynamic_dim_size"),
-                                                                           castOpInputShape[idx]);
+                auto cstVal = mlir::arith::ConstantIndexOp::create(builder, takeOpLoc(srcOperation, "dynamic_dim_size"),
+                                                                   castOpInputShape[idx]);
                 mergedSize.push_back(cstVal.getResult());
                 mergedStaticSize.push_back(castOpInputShape[idx]);
             } else {
@@ -1445,8 +1447,9 @@ mlir::LogicalResult tryMergeUnrolledInsertSliceOps(mlir::OpBuilder& builder, mli
 
     mlir::Location insertionLoc = builder.getUnknownLoc();
     setBuilderPositionToEndOfBlock(builder, block, insertionLoc);
-    auto newInsertSliceOp = builder.create<mlir::tensor::InsertSliceOp>(
-            appendLoc(insertionLoc, "merged_insert_op"), srcOperand, dstOperand, origOffsets, mergedSize, origStrides);
+    auto newInsertSliceOp =
+            mlir::tensor::InsertSliceOp::create(builder, appendLoc(insertionLoc, "merged_insert_op"), srcOperand,
+                                                dstOperand, origOffsets, mergedSize, origStrides);
 
     // InsertSliceOps are used by terminator ops. Need to find the insertSliceOp used by the terminator
     // and replace its uses with the newInsertSliceOp result.
@@ -1510,8 +1513,8 @@ mlir::LogicalResult tryMergeTensorCastOps(mlir::OpBuilder& builder, mlir::Block*
     mlir::Location insertionLoc = builder.getUnknownLoc();
     setBuilderPositionToEndOfBlock(builder, block, insertionLoc);
 
-    auto updatedCastOp = builder.create<mlir::tensor::CastOp>(appendLoc(insertionLoc, "updated_cast_op"),
-                                                              updatedDynamicInputType, srcOperand);
+    auto updatedCastOp = mlir::tensor::CastOp::create(builder, appendLoc(insertionLoc, "updated_cast_op"),
+                                                      updatedDynamicInputType, srcOperand);
     valueMapper.map(firstCastOp.getResult(), updatedCastOp.getResult());
     return mlir::success();
 }
@@ -1577,8 +1580,8 @@ mlir::LogicalResult tryMergeSwitchOps(mlir::OpBuilder& builder, mlir::IRMapping&
     auto encodedBlockPosition = encodeBlockPositionId(builder, boundaryBlocksPosIds, config.accessOrder);
     auto encodedBlockPositionOp = encodedBlockPosition.getDefiningOp();
     builder.setInsertionPointAfter(encodedBlockPositionOp);
-    auto switchOp = builder.create<mlir::scf::IndexSwitchOp>(builder.getUnknownLoc(), returnType, encodedBlockPosition,
-                                                             blockPosCombinations, blockPosCombinations.size());
+    auto switchOp = mlir::scf::IndexSwitchOp::create(builder, builder.getUnknownLoc(), returnType, encodedBlockPosition,
+                                                     blockPosCombinations, blockPosCombinations.size());
 
     for (auto caseIndex : switchOp.getCases()) {
         auto blockPosCombinationIter = llvm::find(blockPosCombinations, caseIndex);
@@ -1601,10 +1604,10 @@ mlir::LogicalResult tryMergeSwitchOps(mlir::OpBuilder& builder, mlir::IRMapping&
         auto& defRegion = switchOp.getDefaultRegion();
         auto& defaultBlock = defRegion.empty() ? defRegion.emplaceBlock() : defRegion.front();
         mlir::OpBuilder defBuilder = mlir::OpBuilder::atBlockBegin(&defaultBlock);
-        auto falseAttr = defBuilder.create<mlir::arith::ConstantOp>(vpux::takeOpLoc(switchOp, "assert_false_"),
-                                                                    builder.getBoolAttr(false));
-        defBuilder.create<mlir::cf::AssertOp>(vpux::takeOpLoc(switchOp, "default"), falseAttr,
-                                              "Invalid block position");
+        auto falseAttr = mlir::arith::ConstantOp::create(defBuilder, vpux::takeOpLoc(switchOp, "assert_false_"),
+                                                         builder.getBoolAttr(false));
+        mlir::cf::AssertOp::create(defBuilder, vpux::takeOpLoc(switchOp, "default"), falseAttr,
+                                   "Invalid block position");
 
         auto blockPosCombinationIter = llvm::find(blockPosCombinations, switchOp.getCases().front());
         auto index = std::distance(blockPosCombinations.begin(), blockPosCombinationIter);
@@ -1779,11 +1782,11 @@ mlir::scf::ForOp fuseSiblingForLoops(mlir::scf::ForOp target, mlir::scf::ForOp s
     rewriter.setInsertionPoint(target);
     mlir::scf::ForOp fusedLoop;
     if (residualLoops) {
-        fusedLoop = rewriter.create<mlir::scf::ForOp>(target.getLoc(), target.getLowerBound(), target.getUpperBound(),
-                                                      target.getStep(), fusedInitArgs);
+        fusedLoop = mlir::scf::ForOp::create(rewriter, target.getLoc(), target.getLowerBound(), target.getUpperBound(),
+                                             target.getStep(), fusedInitArgs);
     } else {
-        fusedLoop = rewriter.create<mlir::scf::ForOp>(target.getLoc(), target.getLowerBound(), source.getUpperBound(),
-                                                      target.getStep(), fusedInitArgs);
+        fusedLoop = mlir::scf::ForOp::create(rewriter, target.getLoc(), target.getLowerBound(), source.getUpperBound(),
+                                             target.getStep(), fusedInitArgs);
     }
 
     // Map original induction variables and operands to those of the fused loop.
@@ -1809,7 +1812,7 @@ mlir::scf::ForOp fuseSiblingForLoops(mlir::scf::ForOp target, mlir::scf::ForOp s
     }
 
     if (!yieldResults.empty()) {
-        rewriter.create<mlir::scf::YieldOp>(source.getLoc(), yieldResults);
+        mlir::scf::YieldOp::create(rewriter, source.getLoc(), yieldResults);
     }
 
     // Replace old loops by substituting their uses by results of the fused loop.

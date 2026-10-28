@@ -13,8 +13,8 @@ mlir::FailureOr<SymbolizationResult> MappedInferenceVersionRewriter::symbolize(
         VPUMI40XX::MappedInferenceVersionOp op, SymbolMapper&, mlir::ConversionPatternRewriter& rewriter) const {
     auto result = op.getResult();
     auto symName = findSym(result).getRootReference();
-    auto newOp = rewriter.create<VPUASM::MappedInferenceVersionOp>(op.getLoc(), symName, op.getMajor(), op.getMinor(),
-                                                                   op.getPatch());
+    auto newOp = VPUASM::MappedInferenceVersionOp::create(rewriter, op.getLoc(), symName, op.getMajor(), op.getMinor(),
+                                                          op.getPatch());
     rewriter.eraseOp(op);
 
     return SymbolizationResult(newOp);

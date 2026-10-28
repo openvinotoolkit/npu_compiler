@@ -5,8 +5,6 @@
 
 #include "vpux/compiler/core/layers.hpp"
 #include "vpux/compiler/dialect/IE/IR/dialect.hpp"
-#include "vpux/compiler/dialect/IE/IR/ops/activation.hpp"
-#include "vpux/compiler/dialect/IE/IR/ops/arithmetic.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/convolution.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/data_movement.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/data_type.hpp"
@@ -201,14 +199,12 @@ mlir::LogicalResult FoldTileOpRewriter::matchAndRewrite(IE::TileOp origOp, mlir:
         return mlir::failure();
     }
 
-    // Can't fold TileOp if the layer has post operation, except for the spatial broadcast case where only H/W
-    // dims are expanded: the eltwise op's NUMPY broadcast handles the smaller input shape transparently, so the
-    // post op result is unaffected.
-    if (!hasSpatiallyBroadcastedInput && !isSpatialBroadcastFromGroupConv) {
-        if (auto layerWithPostOp = mlir::dyn_cast<IE::LayerWithPostOpInterface>(outputUserOp)) {
-            if (layerWithPostOp.hasPPE()) {
-                return mlir::failure();
-            }
+    // Can't fold TileOp if the layer has a fused post-op (PPE). A broadcast Add with post_op
+    // falls through to a SHAVE SW kernel that silently ignores the post_op attribute, dropping
+    // the activation and causing an accuracy regression.
+    if (auto layerWithPostOp = mlir::dyn_cast<IE::LayerWithPostOpInterface>(outputUserOp)) {
+        if (layerWithPostOp.hasPPE()) {
+            return mlir::failure();
         }
     }
 
@@ -249,79 +245,6 @@ mlir::LogicalResult FoldTileOpRewriter::matchAndRewrite(IE::TileOp origOp, mlir:
             }
             if (skipFold) {
                 return mlir::failure();
-            }
-
-            // When the eltwise has a fused post-op (PPE) and the bias is non-constant, fold the Tile
-            // for performance (avoids large HxW DMA expansion) but strip the post-op from the
-            // eltwise and insert a standalone activation op after it.
-            //
-            // Without this, the broadcast Add (signal + bias_1xCx1x1) with post_op falls through
-            // to a SHAVE SW kernel that does not implement the post_op attribute — silently
-            // dropping the activation (e.g. LeakyRelu) and causing accuracy regression.
-            // Stripping it and re-emitting as a standalone op preserves the numerical result.
-            if (auto layerWithPostOp = mlir::dyn_cast<IE::LayerWithPostOpInterface>(outputUserOp)) {
-                if (layerWithPostOp.hasPPE()) {
-                    auto addOp = mlir::dyn_cast<IE::AddOp>(outputUserOp);
-                    if (addOp == nullptr) {
-                        return mlir::failure();
-                    }
-                    const auto postOpAttr = addOp.getPostOpAttr();
-                    const auto clampAttr = addOp.getClampAttr();
-
-                    rewriter.setInsertionPointAfter(addOp);
-
-                    // Recreate the Add without post_op/clamp, passing the pre-Tile bias (e.g.
-                    // 1xCx1x1) directly so the new Add has the correct broadcast shapes up front.
-                    const auto biasInput = origOp.getInput();
-                    const auto newAddInput1 = lhsIsTileOp ? biasInput : addOp.getInput1();
-                    const auto newAddInput2 = lhsIsTileOp ? addOp.getInput2() : biasInput;
-                    auto newAdd = rewriter.create<IE::AddOp>(addOp.getLoc(), addOp.getOutput().getType(), newAddInput1,
-                                                             newAddInput2, addOp.getScale(),
-                                                             addOp.getAutoBroadcastAttr(), /*post_op=*/nullptr,
-                                                             /*clamp=*/nullptr, addOp.getStaticScaleAttr(),
-                                                             addOp.getOutputPaddingAttr(), addOp.getInputPaddingAttr());
-
-                    // Insert standalone activation(s) matching the stripped post_op/clamp.
-                    // Each emitted op gets an appendLoc suffix; the original addOp.getLoc() is
-                    // preserved on the new Add above.
-                    mlir::Value activationOut;
-                    if (const auto lrelu = mlir::dyn_cast_if_present<IE::LeakyReluAttr>(postOpAttr)) {
-                        activationOut = rewriter.create<IE::LeakyReluOp>(appendLoc(addOp.getLoc(), "lrelu"),
-                                                                         newAdd.getOutput(), lrelu.getNegativeSlope())
-                                                ->getResult(0);
-                    } else if (mlir::isa_and_present<IE::ReluAttr>(postOpAttr)) {
-                        activationOut =
-                                rewriter.create<IE::ReLUOp>(appendLoc(addOp.getLoc(), "relu"), newAdd.getOutput())
-                                        ->getResult(0);
-                    } else if (postOpAttr == nullptr) {
-                        // Clamp-only (no post_op): hasPPE() => clampAttr is set.
-                        const auto min = clampAttr.getAs<mlir::FloatAttr>("min").getValueAsDouble();
-                        const auto max = clampAttr.getAs<mlir::FloatAttr>("max").getValueAsDouble();
-                        activationOut =
-                                rewriter.create<IE::ClampOp>(appendLoc(addOp.getLoc(), "clamp"), newAdd.getOutput(),
-                                                             vpux::getFPAttr(ctx, min), vpux::getFPAttr(ctx, max))
-                                        ->getResult(0);
-                    } else {
-                        // Unrecognised post_op (with or without clamp) — erase the new Add and leave
-                        // the original untouched rather than silently dropping the unknown activation.
-                        rewriter.eraseOp(newAdd);
-                        return mlir::failure();
-                    }
-
-                    // When both post_op and clamp are present, apply the clamp after the activation.
-                    if (clampAttr != nullptr && postOpAttr != nullptr) {
-                        const auto min = clampAttr.getAs<mlir::FloatAttr>("min").getValueAsDouble();
-                        const auto max = clampAttr.getAs<mlir::FloatAttr>("max").getValueAsDouble();
-                        activationOut =
-                                rewriter.create<IE::ClampOp>(appendLoc(addOp.getLoc(), "clamp"), activationOut,
-                                                             vpux::getFPAttr(ctx, min), vpux::getFPAttr(ctx, max))
-                                        ->getResult(0);
-                    }
-
-                    rewriter.replaceAllOpUsesWith(addOp, activationOut);
-                    rewriter.replaceAllOpUsesWith(origOp, origOp.getInput());
-                    return mlir::success();
-                }
             }
         }
 
@@ -424,13 +347,13 @@ mlir::LogicalResult FuseTileConvertRewrite::matchAndRewrite(IE::ConvertOp conver
     // Get the original input to the first ConvertOp
     auto originalInput = prevConvertOp.getInput();
 
-    auto newConvertOp = rewriter.create<IE::ConvertOp>(prevConvertOp.getLoc(), originalInput,
-                                                       mlir::TypeAttr::get(finalDstElemType));
+    auto newConvertOp = IE::ConvertOp::create(rewriter, prevConvertOp.getLoc(), originalInput,
+                                              mlir::TypeAttr::get(finalDstElemType));
 
     auto tileOutType = mlir::cast<vpux::NDTypeInterface>(tileOp.getOutput().getType());
     auto newTileOutType = mlir::cast<mlir::RankedTensorType>(tileOutType.changeElemType(finalDstElemType));
-    auto newTileOp = rewriter.create<IE::TileOp>(tileOp.getLoc(), newTileOutType, newConvertOp.getOutput(),
-                                                 tileOp.getRepeatsValuesAttr());
+    auto newTileOp = IE::TileOp::create(rewriter, tileOp.getLoc(), newTileOutType, newConvertOp.getOutput(),
+                                        tileOp.getRepeatsValuesAttr());
 
     rewriter.replaceOp(convertOp, newTileOp.getOutput());
 
@@ -517,6 +440,18 @@ mlir::LogicalResult FuseGroupConvWithBiasAdd::matchAndRewrite(IE::AddOp origOp, 
         return mlir::failure();
     }
 
+    // GroupConvolution infers its output element type from its input, so rebuilding the op discards an
+    // output precision that was promoted independently of the input (e.g. by RunF16ToF32ConvertOnDPU).
+    // Fusing here would silently hand consumers a narrower type than they expect.
+    const auto groupConvInElemType =
+            mlir::cast<vpux::NDTypeInterface>(groupConvOp.getInput().getType()).getElementType();
+    const auto origOutElemType = mlir::cast<vpux::NDTypeInterface>(origOp.getOutput().getType()).getElementType();
+    if (groupConvInElemType != origOutElemType) {
+        _log.nest().trace("Fusion would re-infer the output element type from '{0}' to '{1}'", origOutElemType,
+                          groupConvInElemType);
+        return mlir::failure();
+    }
+
     // Accept bias either from a preceding TileOp (original pattern) or directly when it is
     // already NxCx1x1 -- the latter happens when FoldTileOpRewriter already removed the Tile.
     auto tileOp = biasTileValue.getDefiningOp<IE::TileOp>();
@@ -563,7 +498,7 @@ mlir::LogicalResult FuseGroupConvWithBiasAdd::matchAndRewrite(IE::AddOp origOp, 
         return mlir::failure();
     }
 
-    // For non-constant-weight GroupConv, the platform must support the new weight-table bias format.
+    // For Non-constant weight GroupConv, the platform must support the new weight-table bias format.
     // The bias itself must still be static: downstream NCE lowering (DepthConvToNCE) always
     // materializes the weight-table bias from a compile-time Const::DeclareOp, regardless of
     // weight-table format, so a runtime bias value cannot be represented here.

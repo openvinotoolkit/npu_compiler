@@ -16,6 +16,7 @@
 #include "vpux/compiler/dialect/IE/IR/ops_interfaces.hpp"
 #include "vpux/compiler/dialect/IE/utils/convolution_utils.hpp"
 #include "vpux/compiler/dialect/IE/utils/pooling_utils.hpp"
+#include "vpux/compiler/dialect/VPU/utils/manual_strategy_utils.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
 #include "vpux/compiler/dialect/const/utils/utils.hpp"
 #include "vpux/compiler/dialect/core/IR/tensor_attr.hpp"
@@ -54,14 +55,15 @@ namespace {
 
 class FuseConvAndSlice final : public mlir::OpRewritePattern<IE::ConvolutionOp> {
 public:
-    using mlir::OpRewritePattern<IE::ConvolutionOp>::OpRewritePattern;
-
-    void initialize() {
+    FuseConvAndSlice(mlir::MLIRContext* ctx): mlir::OpRewritePattern<IE::ConvolutionOp>(ctx), _log(Logger::global()) {
         setDebugName("FuseConvAndSlice");
     }
 
 public:
     mlir::LogicalResult matchAndRewrite(IE::ConvolutionOp convOp, mlir::PatternRewriter& rewriter) const final;
+
+private:
+    Logger _log;
 };
 
 //
@@ -74,7 +76,7 @@ public:
 mlir::LogicalResult FuseConvAndSlice::matchAndRewrite(IE::ConvolutionOp convOp, mlir::PatternRewriter& rewriter) const {
     auto sliceOp = convOp.getInput().getDefiningOp<IE::SliceOp>();
     if (sliceOp == nullptr) {
-        return matchFailed(rewriter, convOp, "Convolution doesn't have Slice input");
+        return matchFailed(_log, rewriter, convOp, "Convolution doesn't have Slice input");
     }
     auto sliceOffset = parseIntArrayAttr<int64_t>(sliceOp.getStaticOffsets());
     auto sliceSize = parseIntArrayAttr<int64_t>(sliceOp.getStaticSizes());
@@ -83,19 +85,19 @@ mlir::LogicalResult FuseConvAndSlice::matchAndRewrite(IE::ConvolutionOp convOp, 
     auto inNDInterface = mlir::dyn_cast<vpux::NDTypeInterface>(convOp.getInput().getType());
     auto inDimOrder = inNDInterface.getDimsOrder();
     if (inNDInterface.getElementType() != outNDInterface.getElementType() || !inNDInterface.getElementType().isF16()) {
-        return matchFailed(rewriter, convOp, "Only handle FP16 case");
+        return matchFailed(_log, rewriter, convOp, "Only handle FP16 case");
     }
     // The channel align interface will return 1 if layout is NCHW
     // Add this condition to promise the channel align interface get valid value
     if (outDimOrder != DimsOrder::NHWC || inDimOrder != DimsOrder::NHWC) {
-        return matchFailed(rewriter, convOp, "Only handle NHWC layout");
+        return matchFailed(_log, rewriter, convOp, "Only handle NHWC layout");
     }
 
     auto sliceInput = sliceOp.getSource();
     auto sliceInputShape = vpux::getShape(sliceInput);
     for (size_t index = 0; index < sliceSize.size(); index++) {
         if (static_cast<int64_t>(index) != Dims4D::Act::C.ind() && (sliceSize[index] != sliceInputShape[Dim(index)])) {
-            return matchFailed(rewriter, sliceOp, "Only support slice from DimC");
+            return matchFailed(_log, rewriter, sliceOp, "Only support slice from DimC");
         }
     }
 
@@ -110,7 +112,7 @@ mlir::LogicalResult FuseConvAndSlice::matchAndRewrite(IE::ConvolutionOp convOp, 
     const int64_t alignedChannel = iface.getInputChannelAlignment();
     auto expandSize = vpux::alignValUp(filterShape[Dims4D::Filter::IC], alignedChannel);
     if (sliceInputShape[Dims4D::Act::C] > expandSize) {
-        return matchFailed(rewriter, convOp, "Folding cost greater than expand");
+        return matchFailed(_log, rewriter, convOp, "Folding cost greater than expand");
     }
 
     const auto& cstContentAttrFilter = filterCst.getContentAttr();
@@ -120,7 +122,7 @@ mlir::LogicalResult FuseConvAndSlice::matchAndRewrite(IE::ConvolutionOp convOp, 
     Shape cstPadEnd = {0, dimCPaddingEnd, 0, 0};
     auto newCstContent = cstContentAttrFilter.transform().padWithZero(cstPadBegin, cstPadEnd).get();
     auto newFilterConst =
-            rewriter.create<Const::DeclareOp>(convOp.getLoc(), newCstContent.getType(), std::move(newCstContent));
+            Const::DeclareOp::create(rewriter, convOp.getLoc(), newCstContent.getType(), std::move(newCstContent));
     auto newConvOp = cloneConvolutionOp(rewriter, convOp, outNDInterface, sliceInput, newFilterConst);
     rewriter.replaceOp(convOp, newConvOp->getOpResults());
 
@@ -129,47 +131,49 @@ mlir::LogicalResult FuseConvAndSlice::matchAndRewrite(IE::ConvolutionOp convOp, 
 
 class FuseMaxPoolConvertScaleAndStaticScale final : public mlir::OpRewritePattern<IE::ConvolutionOp> {
 public:
-    using mlir::OpRewritePattern<IE::ConvolutionOp>::OpRewritePattern;
-
-    void initialize() {
+    FuseMaxPoolConvertScaleAndStaticScale(mlir::MLIRContext* ctx)
+            : mlir::OpRewritePattern<IE::ConvolutionOp>(ctx), _log(Logger::global()) {
         setDebugName("FuseMaxPoolConvertScaleAndStaticScale");
     }
 
 public:
     mlir::LogicalResult matchAndRewrite(IE::ConvolutionOp convOp, mlir::PatternRewriter& rewriter) const final;
+
+private:
+    Logger _log;
 };
 
 mlir::LogicalResult FuseMaxPoolConvertScaleAndStaticScale::matchAndRewrite(IE::ConvolutionOp convOp,
                                                                            mlir::PatternRewriter& rewriter) const {
     const auto staticScaleAttr = convOp.getStaticScaleAttr();
     if (staticScaleAttr == nullptr) {
-        return matchFailed(rewriter, convOp, "Missing static_scale attribute");
+        return matchFailed(_log, rewriter, convOp, "Missing static_scale attribute");
     }
 
     const auto scaleOperand = convOp.getScale();
     if (scaleOperand == nullptr) {
-        return matchFailed(rewriter, convOp, "Missing scale operand");
+        return matchFailed(_log, rewriter, convOp, "Missing scale operand");
     }
 
     mlir::Value lastValue = scaleOperand;
 
     while (auto viewLikeOp = llvm::dyn_cast_if_present<IE::ViewLikeOpInterface>(lastValue.getDefiningOp())) {
         if (!viewLikeOp->getResult(0).hasOneUse()) {
-            return matchFailed(rewriter, convOp, "IE.AffineReshape has multiple uses");
+            return matchFailed(_log, rewriter, convOp, "IE.AffineReshape has multiple uses");
         }
         lastValue = viewLikeOp->getOperand(0);
     }
 
     auto maxPoolOp = lastValue.getDefiningOp<IE::MaxPoolOp>();
     if (maxPoolOp == nullptr) {
-        return matchFailed(rewriter, convOp, "Scale is not produced by IE.MaxPool");
+        return matchFailed(_log, rewriter, convOp, "Scale is not produced by IE.MaxPool");
     }
     if (!maxPoolOp.getOutput().hasOneUse()) {
-        return matchFailed(rewriter, convOp, "IE.MaxPool has multiple uses");
+        return matchFailed(_log, rewriter, convOp, "IE.MaxPool has multiple uses");
     }
 
     if (!IE::isIdentityPooling(maxPoolOp)) {
-        return matchFailed(rewriter, convOp, "MaxPool is not a dummy identity pool");
+        return matchFailed(_log, rewriter, convOp, "MaxPool is not a dummy identity pool");
     }
 
     auto newStaticScale = staticScaleAttr.getValueAsDouble();
@@ -184,11 +188,14 @@ mlir::LogicalResult FuseMaxPoolConvertScaleAndStaticScale::matchAndRewrite(IE::C
                 mlir::FloatAttr::get(mlir::Float32Type::get(maxPoolOp.getContext()), newStaticScale));
     });
 
-    rewriter.replaceOpWithNewOp<IE::ConvolutionOp>(
-            convOp, convOp.getOutput().getType(), convOp.getInput(), convOp.getFilter(), convOp.getBias(),
-            convOp.getScale(), convOp.getZeroPoints(), convOp.getStridesAttr(), convOp.getPadsBeginAttr(),
-            convOp.getPadsEndAttr(), convOp.getDilationsAttr(), convOp.getPostOpAttr(), convOp.getClampAttr(),
+    auto newConvOp = IE::ConvolutionOp::create(
+            rewriter, convOp.getLoc(), convOp.getOutput().getType(), convOp.getInput(), convOp.getFilter(),
+            convOp.getBias(), convOp.getScale(), convOp.getZeroPoints(), convOp.getStridesAttr(),
+            convOp.getPadsBeginAttr(), convOp.getPadsEndAttr(), convOp.getDilationsAttr(), convOp.getPostOpAttr(),
+            convOp.getClampAttr(),
             /*static_scale=*/nullptr, convOp.getOutputPaddingAttr(), convOp.getInputPaddingAttr());
+    copyLoopAttributes(convOp, newConvOp.getOperation());
+    rewriter.replaceOp(convOp, newConvOp.getOperation());
 
     return mlir::success();
 }
@@ -326,11 +333,10 @@ mlir::LogicalResult GroupsToAttr::matchAndRewrite(IE::GroupConvolutionOp convOp,
             auto newOutputLow = getNewShapeValue(weightsFQ.getOutputLow(), "out_low");
             auto newOutputHigh = getNewShapeValue(weightsFQ.getOutputHigh(), "out_high");
 
-            newFilter =
-                    rewriter.create<IE::FakeQuantizeOp>(weightsFQ->getLoc(), newWeights, newInputLow, newInputHigh,
-                                                        newOutputLow, newOutputHigh, weightsFQ.getLevelsAttr(),
-                                                        weightsFQ.getLowFpTypeAttr(), weightsFQ.getAutoBroadcastAttr())
-                            .getOutput();
+            newFilter = IE::FakeQuantizeOp::create(rewriter, weightsFQ->getLoc(), newWeights, newInputLow, newInputHigh,
+                                                   newOutputLow, newOutputHigh, weightsFQ.getLevelsAttr(),
+                                                   weightsFQ.getLowFpTypeAttr(), weightsFQ.getAutoBroadcastAttr())
+                                .getOutput();
         }
     } else {
         newFilter = getNewShapeValue(filter, "weights");

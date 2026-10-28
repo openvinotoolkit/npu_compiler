@@ -9,16 +9,12 @@
 #include "vpux/compiler/dialect/VPURT/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPURegMapped/ops.hpp"
 #include "vpux/compiler/dialect/config/IR/resources.hpp"
-#include "vpux/compiler/dialect/config/IR/utils.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
 #include "vpux/compiler/utils/passes.hpp"
 
-#include <npu_40xx_nnrt.hpp>
-
-#include <array>
-
 #include <llvm/ADT/DenseMap.h>
 #include <llvm/ADT/SmallVector.h>
+#include <array>
 
 namespace vpux::VPUMI40XX {
 #define GEN_PASS_DECL_REORDERMPIOPS
@@ -27,9 +23,10 @@ namespace vpux::VPUMI40XX {
 }  // namespace vpux::VPUMI40XX
 
 using namespace vpux;
-using namespace npu40xx;
 
 namespace {
+using TaskType = VPURegMapped::TaskType;
+
 class ReorderMPIOpsPass : public VPUMI40XX::impl::ReorderMPIOpsBase<ReorderMPIOpsPass> {
 public:
     explicit ReorderMPIOpsPass(Logger log) {
@@ -81,11 +78,74 @@ mlir::Operation* linearizeOps(
     return lastOp;
 }
 
+VPUMI40XX::OpRanges getRequiredOpRanges(mlir::func::FuncOp func) {
+    auto opRanges = func.getOps<VPUMI40XX::OpRanges>();
+    VPUX_THROW_UNLESS(!opRanges.empty(),
+                      "Missing VPUMI40XX::OpRanges operation in function '{0}'; "
+                      "ensure the op_ranges pass runs before reorder-mapped-inference-ops",
+                      func.getName());
+    return *opRanges.begin();
+}
+
+SmallVector<size_t> collectOrderedTiles(VPUMI40XX::OpRanges opRanges) {
+    SmallVector<size_t> tiles;
+    tiles.reserve(opRanges.getBegins().size());
+    for (auto begin : opRanges.getBegins()) {
+        const auto tile = checked_cast<size_t>(mlir::cast<vpux::VPURegMapped::IndexType>(begin.getType()).getTileIdx());
+        const auto pos = std::lower_bound(tiles.begin(), tiles.end(), tile);
+        if (pos == tiles.end() || *pos != tile) {
+            tiles.insert(pos, tile);
+        }
+    }
+    return tiles;
+}
+
+SmallVector<size_t> collectOrderedLists(VPUMI40XX::OpRanges opRanges, TaskType taskType, size_t tileIdx) {
+    SmallVector<size_t> lists;
+    const auto types = opRanges.getTypes();
+    const auto begins = opRanges.getBegins();
+    lists.reserve(begins.size());
+    VPUX_THROW_UNLESS(types.size() == begins.size(),
+                      "OpRanges 'types' and 'begins' arrays have different sizes: {0} vs {1}", types.size(),
+                      begins.size());
+    for (const auto idx : irange(types.size())) {
+        if (mlir::cast<VPURegMapped::TaskTypeAttr>(types[idx]).getValue() != taskType) {
+            continue;
+        }
+
+        const auto beginIndex = mlir::cast<vpux::VPURegMapped::IndexType>(begins[idx].getType());
+        if (checked_cast<size_t>(beginIndex.getTileIdx()) == tileIdx) {
+            const auto listIdx = checked_cast<size_t>(beginIndex.getListIdx());
+            const auto pos = std::lower_bound(lists.begin(), lists.end(), listIdx);
+            if (pos == lists.end() || *pos != listIdx) {
+                lists.insert(pos, listIdx);
+            }
+        }
+    }
+    return lists;
+}
+
+SmallVector<size_t> collectDMAListsFromTaskBuffers(mlir::func::FuncOp func, size_t tileIdx) {
+    SmallVector<size_t> lists;
+    for (auto op : func.getOps<VPUMI40XX::DeclareTaskBufferOp>()) {
+        if (op.getTaskType() != TaskType::DMA) {
+            continue;
+        }
+        const auto index = mlir::cast<vpux::VPURegMapped::IndexType>(op.getIndex().getType());
+        if (checked_cast<size_t>(index.getTileIdx()) == tileIdx) {
+            const auto listIdx = checked_cast<size_t>(index.getListIdx());
+            const auto pos = std::lower_bound(lists.begin(), lists.end(), listIdx);
+            if (pos == lists.end() || *pos != listIdx) {
+                lists.insert(pos, listIdx);
+            }
+        }
+    }
+    return lists;
+}
+
 // DeclareTaskBuffer ordering is particularly hot (many repeated scans). Bucket once and then
 // emit/move in the required firmware order.
-void linearizeDeclareTaskBufferOps(mlir::func::FuncOp func, mlir::OpBuilder& builder) {
-    using TaskType = VPURegMapped::TaskType;
-
+void linearizeDeclareTaskBufferOps(mlir::func::FuncOp func, mlir::OpBuilder& builder, VPUMI40XX::OpRanges opRanges) {
     auto makeKey = [](size_t tileIdx, size_t listIdx, TaskType type) -> uint64_t {
         // Pack into a stable key: [ tileIdx (16) | listIdx (16) | taskType (32) ]
         return (static_cast<uint64_t>(tileIdx) << 48) | (static_cast<uint64_t>(listIdx) << 32) |
@@ -122,18 +182,33 @@ void linearizeDeclareTaskBufferOps(mlir::func::FuncOp func, mlir::OpBuilder& bui
         }
     };
 
-    for (auto tileIndex : irange(nn_public::VPU_MAX_TILES)) {
+    auto tileOrder = collectOrderedTiles(opRanges);
+
+    for (const auto tileIndex : tileOrder) {
         moveBucket(tileIndex, 0, TaskType::DPUInvariant);
         moveBucket(tileIndex, 0, TaskType::DPUVariant);
 
-        moveBucket(tileIndex, 0, TaskType::ActKernelRange);
-        moveBucket(tileIndex, 1, TaskType::ActKernelRange);
+        auto actKernelRangeLists = collectOrderedLists(opRanges, TaskType::ActKernelRange, tileIndex);
+        auto actKernelInvoLists = collectOrderedLists(opRanges, TaskType::ActKernelInvocation, tileIndex);
+        // Fall back to the peer type's list indices when one task type is absent
+        if (actKernelRangeLists.empty()) {
+            actKernelRangeLists = actKernelInvoLists;
+        }
+        if (actKernelInvoLists.empty()) {
+            actKernelInvoLists = actKernelRangeLists;
+        }
 
-        moveBucket(tileIndex, 0, TaskType::ActKernelInvocation);
-        moveBucket(tileIndex, 1, TaskType::ActKernelInvocation);
+        for (const auto listIdx : actKernelRangeLists) {
+            moveBucket(tileIndex, listIdx, TaskType::ActKernelRange);
+        }
+        for (const auto listIdx : actKernelInvoLists) {
+            moveBucket(tileIndex, listIdx, TaskType::ActKernelInvocation);
+        }
 
-        moveBucket(tileIndex, 0, TaskType::DMA);
-        moveBucket(tileIndex, 1, TaskType::DMA);
+        auto dmaLists = collectDMAListsFromTaskBuffers(func, tileIndex);
+        for (const auto listIdx : dmaLists) {
+            moveBucket(tileIndex, listIdx, TaskType::DMA);
+        }
     }
 }
 
@@ -205,20 +280,20 @@ void linearizeNNDMAOpsByEngine(mlir::func::FuncOp func, mlir::OpBuilder& builder
 
 void ReorderMPIOpsPass::safeRunOnFunc() {
     auto func = getOperation();
-
     auto builder = mlir::OpBuilder::atBlockBegin(&func.getBody().front());
+    auto opRanges = getRequiredOpRanges(func);
 
-    // when ordering these function calls take care of the dominance relationships.
-    // Ideally this should be a canonicalizer-like thing, but re-ordering ops via successive pattern rewrites//
+    // When ordering these function calls take care of the dominance relationships.
+    // Ideally this should be a canonicalizer-like thing, but re-ordering ops via successive pattern rewrites
     // seems overkill.
     // Since VPUMI40XX is a highly controlled dialect in terms of the forms it can take, manual implicit good
-    // ordering of what to linearize first to not break dominance should be oke.
+    // ordering of what to linearize first to not break dominance should be ok.
 
     // order of DeclareTaskBuffer is important as it must be aligned with firmware expectations
     // tile0: DPUInvariant -> DPUVariant -> Ranges -> Invocations -> DMA from DDR -> DMA from CMX
     // tile1: DPUInvariant -> DPUVariant -> Ranges -> Invocations -> DMA from DDR -> DMA from CMX
     // ...
-    linearizeDeclareTaskBufferOps(func, builder);
+    linearizeDeclareTaskBufferOps(func, builder, opRanges);
 
     linearizeOps<Const::DeclareOp>(func, builder);
 

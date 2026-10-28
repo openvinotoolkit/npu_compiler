@@ -38,9 +38,9 @@ set (EXTRA_INCLUDES
 
 # Toggle the inclusion of the virtual machine unit tests based on whether the NPU execution engine is enabled, as the virtual machine belongs to this execution engine
 if(ENABLE_NPU_EXECUTION_ENGINE)
-    # npu_interpreter_runtime folder corresponds to the openvino_intel_npu_vm_runtime target.
+    # vm_runtime folder corresponds to the openvino_intel_npu_vm_runtime target.
     list(APPEND MANDATORY_UNIT_TESTS_LIBS "openvino_intel_npu_vm_runtime")
-    list(APPEND EXTRA_INCLUDES "${PROJECT_SOURCE_DIR}/src/npu_interpreter_runtime/src/utils") # Access to the private headers for testing purposes
+    list(APPEND EXTRA_INCLUDES "${PROJECT_SOURCE_DIR}/src/vm_runtime/src/utils") # Access to the private headers for testing purposes
 
     set(BYTECODE_ARTIFACTS_TARGET "generateBytecodeArtifactsHeader")
     set(BYTECODE_ARTIFACTS_TEMPLATE "${CMAKE_CURRENT_SOURCE_DIR}/virtual_machine/compatibility/bytecode_artifacts.hpp.inc")

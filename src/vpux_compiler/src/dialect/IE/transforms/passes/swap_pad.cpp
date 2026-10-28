@@ -44,16 +44,16 @@ mlir::LogicalResult SwapWithTranspose::matchAndRewrite(IE::TransposeOp originOp,
                                                        mlir::PatternRewriter& rewriter) const {
     _log.trace("Got '{0}' at '{1}'", originOp->getName(), originOp->getLoc());
     if (!originOp.getInput().hasOneUse()) {
-        return matchFailed(rewriter, originOp, "Operation {0} is not the only user of its operand",
+        return matchFailed(_log, rewriter, originOp, "Operation {0} is not the only user of its operand",
                            originOp->getName());
     }
 
     auto padLayer = originOp.getInput().getDefiningOp<IE::PadOp>();
     if (padLayer == nullptr) {
-        return matchFailed(rewriter, originOp, "Producer is not a Pad operation");
+        return matchFailed(_log, rewriter, originOp, "Producer is not a Pad operation");
     }
     if (padLayer.getMode() == IE::PadMode::REFLECT) {
-        return matchFailed(rewriter, originOp, "Pad has mode REFLECT");
+        return matchFailed(_log, rewriter, originOp, "Pad has mode REFLECT");
     }
 
     auto newTransposeResult = rewriter.createOrFold<IE::TransposeOp>(

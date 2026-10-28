@@ -471,8 +471,8 @@ VPURT::DeclareBufferOp declareCompressLUTBufAlloc(mlir::MLIRContext* ctx, mlir::
 
     const auto loc = appendLoc(taskLoc, "compressionLUT");
 
-    return builder.create<VPURT::DeclareBufferOp>(loc, actCompressionEntryType, VPURT::BufferSection::CMX_NN, cmxIdx,
-                                                  offset);
+    return VPURT::DeclareBufferOp::create(builder, loc, actCompressionEntryType, VPURT::BufferSection::CMX_NN, cmxIdx,
+                                          offset);
 }
 
 // Convert spill-write to task with compress DMA
@@ -491,11 +491,11 @@ void createCompressDma(VPURT::TaskOp spillWriteTaskOp, mlir::Value actCompSizeBu
     outputType = VPUIP::setCompressionState(outputType, VPUIP::CompressionState::RuntimeCompressed);
     outputBuf.setType(outputType);
 
-    builder.create<VPUIP::CompressDMAOp>(loc, dmaOp.getInput(), actCompSizeBuffer,
-                                         /*act_compression_sparsity_map*/ nullptr, outputBuf, dmaOp.getPortAttr(),
-                                         dmaOp.getIsOutOfOrder(), dmaOp.getIsCritical(),
-                                         /*dmaHwpId=*/nullptr,
-                                         /*profilingMetadata=*/nullptr);
+    VPUIP::CompressDMAOp::create(builder, loc, dmaOp.getInput(), actCompSizeBuffer,
+                                 /*act_compression_sparsity_map*/ nullptr, outputBuf, dmaOp.getPortAttr(),
+                                 dmaOp.getIsOutOfOrder(), dmaOp.getIsCritical(),
+                                 /*dmaHwpId=*/nullptr,
+                                 /*profilingMetadata=*/nullptr);
     dmaOp.erase();
 }
 
@@ -515,11 +515,11 @@ void createDecompressDma(VPURT::TaskOp spillReadTaskOp, mlir::Value actCompSizeB
     inputType = VPUIP::setCompressionState(inputType, VPUIP::CompressionState::RuntimeCompressed);
     inputBuf.setType(inputType);
 
-    builder.create<VPUIP::DecompressDMAOp>(loc, inputBuf, actCompSizeBuffer, /*act_compression_sparsity_map*/ nullptr,
-                                           dmaOp.getOutputBuff(), dmaOp.getPortAttr(), dmaOp.getIsOutOfOrder(),
-                                           dmaOp.getIsCritical(),
-                                           /* dma_hwp_id= */ nullptr,
-                                           /* profilingMetadata= */ nullptr);
+    VPUIP::DecompressDMAOp::create(builder, loc, inputBuf, actCompSizeBuffer, /*act_compression_sparsity_map*/ nullptr,
+                                   dmaOp.getOutputBuff(), dmaOp.getPortAttr(), dmaOp.getIsOutOfOrder(),
+                                   dmaOp.getIsCritical(),
+                                   /* dma_hwp_id= */ nullptr,
+                                   /* profilingMetadata= */ nullptr);
     dmaOp.erase();
 }
 
@@ -586,7 +586,7 @@ void CompressSpillDmaPass::safeRunOnModule() {
     mlir::OpBuilder builder(&func.getBody().front().front());
 
     auto tileOp = config::getTileExecutor(module);
-    VPUX_THROW_UNLESS(tileOp != nullptr, "Failed to get NCE_Cluster information");
+    VPUX_THROW_WHEN(tileOp == nullptr, "Failed to get NCE_Cluster information");
     _tileCount = tileOp.getCount();
 
     if (auto rsvdMem = config::getCompressDmaReservedMemory(module, VPU::MemoryKind::CMX_NN)) {
@@ -599,7 +599,7 @@ void CompressSpillDmaPass::safeRunOnModule() {
     _log.trace("Compressed DMAs reserved memory: offset - '{0}', size - '{1}'", _rsvdMemOffset, _rsvdMemSize);
 
     auto dmaPorts = config::getAvailableExecutor(module, config::ExecutorKind::DMA_NN);
-    VPUX_THROW_UNLESS(dmaPorts != nullptr, "Failed to get DMA information");
+    VPUX_THROW_WHEN(dmaPorts == nullptr, "Failed to get DMA information");
     _dmaCount = dmaPorts.getCount();
 
     const auto taskOpsVec = to_small_vector(func.getOps<VPURT::TaskOp>());

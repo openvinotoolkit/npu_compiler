@@ -268,8 +268,8 @@ mlir::LogicalResult TransposeRoll::matchAndRewrite(IE::RollOp origOp, mlir::Patt
                                           : SmallVector<int32_t>{Dims4D::Act::H.ind(), Dims4D::Act::W.ind()};
     const auto newAxesElems = checked_cast<int64_t>(axes.size());
     const auto axesDimOrder = mlir::cast<vpux::NDTypeInterface>(origOp.getAxes().getType()).getDimsOrder();
-    VPUX_THROW_UNLESS(!mlir::isa<Core::BoundedTensorType>(origOp.getAxes().getType()),
-                      "{0} doesn't support dynamic shapes", IE::RollOp::getOperationName());
+    VPUX_THROW_WHEN(mlir::isa<Core::BoundedTensorType>(origOp.getAxes().getType()),
+                    "{0} doesn't support dynamic shapes", IE::RollOp::getOperationName());
     const auto newAxesType =
             mlir::RankedTensorType::get(ArrayRef(newAxesElems), origOp.getAxes().getType().getElementType(),
                                         getTensorAttr(rewriter.getContext(), axesDimOrder, nullptr));
@@ -353,15 +353,13 @@ mlir::LogicalResult DecomposeRollToSliceConcat::matchAndRewrite(IE::RollOp origO
         SmallVector<int64_t> headSizes(inputShape.begin(), inputShape.end());
         headSizes[checked_cast<size_t>(axis)] = splitPoint;
 
-        auto sliceTail =
-                rewriter.create<IE::SliceOp>(appendLoc(origOp.getLoc(), "slice_tail_{0}", idx), current,
+        auto sliceTail = IE::SliceOp::create(rewriter, appendLoc(origOp.getLoc(), "slice_tail_{0}", idx), current,
                                              getIntArrayAttr(ctx, tailOffsets), getIntArrayAttr(ctx, tailSizes));
 
-        auto sliceHead =
-                rewriter.create<IE::SliceOp>(appendLoc(origOp.getLoc(), "slice_head_{0}", idx), current,
+        auto sliceHead = IE::SliceOp::create(rewriter, appendLoc(origOp.getLoc(), "slice_head_{0}", idx), current,
                                              getIntArrayAttr(ctx, headOffsets), getIntArrayAttr(ctx, headSizes));
-        current = rewriter.create<IE::ConcatOp>(appendLoc(origOp.getLoc(), "concat_{0}", idx),
-                                                mlir::ValueRange{sliceTail, sliceHead}, axis)
+        current = IE::ConcatOp::create(rewriter, appendLoc(origOp.getLoc(), "concat_{0}", idx),
+                                       mlir::ValueRange{sliceTail, sliceHead}, axis)
                           .getOutput();
     }
 

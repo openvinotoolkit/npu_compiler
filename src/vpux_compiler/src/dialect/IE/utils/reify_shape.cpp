@@ -45,15 +45,15 @@ IE::ConcatOp vpux::buildConcat(const mlir::Location loc, mlir::OpBuilder& builde
     for (const auto& dim : producerShape) {
         if (dim == mlir::ShapedType::kDynamic) {
             auto dynOpLoc = dynamicOperands[dynamicOpIdx].getLoc();
-            auto toI64 = builder.create<mlir::arith::IndexCastOp>(appendLoc(dynOpLoc, "to_i64_{0}", dim),
-                                                                  getInt64Type(builder.getContext()),
-                                                                  dynamicOperands[dynamicOpIdx]);
+            auto toI64 =
+                    mlir::arith::IndexCastOp::create(builder, appendLoc(dynOpLoc, "to_i64_{0}", dim),
+                                                     getInt64Type(builder.getContext()), dynamicOperands[dynamicOpIdx]);
             auto tensorI64Type = mlir::RankedTensorType::get({1}, getInt64Type(builder.getContext()));
-            auto toTensor = builder.create<mlir::tensor::FromElementsOp>(appendLoc(dynOpLoc, "to_tensor_{0}", dim),
-                                                                         tensorI64Type, toI64->getResult(0));
+            auto toTensor = mlir::tensor::FromElementsOp::create(builder, appendLoc(dynOpLoc, "to_tensor_{0}", dim),
+                                                                 tensorI64Type, toI64->getResult(0));
             auto tensorSI64Type = mlir::RankedTensorType::get({1}, getSInt64Type(builder.getContext()));
-            auto toSI64 = builder.create<mlir::tensor::BitcastOp>(appendLoc(dynOpLoc, "to_si64_{0}", dim),
-                                                                  tensorSI64Type, toTensor->getResult(0));
+            auto toSI64 = mlir::tensor::BitcastOp::create(builder, appendLoc(dynOpLoc, "to_si64_{0}", dim),
+                                                          tensorSI64Type, toTensor->getResult(0));
             concatInputs.push_back(toSI64->getResult(0));
             dynamicOpIdx++;
         } else {
@@ -65,7 +65,7 @@ IE::ConcatOp vpux::buildConcat(const mlir::Location loc, mlir::OpBuilder& builde
     }
 
     const auto axisAttr = getIntAttr(builder.getContext(), 0);
-    return builder.create<IE::ConcatOp>(appendLoc(loc, "concat"), concatInputs, axisAttr);
+    return IE::ConcatOp::create(builder, appendLoc(loc, "concat"), concatInputs, axisAttr);
 }
 
 mlir::Value vpux::repackDynamicTensor(mlir::OpBuilder& builder, mlir::Operation* producer, NDTypeInterface operandType,
@@ -79,35 +79,34 @@ mlir::Value vpux::repackDynamicTensor(mlir::OpBuilder& builder, mlir::Operation*
         const SmallVector<int64_t> begins(tensorRank, 0);
         const SmallVector<int64_t> strides(tensorRank, 1);
 
-        auto sliceOp =
-                builder.create<IE::StridedSliceOp>(appendLoc(producer->getLoc(), "slice"),
-                                                   /*data=*/producer->getResult(0),
-                                                   /*begins=*/nullptr,
-                                                   /*ends=*/newShapeValue.getOutput(),
-                                                   /*strides=*/nullptr,
-                                                   /*beginsAttr=*/getIntArrayAttr(ctx, begins),
-                                                   /*endsAttr=*/nullptr,
-                                                   /*stridesAttr=*/getIntArrayAttr(ctx, strides),
-                                                   /*beginMask=*/getIntArrayAttr(ctx, SmallVector<int64_t>{}),
-                                                   /*endMask=*/getIntArrayAttr(ctx, SmallVector<int64_t>{}),
-                                                   /*newAxisMask=*/getIntArrayAttr(ctx, SmallVector<int64_t>{}),
-                                                   /*shrinkAxisMask=*/getIntArrayAttr(ctx, SmallVector<int64_t>{}),
-                                                   /*ellipsisMask=*/getIntArrayAttr(ctx, SmallVector<int64_t>{}));
+        auto sliceOp = IE::StridedSliceOp::create(builder, appendLoc(producer->getLoc(), "slice"),
+                                                  /*data=*/producer->getResult(0),
+                                                  /*begins=*/nullptr,
+                                                  /*ends=*/newShapeValue.getOutput(),
+                                                  /*strides=*/nullptr,
+                                                  /*beginsAttr=*/getIntArrayAttr(ctx, begins),
+                                                  /*endsAttr=*/nullptr,
+                                                  /*stridesAttr=*/getIntArrayAttr(ctx, strides),
+                                                  /*beginMask=*/getIntArrayAttr(ctx, SmallVector<int64_t>{}),
+                                                  /*endMask=*/getIntArrayAttr(ctx, SmallVector<int64_t>{}),
+                                                  /*newAxisMask=*/getIntArrayAttr(ctx, SmallVector<int64_t>{}),
+                                                  /*shrinkAxisMask=*/getIntArrayAttr(ctx, SmallVector<int64_t>{}),
+                                                  /*ellipsisMask=*/getIntArrayAttr(ctx, SmallVector<int64_t>{}));
 
         dynReshapeOperand = sliceOp.getOutput();
     }
 
     auto boundedType = mlir::dyn_cast<Core::BoundedTensorType>(producer->getResult(0).getType());
-    VPUX_THROW_UNLESS(boundedType != nullptr, "Expected to get BoundedTensorType at {0}",
-                      producer->getResult(0).getLoc());
+    VPUX_THROW_WHEN(boundedType == nullptr, "Expected to get BoundedTensorType at {0}",
+                    producer->getResult(0).getLoc());
     auto bounds = boundedType.getBounds();
 
     // Reshape is required because strided slice infers all dimensions as dynamic
     // [Track number: S#154699]
-    auto reshape = builder.create<IE::DynamicReshapeOp>(appendLoc(producer->getLoc(), "reshape"),
-                                                        /*data=*/dynReshapeOperand,
-                                                        /*shape=*/newShapeValue.getOutput(),
-                                                        /*output_shape=*/getIntArrayAttr(ctx, operandShape.raw()),
-                                                        /*output_bounds=*/getIntArrayAttr(ctx, bounds));
+    auto reshape = IE::DynamicReshapeOp::create(builder, appendLoc(producer->getLoc(), "reshape"),
+                                                /*data=*/dynReshapeOperand,
+                                                /*shape=*/newShapeValue.getOutput(),
+                                                /*output_shape=*/getIntArrayAttr(ctx, operandShape.raw()),
+                                                /*output_bounds=*/getIntArrayAttr(ctx, bounds));
     return reshape.getOutput();
 }

@@ -116,6 +116,7 @@ TEST_P(DynamicGatherwithAddNPUTest, NPU5010_HW_TestKindSubgraph) {
     setDefaultHardwareMode();
     run(Platform::NPU5010);
 }
+
 TEST_P(DynamicGatherwithAddNPUTest, NPU5020_HW_TestKindSubgraph) {
     abs_threshold = 0.0f;
     setDefaultHardwareMode();

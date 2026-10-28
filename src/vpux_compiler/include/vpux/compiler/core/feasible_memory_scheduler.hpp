@@ -18,6 +18,7 @@ enum class VPUDevice;
 }  // namespace VPUNN
 
 namespace vpux {
+enum class DmaDirectionType;
 
 class FeasibleMemoryScheduler final {
 public:
@@ -410,7 +411,8 @@ private:
     QueueAndCycleType getCurrentCycleAndExecutorInstanceMask(operationIdxType opIdx, size_t depEndCycle = 0);
     QueueAndCycleType getCurrentCycleAndExecutorInstanceMaskForSpill(mlir::Value buffer, EOpType spillType,
                                                                      size_t depEndCycle = 0);
-    size_t spilledOperationCycleCost(mlir::Value spilledBuffer);
+    // Return cached/estimated cycle cost for spilling this buffer; dmaDirection selects the DMA direction.
+    size_t spilledOperationCycleCost(mlir::Value spilledBuffer, vpux::DmaDirectionType dmaDirection);
     size_t operationCycleCost(operationIdxType opIdx);
     void alignExecutors(size_t nextAvailableCycle);
     void updateCurrentCycleForExecutor(QueueType queueType, llvm::BitVector executorInstanceMask, size_t newCycle);
@@ -608,8 +610,8 @@ private:
             {{config::ExecutorKind::NCE}, {1}},       {{config::ExecutorKind::SHAVE_NN}, {1}},
             {{config::ExecutorKind::SHAVE_ACT}, {1}}, {{config::ExecutorKind::M2I}, {1}}};
 
-    // spilled operation cycle cost
-    mlir::DenseMap<mlir::Value, size_t> _spillBufferCycleCost;
+    // spilled operation cycle cost, keyed by buffer and DMA direction (write/read costs may differ)
+    mlir::DenseMap<std::pair<mlir::Value, vpux::DmaDirectionType>, size_t> _spillBufferCycleCost;
 
     // Map of root buffers and vector of operations (operationIdx) writing to this buffer
     // This is used to sort the shared buffers based on their out-degree using the _outDegreeTable

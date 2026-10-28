@@ -146,10 +146,10 @@ mlir::LogicalResult ResolveStridedSlicePass::SlicePlanning::matchAndRewrite(IE::
         const auto stridesAttr = getIntArrayAttr(getContext(), plan.strides);
         const auto zeroesArrayAttr = getIntArrayAttr(getContext(), SmallVector<int64_t>(plan.begins.size(), 0));
 
-        newOp = rewriter.create<IE::StridedSliceOp>(takeOpLoc(origOp, "slice_in"), origOp.getInput(),
-                                                    origOp.getBegins(), origOp.getEnds(), origOp.getStrides(),
-                                                    beginAttr, endsAttr, stridesAttr, zeroesArrayAttr, zeroesArrayAttr,
-                                                    zeroesArrayAttr, zeroesArrayAttr, zeroesArrayAttr);
+        newOp = IE::StridedSliceOp::create(rewriter, takeOpLoc(origOp, "slice_in"), origOp.getInput(),
+                                           origOp.getBegins(), origOp.getEnds(), origOp.getStrides(), beginAttr,
+                                           endsAttr, stridesAttr, zeroesArrayAttr, zeroesArrayAttr, zeroesArrayAttr,
+                                           zeroesArrayAttr, zeroesArrayAttr);
     } else {
         auto source = origOp.getInput();
         if (!reverseAxis.empty()) {
@@ -163,14 +163,14 @@ mlir::LogicalResult ResolveStridedSlicePass::SlicePlanning::matchAndRewrite(IE::
                 sliceShape[axis] = 1;
                 for (int64_t i = 0; i < sliceNums; i++) {
                     sliceOffset[axis] = i;
-                    concatInputs.push_back(rewriter.create<IE::SliceOp>(takeOpLoc(origOp, "slice_{0}_{1}", i, axis),
-                                                                        source, sliceOffset, sliceShape)
+                    concatInputs.push_back(IE::SliceOp::create(rewriter, takeOpLoc(origOp, "slice_{0}_{1}", i, axis),
+                                                               source, sliceOffset, sliceShape)
                                                    .getResult());
                 }
                 std::reverse(concatInputs.begin(), concatInputs.end());
 
-                auto concatOp = rewriter.create<IE::ConcatOp>(takeOpLoc(origOp, "concat_in_{0}", axis), concatInputs,
-                                                              Dim(axis));
+                auto concatOp = IE::ConcatOp::create(rewriter, takeOpLoc(origOp, "concat_in_{0}", axis), concatInputs,
+                                                     Dim(axis));
                 source = concatOp.getOutput();
 
                 /* Since the elements along `axis` are being reversed, also need to correct begins and ends indices:
@@ -214,7 +214,7 @@ mlir::LogicalResult ResolveStridedSlicePass::SlicePlanning::matchAndRewrite(IE::
                     takeOpLoc(origOp, "slice_{0}", index), source, getIntArrayAttr(getContext(), newInputShape)));
         }
         const auto endsAttr = getIntArrayAttr(getContext(), sizes);
-        newOp = rewriter.create<IE::SliceOp>(takeOpLoc(origOp, "slice_source"), source, beginAttr, endsAttr);
+        newOp = IE::SliceOp::create(rewriter, takeOpLoc(origOp, "slice_source"), source, beginAttr, endsAttr);
     }
 
     auto outputShape = plan.reshape_out_shape;

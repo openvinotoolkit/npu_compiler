@@ -44,6 +44,11 @@ bool isShapeRankEqualToZero(const mlir::Value val) {
     return getShape(val).size() == 0;
 }
 
+bool isBatchDynamic(const mlir::Value val) {
+    const auto shape = getShape(val);
+    return !shape.empty() && shape[Dim(0)] == mlir::ShapedType::kDynamic;
+}
+
 SmallVector<mlir::Value> sliceInputs(mlir::PatternRewriter& rewriter, mlir::Operation* origOp, int64_t sliceIdx,
                                      size_t numInputs) {
     const auto operands = origOp->getOperands();
@@ -86,7 +91,8 @@ mlir::Value appendOperationsToSlices(mlir::PatternRewriter& rewriter, mlir::Oper
     return newOp->getResult(0);
 }
 
-mlir::LogicalResult genericBatchUnroll(mlir::Operation* origOp, size_t numInputs, mlir::PatternRewriter& rewriter) {
+mlir::LogicalResult genericBatchUnroll(mlir::Operation* origOp, size_t numInputs, mlir::PatternRewriter& rewriter,
+                                       Logger log) {
     const auto operands = origOp->getOperands();
     VPUX_THROW_WHEN(operands.empty(), "No operands to slice");
     VPUX_THROW_WHEN(origOp->getNumResults() != 1, "Operations with multiple results are not supported");
@@ -96,6 +102,9 @@ mlir::LogicalResult genericBatchUnroll(mlir::Operation* origOp, size_t numInputs
 
     const auto input1 = operands[0];
     const auto input1Shape = getShape(input1);
+    if (input1Shape[Dim(0)] == mlir::ShapedType::kDynamic) {
+        return matchFailed(log, rewriter, origOp, "UnrollBatch does not support dynamic batch dimension");
+    }
     const auto rowCount = input1Shape[Dim(0)];
     const auto operandsToSlice = operands.take_front(numInputs);
 
@@ -123,12 +132,14 @@ mlir::LogicalResult genericBatchUnroll(mlir::Operation* origOp, size_t numInputs
 }  // namespace
 
 bool vpux::IE::doesOpNeedToUnroll(mlir::Operation* op) {
-    return !isShapeRankEqualToZero(op->getOperand(0)) && !isBatchEqualToOne(op->getOperand(0));
+    return !isShapeRankEqualToZero(op->getOperand(0)) && !isBatchDynamic(op->getOperand(0)) &&
+           !isBatchEqualToOne(op->getOperand(0));
 }
 
 bool vpux::IE::doesEltwiseNeedToUnroll(mlir::Operation* op) {
     return !isShapeRankEqualToZero(op->getOperand(0)) && !isShapeRankEqualToZero(op->getOperand(1)) &&
-           areShapeRanksEqual(op->getOperand(0), op->getOperand(1)) && !isBatchEqualToOne(op->getOperand(0)) &&
+           areShapeRanksEqual(op->getOperand(0), op->getOperand(1)) && !isBatchDynamic(op->getOperand(0)) &&
+           !isBatchDynamic(op->getOperand(1)) && !isBatchEqualToOne(op->getOperand(0)) &&
            !isBatchEqualToOne(op->getOperand(1));
 }
 
@@ -145,7 +156,8 @@ bool vpux::IE::doesMemPermuteNeedToUnroll(IE::MemPermuteOp permuteOp) {
         return false;
     }
 
-    return !isShapeRankEqualToZero(permuteOp.getInput()) && !isBatchEqualToOne(permuteOp.getInput()) &&
+    return !isShapeRankEqualToZero(permuteOp.getInput()) && !isBatchDynamic(permuteOp.getInput()) &&
+           !isBatchEqualToOne(permuteOp.getInput()) &&
            !mlir::isa_and_nonnull<Const::DeclareOp>(permuteOp.getInput().getDefiningOp());
 }
 
@@ -172,7 +184,7 @@ mlir::LogicalResult LayerRewriter::matchAndRewrite(IE::UnrollBatchOpInterface or
                                                    mlir::PatternRewriter& rewriter) const {
     _log.trace("Rewrite layer operation '{0}' at '{1}'", origOp->getName(), origOp->getLoc());
 
-    return genericBatchUnroll(origOp.getOperation(), origOp.getNumberInputs(), rewriter);
+    return genericBatchUnroll(origOp.getOperation(), origOp.getNumberInputs(), rewriter, _log);
 }
 
 //

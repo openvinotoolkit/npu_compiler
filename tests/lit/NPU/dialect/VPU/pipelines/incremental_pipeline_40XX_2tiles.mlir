@@ -64,7 +64,7 @@ func.func @SubgraphIncrementalPipelineCheck(%arg0: tensor<1x16x227x227xf16, {ord
     // CHECK-SAME{LITERAL}:  memory_offsets = [[0, 0, 0, 0], [0, 0, 0, 0]]}>
 
     // CHECK:       [[DWCONV_0:%.+]] = VPU.NCE.DepthConvolution([[COPY_INPUT_0]], [[COPY_WEIGHTS_0]], [[COPY_WEIGHTS_TBL_0]]) rawFilterShape [16, 1, 1, 1]
-    // CHECK-SAME:          pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>
+    // CHECK-SAME:          loop_tile_coord = {axes = array<i64: 2>, indices = array<i64: 0>}, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>
     // CHECK-SAME:          strides = [1, 1], tiling_loop_index = 0 : i64}
     // CHECK-SAME:      -> !VPU.DistributedTensor<1x16x76x227xf16, #NHWC, @CMX_NN
     // CHECK-SAME:          {mode = "OVERLAPPED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64, uniform_distributed_segments
@@ -107,7 +107,7 @@ func.func @SubgraphIncrementalPipelineCheck(%arg0: tensor<1x16x227x227xf16, {ord
     // CHECK-SAME{LITERAL}:  memory_offsets = [[0, 0, 0, 0], [0, 0, 0, 0]]}>
 
     // CHECK:       [[DWCONV_1:%.+]] = VPU.NCE.DepthConvolution([[COPY_INPUT_1]], [[COPY_WEIGHTS_1]], [[COPY_WEIGHTS_TBL_1]]) rawFilterShape [16, 1, 1, 1]
-    // CHECK-SAME:          pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>
+    // CHECK-SAME:          loop_tile_coord = {axes = array<i64: 2>, indices = array<i64: 1>}, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>
     // CHECK-SAME:          strides = [1, 1], tiling_loop_index = 0 : i64}
     // CHECK-SAME:          -> !VPU.DistributedTensor<1x16x76x227xf16, #NHWC, @CMX_NN
     // CHECK-SAME:              {mode = "OVERLAPPED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64, uniform_distributed_segments
@@ -150,7 +150,7 @@ func.func @SubgraphIncrementalPipelineCheck(%arg0: tensor<1x16x227x227xf16, {ord
     // CHECK-SAME{LITERAL}:  memory_offsets = [[0, 0, 0, 0], [0, 0, 0, 0]]}>
 
     // CHECK:       [[DWCONV_2:%.+]] = VPU.NCE.DepthConvolution([[COPY_INPUT_2]], [[COPY_WEIGHTS_2]], [[COPY_WEIGHTS_TBL_2]]) rawFilterShape [16, 1, 1, 1]
-    // CHECK-SAME:          pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>
+    // CHECK-SAME:          loop_tile_coord = {axes = array<i64: 2>, indices = array<i64: 2>}, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>
     // CHECK-SAME:          strides = [1, 1], tiling_loop_index = 0 : i64
     // CHECK-SAME:          -> !VPU.DistributedTensor<1x16x75x227xf16, #NHWC, @CMX_NN
     // CHECK-SAME:              {mode = "OVERLAPPED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64, uniform_distributed_segments
@@ -201,7 +201,7 @@ func.func @SubgraphIncrementalPipelineCheck(%arg0: tensor<1x16x227x227xf16, {ord
     // CHECK-SAME{LITERAL}:  memory_offsets = [[0, 0, 0, 0], [0, 0, 0, 0]]}>
 
     // CHECK:       [[CONV_0:%.+]] = VPU.NCE.Convolution([[COPY_CONV_INPUT_0]], [[COPY_CONV_WEIGHTS_0]], [[COPY_CONV_WEIGHTS_TBL_0]]) rawFilterShape [96, 16, 7, 7]
-    // CHECK-SAME:          pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>
+    // CHECK-SAME:          loop_tile_coord = {axes = array<i64: 2>, indices = array<i64: 0>}, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>
     // CHECK-SAME:          strides = [2, 2], tiling_loop_index = 1 : i64}
     // CHECK-SAME:    -> !VPU.DistributedTensor<1x96x37x111xf16, #NHWC, @CMX_NN
     // CHECK-SAME:          {mode = "OVERLAPPED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64, uniform_distributed_segments
@@ -245,7 +245,7 @@ func.func @SubgraphIncrementalPipelineCheck(%arg0: tensor<1x16x227x227xf16, {ord
     // CHECK-SAME{LITERAL}:  memory_offsets = [[0, 0, 0, 0], [0, 0, 0, 0]]}>
 
     // CHECK:       [[CONV_1:%.+]] = VPU.NCE.Convolution([[COPY_CONV_INPUT_1]], [[COPY_CONV_WEIGHTS_1]], [[COPY_CONV_WEIGHTS_TBL_1]]) rawFilterShape [96, 16, 7, 7]
-    // CHECK-SAME:          pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>
+    // CHECK-SAME:          loop_tile_coord = {axes = array<i64: 2>, indices = array<i64: 1>}, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>
     // CHECK-SAME:          strides = [2, 2], tiling_loop_index = 1 : i64}
     // CHECK-SAME:     -> !VPU.DistributedTensor<1x96x37x111xf16, #NHWC, @CMX_NN
     // CHECK-SAME:          {mode = "OVERLAPPED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64, uniform_distributed_segments
@@ -290,7 +290,7 @@ func.func @SubgraphIncrementalPipelineCheck(%arg0: tensor<1x16x227x227xf16, {ord
     // CHECK-SAME{LITERAL}:  memory_offsets = [[0, 0, 0, 0], [0, 0, 0, 0]]}>
 
     // CHECK:       [[CONV_2:%.+]] = VPU.NCE.Convolution([[COPY_CONV_INPUT_2]], [[COPY_CONV_WEIGHTS_2]], [[COPY_CONV_WEIGHTS_TBL_2]]) rawFilterShape [96, 16, 7, 7]
-    // CHECK-SAME:          pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>
+    // CHECK-SAME:          loop_tile_coord = {axes = array<i64: 2>, indices = array<i64: 2>}, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>
     // CHECK-SAME:          strides = [2, 2], tiling_loop_index = 1 : i64
     // CHECK-SAME:     -> !VPU.DistributedTensor<1x96x37x111xf16, #NHWC, @CMX_NN
     // CHECK-SAME:          {mode = "OVERLAPPED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64, uniform_distributed_segments
@@ -370,7 +370,7 @@ func.func @PerAxisQuantizedDWConvIncrementalPipelineCheck(%arg0: tensor<1x32x256
     // CHECK-SAME{LITERAL}:  memory_shapes = [[32, 1, 1, 4], [32, 1, 1, 4]], memory_offsets = [[0, 0, 0, 0], [0, 0, 0, 0]]}>
 
     // CHECK:       [[DW_CONV_0:%.+]] = VPU.NCE.DepthConvolution([[COPY_INPUT_0]], [[COPY_WEIGHTS_0]], [[COPY_WEIGHTS_TBL_0]]) rawFilterShape [32, 1, 1, 1]
-    // CHECK-SAME:          pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>
+    // CHECK-SAME:          loop_tile_coord = {axes = array<i64: 2>, indices = array<i64: 0>}, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>
     //CHECK-SAME:            strides = [1, 1], tiling_loop_index = 0 : i64}
     // CHECK-SAME:      -> !VPU.DistributedTensor<1x32x52x256x!qElemType, #NHWC, @CMX_NN
     // CHECK-SAME:           {mode = "OVERLAPPED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64, uniform_distributed_segments
@@ -403,7 +403,7 @@ func.func @PerAxisQuantizedDWConvIncrementalPipelineCheck(%arg0: tensor<1x32x256
     // CHECK-SAME{LITERAL}:  memory_shapes = [[32, 1, 1, 4], [32, 1, 1, 4]], memory_offsets = [[0, 0, 0, 0], [0, 0, 0, 0]]}>
 
     // CHECK:       [[DW_CONV_1:%.+]] = VPU.NCE.DepthConvolution([[COPY_INPUT_1]], [[COPY_WEIGHTS_1]], [[COPY_WEIGHTS_TBL_1]]) rawFilterShape [32, 1, 1, 1]
-    // CHECK-SAME:          pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>
+    // CHECK-SAME:          loop_tile_coord = {axes = array<i64: 2>, indices = array<i64: 1>}, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>
     //CHECK-SAME:           strides = [1, 1], tiling_loop_index = 0 : i64
     // CHECK-SAME:      -> !VPU.DistributedTensor<1x32x51x256x!qElemType, #NHWC, @CMX_NN
     // CHECK-SAME:           {mode = "OVERLAPPED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64, uniform_distributed_segments
@@ -437,7 +437,7 @@ func.func @PerAxisQuantizedDWConvIncrementalPipelineCheck(%arg0: tensor<1x32x256
     // CHECK-SAME{LITERAL}:  memory_shapes = [[32, 1, 1, 4], [32, 1, 1, 4]], memory_offsets = [[0, 0, 0, 0], [0, 0, 0, 0]]}>
 
     // CHECK:       [[DW_CONV_2:%.+]] = VPU.NCE.DepthConvolution([[COPY_INPUT_2]], [[COPY_WEIGHTS_2]], [[COPY_WEIGHTS_TBL_2]]) rawFilterShape [32, 1, 1, 1]
-    // CHECK-SAME:          pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>
+    // CHECK-SAME:          loop_tile_coord = {axes = array<i64: 2>, indices = array<i64: 2>}, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>
     // CHECK-SAME:             strides = [1, 1], tiling_loop_index = 0 : i64
     // CHECK-SAME:      -> !VPU.DistributedTensor<1x32x51x256x!qElemType, #NHWC, @CMX_NN
     // CHECK-SAME:           {mode = "OVERLAPPED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64, uniform_distributed_segments
@@ -471,7 +471,7 @@ func.func @PerAxisQuantizedDWConvIncrementalPipelineCheck(%arg0: tensor<1x32x256
     // CHECK-SAME{LITERAL}:  memory_shapes = [[32, 1, 1, 4], [32, 1, 1, 4]], memory_offsets = [[0, 0, 0, 0], [0, 0, 0, 0]]}>
 
     // CHECK:       [[DW_CONV_3:%.+]] = VPU.NCE.DepthConvolution([[COPY_INPUT_3]], [[COPY_WEIGHTS_3]], [[COPY_WEIGHTS_TBL_3]]) rawFilterShape [32, 1, 1, 1]
-    // CHECK-SAME:          pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>
+    // CHECK-SAME:          loop_tile_coord = {axes = array<i64: 2>, indices = array<i64: 3>}, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>
     // CHECK-SAME:              strides = [1, 1], tiling_loop_index = 0 : i64}
     // CHECK-SAME:      -> !VPU.DistributedTensor<1x32x51x256x!qElemType, #NHWC, @CMX_NN
     // CHECK-SAME:          {mode = "OVERLAPPED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64, uniform_distributed_segments
@@ -505,7 +505,7 @@ func.func @PerAxisQuantizedDWConvIncrementalPipelineCheck(%arg0: tensor<1x32x256
     // CHECK-SAME{LITERAL}:  memory_shapes = [[32, 1, 1, 4], [32, 1, 1, 4]], memory_offsets = [[0, 0, 0, 0], [0, 0, 0, 0]]}>
 
     // CHECK:       [[DW_CONV_4:%.+]] = VPU.NCE.DepthConvolution([[COPY_INPUT_4]], [[COPY_WEIGHTS_4]], [[COPY_WEIGHTS_TBL_4]]) rawFilterShape [32, 1, 1, 1]
-    // CHECK-SAME:          pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>
+    // CHECK-SAME:          loop_tile_coord = {axes = array<i64: 2>, indices = array<i64: 4>}, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>
     // CHECK-SAME:              strides = [1, 1], tiling_loop_index = 0 : i64}
     // CHECK-SAME:      -> !VPU.DistributedTensor<1x32x51x256x!qElemType, #NHWC, @CMX_NN
     // CHECK-SAME:          {mode = "OVERLAPPED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64, uniform_distributed_segments

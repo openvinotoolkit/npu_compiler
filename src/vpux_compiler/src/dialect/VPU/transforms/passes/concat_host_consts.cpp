@@ -74,7 +74,7 @@ mlir::arith::ConstantOp foldConstants(mlir::Location loc, mlir::func::FuncOp fun
     auto rankedTensorType = mlir::RankedTensorType::get(ShapeRef({checked_cast<int32_t>(totalBuffSize)}),
                                                         getInt8Type(funcOp.getContext()));
     const auto denseAttr = Const::createConstContent(rankedTensorType, buffer);
-    return builder.create<mlir::arith::ConstantOp>(loc, rankedTensorType, denseAttr);
+    return mlir::arith::ConstantOp::create(builder, loc, rankedTensorType, denseAttr);
 }
 
 void ConcatHostConstsPass::safeRunOnModule() {
@@ -139,7 +139,7 @@ void ConcatHostConstsPass::safeRunOnModule() {
                 _log.nest(), appendLoc(funcOp.getLoc(), "obfuscated_inputs"), funcOp, argsVec,
                 [](mlir::OpBuilder& builder, mlir::Location loc, mlir::Value input, ArrayRef<int64_t> offsets,
                    ArrayRef<int64_t> sizes) {
-                    return builder.create<VPU::SliceOp>(loc, input, offsets, sizes);
+                    return VPU::SliceOp::create(builder, loc, input, offsets, sizes);
                 },
                 /*obfuscateSingleInput=*/true);
 
@@ -150,9 +150,8 @@ void ConcatHostConstsPass::safeRunOnModule() {
             SmallVector<mlir::Value> newOperands(callOp->getOperands().begin(), callOp->getOperands().begin() + offset);
             newOperands.push_back(foldedConstOp);
             builder.setInsertionPoint(callOp);
-            auto newCallOp =
-                    builder.create<mlir::func::CallOp>(appendLoc(callOp->getLoc(), "_updated"), callOp.getCalleeAttr(),
-                                                       callOp->getResultTypes(), newOperands);
+            auto newCallOp = mlir::func::CallOp::create(builder, appendLoc(callOp->getLoc(), "_updated"),
+                                                        callOp.getCalleeAttr(), callOp->getResultTypes(), newOperands);
             callOp->replaceAllUsesWith(newCallOp);
             callOp->erase();
         }

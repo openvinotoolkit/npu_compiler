@@ -54,6 +54,44 @@ def Bytecode_BufferCreateOp : Bytecode_VariadicOperandsInstructionOp<"buffer.cre
     }];
 }
 
+def Bytecode_BufferFromConstOp : Bytecode_VariadicOperandsInstructionOp<"buffer.from_const",
+        [SameVariadicOperandSize, DeclareOpInterfaceMethods<SymbolUserOpInterface>],
+        "1.2.0", "intel_npu::vm::OpCode::BUFFER_FROM_CONST"> {
+    let summary = "Create a read-only buffer from a constant-section entry";
+
+    let description = [{
+        Creates an unowned read-only buffer over one constant-section entry. The instruction stores the new buffer
+        handle in `dst`. The constant entry contains raw bytes only, so `elem_type`, `shape`, and `strides` provide
+        the runtime buffer descriptor. The VM validates that the descriptor's logical byte size equals the referenced
+        constant entry size.
+
+        Example:
+        ```mlir
+        bytecode.buffer.from_const %dst, @constant_section::@shape, @type_section::@i64_type shape(%size) strides(%stride)
+        ```
+    }];
+
+    let arguments = (ins
+        Bytecode_RegisterType:$dst,
+        SymbolRefAttr:$constant_ref,
+        SymbolRefAttr:$elem_type,
+        Variadic<Bytecode_RegisterType>:$shape,
+        Variadic<Bytecode_RegisterType>:$strides
+    );
+
+    let assemblyFormat = [{
+        $dst `,` $constant_ref `,` $elem_type `shape` `(` $shape `)` `strides` `(` $strides `)` attr-dict
+    }];
+
+    let hasVerifier = 1;
+
+    let extraClassDeclaration = [{
+        bool isDstOperand(::mlir::OpOperand& operand) {
+            return operand.get() == getDst();
+        }
+    }];
+}
+
 def Bytecode_BufferGetDimOp : Bytecode_ThreeOperandsInstructionBase<"buffer.get_dim", [], "1.0.0", "intel_npu::vm::OpCode::BUFFER_GET_DIM"> {
     let summary = "Get a dimension from a buffer's shape";
 
@@ -215,6 +253,20 @@ def Bytecode_BufferLoadOp : Bytecode_VariadicOperandsInstructionOp<"buffer.load"
     }];
 
     let hasVerifier = 1;
+}
+
+def Bytecode_BufferCopyOp : Bytecode_TwoOperandsInstructionBase<"buffer.copy", [], "1.2.0", "intel_npu::vm::OpCode::BUFFER_COPY"> {
+    let summary = "Copy the complete physical range between equal buffer descriptors";
+
+    let description = [{
+        Copies all bytes between `src` and `dst`. The VM requires both buffers to have equal element types, rank,
+        shape, strides, and physical byte size. The source must be readable and the destination writable.
+
+        Example:
+        ```mlir
+        bytecode.buffer.copy %dst, %src
+        ```
+    }];
 }
 
 #endif

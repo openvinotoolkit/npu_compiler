@@ -78,7 +78,7 @@ mlir::LogicalResult vpux::IE::LSTMSequenceOp::reifyResultShapes(
     for (const auto dimIdx : irange(outputHiddenValuesType.getRank())) {
         if (outputHiddenValuesType.isDynamicDim(dimIdx)) {
             auto dimLoc = appendLoc(loc, "dim_{0}", dimIdx);
-            auto index = builder.create<mlir::arith::ConstantIndexOp>(appendLoc(dimLoc, "const_index"), seqLengthIdx);
+            auto index = mlir::arith::ConstantIndexOp::create(builder, appendLoc(dimLoc, "const_index"), seqLengthIdx);
             mlir::OpFoldResult dimOp = builder.createOrFold<mlir::tensor::DimOp>(dimLoc, getInputData(), index);
             shapes.push_back(mlir::getValueOrCreateConstantIndexOp(builder, appendLoc(loc, "const_index"), dimOp));
         } else {

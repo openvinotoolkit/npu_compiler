@@ -27,16 +27,16 @@ void updateRegMappedInitializationValues(std::map<std::string, std::map<std::str
                                          const std::map<std::string, std::map<std::string, RegFieldValue>>& newValues) {
     for (auto newRegisterIter = newValues.begin(); newRegisterIter != newValues.end(); ++newRegisterIter) {
         auto correspondingRegisterIter = values.find(newRegisterIter->first);
-        VPUX_THROW_UNLESS(correspondingRegisterIter != values.end(),
-                          "updateRegMappedInitializationValues: Register with name {0} not found in provided values",
-                          newRegisterIter->first);
+        VPUX_THROW_WHEN(correspondingRegisterIter == values.end(),
+                        "updateRegMappedInitializationValues: Register with name {0} not found in provided values",
+                        newRegisterIter->first);
 
         for (auto newFieldIter = newRegisterIter->second.begin(); newFieldIter != newRegisterIter->second.end();
              ++newFieldIter) {
             auto correspondingFieldIter = correspondingRegisterIter->second.find(newFieldIter->first);
-            VPUX_THROW_UNLESS(correspondingFieldIter != correspondingRegisterIter->second.end(),
-                              "updateRegMappedInitializationValues: Field with name {0} not found in provided values",
-                              newFieldIter->first);
+            VPUX_THROW_WHEN(correspondingFieldIter == correspondingRegisterIter->second.end(),
+                            "updateRegMappedInitializationValues: Field with name {0} not found in provided values",
+                            newFieldIter->first);
 
             // update field value
             correspondingFieldIter->second = newFieldIter->second;

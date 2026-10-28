@@ -35,11 +35,6 @@ def InsertDelayDPUVariant : PassBase<"insert-delay-dpu-variant", "vpux::Function
 
     let options = [
         Option<
-            "dpuProfilingEnabled", "dpu-profiling-enabled",
-            "bool", "false",
-            "Specifies whether the DPU profiling feature is enabled"
-        >,
-        Option<
             "fwPdecDelayEnabled", "fw-pdec-delay-enabled",
             "bool", "false",
             "Specifies whether the PDEC delay feature is enabled in the firmware"

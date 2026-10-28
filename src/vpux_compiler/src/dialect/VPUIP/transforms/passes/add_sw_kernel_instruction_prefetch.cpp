@@ -253,8 +253,8 @@ VPUIP::SwKernelOp AddSwKernelInstructionPrefetch::insertDummyKernelPrefetchTask(
         if (auto bufOp = io.getDefiningOp<VPURT::DeclareBufferOp>()) {
             auto newType =
                     mlir::cast<NDTypeInterface>(io.getType()).changeMemSpace(memSpaceCMX).changeShape({1, 1, 1, 1});
-            auto newBuff = builder.create<VPURT::DeclareBufferOp>(
-                    appendLoc(bufOp->getLoc(), suffix), newType, sectionCMX,
+            auto newBuff = VPURT::DeclareBufferOp::create(
+                    builder, appendLoc(bufOp->getLoc(), suffix), newType, sectionCMX,
                     getIntArrayAttr(&getContext(), mlir::SmallVector<int>{static_cast<int>(clusterIdx)}), offset,
                     bufOp.getSwizzlingKeyAttr());
             buffers.push_back(newBuff);

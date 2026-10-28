@@ -122,11 +122,11 @@ void vpux::VPURT::BarrierPagesSplitHandler::initializeTaskQueueTypeMap(mlir::fun
 void vpux::VPURT::BarrierPagesSplitHandler::findShvTasksWithDpuOrDma(mlir::func::FuncOp func) {
     auto module = func->getParentOfType<mlir::ModuleOp>();
     auto numClusters = config::getTileExecutor(module).getCount();
-    _shvSubmitSyncDmaP0DdrByShvTask.clear();
+    _shvWithSkipDmas.clear();
 
     // Shave submitting DMA tasks on using compiler DMA FIFOs requires WLM enqueue logic
     // to be aware of implicit dependency from SHV task to DMA queue
-    const bool isShvToDmaImplicitDep = (config::getArch(module) <= config::ArchKind::NPU50XX);
+    const bool isShvToDmaImplicitDep = config::isShvToDmaImplicitDep(config::getArch(module));
 
     for (auto& [queueType, taskVec] : _taskQueueTypeMap) {
         if (queueType.type != config::ExecutorKind::SHAVE_ACT) {
@@ -152,10 +152,7 @@ void vpux::VPURT::BarrierPagesSplitHandler::findShvTasksWithDpuOrDma(mlir::func:
                 }
 
                 const auto logicalIdx = logicalIdxAttr.getValue().getSExtValue();
-                auto syncDmaIt = _shvSubmitSyncDmaP0DdrByLogicalTask.find(logicalIdx);
-                if (syncDmaIt != _shvSubmitSyncDmaP0DdrByLogicalTask.end()) {
-                    _shvSubmitSyncDmaP0DdrByShvTask[taskInd] = syncDmaIt->second;
-                }
+                _shvWithSkipDmas.emplace_back(taskInd, logicalIdx);
             }
         }
     }
@@ -164,29 +161,38 @@ void vpux::VPURT::BarrierPagesSplitHandler::findShvTasksWithDpuOrDma(mlir::func:
     for (auto& [_, shvTasksVec] : _shvTasksWithDpuPerTile) {
         llvm::sort(shvTasksVec);
     }
+    llvm::sort(_shvWithSkipDmas, [](const auto& lhs, const auto& rhs) {
+        return lhs.first < rhs.first;
+    });
 }
 
 void vpux::VPURT::BarrierPagesSplitHandler::findShvSubmitSyncDmaTasks() {
-    _shvSubmitSyncDmaP0DdrByLogicalTask.clear();
+    _shvSubmitLatestSkipDmaP0DdrByLogicalTask.clear();
 
     const VPURT::TaskQueueType enqueueDmaQueueType{config::ExecutorKind::DMA_NN,
                                                    getDMAQueueIdEncoding(/*port*/ 0, VPUIP::DmaChannelType::DDR)};
 
     for (size_t taskInd = 0; taskInd < _barrierInfo.getNumOfTasks(); taskInd++) {
         auto taskOp = _barrierInfo.getTaskOpAtIndex(taskInd);
-        if (taskOp != nullptr && VPUIP::isShvGuardSyncDmaTask(taskOp)) {
-            if (_barrierInfo.getTaskQueueType(taskInd) != enqueueDmaQueueType) {
+        if (taskOp == nullptr) {
+            continue;
+        }
+        if (_barrierInfo.getTaskQueueType(taskInd) != enqueueDmaQueueType) {
+            continue;
+        }
+
+        if (auto skipDMAOp = mlir::dyn_cast<VPUIP::SkipDMAOp>(taskOp.getInnerTaskOp())) {
+            auto skipAttr = skipDMAOp.getSkipDmaAttr();
+            if (skipAttr == nullptr) {
                 continue;
             }
 
-            auto syncDMAOp = mlir::cast<VPUIP::SyncDMAOp>(taskOp.getInnerTaskOp());
-            auto logicalIdxAttr = syncDMAOp->getAttrOfType<mlir::IntegerAttr>(VPUIP::LOGICAL_TASK_INDEX_ATTR_NAME);
-            const auto logicalIdx = logicalIdxAttr.getValue().getSExtValue();
-            auto existing = _shvSubmitSyncDmaP0DdrByLogicalTask.find(logicalIdx);
-            if (existing == _shvSubmitSyncDmaP0DdrByLogicalTask.end()) {
-                _shvSubmitSyncDmaP0DdrByLogicalTask[logicalIdx] = taskInd;
+            auto logicalIdx = skipAttr.getAssociatedLogicalTaskIdx().getValue().getSExtValue();
+            auto existing = _shvSubmitLatestSkipDmaP0DdrByLogicalTask.find(logicalIdx);
+            if (existing == _shvSubmitLatestSkipDmaP0DdrByLogicalTask.end()) {
+                _shvSubmitLatestSkipDmaP0DdrByLogicalTask[logicalIdx] = taskInd;
             } else {
-                existing->second = std::min(existing->second, taskInd);
+                existing->second = std::max(existing->second, taskInd);
             }
         }
     }
@@ -475,9 +481,8 @@ void vpux::VPURT::BarrierPagesSplitHandler::enforceBoundaryTaskHasUpdateBarrier(
             currentTaskOpt = getPrevTaskOnSameQueueIfQueueOrderEnabled(currentTaskOpt.value());
         }
 
-        VPUX_THROW_UNLESS(!taskUpdateBarsVec.empty(),
-                          "Boundary task {0} from page {1} has no update barriers on next pages", boundaryTask,
-                          pageInd);
+        VPUX_THROW_WHEN(taskUpdateBarsVec.empty(),
+                        "Boundary task {0} from page {1} has no update barriers on next pages", boundaryTask, pageInd);
 
         // If task updates multiple barriers, pick only one with smallest index and
         // update barrier dependencies so that boundary also updates this barrier
@@ -696,9 +701,9 @@ void vpux::VPURT::BarrierPagesSplitHandler::readTaskPageAssignmentFromIr() {
     _taskPageAssignment.resize(_barrierInfo.getNumOfTasks());
     for (size_t taskInd = 0; taskInd < _barrierInfo.getNumOfTasks(); taskInd++) {
         auto taskOp = _barrierInfo.getTaskOpAtIndex(taskInd);
-        VPUX_THROW_UNLESS(taskOp.getWlmPageAttr() != nullptr,
-                          "Get: attribute '{0}' was not set for '{1}' operation at '{2}'", VPURT::wlmPageAttrName,
-                          taskOp->getName(), taskOp->getLoc());
+        VPUX_THROW_WHEN(taskOp.getWlmPageAttr() == nullptr,
+                        "Get: attribute '{0}' was not set for '{1}' operation at '{2}'", VPURT::wlmPageAttrName,
+                        taskOp->getName(), taskOp->getLoc());
         _taskPageAssignment[taskInd] = checked_cast<uint32_t>(taskOp.getWlmPage().value());
     }
 }
@@ -1380,8 +1385,8 @@ void vpux::VPURT::BarrierPagesSplitHandler::adjustPageStartAndEndPointsIfOnBlock
                        barProgDmaBlockInd, pageEndBarBlockInd, syncTaskOpt.value());
 
             auto syncTaskUpdateBars = _barrierInfo.getUpdateBarriers(syncTaskOpt.value());
-            VPUX_THROW_UNLESS(!syncTaskUpdateBars.empty(), "Control block sync task {0} has no update barriers",
-                              syncTaskOpt.value());
+            VPUX_THROW_WHEN(syncTaskUpdateBars.empty(), "Control block sync task {0} has no update barriers",
+                            syncTaskOpt.value());
             auto newPageStartBar = *std::min_element(syncTaskUpdateBars.begin(), syncTaskUpdateBars.end());
 
             pageStartBars.clear();
@@ -1393,8 +1398,8 @@ void vpux::VPURT::BarrierPagesSplitHandler::adjustPageStartAndEndPointsIfOnBlock
             _log.trace("Control block boundary: {0} and {1}. Use sync task {2} as endpoint for legalization",
                        barProgDmaBlockInd, pageEndBarBlockInd, syncTaskOpt.value());
 
-            VPUX_THROW_UNLESS(!syncTaskWaitBars.empty(), "Control block sync task {0} has no wait barriers",
-                              syncTaskOpt.value());
+            VPUX_THROW_WHEN(syncTaskWaitBars.empty(), "Control block sync task {0} has no wait barriers",
+                            syncTaskOpt.value());
             auto newPageEndBar = *std::max_element(syncTaskWaitBars.begin(), syncTaskWaitBars.end());
             pageEndBars.clear();
             pageEndAllBars.clear();
@@ -1441,7 +1446,7 @@ BarrierInfo::TaskSet vpux::VPURT::BarrierPagesSplitHandler::getPageStartBarsDepe
         if (!insertionPointOpt.has_value()) {
             _log.nest().trace("No insertion point found. Legalize page start bar {0}", pageStartBarMax);
             pageStartBarsToCheck.erase(pageStartBarMax);
-            VPUX_THROW_UNLESS(!pageStartBarsToCheck.empty(), "No page start bars left to check");
+            VPUX_THROW_WHEN(pageStartBarsToCheck.empty(), "No page start bars left to check");
             pageStartBarMax = *std::max_element(pageStartBarsToCheck.begin(), pageStartBarsToCheck.end());
             continue;
         }
@@ -1495,7 +1500,7 @@ void vpux::VPURT::BarrierPagesSplitHandler::legalizePageStartBarsDependingOnPage
     _log.trace("Legalize page start bars depending on page end bars");
 
     // Pick some other pageStartBar that will be used for legalization
-    VPUX_THROW_UNLESS(!pageStartBars.empty(), "No page start bars to use for legalization");
+    VPUX_THROW_WHEN(pageStartBars.empty(), "No page start bars to use for legalization");
     auto startBarToUseForLegalization = *std::max_element(pageStartBars.begin(), pageStartBars.end());
 
     for (auto pageStartBarToLegalize : pageStartBarsToLegalize) {
@@ -1543,8 +1548,8 @@ void vpux::VPURT::BarrierPagesSplitHandler::getPageStartTasksAndBars(size_t page
                                                 }),
                                 taskUpdateBarsVec.end());
 
-        VPUX_THROW_UNLESS(!taskUpdateBarsVec.empty(), "Page start task {0} has no update barriers on page {1}",
-                          pageStartTask, pageInd);
+        VPUX_THROW_WHEN(taskUpdateBarsVec.empty(), "Page start task {0} has no update barriers on page {1}",
+                        pageStartTask, pageInd);
 
         // If task updates multiple barriers, pick only one with smallest index
         // No need to use more barriers as 1 barrier is enough to know that boundary task have finished
@@ -2759,8 +2764,8 @@ VPURT::BarrierPagesSplitHandler::EnqueueDmaData vpux::VPURT::BarrierPagesSplitHa
         }
     }
 
-    VPUX_THROW_UNLESS(!waitBars.empty(), "No wait barriers for last DMA {0}(page {1}) found", lastDmaP0ChDdr,
-                      taskPage - 1);
+    VPUX_THROW_WHEN(waitBars.empty(), "No wait barriers for last DMA {0}(page {1}) found", lastDmaP0ChDdr,
+                    taskPage - 1);
 
     EnqueueDmaData newEnq;
     newEnq.pageInd = taskPage - 1;
@@ -2779,45 +2784,8 @@ bool vpux::VPURT::BarrierPagesSplitHandler::isDpuEnqueueDelayNeededAfterShvWithD
         size_t taskInd, VPURT::TaskQueueType queueType,
         DenseMap<VPURT::TaskQueueType, size_t>& shvTasksWithDpuVecStartIndPerQueue, size_t shvTasksWithDpuVecInd,
         std::map<VPURT::TaskQueueType, SmallVector<EnqueueDmaData>>& enqDmaDataVecPerQueue) {
-    auto isDepFromShvToDpu = [&](size_t shvTaskInd, size_t dpuTaskInd, size_t dpuTileInd) {
-        if (shvTaskInd > dpuTaskInd) {
-            return false;
-        }
-
-        if (isDepFromTaskAToTaskB(shvTaskInd, dpuTaskInd)) {
-            return true;
-        }
-
-        // In case SHV submits DMA there is an implicit dependency from SHV to DMA tasks (Skip/Release descriptors) and
-        // those DMA tasks may have dependency to DPU task
-        auto shvWithDmaIt = _shvTasksWithDmaPerTile.find(dpuTileInd);
-        if (shvWithDmaIt == _shvTasksWithDmaPerTile.end() || !shvWithDmaIt->second.contains(shvTaskInd)) {
-            return false;
-        }
-
-        // TODO: Until the kernels with SHV submission of DMA support multi DMA engine,
-        // the check is limited to first port only - E#213511
-        const SmallVector<VPURT::TaskQueueType> dmaQueueTypes{
-                {config::ExecutorKind::DMA_NN, getDMAQueueIdEncoding(/*port*/ 0, VPUIP::DmaChannelType::DDR)},
-                {config::ExecutorKind::DMA_NN, getDMAQueueIdEncoding(/*port*/ 0, VPUIP::DmaChannelType::CMX)}};
-
-        for (auto dmaQueueType : dmaQueueTypes) {
-            auto nextDmaTaskOnQueueOpt = _barrierInfo.getNextTaskOnQueue(shvTaskInd, dmaQueueType);
-            if (!nextDmaTaskOnQueueOpt.has_value()) {
-                continue;
-            }
-            auto nextDmaTaskOnQueue = nextDmaTaskOnQueueOpt.value();
-            if (isDepFromTaskAToTaskB(nextDmaTaskOnQueue, dpuTaskInd)) {
-                _log.nest().trace("SHV task {0} submits DMA task {1} which has dependency to DPU task {2}", shvTaskInd,
-                                  nextDmaTaskOnQueue, dpuTaskInd);
-                return true;
-            }
-        }
-        return false;
-    };
-
     auto shvTaskInd = _shvTasksWithDpuPerTile[queueType.id][shvTasksWithDpuVecInd];
-    if (!isDepFromShvToDpu(shvTaskInd, taskInd, queueType.id)) {
+    if (shvTaskInd > taskInd || !isDepFromTaskAToTaskB(shvTaskInd, taskInd)) {
         return false;
     }
 
@@ -3040,87 +3008,49 @@ void vpux::VPURT::BarrierPagesSplitHandler::updateDpuEnqPositionToAccountForCont
     }
 }
 
-// For SHV to submit both DPU and DMA operations, the DPU FIFO must be empty when SHV runs.
-// SyncDMA is the anchor of SHV-submitted DMA sequence, followed by SkipDMA chain.
-// Enqueue DMA must be placed after this SyncDMA + SkipDMA chain to ensure DPU FIFO is drained
-// before SHV task execution and to maintain correct ordering for legalization.
-//
-// Delay the enqueue in FIFO when:
-//   1) enqueue path depends on SHV task that submits both DPU and DMA
-//   2) enqueue insertion point is before or at SyncForShvSubmitDma
-// Then move enqueue after SyncForShvSubmitDma + SkipDMA chain by updating insertBefore.
-bool vpux::VPURT::BarrierPagesSplitHandler::updateDpuEnqPositionToAccountForShvDependentSyncDmas(
-        size_t taskInd, VPURT::TaskQueueType queueType, const VPURT::TaskQueueType& enqueueDmaQueueType,
-        EnqueueDmaData& lastEnqDmaData) {
-    // This adjustment is only relevant for DPU enqueue, because SHV submit path can feed DPU FIFO
-    if (queueType.type != config::ExecutorKind::DPU) {
-        _log.nest().trace("Skip SHV submit-sync DMA enqueue adjustment for task {0}: queue {1}:{2} is not DPU", taskInd,
-                          stringifyEnum(queueType.type).data(), queueType.id);
+// If there is a SHV with DMA submission support that uses SkipDMA tasks then new planned enqueue
+// DMA cannot be inserted before such SkipDMA tasks if this enqueue DMA depends on this SHV with DMA task
+// based on wait barriers it is going to use. In such case enqueue DMA needs to be moved after SHV SkipDMA tasks
+bool vpux::VPURT::BarrierPagesSplitHandler::updateEnqPositionToAccountForShvDependencyToDmaFifo(
+        size_t taskInd, EnqueueDmaData& lastEnqDmaData) {
+    if (_shvWithSkipDmas.empty()) {
         return false;
     }
 
-    auto shvWithDpuIt = _shvTasksWithDpuPerTile.find(queueType.id);
-    auto shvWithDmaIt = _shvTasksWithDmaPerTile.find(queueType.id);
-    if (shvWithDpuIt == _shvTasksWithDpuPerTile.end() || shvWithDmaIt == _shvTasksWithDmaPerTile.end()) {
-        _log.nest().trace("Skip SHV submit-sync DMA enqueue adjustment for task {0}: no SHV DPU+DMA data on tile {1}",
-                          taskInd, queueType.id);
-        return false;
-    }
+    const size_t newEnqPos = lastEnqDmaData.insertBefore;
+    for (const auto& [shvWithDmaTaskIdx, logicalIdx] : _shvWithSkipDmas) {
+        if (newEnqPos <= shvWithDmaTaskIdx) {
+            // Enqueue is before SHV with DMA task, so by IR topological ordering it cannot depend on SHV (no barrier
+            // flows upward in IR). No need to check further as SHV with DMA tasks are ordered by task index and
+            // subsequent SHV with DMA tasks will also not have dependency from enqueue DMA.
+            break;
+        }
 
-    const size_t newDpuEnqPos = lastEnqDmaData.insertBefore;
-    for (auto shvWithDmaAndDpuTaskIdx : shvWithDpuIt->second) {
-        if (!shvWithDmaIt->second.contains(shvWithDmaAndDpuTaskIdx)) {
-            // Skip SHV tasks that submit DPU but do not submit DMA: there is no
-            // SHV submit SyncDMA anchor to move enqueue behind.
+        const size_t shvSkipDmaP0DdrTaskIdx = _shvSubmitLatestSkipDmaP0DdrByLogicalTask[logicalIdx];
+        if (newEnqPos > shvSkipDmaP0DdrTaskIdx) {
+            // No need for further checks as enqueue is already past SkipDMA, no move needed.
             continue;
         }
 
-        auto syncTaskIt = _shvSubmitSyncDmaP0DdrByShvTask.find(shvWithDmaAndDpuTaskIdx);
-        if (syncTaskIt == _shvSubmitSyncDmaP0DdrByShvTask.end()) {
-            // Skip if no matching SyncDMA was found for this SHV task.
-            // Without a concrete sync anchor there is no valid relocation target.
-            continue;
-        }
-        const size_t shvSyncDmaP0DdrTaskIdx = syncTaskIt->second;
-        if (newDpuEnqPos <= shvWithDmaAndDpuTaskIdx || newDpuEnqPos > shvSyncDmaP0DdrTaskIdx) {
-            // No need for further checks as DPU enqueue is outside of SHV to SHVSyncDMA range:
-            // - newDpuEnqPos <= shvWithDmaAndDpuTaskIdx: enqueue is before or at SHV, so by IR
-            //   topological ordering it cannot depend on SHV (no barrier flows upward in IR).
-            // - newDpuEnqPos > shvSyncDmaP0DdrTaskIdx: enqueue is already past SyncDMA, no move needed.
-            _log.nest().trace("No enqueue move for task {0}: insert point {1} is outside SHV {2} to SyncDMA {3} range",
-                              taskInd, newDpuEnqPos, shvWithDmaAndDpuTaskIdx, shvSyncDmaP0DdrTaskIdx);
-            continue;
-        }
-
-        bool isDepFromShvToDpuEnq = false;
-        auto closestDmaP0DdrOpt = _barrierInfo.getPrevTaskOnQueue(newDpuEnqPos, enqueueDmaQueueType);
-        if (closestDmaP0DdrOpt.has_value() && closestDmaP0DdrOpt.value() > shvWithDmaAndDpuTaskIdx &&
-            isDepFromTaskAToTaskB(shvWithDmaAndDpuTaskIdx, closestDmaP0DdrOpt.value())) {
-            isDepFromShvToDpuEnq = true;
-        }
-        if (!isDepFromShvToDpuEnq) {
-            for (auto enqWaitBar : lastEnqDmaData.waitBars) {
-                if (isDepFromTaskToBarrier(shvWithDmaAndDpuTaskIdx, enqWaitBar)) {
-                    isDepFromShvToDpuEnq = true;
-                    break;
-                }
+        bool isDepFromShvToEnq = false;
+        for (auto enqWaitBar : lastEnqDmaData.waitBars) {
+            if (isDepFromTaskToBarrier(shvWithDmaTaskIdx, enqWaitBar)) {
+                isDepFromShvToEnq = true;
+                break;
             }
         }
-        if (!isDepFromShvToDpuEnq) {
-            // Skip unrelated SHV tasks: enqueue movement is only legal/needed when
-            // enqueue path depends on this SHV task (directly or via wait barriers).
+        if (!isDepFromShvToEnq) {
+            // Skip unrelated SHV tasks: enqueue movement is only needed when
+            // enqueue path depends on this SHV task.
             continue;
         }
 
-        _log.nest().trace("Delay DPU enqueue for task {0}: insertBefore={1} depends on SHV task {2} and is "
-                          "not after SyncForShvSubmitDma {3}. Move enqueue after Sync DMA.",
-                          taskInd, lastEnqDmaData.insertBefore, shvWithDmaAndDpuTaskIdx, shvSyncDmaP0DdrTaskIdx);
-        lastEnqDmaData.insertBefore = shvSyncDmaP0DdrTaskIdx + 1;
+        _log.nest().trace("Delay enqueue for task {0}: insertBefore={1} depends on SHV task {2} and is "
+                          "not after SkipDMA {3}. Move enqueue after SkipDMA.",
+                          taskInd, lastEnqDmaData.insertBefore, shvWithDmaTaskIdx, shvSkipDmaP0DdrTaskIdx);
+        lastEnqDmaData.insertBefore = shvSkipDmaP0DdrTaskIdx + 1;
         return true;
     }
-
-    _log.nest().trace("No SHV submit-sync DMA enqueue move for task {0}: no dependent SHV candidate requires it",
-                      taskInd);
 
     return false;
 }
@@ -3446,12 +3376,12 @@ SmallVector<VPURT::BarrierPagesSplitHandler::EnqueueDmaData> vpux::VPURT::Barrie
                     updateDelayedDpuEnqPositionToNotImpactEnqOfPrevDpu(
                             taskInd, queueType, enqueueDmaQueueType, previousTaskIndOptPerQueue, enqDmaDataVecPerQueue);
                 }
-                updateDpuEnqPositionToAccountForShvDependentSyncDmas(taskInd, queueType, enqueueDmaQueueType,
-                                                                     enqDmaDataVecPerQueue[queueType].back());
                 updateDpuEnqPositionToAccountForControlBlockSyncTask(taskInd, queueType, enqueueDmaQueueType,
                                                                      enqDmaDataVecPerQueue);
             }
         }
+
+        updateEnqPositionToAccountForShvDependencyToDmaFifo(taskInd, enqDmaDataVecPerQueue[queueType].back());
 
         // Store information about barriers consumed by enqueue DMAs
         auto& lastEnqDmaData = enqDmaDataVecPerQueue[queueType].back();
@@ -3483,7 +3413,7 @@ SmallVector<VPURT::BarrierPagesSplitHandler::EnqueueDmaData> vpux::VPURT::Barrie
     // - queueType
     // - startTaskIdx
     // Enqueue insertion will follow this order and this way generated enqueue DMAs will have always increasing
-    // pageInd and startTaskIdx which is required for correct functioning of subsequenet passes and runtime.
+    // pageInd and startTaskIdx which is required for correct functioning of subsequent passes and runtime.
     std::sort(enqDmaDataVec.begin(), enqDmaDataVec.end(), [](const EnqueueDmaData& a, const EnqueueDmaData& b) {
         if (a.insertBefore != b.insertBefore) {
             return a.insertBefore < b.insertBefore;

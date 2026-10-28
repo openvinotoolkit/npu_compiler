@@ -3,65 +3,27 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-#include "vpux/compiler/dialect/IE/utils/slice_utils.hpp"
 #include "vpux/compiler/dialect/VPU/IR/attributes.hpp"
-#include "vpux/compiler/dialect/VPU/utils/hash_utils.hpp"
-#include "vpux/compiler/dialect/VPU/utils/tile_utils.hpp"
-#include "vpux/compiler/dialect/VPU/utils/vertical_fusion/v2/vertical_fusion_hash.hpp"
 #include "vpux/compiler/dialect/VPU/utils/vertical_fusion/v2/vertical_fusion_scheduler_interface.hpp"
 #include "vpux/compiler/dialect/VPU/utils/vertical_fusion/v2/vertical_fusion_utils.hpp"
+#include "vpux/compiler/dialect/VPU/utils/vertical_fusion/v2/vf_cost_strategy.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
 
+#include <llvm/ADT/SmallPtrSet.h>
 #include <deque>
 
-// Experimental number for the VF internal slice copy cost ratio
-static constexpr double VF_INTERNAL_SLICE_DMA_COST_RATIO = 0.6;
-
 namespace vpux::VPU::VF::v2 {
-namespace {
-ParentVFTilingInfo& getParentVFTilingInfo(VPU::VerticalFusionOp parentOp, ParentVFTilingInfoCache& cache) {
-    auto* parentOperation = parentOp.getOperation();
-    auto cachedInfo = llvm::find_if(cache, [&](const auto& info) {
-        return info.parentOp == parentOperation;
-    });
-    if (cachedInfo != cache.end()) {
-        return *cachedInfo;
-    }
-
-    auto parentCache = std::make_unique<VFCacheAnalysis>(parentOp.getOperation());
-    auto parentConfig = std::make_unique<VFConfig>(parentOp, *parentCache);
-    auto tilingInfo = std::make_unique<TilingOperationStorage>();
-    auto tilingDims = parseIntArrayAttr<int64_t>(parentOp.getTilingStrategy());
-    auto tilingStorage = calculateTilingRegions(parentOp, tilingDims, Logger::global(), tilingInfo);
-    VPUX_THROW_WHEN(mlir::failed(tilingStorage), "Cannot get tiling regions for {0} and {1} tiles", parentOp,
-                    tilingDims);
-
-    cache.emplace_back(parentOperation, std::move(parentCache), std::move(parentConfig), std::move(tilingInfo));
-    return cache.back();
+VFScheduling::VFScheduling(Logger log, bool prefetching, std::shared_ptr<const VFCostStrategy> costStrategy)
+        : _log(log), _prefetching(prefetching), _costStrategy(std::move(costStrategy)) {
+    VPUX_THROW_WHEN(_costStrategy == nullptr, "VF cost strategy is not initialized");
 }
 
-}  // namespace
+VFScheduling::~VFScheduling() = default;
 
-llvm::hash_code getStrategyCostHash(mlir::Operation* operation, const VPUNNCostParameters& parameters) {
-    auto hash = llvm::hash_combine(VPU::hashOperationForTiling(operation), parameters._strategy, parameters._mode,
-                                   parameters._withDMAs, parameters._tiling.size(), parameters._operandsTiling.size());
-    const auto hashTileShapeOnly = !mlir::isa<VPU::NCEOpInterface>(operation) ||
-                                   VPU::hasZeroPadding(mlir::cast<VPU::NCEOpInterface>(operation).getPad());
-
-    for (const auto& tile : parameters._tiling) {
-        hash = llvm::hash_combine(hash, getTileHash(tile, hashTileShapeOnly));
-    }
-    for (const auto& operandTiling : parameters._operandsTiling) {
-        hash = llvm::hash_combine(hash, operandTiling.size());
-        for (const auto& tile : operandTiling) {
-            hash = llvm::hash_combine(hash, getTileHash(tile, hashTileShapeOnly));
-        }
-    }
-
-    return hash;
-}
-
-VFScheduling::VFScheduling(Logger log, bool prefetching /*true*/): _log(log), _prefetching(prefetching) {
+bool VFScheduling::validate(VFConfig& config, const TilingOperationStorage::UPtr& tilingInfo,
+                            const Byte reservedMemory) const {
+    return validateScenario(config, tilingInfo, reservedMemory) &&
+           _costStrategy->validate(*this, config, tilingInfo, reservedMemory);
 }
 
 const std::deque<std::shared_ptr<IVFScheduling<VFConfig>>>& VFScheduling::nextChecks() const {
@@ -120,104 +82,61 @@ Byte VFScheduling::getOutputsSize(VFConfig& config, const TilingOperationStorage
     return outputSize;
 }
 
-VPUNNCostParameters VFScheduling::fillInCostParam(mlir::Operation* operation, const OutputTiling& tiling,
-                                                  const SmallVector<TileInfo>& inputTiles) const {
-    auto mcStrategy = VPU::MultiClusterStrategy::Clustering;
-    if (auto mcOperation = mlir::dyn_cast<VPU::ClusteredOpInterface>(operation)) {
-        mcStrategy = mcOperation.getMultiClusterStrategy().value_or(mcStrategy);
+Byte VFScheduling::getResidentOutputSize(VFConfig& config, const TilingOperationStorage::UPtr& tilingInfo,
+                                         mlir::Operation* excludedOperation) const {
+    const auto index = 0;
+    const auto& operations = config.getOperationsForTiling();
+    const auto noInternalUser = operations.size();
+
+    llvm::DenseMap<mlir::Operation*, size_t> operationIndices;
+    for (const auto indexedOperation : llvm::enumerate(operations)) {
+        operationIndices[indexedOperation.value()] = indexedOperation.index();
     }
 
-    auto mode = TilingMode::ISOLATED;
-    SmallVector<OutputTiling> inputAllTiles;
-    if (!inputTiles.empty()) {
-        inputAllTiles.push_back(inputTiles);
-    }
-    return VPUNNCostParameters(mcStrategy, tiling, mode, inputAllTiles, false);
-}
-
-VPUNNCostParameters VFScheduling::fillInCostParam(mlir::Operation* operation,
-                                                  const TilingOperationStorage::UPtr& opStorage, size_t index) const {
-    auto inputOutputTiling = opStorage->getRef(operation, index);
-
-    OutputTiling outputTiling;
-    SmallVector<TileInfo> inputTiling;
-
-    if (inputOutputTiling.has_value()) {
-        const auto& inputOutputTilingValue = inputOutputTiling.value().get();
-        outputTiling = {inputOutputTilingValue.second};
-        inputTiling = inputOutputTilingValue.first.tiles;
-    }
-
-    return fillInCostParam(operation, outputTiling, inputTiling);
-}
-
-StrategyCost VFScheduling::getStrategyCost(VFConfig& config, mlir::Operation* operation,
-                                           const std::unique_ptr<VPU::LayerVPUNNCost>& costFunction,
-                                           const VPUNNCostParameters& parameters) const {
-    const auto hash = getStrategyCostHash(operation, parameters);
-    auto cachedCost = config.getCachedStrategyCost(hash);
-    if (cachedCost.has_value()) {
-        return cachedCost.value();
-    }
-
-    auto cost = costFunction->getStrategyCost(operation, parameters);
-    config.cacheStrategyCost(hash, cost);
-    return cost;
-}
-
-/**
- * @brief Determines if a given operation has a prefetched DMA for a specific block argument.
- *  Differences from v1 implementation:
- * - For elementwise operations with more than one operand, the function checks if the current parent operation
- *   is scheduled before another parent operation in the block. It also calculates memory requirements to ensure
- *   they fit within the available CMX memory.
- */
-bool hasPrefetchedDMA(mlir::Operation* operation, int64_t operandIdx, mlir::BlockArgument arg, VFConfig& config,
-                      const VPUNNCostParameters& parameters, const bool isInput,
-                      ParentVFTilingInfoCache& parentVFTilingInfoCache) {
-    if (operation->hasTrait<VPU::EltwiseOp>() && operation->getNumOperands() > 1) {
-        auto vfOp = operation->getParentOfType<VPU::VerticalFusionOp>();
-        auto curParentOp = vfOp->getOperand(arg.getArgNumber()).getDefiningOp<VPU::VerticalFusionOp>();
-        auto otherOperandIdx = operandIdx == 0 ? 1 : 0;
-        if (auto otherOperandblockArg = getVFBlockArgument(operation->getOperand(otherOperandIdx))) {
-            auto otherParentOp =
-                    vfOp->getOperand(otherOperandblockArg.getArgNumber()).getDefiningOp<VPU::VerticalFusionOp>();
-            if (curParentOp != nullptr && otherParentOp != nullptr && curParentOp->isBeforeInBlock(otherParentOp)) {
-                auto operandSize = config.getOperationTypes(operation, parameters._tiling[0],
-                                                            parameters._operandsTiling[0])[operandIdx]
-                                           .getTotalAllocSize();
-
-                auto& parentInfo = getParentVFTilingInfo(otherParentOp, parentVFTilingInfoCache);
-                auto parentOutputOps = parentInfo.config->getOutputs();
-                VPUX_THROW_WHEN(parentOutputOps.empty(), "There are no output operations for parent {0}",
-                                *otherParentOp);
-                auto lastOp = parentOutputOps.back();
-                auto inputOutputTiling = parentInfo.tilingInfo->getRef(lastOp, 0);
-                const auto& inputOutputTilingValue = inputOutputTiling.value().get();
-                auto lastTileSize = parentInfo.config->getOperationRequiredCMX(lastOp, inputOutputTilingValue.second,
-                                                                               inputOutputTilingValue.first.tiles);
-                return operandSize + lastTileSize > getTotalCMXFragmentationAwareSize(operation);
+    SmallVector<size_t> lastInternalUser(operations.size(), noInternalUser);
+    for (const auto indexedOperation : llvm::enumerate(operations)) {
+        for (auto operand : indexedOperation.value()->getOperands()) {
+            auto parent = findParent(operand);
+            if (parent == nullptr || !llvm::is_contained(operations, parent)) {
+                continue;
             }
+            const auto parentIndex = operationIndices.find(parent);
+            VPUX_THROW_UNLESS(parentIndex != operationIndices.end(),
+                              "Parent operation {0} is not in the VF operations list", parent->getLoc());
+            auto& lastUser = lastInternalUser[parentIndex->second];
+            lastUser = lastUser == noInternalUser ? indexedOperation.index()
+                                                  : std::max(lastUser, indexedOperation.index());
         }
-        return true;
     }
 
-    auto nceOp = mlir::dyn_cast<VPU::NCEOpInterface>(operation);
+    SmallVector<Byte> releasedOutputSize(operations.size() + 1, Byte(0));
+    Byte activeOutputSize(0);
+    Byte residentOutputSize(0);
+    for (const auto indexedOperation : llvm::enumerate(operations)) {
+        const auto operationIndex = indexedOperation.index();
+        activeOutputSize -= releasedOutputSize[operationIndex];
+        residentOutputSize = std::max(residentOutputSize, activeOutputSize);
 
-    if (nceOp != nullptr &&
-        (arg != getVFBlockArgument(nceOp.getWeightsOperand()) && arg != getVFBlockArgument(nceOp->getOperand(0)))) {
-        return false;
+        if (lastInternalUser[operationIndex] == noInternalUser || indexedOperation.value() == excludedOperation) {
+            continue;
+        }
+
+        auto opTiling = tilingInfo->getRef(indexedOperation.value(), index);
+        VPUX_THROW_WHEN(!opTiling.has_value(), "There is no information about tile {0} of operation {1}", index,
+                        *indexedOperation.value());
+        const auto& opTilingValue = opTiling.value().get();
+        const auto& operationTypes =
+                config.getOperationTypes(indexedOperation.value(), opTilingValue.second, opTilingValue.first.tiles);
+        VPUX_THROW_WHEN(operationTypes.empty(), "There is no output type for tile of operation {0}",
+                        *indexedOperation.value());
+
+        const auto outputSize = operationTypes.back().getTotalAllocSize();
+        activeOutputSize += outputSize;
+        releasedOutputSize[lastInternalUser[operationIndex] + 1] += outputSize;
+        residentOutputSize = std::max(residentOutputSize, activeOutputSize);
     }
 
-    if (isInput) {
-        return true;
-    }
-
-    if (nceOp == nullptr || nceOp.getWeightsOperand() == nullptr) {
-        return false;
-    }
-
-    return arg == getVFBlockArgument(nceOp.getWeightsOperand());
+    return residentOutputSize;
 }
 
 bool VFScheduling::isSharedWeightsSupported(VFConfig& config) const {
@@ -278,387 +197,10 @@ mlir::Operation* findParent(mlir::Value operand) {
     return parent;
 }
 
-StrategyCost VFScheduling::getParentCost(mlir::Operation* operation,
-                                         const DenseMap<mlir::Operation*, StrategyCost>& isolatedOperCost) const {
-    StrategyCost parentCost = 0;
-    auto* parent = findParent(operation->getOperand(0));
-    if (parent == nullptr && (operation->getNumOperands() > 1 && operation->hasTrait<VPU::EltwiseOp>())) {
-        parent = findParent(operation->getOperand(1));
-    }
-    if (parent != nullptr) {
-        auto foundCost = isolatedOperCost.find(parent);
-        VPUX_THROW_WHEN(foundCost == isolatedOperCost.end(), "Cannot find the cost for {0}", *parent);
-        parentCost = foundCost->second;
-    }
-
-    return parentCost;
-}
-
-void VFScheduling::correctOutputSpillCost(StrategyCost& /*spillCost*/, VFConfig& /*config*/,
-                                          const DenseMap<mlir::Operation*, StrategyCost>& /*isolatedOperCost*/,
-                                          SmallVector<StrategyCost>& /*prefetchCostList*/, const int64_t /*index*/,
-                                          const int64_t /*tilesNumber*/) const {
-}
-
-void VFScheduling::correctInputPrefetchingCost(StrategyCost& /*prefetchCost*/, mlir::Operation* /*operation*/,
-                                               VFConfig& /*config*/,
-                                               const DenseMap<mlir::Operation*, StrategyCost>& /*isolatedOperCost*/,
-                                               SmallVector<StrategyCost>& /*prefetchCostList*/,
-                                               const size_t /*index*/) const {
-}
-
-std::optional<StrategyCost> VFScheduling::getViewLikeOpDMACost(
-        mlir::Operation* operation, VFConfig& config, const TilingOperationStorage::UPtr& tilingInfo, size_t tileIdx,
-        const std::unique_ptr<VPU::LayerVPUNNCost>& costFunction) const {
-    auto blockArg = getVFBlockArgument(operation->getOperand(0));
-    if (blockArg != nullptr) {
-        return std::nullopt;
-    }
-
-    auto inType = mlir::cast<vpux::NDTypeInterface>(operation->getOperand(0).getType());
-    auto outType = mlir::cast<vpux::NDTypeInterface>(operation->getResult(0).getType());
-    // Two kinds of view-like operations may change the total allocation size.
-    // 1. For view-like ops (e.g. Slice op), there is DMA involved in the tiled case which should be taken into account
-    // when scheduling.
-    // 2. For GroupSparseTensor, VPUNN cost is not accurate for SEP ops; use DMA spilling cost as a penalty
-    if (inType.getTotalAllocSize() == outType.getTotalAllocSize()) {
-        return std::nullopt;
-    }
-
-    // View op can't get distributed type directly. Use the clustered consumer to calculate the DMA cost.
-    auto userToOperand = findFirstNonViewUser(operation);
-    if (!userToOperand.has_value()) {
-        return std::nullopt;
-    }
-    auto user = userToOperand->first;
-    auto operandIdx = userToOperand->second;
-
-    auto userCostParameters = fillInCostParam(user, tilingInfo, tileIdx);
-    const auto& userTileTypes =
-            config.getOperationTypes(user, userCostParameters._tiling[0], userCostParameters._operandsTiling[0]);
-    VPUX_THROW_WHEN(operandIdx >= static_cast<int64_t>(userTileTypes.size()), "Invalid operand index {0} for user {1}",
-                    operandIdx, user->getLoc());
-    auto userTileType = userTileTypes[operandIdx];
-    return costFunction->getSpillingTypeCost(userTileType, userCostParameters._tiling[0].axis);
-}
-
 StrategyCost VFScheduling::getCost(VFConfig& config, int64_t tilesNumber,
                                    const TilingOperationStorage::UPtr& tilingInfo,
                                    const std::unique_ptr<VPU::LayerVPUNNCost>& costFunction) const {
-    auto linearTimeIntervals = calculateLinearTimeIntervals(config, tilesNumber, tilingInfo, costFunction);
-    return linearTimeIntervals.maxCost() == 0 ? std::numeric_limits<StrategyCost>::max()
-                                              : linearTimeIntervals.maxCost();
-}
-
-StrategyCost VFScheduling::getPrefetchingCost(mlir::Operation* operation, VFConfig& config,
-                                              const std::unique_ptr<VPU::LayerVPUNNCost>& costFunction,
-                                              const VPUNNCostParameters& parameters, const bool isInput,
-                                              const TilingOperationStorage::UPtr& tilingInfo, const int64_t index,
-                                              ParentVFTilingInfoCache& parentVFTilingInfoCache) const {
-    StrategyCost prefetchedCost = 0;
-    auto inputTiling = tilingInfo->getRef(operation, index);
-    if (!inputTiling.has_value()) {
-        return prefetchedCost;
-    }
-
-    const auto sharedWeightsEnabled = isSharedWeightsSupported(config);
-    const auto& inputTilingValue = inputTiling.value().get();
-    auto tileAxis = inputTilingValue.second.axis;
-    if (tileAxis.size() == DimsGroups5D::Act::numDims) {
-        tileAxis[DimsGroups5D::Act::C] = 1;
-        tileAxis[DimsGroups5D::Act::G] = 1;
-    } else {
-        tileAxis[Dims4D::Act::C] = 1;
-    }
-
-    auto tileSizeOnSpatialDims = tileAxis.totalSize();
-
-    auto isWeightsSharedWithPreviousTile =
-            index == 0 ? false : index / tileSizeOnSpatialDims == (index - 1) / tileSizeOnSpatialDims;
-
-    ArrayRef<NDTypeInterface> operationTypes;
-    for (auto input : operation->getOperands() | indexed) {
-        if (input.index() >= inputTilingValue.first.tiles.size()) {
-            break;
-        }
-        auto inputOperand = input.value();
-        const auto& inTile = inputTilingValue.first.tiles[input.index()];
-        auto isAlreadyShared = isWeightsSharedWithPreviousTile && sharedWeightsEnabled &&
-                               isOperandSharedWeightsForTiling(operation, inputOperand, inTile);
-        if (isAlreadyShared) {
-            continue;
-        }
-
-        if (auto blockArg = getVFBlockArgument(inputOperand)) {
-            if (hasPrefetchedDMA(operation, input.index(), blockArg, config, parameters, isInput,
-                                 parentVFTilingInfoCache)) {
-                if (operationTypes.empty()) {
-                    operationTypes =
-                            config.getOperationTypes(operation, parameters._tiling[0], parameters._operandsTiling[0]);
-                }
-                prefetchedCost += costFunction->getSpillingTypeCost(operationTypes[input.index()],
-                                                                    parameters._operandsTiling[0][input.index()].axis);
-            }
-        }
-    }
-
-    return prefetchedCost;
-}
-
-VFLinearContainer VFScheduling::calculateLinearTimeIntervals(
-        VFConfig& config, int64_t tilesNumber, const TilingOperationStorage::UPtr& tilingInfo,
-        const std::unique_ptr<VPU::LayerVPUNNCost>& costFunction) const {
-    // prefetch cost per tiles, size is tilesNumber + 1 to avoid out of range access when handling last tile
-    SmallVector<StrategyCost> prefetchCostList(tilesNumber + 1, 0);
-    StrategyCost fullCost = 0;
-    VFLinearContainer linearTimeIntervals;
-    const auto& inputs = config.getInputs();
-    DenseMap<mlir::Operation*, StrategyCost> isolatedOperCost;
-    ParentVFTilingInfoCache parentVFTilingInfoCache;
-    _log.trace("Calculate linear cost for merged VF at {0} with tiles number {1}, op number {2}",
-               config.getOutputs().front()->getLoc(), tilesNumber, config.getOperationsForTiling().size());
-
-    // Sort operations in topological order (inputs first, outputs last) to ensure
-    // that isolatedOperCost is populated for all producers before consumers reference them.
-    SmallVector<mlir::Operation*> sortedOps(config.getVFOperations().begin(), config.getVFOperations().end());
-    llvm::sort(sortedOps, [](mlir::Operation* lhs, mlir::Operation* rhs) {
-        return lhs->isBeforeInBlock(rhs);
-    });
-
-    for (auto index : irange(tilesNumber)) {
-        for (auto item : sortedOps | indexed) {
-            auto lastEndTime = fullCost;
-            auto opIndex = item.index();
-            auto op = item.value();
-            auto costParameters = fillInCostParam(op, tilingInfo, index);
-            if (costParameters._tiling.empty()) {
-                _log.warning("No tiling information for VF op at '{0}'", op->getLoc());
-                linearTimeIntervals.invalidate();
-                return linearTimeIntervals;
-            }
-
-            if (auto viewOp = mlir::dyn_cast<VPU::TilingViewLikeOpInterface>(op)) {
-                // The view op has different input and output tile size, which means it will be converted to copy
-                // after tiling. And the copy should be taken into account when calculating the cost of the VF.
-                // Currently only view ops like slice ops will meet this condition. And the Spill write and read DMA
-                // pairs will be further optimized into a single CMX2CMX DMA instead.
-                auto copyCost = getViewLikeOpDMACost(op, config, tilingInfo, index, costFunction);
-                if (copyCost.has_value()) {
-                    linearTimeIntervals.addDMA(op, index, lastEndTime, copyCost.value());
-                    lastEndTime += copyCost.value();
-                    fullCost += copyCost.value();
-                }
-                continue;
-            }
-
-            // isolated operation cost
-            auto isolatedCost = getStrategyCost(config, op, costFunction, costParameters);
-            _log.trace("opIndex {0} isolated cost {1}", opIndex, isolatedCost);
-            if (isolatedCost >= std::numeric_limits<StrategyCost>::max()) {
-                _log.warning("Invalid VPUNN cost");
-                linearTimeIntervals.invalidate();
-                return linearTimeIntervals;
-            }
-            isolatedOperCost[op] = isolatedCost;
-            fullCost += isolatedCost;
-
-            StrategyCost outputCost = 0;
-            StrategyCost correctedOutputCost = 0;
-            if (llvm::find(config.getOutputs(), op) != config.getOutputs().end() && tilesNumber > 1) {
-                // add the cost of output dma
-                outputCost = costFunction->getSpillingTypeCost(
-                        config.getOperationTypes(op, costParameters._tiling[0], costParameters._operandsTiling[0])
-                                .back(),
-                        costParameters._tiling[0].axis);
-                if (outputCost >= std::numeric_limits<StrategyCost>::max()) {
-                    _log.warning("Invalid VPUNN cost");
-                    linearTimeIntervals.invalidate();
-                    return linearTimeIntervals;
-                }
-                _log.trace("opIndex {0} original output spill cost {1}", opIndex, outputCost);
-                correctedOutputCost = outputCost;
-                correctOutputSpillCost(correctedOutputCost, config, isolatedOperCost, prefetchCostList, index,
-                                       tilesNumber);
-                _log.trace("opIndex {0} corrected output spill cost {1}", opIndex, correctedOutputCost);
-                fullCost += correctedOutputCost;
-            }
-            const bool isInput = llvm::find(inputs, op) != inputs.end();
-            StrategyCost prefetchedCost = getPrefetchingCost(op, config, costFunction, costParameters, isInput,
-                                                             tilingInfo, index, parentVFTilingInfoCache);
-            StrategyCost correctedPrefetchedCost = prefetchedCost;
-
-            if (prefetchedCost >= std::numeric_limits<StrategyCost>::max()) {
-                _log.warning("Invalid VPUNN cost");
-                linearTimeIntervals.invalidate();
-                return linearTimeIntervals;
-            }
-            if (_prefetching && prefetchedCost > 0) {
-                _log.trace("opIndex {0} original prefetch spill cost {1}", opIndex, prefetchedCost);
-                correctInputPrefetchingCost(correctedPrefetchedCost, op, config, isolatedOperCost, prefetchCostList,
-                                            index);
-                _log.trace("opIndex {0} corrected prefetch spill cost {1}", opIndex, correctedPrefetchedCost);
-            }
-            fullCost += correctedPrefetchedCost;
-
-            auto internalSliceCost =
-                    getInternalSliceCopyCost(op, config, costFunction, costParameters, isInput, tilingInfo, index);
-
-            if (internalSliceCost > 0) {
-                _log.trace("opIndex {0} internal slice spill cost {1}", opIndex, internalSliceCost);
-                fullCost += internalSliceCost;
-            }
-
-            if (prefetchedCost > 0) {
-                linearTimeIntervals.addDMA(op, index, lastEndTime - prefetchedCost + correctedPrefetchedCost,
-                                           prefetchedCost);
-                lastEndTime += correctedPrefetchedCost;
-            }
-            if (internalSliceCost > 0) {
-                linearTimeIntervals.addDMA(op, index, lastEndTime, internalSliceCost);
-                lastEndTime += internalSliceCost;
-            }
-            linearTimeIntervals.addOperation(op, index, lastEndTime, isolatedCost);
-            lastEndTime += isolatedCost;
-            if (outputCost > 0) {
-                linearTimeIntervals.addDMA(op, index, lastEndTime, outputCost);
-            }
-        }
-    }
-    _log.trace("Total linear cost: {0}", fullCost);
-    return linearTimeIntervals;
-}
-
-/*
-   For the pattern below,
-    VF{
-        Conv1[Kernel = [1, 1]]
-         |  \
-         |   Conv2 [Kernel = [3, 3]]
-         \       /
-          Eltwise
-    }
-   there will be slice inserted between Conv1 and Eltwise after VF is unrolled. And the slice will be further converted
-   into related DMA ops. So the scheduler need to take the slice copy cost into account.
-
-
-*/
-StrategyCost VFScheduling::getInternalSliceCopyCost(mlir::Operation* op, VFConfig& config,
-                                                    const std::unique_ptr<VPU::LayerVPUNNCost>& costFunction,
-                                                    const VPUNNCostParameters& parameters, const bool isInput,
-                                                    const TilingOperationStorage::UPtr& tilingInfo,
-                                                    const int64_t index) const {
-    const auto eltwiseLikeOp =
-            op->getNumOperands() > 1 && op->hasTrait<VPU::EltwiseOp>() && op->getOperand(0) != op->getOperand(1);
-    StrategyCost cost = 0;
-    if (!eltwiseLikeOp || isInput) {
-        return cost;
-    }
-
-    SmallVector<mlir::Operation*> parents;
-    parents.push_back(findParent(op->getOperand(0)));
-    parents.push_back(findParent(op->getOperand(1)));
-
-    auto* parentLeft = parents.front();
-    auto* parentRight = parents.back();
-
-    const auto& ops = config.getOperationsForTiling();
-    auto allParentsAreInVF = llvm::all_of(parents, [&](auto* parent) {
-        return llvm::find(ops, parent) != ops.end();
-    });
-
-    if (!allParentsAreInVF || parentLeft == parentRight) {
-        return cost;
-    }
-
-    auto* earliestParent = parentLeft->isBeforeInBlock(parentRight) ? parentLeft : parentRight;
-    auto* closestParent = earliestParent == parentLeft ? parentRight : parentLeft;
-
-    // Only NCE-with-weights parents drive the slice-cost heuristic; SW eltwise ops (Elu,
-    // HSigmoid, Erf, ...) are now valid VF parents and must be skipped.
-    SmallVector<mlir::Operation*> chain;
-    const auto isNceWithWeights = [](mlir::Operation* candidate) {
-        auto nceOp = mlir::dyn_cast<VPU::NCEOpInterface>(candidate);
-        return nceOp != nullptr && nceOp.getWeightsOperand() != nullptr;
-    };
-    const auto isParentOperation = [&]() {
-        if (isNceWithWeights(closestParent)) {
-            chain.emplace_back(closestParent);
-        }
-        auto curOp = closestParent;
-        while ((curOp = findParent(curOp->getOperand(0))) != nullptr) {
-            if (curOp == earliestParent) {
-                return true;
-            }
-            if (isNceWithWeights(curOp)) {
-                chain.emplace_back(curOp);
-            }
-        }
-        return false;
-    };
-    if (!isParentOperation()) {
-        return cost;
-    }
-
-    auto origOutShape = getShape(op->getResult(0));
-    auto opTilingInfo = tilingInfo->getRef(op, index);
-    const auto& opTiling = opTilingInfo.value().get();
-    const auto isSliceOpNeeded = [&]() {
-        auto tileOnH = opTiling.second.shape[Dims4D::Act::H] != origOutShape[Dims4D::Act::H];
-        auto tileOnW = opTiling.second.shape[Dims4D::Act::W] != origOutShape[Dims4D::Act::W];
-        if (!tileOnH && !tileOnW) {
-            return false;
-        }
-
-        return llvm::any_of(chain, [&](auto* parent) {
-            auto nceOp = mlir::cast<VPU::NCEOpInterface>(parent);
-            if (auto filter = nceOp.getWeightsOperand()) {
-                auto filterShape = getShape(filter);
-                return (filterShape[Dims4D::Filter::KY] != 1 && tileOnH) ||
-                       (filterShape[Dims4D::Filter::KX] != 1 && tileOnW);
-            }
-            return false;
-        });
-    };
-
-    if (isSliceOpNeeded()) {
-        const auto& tileTypes = config.getOperationTypes(op, opTiling.second, opTiling.first.tiles);
-        VPUX_THROW_WHEN(tileTypes.empty(), "Can not get tiled types for tile of operation {0}", op->getLoc());
-        auto type = tileTypes.front();
-        auto inputSize = type.getTotalAllocSize();
-        auto closestParentOpTilingInfo = tilingInfo->getRef(closestParent, index);
-        const auto& closestParentOpTiling = closestParentOpTilingInfo.value().get();
-        auto requiredCMXSize = inputSize + config.getOperationRequiredCMX(closestParent, closestParentOpTiling.second,
-                                                                          closestParentOpTiling.first.tiles);
-
-        auto sliceCanBeOverlappedWithClosestParent = requiredCMXSize < getTotalCMXFragmentationAwareSize(op);
-        if (!sliceCanBeOverlappedWithClosestParent) {
-            cost = std::ceil(VF_INTERNAL_SLICE_DMA_COST_RATIO *
-                             (costFunction->getSpillingReadCost(op, parameters, op->getOperand(0),
-                                                                [&](const auto& tileInfo) {
-                                                                    return config.getOperationTypes(op, tileInfo,
-                                                                                                    {})[0];
-                                                                }) +
-                              costFunction->getSpillingWriteCost(op, parameters, [&](const auto& tileInfo) {
-                                  return config.getOperationTypes(op, tileInfo, {})[0];
-                              })));
-        }
-    }
-    return cost;
-}
-
-void VFScheduling::reduceCostWithPrefetchedDMA(StrategyCost& parentCost, const StrategyCost& prefetchCost,
-                                               StrategyCost& accumuatedPrefetchCost) const {
-    // reduce the cost with dmas prefetched for this tile
-    if (accumuatedPrefetchCost <= parentCost) {
-        parentCost -= accumuatedPrefetchCost;
-    }
-    accumuatedPrefetchCost += prefetchCost;
-}
-
-SmallVector<TimelineInterval> VFScheduling::getTimeIntervals(
-        VFConfig& config, int64_t tilesNumber, const TilingOperationStorage::UPtr& tilingInfo,
-        const std::unique_ptr<VPU::LayerVPUNNCost>& costFunction) const {
-    auto linearTimeIntervals = calculateLinearTimeIntervals(config, tilesNumber, tilingInfo, costFunction);
-    return linearTimeIntervals.getAllIntervals();
+    VPUX_THROW_WHEN(_costStrategy == nullptr, "VF cost strategy is not initialized");
+    return _costStrategy->calculate(*this, config, tilesNumber, tilingInfo, costFunction);
 }
 }  // namespace vpux::VPU::VF::v2

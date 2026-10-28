@@ -23,8 +23,8 @@ bytecode.func_section @function_section {
 
 bytecode.func_section @function_section_je {
     bytecode.ext.func @je_test () -> () {
-        %lhs = bytecode.virtual_general_register
-        %rhs = bytecode.virtual_general_register
+        %lhs = bytecode.virtual_value_register
+        %rhs = bytecode.virtual_value_register
         bytecode.je %lhs, %rhs, ^trueDest, ^falseDest
       ^falseDest:
         bytecode.ret
@@ -34,8 +34,8 @@ bytecode.func_section @function_section_je {
 }
 
 // CHECK-LABEL: bytecode.ext.func @je_test
-// CHECK:         [[LHS:%.+]] = bytecode.virtual_general_register
-// CHECK:         [[RHS:%.+]] = bytecode.virtual_general_register
+// CHECK:         [[LHS:%.+]] = bytecode.virtual_value_register
+// CHECK:         [[RHS:%.+]] = bytecode.virtual_value_register
 // CHECK:         bytecode.je [[LHS]], [[RHS]], ^[[TRUE:[a-zA-Z0-9_]+]], ^[[FALSE:[a-zA-Z0-9_]+]]
 // CHECK:       ^[[FALSE]]:
 // CHECK:         bytecode.ret
@@ -46,8 +46,8 @@ bytecode.func_section @function_section_je {
 
 bytecode.func_section @function_section_jne {
     bytecode.ext.func @jne_test () -> () {
-        %lhs = bytecode.virtual_general_register
-        %rhs = bytecode.virtual_general_register
+        %lhs = bytecode.virtual_value_register
+        %rhs = bytecode.virtual_value_register
         bytecode.jne %lhs, %rhs, ^trueDest, ^falseDest
       ^falseDest:
         bytecode.ret
@@ -57,8 +57,8 @@ bytecode.func_section @function_section_jne {
 }
 
 // CHECK-LABEL: bytecode.ext.func @jne_test
-// CHECK:         [[LHS:%.+]] = bytecode.virtual_general_register
-// CHECK:         [[RHS:%.+]] = bytecode.virtual_general_register
+// CHECK:         [[LHS:%.+]] = bytecode.virtual_value_register
+// CHECK:         [[RHS:%.+]] = bytecode.virtual_value_register
 // CHECK:         bytecode.jne [[LHS]], [[RHS]], ^[[TRUE:[a-zA-Z0-9_]+]], ^[[FALSE:[a-zA-Z0-9_]+]]
 // CHECK:       ^[[FALSE]]:
 // CHECK:         bytecode.ret

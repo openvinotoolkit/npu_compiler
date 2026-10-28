@@ -120,7 +120,7 @@ void ReservedMemInfo::reserveFunctionRanges(mlir::func::FuncOp netFunc, MemLiveR
 
     netFunc.walk([&](mlir::func::CallOp callOp) {
         auto parentExecOp = callOp->getParentOfType<mlir::async::ExecuteOp>();
-        VPUX_THROW_UNLESS(parentExecOp != nullptr, "func::CallOp must have async::ExecuteOp parent");
+        VPUX_THROW_WHEN(parentExecOp == nullptr, "func::CallOp must have async::ExecuteOp parent");
 
         // 1. Get buffers that need to be reserved
         const auto buffers = liveRangeInfo.getUsedBuffers(parentExecOp);
@@ -158,7 +158,7 @@ void ReservedMemInfo::linearizeCallOps(mlir::func::FuncOp netFunc, AsyncDepsInfo
 
     netFunc.walk([&](mlir::func::CallOp callOp) {
         auto parentExecOp = callOp->getParentOfType<mlir::async::ExecuteOp>();
-        VPUX_THROW_UNLESS(parentExecOp != nullptr, "func::CallOp must have async::ExecuteOp parent");
+        VPUX_THROW_WHEN(parentExecOp == nullptr, "func::CallOp must have async::ExecuteOp parent");
 
         if (prevCallExecOp != nullptr) {
             depsInfo.addDependency(prevCallExecOp, parentExecOp);

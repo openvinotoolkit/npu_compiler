@@ -271,7 +271,7 @@ mlir::LogicalResult verifyAndBroadcastInput(mlir::Location loc, mlir::Value& inp
             return mlir::failure();
         }
 
-        auto dataConstOp = rewriter.create<Const::DeclareOp>(loc, dataAttr.getType(), std::move(dataAttr));
+        auto dataConstOp = Const::DeclareOp::create(rewriter, loc, dataAttr.getType(), std::move(dataAttr));
         auto dataConstOpShape = getShape(dataConstOp.getOutput());
 
         bool needToCloneOpChain = checkIfNeedToCloneOpChain(input2Const, dataConstOpShape);
@@ -323,7 +323,7 @@ mlir::LogicalResult verifyAndBroadcastInput(mlir::Location loc, mlir::Value& inp
             auto outputType = inputType.clone(transposedShape);
 
             auto transposeOp =
-                    rewriter.create<IE::TransposeOp>(opLoc, outputType, inputValue, nullptr, transposeOrderAttr);
+                    IE::TransposeOp::create(rewriter, opLoc, outputType, inputValue, nullptr, transposeOrderAttr);
             return transposeOp.getResult();
         };
 
@@ -441,8 +441,8 @@ mlir::LogicalResult ConvertBiasToScaleShift<BiasTypeOp>::matchAndRewrite(BiasTyp
 
     if (mlir::isa<IE::NegativeOp>(newInput.getDefiningOp()) || mlir::isa<IE::SubtractOp>(biasOp)) {
         auto negativeConstAttr = biasConst.transformContentAttr().rescale(-1.0).get();
-        newInput = rewriter.create<Const::DeclareOp>(takeOpLoc(biasOp, "bias_in"), biasConst.getType(),
-                                                     std::move(negativeConstAttr))
+        newInput = Const::DeclareOp::create(rewriter, takeOpLoc(biasOp, "bias_in"), biasConst.getType(),
+                                            std::move(negativeConstAttr))
                            .getOutput();
     }
 
@@ -639,8 +639,9 @@ mlir::LogicalResult ConvertMultiplyToScaleShift::matchAndRewrite(IE::MultiplyOp 
 
     // Create ScaleShift operation
     _log.nest().trace("Replacing {0} with ScaleShift", mulOp->getName());
-    auto scaleShiftOp = rewriter.create<IE::ScaleShiftOp>(
-            takeOpLoc(mulOp, "as_scaleshift"), transposedActivation.getType(), transposedActivation, newInput, nullptr);
+    auto scaleShiftOp =
+            IE::ScaleShiftOp::create(rewriter, takeOpLoc(mulOp, "as_scaleshift"), transposedActivation.getType(),
+                                     transposedActivation, newInput, nullptr);
 
     // Apply inverse transpose if we did spatial transpose earlier
     mlir::Value finalOutput = scaleShiftOp.getOutput();
@@ -649,8 +650,8 @@ mlir::LogicalResult ConvertMultiplyToScaleShift::matchAndRewrite(IE::MultiplyOp 
                 mlir::AffineMap::getPermutationMap(transposeInfo->inverse, rewriter.getContext()));
 
         auto inverseTransposeOp =
-                rewriter.create<IE::TransposeOp>(appendLoc(mulOp.getLoc(), "restore_layout"), mulOp.getType(),
-                                                 finalOutput, nullptr, inverseTransposeOrderAttr);
+                IE::TransposeOp::create(rewriter, appendLoc(mulOp.getLoc(), "restore_layout"), mulOp.getType(),
+                                        finalOutput, nullptr, inverseTransposeOrderAttr);
         finalOutput = inverseTransposeOp.getOutput();
 
         _log.trace("Applied inverse transpose to restore original layout");
@@ -729,7 +730,7 @@ mlir::LogicalResult FoldMultiplyHWSplatWeights::matchAndRewrite(IE::MultiplyOp m
     // Create new weights Const with shape 1x1x1x1
     rewriter.setInsertionPoint(mulOp);
     auto newWeightsInput =
-            rewriter.create<Const::DeclareOp>(mulOp.getLoc(), newConstAttr.getType(), std::move(newConstAttr))
+            Const::DeclareOp::create(rewriter, mulOp.getLoc(), newConstAttr.getType(), std::move(newConstAttr))
                     .getOutput();
 
     weightsInput.replaceUsesWithIf(newWeightsInput, [&](mlir::OpOperand& opOperand) {
@@ -787,23 +788,22 @@ mlir::LogicalResult AdjustMultiplyLayoutToNHWC::matchAndRewrite(IE::MultiplyOp m
     auto permutation = mlir::AffineMapAttr::get(getPermutationFromOrders(outputLayout, expectedLayout, ctx));
 
     // Create permute cast operations for inputs
-    auto input1PermuteCastOp = rewriter.create<IE::PermuteCastOp>(appendLoc(mulOp->getLoc(), "_input_permute"), input1,
-                                                                  dstOrder, permutation);
-    auto input2PermuteCastOp = rewriter.create<IE::PermuteCastOp>(appendLoc(mulOp->getLoc(), "_input_permute"), input2,
-                                                                  dstOrder, permutation);
+    auto input1PermuteCastOp = IE::PermuteCastOp::create(rewriter, appendLoc(mulOp->getLoc(), "_input_permute"), input1,
+                                                         dstOrder, permutation);
+    auto input2PermuteCastOp = IE::PermuteCastOp::create(rewriter, appendLoc(mulOp->getLoc(), "_input_permute"), input2,
+                                                         dstOrder, permutation);
 
     // Create new Multiply operation
-    auto newMultiplyOp = rewriter.create<IE::MultiplyOp>(
-            appendLoc(mulOp->getLoc(), "_multiply_nhwc"), input1PermuteCastOp.getOutput(),
+    auto newMultiplyOp = IE::MultiplyOp::create(
+            rewriter, appendLoc(mulOp->getLoc(), "_multiply_nhwc"), input1PermuteCastOp.getOutput(),
             input2PermuteCastOp.getOutput(), mulOp.getAutoBroadcastAttr(), mulOp.getPostOpAttr(), mulOp.getClampAttr(),
             mulOp.getOutputPaddingAttr(), mulOp.getInputPaddingAttr());
 
     // Create permute cast operation for output
     const auto outputDstOrder = mlir::AffineMapAttr::get(outputLayout.toAffineMap(ctx));
     auto outputPermutation = mlir::AffineMapAttr::get(getPermutationFromOrders(expectedLayout, outputLayout, ctx));
-    auto outputPermuteCastOp =
-            rewriter.create<IE::PermuteCastOp>(appendLoc(mulOp->getLoc(), "_output_permute"), newMultiplyOp.getOutput(),
-                                               outputDstOrder, outputPermutation);
+    auto outputPermuteCastOp = IE::PermuteCastOp::create(rewriter, appendLoc(mulOp->getLoc(), "_output_permute"),
+                                                         newMultiplyOp.getOutput(), outputDstOrder, outputPermutation);
 
     const auto mulOpLoc = mulOp->getLoc();
     rewriter.replaceOp(mulOp, outputPermuteCastOp.getOutput());

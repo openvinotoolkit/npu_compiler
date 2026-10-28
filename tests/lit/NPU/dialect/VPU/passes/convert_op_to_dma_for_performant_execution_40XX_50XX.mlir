@@ -172,7 +172,9 @@ func.func @ExpandIndicesForDimsBeforeAxisGreaterThanOne(%arg0: tensor<1x1024x35x
     // CHECK:       [[EXPANDED:%.+]] = VPU.Add([[SCALED]], [[IOTA]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x1x3xsi32>, tensor<1x1x1024x1xsi32> -> tensor<1x1x1024x3xsi32>
     // CHECK:       [[IDX_FLAT:%.+]] = VPU.Reshape([[EXPANDED]]) {shape_value = [3072]} : tensor<1x1x1024x3xsi32> -> tensor<3072xsi32>
     // CHECK:       [[IDX_2D:%.+]] = VPU.Reshape([[IDX_FLAT]]) {shape_value = [3072, 1]} : tensor<3072xsi32> -> tensor<3072x1xsi32>
-    // CHECK:       [[IDX_I64:%.+]] = VPU.Convert([[IDX_2D]]) {dstElemType = i64} : tensor<3072x1xsi32> -> tensor<3072x1xi64>
+    // CHECK:       [[IDX_4D:%.+]] = VPU.Reshape([[IDX_2D]]) {shape_value = [1, 3072, 1, 1]} : tensor<3072x1xsi32> -> tensor<1x3072x1x1xsi32>
+    // CHECK:       [[IDX_CVT:%.+]] = VPU.Convert([[IDX_4D]]) {dstElemType = i64} : tensor<1x3072x1x1xsi32> -> tensor<1x3072x1x1xi64>
+    // CHECK:       [[IDX_I64:%.+]] = VPU.Reshape([[IDX_CVT]]) {shape_value = [3072, 1]} : tensor<1x3072x1x1xi64> -> tensor<3072x1xi64>
     // CHECK:       [[GATHER:%.+]] = VPU.GatherDMA([[IN_RESHAPE]], [[IDX_I64]]) {axis_value = 0 : i64, batch_dims = 0 : i64} : tensor<35840x256xf32>, tensor<3072x1xi64> -> tensor<3072x256xf32>
     // CHECK:       [[RESHAPE_GATHER:%.+]] = VPU.Reshape([[GATHER]]) {shape_value = [3072, 256]} : tensor<3072x256xf32> -> tensor<3072x256xf32>
     // CHECK:       [[OUT:%.+]] = VPU.Reshape([[RESHAPE_GATHER]]) {shape_value = [1, 1024, 3, 256]} : tensor<3072x256xf32> -> tensor<1x1024x3x256xf32>

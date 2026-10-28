@@ -152,6 +152,44 @@ func.func @RMSNorm(%arg0: tensor<1x32x6xf16>) -> tensor<1x32x6xf16> {
 
 // -----
 
+// CHECK-LABEL: @RMSNorm5D
+// CHECK-SAME:    [[ARG0:%.+]]: tensor<1x3x1x256x1152xf16>
+func.func @RMSNorm5D(%arg0: tensor<1x3x1x256x1152xf16>) -> tensor<1x3x1x256x1152xf16> {
+  %cst = const.Declare tensor<1152xf16> = dense<1.000000e+00> : tensor<1152xf16>
+  %0 = IE.RMS(%arg0, %cst) {eps = 9.9999997473787516E-6 : f64} : tensor<1x3x1x256x1152xf16>, tensor<1152xf16> -> tensor<1x3x1x256x1152xf16>
+  return %0 : tensor<1x3x1x256x1152xf16>
+
+    // CHECK:           [[CST:%.+]] = const.Declare tensor<1x1x1x1152xf16> = dense<1.000000e+00> : tensor<1152xf16>, [#const.Reshape<[1, 1, 1, 1152]>]
+    // CHECK:           [[RESHAPE_IN:%.+]] = IE.AffineReshape([[ARG0]]) {
+    // CHECK-SAME{LITERAL}:     dim_mapping = [[0], [1], [1], [2], [3]], shape_value = [1, 3, 256, 1152]} : tensor<1x3x1x256x1152xf16> -> tensor<1x3x256x1152xf16>
+    // CHECK:           [[RMS:%.+]] = IE.RMS([[RESHAPE_IN]], [[CST]]) {eps = 9.9999997473787516E-6 : f64} : tensor<1x3x256x1152xf16>, tensor<1x1x1x1152xf16> -> tensor<1x3x256x1152xf16>
+    // CHECK:           [[RESHAPE_OUT:%.+]] = IE.AffineReshape([[RMS]]) {
+    // CHECK-SAME{LITERAL}:     dim_mapping = [[0], [1, 2], [3], [4]], shape_value = [1, 3, 1, 256, 1152]} : tensor<1x3x256x1152xf16> -> tensor<1x3x1x256x1152xf16>
+    // CHECK:           return [[RESHAPE_OUT]] : tensor<1x3x1x256x1152xf16>
+}
+
+// -----
+
+// Outer dims are split into DimC and DimH with sizes as close as possible: 2x3x4 -> 24, 64 -> 64.
+
+// CHECK-LABEL: @RMSNorm5DBalancedSplit
+// CHECK-SAME:    [[ARG0:%.+]]: tensor<2x3x4x64x1152xf16>
+func.func @RMSNorm5DBalancedSplit(%arg0: tensor<2x3x4x64x1152xf16>) -> tensor<2x3x4x64x1152xf16> {
+  %cst = const.Declare tensor<1152xf16> = dense<1.000000e+00> : tensor<1152xf16>
+  %0 = IE.RMS(%arg0, %cst) {eps = 9.9999997473787516E-6 : f64} : tensor<2x3x4x64x1152xf16>, tensor<1152xf16> -> tensor<2x3x4x64x1152xf16>
+  return %0 : tensor<2x3x4x64x1152xf16>
+
+    // CHECK:           [[CST:%.+]] = const.Declare tensor<1x1x1x1152xf16> = dense<1.000000e+00> : tensor<1152xf16>, [#const.Reshape<[1, 1, 1, 1152]>]
+    // CHECK:           [[RESHAPE_IN:%.+]] = IE.Reshape([[ARG0]]) {
+    // CHECK-SAME{LITERAL}:     shape_value = [1, 24, 64, 1152]} : tensor<2x3x4x64x1152xf16> -> tensor<1x24x64x1152xf16>
+    // CHECK:           [[RMS:%.+]] = IE.RMS([[RESHAPE_IN]], [[CST]]) {eps = 9.9999997473787516E-6 : f64} : tensor<1x24x64x1152xf16>, tensor<1x1x1x1152xf16> -> tensor<1x24x64x1152xf16>
+    // CHECK:           [[RESHAPE_OUT:%.+]] = IE.Reshape([[RMS]]) {
+    // CHECK-SAME{LITERAL}:     shape_value = [2, 3, 4, 64, 1152]} : tensor<1x24x64x1152xf16> -> tensor<2x3x4x64x1152xf16>
+    // CHECK:           return [[RESHAPE_OUT]] : tensor<2x3x4x64x1152xf16>
+}
+
+// -----
+
 // CHECK-LABEL: @DynamicGelu1DTo4D
 // CHECK-SAME:      [[INPUT:%.+]]: tensor<?xf16, {bounds = #const.OpaqueI64Elements<[256]> : tensor<1xsi64>, order = #C}>
 func.func @DynamicGelu1DTo4D(%arg0: tensor<?xf16, {bounds = #const.OpaqueI64Elements<[256]> : tensor<1xsi64>, order = affine_map<(d0) -> (d0)>}>) -> tensor<?xf16, {bounds = #const.OpaqueI64Elements<[256]> : tensor<1xsi64>, order = affine_map<(d0) -> (d0)>}> {

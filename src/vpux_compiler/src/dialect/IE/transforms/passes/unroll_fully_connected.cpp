@@ -13,6 +13,7 @@
 #include "vpux/compiler/dialect/IE/IR/ops/shape_manipulation.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
 #include "vpux/compiler/dialect/IE/utils/dynamic_dequantize_utils.hpp"
+#include "vpux/compiler/dialect/IE/utils/token_length_regime_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_invariant.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
@@ -245,7 +246,7 @@ SmallVector<mlir::Value> UnrollFullyConnected::splitLeftInput(const mlir::Value 
         const auto loc = appendLoc(origLoc, "slice_{0}", idx);
         const SmallVector<int64_t> offsets = {0, idx * blockSize};
         const auto offsetsAttr = getIntArrayAttr(rewriter.getContext(), offsets);
-        auto slice = rewriter.create<IE::SliceOp>(loc, lhs, offsetsAttr, staticSizesAttr);
+        auto slice = IE::SliceOp::create(rewriter, loc, lhs, offsetsAttr, staticSizesAttr);
         inputChunks.push_back(slice.getResult());
     }
     return inputChunks;
@@ -270,13 +271,13 @@ SmallVector<mlir::Value> UnrollFullyConnected::buildMatMuls(IE::FullyConnectedOp
             SmallVector<unsigned> transPerm = {1, 0};
             const auto orderAttr =
                     mlir::AffineMapAttr::get(mlir::AffineMap::getPermutationMap(transPerm, rewriter.getContext()));
-            lastOpOutput = rewriter.create<IE::TransposeOp>(transposeLoc, rhsInputs[idx],
-                                                            /*order=*/nullptr, orderAttr)
+            lastOpOutput = IE::TransposeOp::create(rewriter, transposeLoc, rhsInputs[idx],
+                                                   /*order=*/nullptr, orderAttr)
                                    .getOutput();
         }
         const auto matMulLoc = appendLoc(loc, "matmul_{0}", idx);
-        auto newMatMul = rewriter.create<IE::FullyConnectedOp>(matMulLoc, lhsInputs[idx], lastOpOutput,
-                                                               /*bias=*/nullptr);
+        auto newMatMul = IE::FullyConnectedOp::create(rewriter, matMulLoc, lhsInputs[idx], lastOpOutput,
+                                                      /*bias=*/nullptr);
         if (!isReduceSumForAccumulate) {
             matMuls.push_back(newMatMul.getOutput());
         } else {
@@ -284,8 +285,8 @@ SmallVector<mlir::Value> UnrollFullyConnected::buildMatMuls(IE::FullyConnectedOp
             // fullyconnectOp output shape size is always 2, reshape to 4
             SmallVector<int64_t> newShapeOut{1, 1, matMulShape[Dim(0)], matMulShape[Dim(1)]};
             const auto reshapeLoc = appendLoc(loc, "reshape_{0}", idx);
-            auto reshape = rewriter.create<IE::ReshapeOp>(reshapeLoc, newMatMul.getOutput(),
-                                                          getIntArrayAttr(ctx, newShapeOut));
+            auto reshape = IE::ReshapeOp::create(rewriter, reshapeLoc, newMatMul.getOutput(),
+                                                 getIntArrayAttr(ctx, newShapeOut));
             matMuls.push_back(reshape.getOutput());
         }
     }
@@ -302,11 +303,10 @@ SmallVector<mlir::Value> UnrollFullyConnected::accumulateMatMuls(const mlir::Val
     const auto addLoc = appendLoc(matMuls[0].getLoc(), "add");
 
     auto ctx = rewriter.getContext();
-    auto addMatMuls =
-            rewriter.create<IE::AddOp>(addLoc, matMuls[0], matMuls[1],
-                                       IE::AutoBroadcastTypeAttr::get(ctx, IE::AutoBroadcastType::NONE_OR_EXPLICIT),
-                                       nullptr, nullptr, nullptr, nullptr)
-                    .getOutput();
+    auto addMatMuls = IE::AddOp::create(rewriter, addLoc, matMuls[0], matMuls[1],
+                                        IE::AutoBroadcastTypeAttr::get(ctx, IE::AutoBroadcastType::NONE_OR_EXPLICIT),
+                                        nullptr, nullptr, nullptr, nullptr)
+                              .getOutput();
     addOps.push_back(addMatMuls);
     for (const auto& idx : irange(numGroups - 2)) {
         // idx + 2 because the first two MatMul operations have already been summed up.
@@ -314,9 +314,9 @@ SmallVector<mlir::Value> UnrollFullyConnected::accumulateMatMuls(const mlir::Val
         const auto loc = appendLoc(matMul.getLoc(), "add_{0}", idx + 2);
 
         auto accumulateValue =
-                rewriter.create<IE::AddOp>(loc, addOps.back(), matMuls[idx + 2],
-                                           IE::AutoBroadcastTypeAttr::get(ctx, IE::AutoBroadcastType::NONE_OR_EXPLICIT),
-                                           nullptr, nullptr, nullptr, nullptr)
+                IE::AddOp::create(rewriter, loc, addOps.back(), matMuls[idx + 2],
+                                  IE::AutoBroadcastTypeAttr::get(ctx, IE::AutoBroadcastType::NONE_OR_EXPLICIT), nullptr,
+                                  nullptr, nullptr, nullptr)
                         .getOutput();
         addOps.push_back(accumulateValue);
     }
@@ -330,19 +330,19 @@ mlir::Value UnrollFullyConnected::reduceSumForAccumulateMatMuls(const mlir::Valu
 
     auto ctx = matMuls.front().getContext();
     const auto concatLoc = appendLoc(matMuls.front().getLoc(), "concat");
-    auto concat = rewriter.create<IE::ConcatOp>(concatLoc, matMuls, Dims4D::Act::C);
+    auto concat = IE::ConcatOp::create(rewriter, concatLoc, matMuls, Dims4D::Act::C);
 
     auto axesAttr = getIntArrayAttr(rewriter, SmallVector<int32_t>{vpux::Dims4D::Act::C.ind()});
     const auto reduceSumLoc = appendLoc(matMuls.front().getLoc(), "reduceSum_for_accumulate");
     auto newReduceSumOp =
-            rewriter.create<IE::ReduceSumOp>(reduceSumLoc, concat.getOutput(), axesAttr, false, nullptr, nullptr);
+            IE::ReduceSumOp::create(rewriter, reduceSumLoc, concat.getOutput(), axesAttr, false, nullptr, nullptr);
 
     auto newMatMulShape = getShape(newReduceSumOp.getOutput());
     SmallVector<int64_t> newShapeOut{newMatMulShape[Dim(1)], newMatMulShape[Dim(2)]};
 
     const auto reshapeLoc = appendLoc(matMuls.front().getLoc(), "reshape_out");
     auto reshape =
-            rewriter.create<IE::ReshapeOp>(reshapeLoc, newReduceSumOp.getOutput(), getIntArrayAttr(ctx, newShapeOut));
+            IE::ReshapeOp::create(rewriter, reshapeLoc, newReduceSumOp.getOutput(), getIntArrayAttr(ctx, newShapeOut));
     return reshape.getOutput();
 }
 
@@ -355,7 +355,7 @@ SmallVector<mlir::Value> UnrollFullyConnected::reshapeTo2d(mlir::ValueRange valu
         const SmallVector<int64_t> target2dShape = {sliceShape[Dim(0)] * sliceShape[Dim(1)], sliceShape[Dim(2)]};
         const auto target2dShapeAttr = getIntArrayAttr(rewriter.getContext(), target2dShape);
         const auto reshapeLoc = appendLoc(getValueLocation(val), "reshape_{0}", counter++);
-        auto reshape = rewriter.create<IE::ReshapeOp>(reshapeLoc, val, target2dShapeAttr);
+        auto reshape = IE::ReshapeOp::create(rewriter, reshapeLoc, val, target2dShapeAttr);
         return reshape.getOutput();
     };
     std::transform(values.begin(), values.end(), std::back_inserter(reshapedValues), to2d);
@@ -363,9 +363,10 @@ SmallVector<mlir::Value> UnrollFullyConnected::reshapeTo2d(mlir::ValueRange valu
 }
 
 bool isBeneficialToUseReduceSumForAccumulate(IE::FullyConnectedOp origOp) {
-    // Benefit when: KV cache model, the first dim is one
-    auto outShape = getShape(origOp.getOutput());
-    return outShape[Dim(0)] == 1;
+    // Benefit in the data-bound decode regime:
+    // 1. KV cache model, token length = 1
+    // 2. speculative decoding KV cache model, token length between 1 ~ 16
+    return IE::isDataBoundTokenDim(getShape(origOp.getOutput()));
 }
 
 bool UnrollFullyConnected::isUnrollingBeneficial(IE::FullyConnectedOp origOp, mlir::ValueRange concatInputs) const {
@@ -490,7 +491,7 @@ mlir::LogicalResult UnrollFullyConnected::matchAndRewrite(IE::FullyConnectedOp o
     _log.debug("Found FullyConnectedOp at loc: {0}", opLoc);
     const auto matMulInputs = findMatMulInputs(origOp);
     if (matMulInputs.empty()) {
-        return matchFailed(rewriter, origOp, "IE.MatMul at {0} is not supported", opLoc);
+        return matchFailed(_log, rewriter, origOp, "IE.MatMul at {0} is not supported", opLoc);
     }
 
     if (!isUnrollingBeneficial(origOp, matMulInputs)) {

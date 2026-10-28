@@ -51,8 +51,7 @@ table DPUVariantInfo {
 }
 
 // Each task represent individual task, which can be executed and so be profiled.
-// DMATask - DMA transaction, DPUTask - DPU invariant, SWTask - single kernel invocation,
-// M2ITask - M2I Task invocation.
+// DMATask - DMA transaction, DPUTask - DPU invariant, SWTask - single kernel invocation.
 // Some fields are common, like name(consist of original layer name, which come from IR location)
 // and wait/update barriers, which represent dependencies. Other fields specific to engine
 
@@ -76,9 +75,7 @@ table DMATask {
 
 // DPU tasks are special, because of memory layout, which may be distributed across multiple clusters.
 // Each DPU invariant may consist of variable number of variants(numVariants field), which can be different from
-// other invariants of the same task(before unrolling). Profiling buffer is allocated before the task is split into invariants,
-// and memory distribution is assumed to be the same for all clusters, so knowledge of maxVariants is needed to skip empty regions for cluster,
-// which don't use all allocated memory. bufferId and taskId is needed to know order of tasks and for debugging purpose
+// other invariants of the same task on other tile. bufferId and taskId is needed to know order of tasks and for debugging purpose.
 
 table DPUTask {
     name: string;
@@ -109,12 +106,6 @@ table SWTask {
     fifoId: ubyte = null; // list index when dedicated FIFO-per-SHAVE is enabled
 }
 
-table M2ITask {
-    name: string;
-    waitBarriers: [uint];
-    updateBarriers: [uint];
-}
-
 table ProfilingSection {
     type: uint;
     offset: uint;
@@ -140,7 +131,6 @@ table ProfilingMeta {
     dmaTasks: [DMATask];
     dpuTasks: [DPUTask];
     swTasks: [SWTask];
-    m2iTasks: [M2ITask];
 }
 
 root_type ProfilingMeta;

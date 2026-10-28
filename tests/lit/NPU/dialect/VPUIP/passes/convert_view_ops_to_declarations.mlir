@@ -535,7 +535,7 @@ func.func @ShapeCast(%arg0: memref<64x3x7x7xf16, {order = #NHWC}>, %arg1: memref
 
 %in = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x16x112x112xf16, {order = #NHWC}, [@CMX_NN, 0]>
 
-%1 = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
+%1 = VPUIP.NCEClusterTask <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>,
         kernel_padding = #VPU.Padding<left = 3 : i64, right = 3 : i64, top = 3 : i64, bottom = 3 : i64>,
         kernel_size = [7, 7],
         kernel_strides = [2, 2],
@@ -957,4 +957,60 @@ func.func @StridedTensorSimpleTilingOutput(%arg0: memref<1x256x2x256xsi8, @DDR>,
     %7 = VPUIP.SubView %6 [0, 0, 128, 0] [1, 256, 128, 2] : memref<1x256x256x2x!qElemType, {order = #NHWC}, @DDR> to memref<1x256x128x2x!qElemType, {order = #NHWC, strides = [131072, 1, 512, 256]}, @DDR>
     // CHECK: VPURT.DeclareBuffer <NetworkOutput> [0] <65536> {offsets = [0, 0, 128, 0]} -> memref<1x256x128x2x!qElemType, {order = #NHWC, strides = [131072, 1, 512, 256]}, @DDR>
     return %arg1 : memref<1x256x2x256xsi8, @DDR>
+}
+
+// -----
+
+!qElemTypeDynamic = !quant.uniform<i8:f16, 0.047244105488061905>
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+
+net.NetworkInfo entryPoint :  @StridedTensorQuantSubViewPermuteDynamic inputsInfo : {
+    DataInfo "Input_9" : tensor<1x2x256x4351xsi8> {dynamicStrides}
+} outputsInfo : {
+    DataInfo "Output_1" : tensor<256x4351x1x1xsi8>
+}
+
+// CHECK-LABEL: @StridedTensorQuantSubViewPermuteDynamic
+func.func @StridedTensorQuantSubViewPermuteDynamic(%arg0: memref<1x2x256x4351xsi8, @DDR>, %arg1: memref<256x4351x1x1x!qElemTypeDynamic, {order = #NHWC}, @DDR>) -> memref<256x4351x1x1x!qElemTypeDynamic, {order = #NHWC}, @DDR> {
+    %0 = VPURT.DeclareBuffer <NetworkInput> [0] <0> -> memref<1x2x256x4351xsi8, @DDR>
+    %1 = VPUIP.QuantizeCast inputs(%0 : memref<1x2x256x4351xsi8, @DDR>) -> memref<1x2x256x4351x!qElemTypeDynamic, @DDR>
+    %2 = VPUIP.SubView %1 [0, 0, 0, 0] [1, 1, 256, 4351] : memref<1x2x256x4351x!qElemTypeDynamic, @DDR> to memref<1x1x256x4351x!qElemTypeDynamic, {order = #NCHW, strides = [2227712, 1113856, 4351, 1]}, @DDR>
+    %3 = VPUIP.PermuteCast {dst_order = #NHWC, mem_perm = affine_map<(d0, d1, d2, d3) -> (d2, d0, d1, d3)>}
+        inputs(%2 : memref<1x1x256x4351x!qElemTypeDynamic, {order = #NCHW, strides = [2227712, 1113856, 4351, 1]}, @DDR>)
+        -> memref<256x4351x1x1x!qElemTypeDynamic, {order = #NHWC}, @DDR>
+
+    // CHECK: VPURT.DeclareBuffer <NetworkInput> [0] <0> -> memref<1x2x256x4351x{{(!qElemType|!qElemTypeDynamic)}}, @DDR>
+    // CHECK-NEXT: VPURT.DeclareBuffer <NetworkInput> [0] <0> {offsets = [0, 0, 0, 0]} -> memref<1x1x256x4351x{{(!qElemType|!qElemTypeDynamic)}}, {order = #NCHW, strides = [2227712, 1113856, 4351, 1]}, @DDR>
+    // CHECK-NEXT: VPURT.DeclareBuffer <NetworkInput> [0] <0> {offsets = [0, 0, 0, 0]} -> memref<256x4351x1x1x{{(!qElemType|!qElemTypeDynamic)}}, {order = #NHWC}, @DDR>
+
+    return %arg1 : memref<256x4351x1x1x!qElemTypeDynamic, {order = #NHWC}, @DDR>
+}
+
+// -----
+
+!qElemTypeDynamic = !quant.uniform<i8:f16, 0.047244105488061905>
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+
+net.NetworkInfo entryPoint :  @StridedTensorQuantSubViewPermuteDynamicNonZero inputsInfo : {
+    DataInfo "Input_1" : tensor<1x2x256x4351xsi8> {dynamicStrides}
+} outputsInfo : {
+    DataInfo "Output_1" : tensor<256x4351x1x1xsi8>
+}
+
+// CHECK-LABEL: @StridedTensorQuantSubViewPermuteDynamicNonZero
+func.func @StridedTensorQuantSubViewPermuteDynamicNonZero(%arg0: memref<1x2x256x4351xsi8, @DDR>, %arg1: memref<256x4351x1x1x!qElemTypeDynamic, {order = #NHWC}, @DDR>) -> memref<256x4351x1x1x!qElemTypeDynamic, {order = #NHWC}, @DDR> {
+    %0 = VPURT.DeclareBuffer <NetworkInput> [0] <0> -> memref<1x2x256x4351xsi8, @DDR>
+    %1 = VPUIP.QuantizeCast inputs(%0 : memref<1x2x256x4351xsi8, @DDR>) -> memref<1x2x256x4351x!qElemTypeDynamic, @DDR>
+    %2 = VPUIP.SubView %1 [0, 1, 0, 0] [1, 1, 256, 4351] : memref<1x2x256x4351x!qElemTypeDynamic, @DDR> to memref<1x1x256x4351x!qElemTypeDynamic, {order = #NCHW, strides = [2227712, 1113856, 4351, 1]}, @DDR>
+    %3 = VPUIP.PermuteCast {dst_order = #NHWC, mem_perm = affine_map<(d0, d1, d2, d3) -> (d2, d0, d1, d3)>}
+        inputs(%2 : memref<1x1x256x4351x!qElemTypeDynamic, {order = #NCHW, strides = [2227712, 1113856, 4351, 1]}, @DDR>)
+        -> memref<256x4351x1x1x!qElemTypeDynamic, {order = #NHWC}, @DDR>
+
+    // CHECK: VPURT.DeclareBuffer <NetworkInput> [0] <0> -> memref<1x2x256x4351x{{(!qElemType|!qElemTypeDynamic)}}, @DDR>
+    // CHECK-NEXT: VPURT.DeclareBuffer <NetworkInput> [0] <1113856> {offsets = [0, 1, 0, 0]} -> memref<1x1x256x4351x{{(!qElemType|!qElemTypeDynamic)}}, {order = #NCHW, strides = [2227712, 1113856, 4351, 1]}, @DDR>
+    // CHECK-NEXT: VPURT.DeclareBuffer <NetworkInput> [0] <1113856> {offsets = [0, 0, 1, 0]} -> memref<256x4351x1x1x{{(!qElemType|!qElemTypeDynamic)}}, {order = #NHWC}, @DDR>
+
+    return %arg1 : memref<256x4351x1x1x!qElemTypeDynamic, {order = #NHWC}, @DDR>
 }

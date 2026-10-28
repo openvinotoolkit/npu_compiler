@@ -8,6 +8,7 @@
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
 #include "vpux/compiler/dialect/IE/utils/const_attributes.hpp"
 #include "vpux/compiler/dialect/IE/utils/convolution_utils.hpp"
+#include "vpux/compiler/dialect/IE/utils/dynamic_shape_utils.hpp"
 #include "vpux/compiler/dialect/IE/utils/reshape_utils.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/dpu.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_invariant.hpp"
@@ -71,7 +72,7 @@ mlir::Value getReshapedConst(Const::DeclareOp constOp, ShapeRef shape, mlir::Pat
     const auto offset = Shape(shape.size(), 0);
     constOutputType = constOutputType.changeShape(shape);
     auto contentAttr = constOp.transformContentAttr().subview(offset, shape).get();
-    return rewriter.create<Const::DeclareOp>(constOp.getLoc(), constOutputType, std::move(contentAttr)).getOutput();
+    return Const::DeclareOp::create(rewriter, constOp.getLoc(), constOutputType, std::move(contentAttr)).getOutput();
 }
 
 mlir::LogicalResult ReshapeSingleConstDWConvInput::matchAndRewrite(IE::GroupConvolutionOp origOp,
@@ -80,7 +81,7 @@ mlir::LogicalResult ReshapeSingleConstDWConvInput::matchAndRewrite(IE::GroupConv
 
     const auto ctx = origOp->getContext();
     if (!IE::isEltwiseGroupConv(origOp)) {
-        return matchFailed(rewriter, origOp, "Not a valid groupConv");
+        return matchFailed(_log, rewriter, origOp, "Not a valid groupConv");
     }
 
     const auto inputShape = getShape(origOp.getInput());
@@ -90,11 +91,11 @@ mlir::LogicalResult ReshapeSingleConstDWConvInput::matchAndRewrite(IE::GroupConv
     // Current logic only works with input and filter shape with 4 dimensions
     const int rank4D = 4;
     if (inputShape.size() != rank4D || filterShape.size() != rank4D) {
-        return matchFailed(rewriter, origOp, "Input shape size is not 4");
+        return matchFailed(_log, rewriter, origOp, "Input shape size is not 4");
     }
 
     if (!allowsChannelsReshape(origOp)) {
-        return matchFailed(rewriter, origOp, "Cannot reshape channels of operation.");
+        return matchFailed(_log, rewriter, origOp, "Cannot reshape channels of operation.");
     }
 
     int64_t divider = 1;
@@ -102,24 +103,24 @@ mlir::LogicalResult ReshapeSingleConstDWConvInput::matchAndRewrite(IE::GroupConv
     std::tie(divider, widthReshaped) = calcShapeAligned(divider, inputShape[Dims4D::Act::W]);
     std::tie(divider, heightReshaped) = calcShapeAligned(divider, inputShape[Dims4D::Act::H]);
     if (divider == 1) {
-        return matchFailed(rewriter, origOp, "Don't need to align");
+        return matchFailed(_log, rewriter, origOp, "Don't need to align");
     }
 
     if (inputShape[Dims4D::Act::C] % divider != 0) {
-        return matchFailed(rewriter, origOp, "Input shape could not be divided {0}", inputShape[Dims4D::Act::C]);
+        return matchFailed(_log, rewriter, origOp, "Input shape could not be divided {0}", inputShape[Dims4D::Act::C]);
     }
 
     channelReshaped = inputShape[Dims4D::Act::C] / divider;
     auto alignIface = mlir::cast<IE::AlignedChannelsOpInterface>(origOp.getOperation());
     if (channelReshaped % alignIface.getInputChannelAlignment() != 0) {
-        return matchFailed(rewriter, origOp, "Remaining channel is not aligned.");
+        return matchFailed(_log, rewriter, origOp, "Remaining channel is not aligned.");
     }
 
     // Reshape Input
     const SmallVector<int64_t> newInShape = {inputShape[Dims4D::Act::N], channelReshaped, heightReshaped,
                                              widthReshaped};
     auto inShapeCast =
-            rewriter.create<IE::ShapeCastOp>(origOp->getLoc(), origOp.getInput(), getIntArrayAttr(ctx, newInShape));
+            IE::ShapeCastOp::create(rewriter, origOp->getLoc(), origOp.getInput(), getIntArrayAttr(ctx, newInShape));
 
     // Reshape Filter
     Shape newFilterShape{channelReshaped, filterShape[Dims4D::Filter::IC], filterShape[Dims4D::Filter::KY],
@@ -138,8 +139,8 @@ mlir::LogicalResult ReshapeSingleConstDWConvInput::matchAndRewrite(IE::GroupConv
     }
 
     auto newGroupAttr = getIntAttr(ctx, channelReshaped);
-    auto newGroupConv = rewriter.create<IE::GroupConvolutionOp>(
-            origOp->getLoc(), inShapeCast.getResult(), newConstFilter, bias, origOp.getStridesAttr(),
+    auto newGroupConv = IE::GroupConvolutionOp::create(
+            rewriter, origOp->getLoc(), inShapeCast.getResult(), newConstFilter, bias, origOp.getStridesAttr(),
             origOp.getPadsBeginAttr(), origOp.getPadsEnd(), origOp.getDilationsAttr(), newGroupAttr,
             origOp.getPostOpAttr(), origOp.getClampAttr(), origOp.getOutputPaddingAttr(), origOp.getInputPaddingAttr());
     auto origOutputType = mlir::cast<vpux::NDTypeInterface>(origOp.getType());
@@ -147,8 +148,8 @@ mlir::LogicalResult ReshapeSingleConstDWConvInput::matchAndRewrite(IE::GroupConv
             mlir::cast<mlir::RankedTensorType>(origOutputType.changeShape(getShape(newGroupConv.getOutput()))));
 
     auto outShape = getShape(origOp.getOutput()).raw();
-    auto outShapeCast = rewriter.create<IE::ShapeCastOp>(origOp->getLoc(), newGroupConv.getOutput(),
-                                                         getIntArrayAttr(ctx, outShape));
+    auto outShapeCast = IE::ShapeCastOp::create(rewriter, origOp->getLoc(), newGroupConv.getOutput(),
+                                                getIntArrayAttr(ctx, outShape));
 
     rewriter.replaceOp(origOp, outShapeCast.getResult());
 
@@ -239,7 +240,7 @@ mlir::LogicalResult ReshapeAddInput::matchAndRewrite(IE::AddOp origOp, mlir::Pat
     }
 
     if (!allowsChannelsReshape(origOp)) {
-        return matchFailed(rewriter, origOp, "Cannot reshape channels of operation.");
+        return matchFailed(_log, rewriter, origOp, "Cannot reshape channels of operation.");
     }
 
     const auto needToAdjustChannel = inputShape[Dims4D::Act::C] > VPU::NCEInvariant::VPU_DIMENSION_LIMIT;
@@ -310,22 +311,22 @@ mlir::LogicalResult ReshapeAddInput::matchAndRewrite(IE::AddOp origOp, mlir::Pat
     const SmallVector<int64_t> newInShape = {inputShape[Dims4D::Act::N], channelReshaped, heightReshaped,
                                              widthReshaped};
     auto inShapeCast1 =
-            rewriter.create<IE::ShapeCastOp>(origOp->getLoc(), origOp.getInput1(), getIntArrayAttr(ctx, newInShape))
+            IE::ShapeCastOp::create(rewriter, origOp->getLoc(), origOp.getInput1(), getIntArrayAttr(ctx, newInShape))
                     .getResult();
 
     mlir::Value inShapeCast2 = inShapeCast1;
     if (!isSameInput) {
-        inShapeCast2 =
-                rewriter.create<IE::ShapeCastOp>(origOp->getLoc(), origOp.getInput2(), getIntArrayAttr(ctx, newInShape))
-                        .getResult();
+        inShapeCast2 = IE::ShapeCastOp::create(rewriter, origOp->getLoc(), origOp.getInput2(),
+                                               getIntArrayAttr(ctx, newInShape))
+                               .getResult();
     }
 
     // Update addOp
     const auto origType = mlir::cast<vpux::NDTypeInterface>(origOp.getType());
     const auto newType = origType.changeShape(ShapeRef(newInShape));
-    auto newAddOp = rewriter.create<IE::AddOp>(
-            origOp->getLoc(), newType, inShapeCast1, inShapeCast2, origOp.getAutoBroadcastAttr(),
-            origOp.getPostOpAttr(), origOp.getClampAttr(), origOp.getOutputPaddingAttr(), origOp.getInputPaddingAttr());
+    auto newAddOp = IE::AddOp::create(rewriter, origOp->getLoc(), newType, inShapeCast1, inShapeCast2,
+                                      origOp.getAutoBroadcastAttr(), origOp.getPostOpAttr(), origOp.getClampAttr(),
+                                      origOp.getOutputPaddingAttr(), origOp.getInputPaddingAttr());
 
     // Reshape Output
     rewriter.replaceOpWithNewOp<IE::ShapeCastOp>(origOp, newAddOp.getOutput(), getIntArrayAttr(ctx, outputShape));
@@ -364,10 +365,10 @@ mlir::Operation* buildCustomOp(IE::ConvolutionOp op, mlir::PatternRewriter& rewr
 
 mlir::Operation* buildCustomOp(IE::GroupConvolutionOp op, mlir::PatternRewriter& rewriter, mlir::Value input,
                                vpux::NDTypeInterface outType) {
-    return rewriter.create<IE::GroupConvolutionOp>(
-            appendLoc(op->getLoc(), "aligned"), outType, input, op.getFilter(), op.getBias(), op.getStrides(),
-            op.getPadsBegin(), op.getPadsEnd(), op.getDilations(), op.getGroupsAttr(), op.getPostOpAttr(),
-            op.getClampAttr(), op.getOutputPaddingAttr(), op.getInputPaddingAttr());
+    return IE::GroupConvolutionOp::create(rewriter, appendLoc(op->getLoc(), "aligned"), outType, input, op.getFilter(),
+                                          op.getBias(), op.getStrides(), op.getPadsBegin(), op.getPadsEnd(),
+                                          op.getDilations(), op.getGroupsAttr(), op.getPostOpAttr(), op.getClampAttr(),
+                                          op.getOutputPaddingAttr(), op.getInputPaddingAttr());
 }
 
 template <typename ConcreteOp>
@@ -385,9 +386,9 @@ ConcreteOp expandDimToReshape(ConcreteOp op, mlir::PatternRewriter& rewriter, Di
     auto padBegin = SmallVector<int64_t>(inputShape.size(), 0);
     auto padEnd = SmallVector<int64_t>(inputShape.size(), 0);
     padEnd[dimToExpand.ind()] = newSizeDimToExpand - inputShape[dimToExpand];
-    auto inputExpandOp = rewriter.create<IE::ExpandOp>(appendLoc(op->getLoc(), "expand"), op.getInput(),
-                                                       getIntArrayAttr(rewriter, ArrayRef(padBegin)),
-                                                       getIntArrayAttr(rewriter, ArrayRef(padEnd)));
+    auto inputExpandOp = IE::ExpandOp::create(rewriter, appendLoc(op->getLoc(), "expand"), op.getInput(),
+                                              getIntArrayAttr(rewriter, ArrayRef(padBegin)),
+                                              getIntArrayAttr(rewriter, ArrayRef(padEnd)));
 
     auto targetOutType = mlir::cast<vpux::NDTypeInterface>(op.getOutput().getType());
     auto targetOutShape = Shape(getShape(op.getOutput()));
@@ -397,9 +398,8 @@ ConcreteOp expandDimToReshape(ConcreteOp op, mlir::PatternRewriter& rewriter, Di
 
     auto offsets = SmallVector<int64_t>(outputShape.size(), 0);
     auto sizes = SmallVector<int64_t>(outputShape.begin(), outputShape.end());
-    auto outputSliceOp =
-            rewriter.create<IE::SliceOp>(appendLoc(op->getLoc(), "slice"), newOp, getIntArrayAttr(rewriter, offsets),
-                                         getIntArrayAttr(rewriter, sizes));
+    auto outputSliceOp = IE::SliceOp::create(rewriter, appendLoc(op->getLoc(), "slice"), newOp,
+                                             getIntArrayAttr(rewriter, offsets), getIntArrayAttr(rewriter, sizes));
     rewriter.replaceOp(op, outputSliceOp);
     return newOp;
 }
@@ -437,6 +437,10 @@ mlir::LogicalResult ReshapeConvInput<ConcreteOp>::matchAndRewrite(ConcreteOp con
     auto ctx = convOp->getContext();
     auto inputShape = getShape(convOp.getInput());
     const auto filterShape = getShape(convOp.getFilter());
+
+    if (IE::hasDynamicTensors(convOp)) {
+        return matchFailed(nestedLog, rewriter, convOp, "Cannot adjust dynamic convolution shapes");
+    }
 
     // Current logic only works with input and filter shape with 4 dimensions
     if (inputShape.size() != 4 || filterShape.size() != 4) {
@@ -486,7 +490,8 @@ mlir::LogicalResult ReshapeConvInput<ConcreteOp>::matchAndRewrite(ConcreteOp con
         const auto arch = vpux::config::getArch(convOp);
         const auto isConnectedToSoftmaxUser = [arch](mlir::Operation* op) {
             // Determines whether a user op should be walked through when searching for a
-            // downstream SoftMaxOp.
+            // downstream SoftMaxOp. On newer platforms the attention pattern includes channel-aligned
+            // Expand/Slice around the mask Add (E#230020).
             const auto isTransparentForSoftmaxSearch = [arch](mlir::Operation* user) {
                 if (IE::isPureViewOp(user) || mlir::isa<IE::AddOp>(user)) {
                     return true;
@@ -651,8 +656,8 @@ mlir::LogicalResult ReshapeConvInput<ConcreteOp>::matchAndRewrite(ConcreteOp con
                                                       {Dims4D::Act::H.ind(), Dims4D::Act::W.ind()}};
     auto inDimMapping = alignOnH ? inDimMappingOnH : inDimMappingOnW;
     auto newInput =
-            rewriter.create<IE::AffineReshapeOp>(appendLoc(convOp->getLoc(), "balance_reshape_in"), convOp.getInput(),
-                                                 getIntArrayOfArray(ctx, inDimMapping), inputShapeAttr);
+            IE::AffineReshapeOp::create(rewriter, appendLoc(convOp->getLoc(), "balance_reshape_in"), convOp.getInput(),
+                                        getIntArrayOfArray(ctx, inDimMapping), inputShapeAttr);
     mlir::IRMapping mapper;
     mapper.map(convOp.getInput(), newInput.getOutput());
     auto newConvOp = mlir::dyn_cast<ConcreteOp>(rewriter.clone(*convOp, mapper));
@@ -766,7 +771,7 @@ mlir::Value buildPadOp(mlir::PatternRewriter& rewriter, mlir::Location loc, mlir
     if (padEnd > 0) {
         concatInputs.push_back(makeZeroConst(padEnd, "pad_end"));
     }
-    return rewriter.create<IE::ConcatOp>(loc, concatInputs, axis.ind()).getOutput();
+    return IE::ConcatOp::create(rewriter, loc, concatInputs, axis.ind()).getOutput();
 }
 
 // AffineReshape dim mapping that flattens the [N,C,numRows,L_row] row form back to a 1D
@@ -853,8 +858,8 @@ mlir::Value buildRowWindowsConcat(mlir::PatternRewriter& rewriter, mlir::Locatio
         SmallVector<int64_t> sizes{inN, inC, 1, 1};
         offsets[layout.longDim.ind()] = h * step;
         sizes[layout.longDim.ind()] = windowLen;
-        mlir::Value window = rewriter.create<IE::SliceOp>(appendLoc(loc, "halo_slice_{0}", h), paddedInput,
-                                                          getIntArrayAttr(ctx, offsets), getIntArrayAttr(ctx, sizes))
+        mlir::Value window = IE::SliceOp::create(rewriter, appendLoc(loc, "halo_slice_{0}", h), paddedInput,
+                                                 getIntArrayAttr(ctx, offsets), getIntArrayAttr(ctx, sizes))
                                      .getResult();
         if (!layout.longAxisIsW) {
             window = rewriter.createOrFold<IE::AffineReshapeOp>(appendLoc(loc, "halo_reshape_{0}", h), window,
@@ -862,7 +867,7 @@ mlir::Value buildRowWindowsConcat(mlir::PatternRewriter& rewriter, mlir::Locatio
         }
         windows.push_back(window);
     }
-    return rewriter.create<IE::ConcatOp>(appendLoc(loc, "halo_concat"), windows, Dims4D::Act::H.ind()).getOutput();
+    return IE::ConcatOp::create(rewriter, appendLoc(loc, "halo_concat"), windows, Dims4D::Act::H.ind()).getOutput();
 }
 
 // layoutH only: singleton-swap the kernel from [OC,C,K,1] to [OC,C,1,K] so it matches the
@@ -1159,9 +1164,8 @@ mlir::LogicalResult ReshapeTransposedConv1DInputWithHalo::matchAndRewrite(IE::Tr
     SmallVector<int64_t> validOffsets{0, 0, 0, 0};
     SmallVector<int64_t> validSizes{outputShape[Dims4D::Act::N], outputShape[Dims4D::Act::C], numRows, lRow};
     validOffsets[Dims4D::Act::W.ind()] = strideLong * haloPad;
-    auto validSliceOp =
-            rewriter.create<IE::SliceOp>(appendLoc(origLoc, "halo_valid_slice"), newConvOp.getOutput(),
-                                         getIntArrayAttr(ctx, validOffsets), getIntArrayAttr(ctx, validSizes));
+    auto validSliceOp = IE::SliceOp::create(rewriter, appendLoc(origLoc, "halo_valid_slice"), newConvOp.getOutput(),
+                                            getIntArrayAttr(ctx, validOffsets), getIntArrayAttr(ctx, validSizes));
 
     // Step 5: collapse [N,OC,numRows,L_row] into the flat (possibly expand-lengthened)
     // long-axis form.
@@ -1176,9 +1180,8 @@ mlir::LogicalResult ReshapeTransposedConv1DInputWithHalo::matchAndRewrite(IE::Tr
     mlir::Value finalOut = flatOut;
     if (expandBy > 0) {
         const SmallVector<int64_t> finalOffsets{0, 0, 0, 0};
-        finalOut = rewriter.create<IE::SliceOp>(appendLoc(origLoc, "halo_final_slice"), flatOut,
-                                                getIntArrayAttr(ctx, finalOffsets),
-                                                getIntArrayAttr(ctx, outputShape.raw()))
+        finalOut = IE::SliceOp::create(rewriter, appendLoc(origLoc, "halo_final_slice"), flatOut,
+                                       getIntArrayAttr(ctx, finalOffsets), getIntArrayAttr(ctx, outputShape.raw()))
                            .getResult();
     }
 
@@ -1225,7 +1228,7 @@ mlir::LogicalResult ReshapeExpandDWConvInput::matchAndRewrite(IE::GroupConvoluti
     }
 
     if (!allowsChannelsReshape(origOp)) {
-        return matchFailed(rewriter, origOp, "Cannot reshape channels of operation.");
+        return matchFailed(_log, rewriter, origOp, "Cannot reshape channels of operation.");
     }
 
     // Check stride
@@ -1285,7 +1288,7 @@ mlir::LogicalResult ReshapeExpandDWConvInput::matchAndRewrite(IE::GroupConvoluti
     const auto dstType = unExpandedType.changeShape(ShapeRef(alignedInShape));
 
     auto shapeCastInputOp =
-            rewriter.create<IE::ShapeCastOp>(origOp->getLoc(), dstType, unExpandedInput, alignedInputShapeAttr);
+            IE::ShapeCastOp::create(rewriter, origOp->getLoc(), dstType, unExpandedInput, alignedInputShapeAttr);
 
     const auto& contentAttr = constInput.getContentAttr();
     const auto& baseContent = contentAttr.getBaseContent();
@@ -1321,8 +1324,8 @@ mlir::LogicalResult ReshapeExpandDWConvInput::matchAndRewrite(IE::GroupConvoluti
         newContentAttrSetup = newContentAttrSetup.addTransformation(attr);
     }
 
-    auto newConstInput = rewriter.create<Const::DeclareOp>(
-            origOp->getLoc(), newConstOutputType, Const::ContentAttr::get(baseContent, std::move(newContentAttrSetup)));
+    auto newConstInput = Const::DeclareOp::create(rewriter, origOp->getLoc(), newConstOutputType,
+                                                  Const::ContentAttr::get(baseContent, std::move(newContentAttrSetup)));
 
     // Infer group conv output shape
     const auto dataPaddingBelow = parseIntArrayAttr<int64_t>(origOp.getPadsEnd());
@@ -1350,19 +1353,19 @@ mlir::LogicalResult ReshapeExpandDWConvInput::matchAndRewrite(IE::GroupConvoluti
     const auto origOutType = mlir::cast<vpux::NDTypeInterface>(origOp->getResult(0).getType()).getElementType();
     const auto convOutType = unExpandedType.changeShapeElemType(ShapeRef(shapeI64), origOutType);
     auto groupsAttr = getIntAttr(rewriter, newIC);
-    auto grpConv = rewriter.create<IE::GroupConvolutionOp>(
-            origOp->getLoc(), convOutType, shapeCastInputOp, newConstInput, origOp.getBias(), origOp.getStridesAttr(),
-            origOp.getPadsBegin(), origOp.getPadsEnd(), origOp.getDilationsAttr(), groupsAttr, origOp.getPostOpAttr(),
-            origOp.getClampAttr(), origOp.getOutputPaddingAttr(), origOp.getInputPaddingAttr());
+    auto grpConv = IE::GroupConvolutionOp::create(
+            rewriter, origOp->getLoc(), convOutType, shapeCastInputOp, newConstInput, origOp.getBias(),
+            origOp.getStridesAttr(), origOp.getPadsBegin(), origOp.getPadsEnd(), origOp.getDilationsAttr(), groupsAttr,
+            origOp.getPostOpAttr(), origOp.getClampAttr(), origOp.getOutputPaddingAttr(), origOp.getInputPaddingAttr());
 
     // Insert ShapeCast to reshape the output to original outShape
     auto unExpandedOutShape = Shape({IN, IC, convOutType.getShape()[Dims4D::Act::H], IW});
     auto shapeCastOutputAttr = getIntArrayAttr(rewriter.getContext(), unExpandedOutShape);
-    auto shapeCastOutputOp = rewriter.create<IE::ShapeCastOp>(
-            origOp->getLoc(), convOutType.changeShape(unExpandedOutShape), grpConv, shapeCastOutputAttr);
+    auto shapeCastOutputOp = IE::ShapeCastOp::create(
+            rewriter, origOp->getLoc(), convOutType.changeShape(unExpandedOutShape), grpConv, shapeCastOutputAttr);
 
-    auto newOutputExpandOp = rewriter.create<IE::ExpandOp>(
-            origOp->getLoc(), shapeCastOutputOp, parentExpandOp.getPadsBeginAttr(), parentExpandOp.getPadsEndAttr());
+    auto newOutputExpandOp = IE::ExpandOp::create(rewriter, origOp->getLoc(), shapeCastOutputOp,
+                                                  parentExpandOp.getPadsBeginAttr(), parentExpandOp.getPadsEndAttr());
 
     // Replace with new sub graph
     rewriter.replaceOp(origOp, newOutputExpandOp->getResult(0));

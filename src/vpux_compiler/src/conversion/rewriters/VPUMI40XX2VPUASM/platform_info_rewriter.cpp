@@ -12,7 +12,7 @@ namespace vpumi40xx2vpuasm {
 mlir::FailureOr<SymbolizationResult> PlatformInfoRewriter::symbolize(VPUMI40XX::PlatformInfoOp op, SymbolMapper&,
                                                                      mlir::ConversionPatternRewriter& rewriter) const {
     auto symName = findSym(op).getRootReference();
-    auto newOp = rewriter.create<VPUASM::PlatformInfoOp>(op.getLoc(), symName);
+    auto newOp = VPUASM::PlatformInfoOp::create(rewriter, op.getLoc(), symName);
     rewriter.eraseOp(op);
     return SymbolizationResult(newOp);
 }

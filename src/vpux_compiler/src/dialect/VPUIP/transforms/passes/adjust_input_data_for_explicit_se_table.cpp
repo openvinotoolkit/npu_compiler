@@ -111,7 +111,7 @@ void AdjustInputDataForExplicitSETablePass::safeRunOnFunc() {
 
         auto adaptTypeFor = [&](mlir::Value operand, mlir::Value seOperand) {
             auto declareOp = operand.getDefiningOp<VPURT::DeclareBufferOp>();
-            VPUX_THROW_UNLESS(declareOp != nullptr, "Expected buffer declaration, got {0}", operand.getDefiningOp());
+            VPUX_THROW_WHEN(declareOp == nullptr, "Expected buffer declaration, got {0}", operand.getDefiningOp());
             mlir::OpBuilder builder(declareOp);
 
             auto newDeclareOp = builder.clone(*declareOp.getOperation());

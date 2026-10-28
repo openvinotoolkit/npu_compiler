@@ -170,7 +170,7 @@ void SparsifyWeightsPass::safeRunOnFunc() {
         }
 
         auto nceOp = mlir::dyn_cast<VPU::NCEOpInterface>(sparsifiableOp.getOperation());
-        VPUX_THROW_UNLESS(nceOp != nullptr, "Unexpected non-NCE operation that supports weights sparsity");
+        VPUX_THROW_WHEN(nceOp == nullptr, "Unexpected non-NCE operation that supports weights sparsity");
 
         // don't sparsify the weights if the split weight table format is used
         if (nceOp.getWeightsTableOperand() == nullptr) {
@@ -240,13 +240,13 @@ void SparsifyWeightsPass::safeRunOnFunc() {
         mlir::OpBuilder builder(weightsOp);
         auto sparsityMapContent = Const::ContentAttr::get(data, newContentAttrSetup.clone().getSparsityMap());
         auto sparsifiedContent = Const::ContentAttr::get(data, newContentAttrSetup.clone().sparsify(false));
-        const auto sparsifiedWeights = builder.create<Const::DeclareOp>(weightsOp.getLoc(), sparsifiedContent.getType(),
-                                                                        std::move(sparsifiedContent));
-        const auto sparsityMap = builder.create<Const::DeclareOp>(weightsOp.getLoc(), sparsityMapContent.getType(),
-                                                                  std::move(sparsityMapContent));
+        const auto sparsifiedWeights = Const::DeclareOp::create(
+                builder, weightsOp.getLoc(), sparsifiedContent.getType(), std::move(sparsifiedContent));
+        const auto sparsityMap = Const::DeclareOp::create(builder, weightsOp.getLoc(), sparsityMapContent.getType(),
+                                                          std::move(sparsityMapContent));
         auto groupedView =
-                builder.create<VPU::GroupSparseTensorOp>(weightsOp.getLoc(), sparsifiedWeights->getResult(0),
-                                                         sparsityMap->getResult(0), true, sparsityCompressionAttr);
+                VPU::GroupSparseTensorOp::create(builder, weightsOp.getLoc(), sparsifiedWeights->getResult(0),
+                                                 sparsityMap->getResult(0), true, sparsityCompressionAttr);
 
         it = localReplacementCache.insert({weightsOp, groupedView}).first;
         return it->second;

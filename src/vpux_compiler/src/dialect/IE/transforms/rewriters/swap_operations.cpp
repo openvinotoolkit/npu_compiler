@@ -149,8 +149,8 @@ mlir::Value alignConstant(mlir::PatternRewriter& rewriter, mlir::Operation* pare
                             const auto newType = mlir::RankedTensorType::get(newShape, elemType);
                             const auto newContentAttr =
                                     Const::ContentAttr::get(mlir::DenseElementsAttr::get(newType, splatAttr));
-                            return rewriter
-                                    .create<Const::DeclareOp>(takeOpLoc(origOp, "splt_cst"), newType, newContentAttr)
+                            return Const::DeclareOp::create(rewriter, takeOpLoc(origOp, "splt_cst"), newType,
+                                                            newContentAttr)
                                     .getResult();
                         }
                     }
@@ -254,13 +254,13 @@ bool isValidBiasOp(IE::ScaleShiftOp op) {
 
 IE::AddOp createNewBiasOp(mlir::PatternRewriter& rewriter, IE::AddOp origOp, mlir::Location loc, mlir::Value activation,
                           mlir::Value bias) {
-    return rewriter.create<IE::AddOp>(loc, activation, bias, origOp.getAutoBroadcastAttr(), nullptr, nullptr, nullptr,
-                                      nullptr);
+    return IE::AddOp::create(rewriter, loc, activation, bias, origOp.getAutoBroadcastAttr(), nullptr, nullptr, nullptr,
+                             nullptr);
 }
 
 IE::ScaleShiftOp createNewBiasOp(mlir::PatternRewriter& rewriter, IE::ScaleShiftOp, mlir::Location loc,
                                  mlir::Value activation, mlir::Value bias) {
-    return rewriter.create<IE::ScaleShiftOp>(loc, activation, nullptr, bias);
+    return IE::ScaleShiftOp::create(rewriter, loc, activation, nullptr, bias);
 }
 
 }  // namespace
@@ -533,7 +533,7 @@ mlir::LogicalResult SwapGeluExpand::matchAndRewrite(IE::GeluOp origOp, mlir::Pat
         return mlir::failure();
     }
 
-    auto newGelu = rewriter.create<IE::GeluOp>(origOp.getLoc(), expandOp.getInput());
+    auto newGelu = IE::GeluOp::create(rewriter, origOp.getLoc(), expandOp.getInput());
     auto newExpand = rewriter.replaceOpWithNewOp<IE::ExpandOp>(origOp, newGelu.getOutput(), expandOp.getPadsBeginAttr(),
                                                                expandOp.getPadsEndAttr());
     extendOpLoc(newExpand, "swap");
@@ -582,7 +582,7 @@ mlir::LogicalResult SwapTanhSlice::matchAndRewrite(IE::TanhOp originOp, mlir::Pa
         return mlir::failure();
     }
 
-    auto newOp = rewriter.create<IE::TanhOp>(originOp.getLoc(), newType, sliceOp.getSource());
+    auto newOp = IE::TanhOp::create(rewriter, originOp.getLoc(), newType, sliceOp.getSource());
     auto newSlice = rewriter.replaceOpWithNewOp<IE::SliceOp>(
             originOp, newOp->getResult(0), sliceOp.getStaticOffsetsAttr(), sliceOp.getStaticSizesAttr());
     extendOpLoc(newSlice, "swap");
@@ -638,7 +638,7 @@ mlir::LogicalResult SwapExpandQuantizeCast::matchAndRewrite(IE::ExpandOp expandO
     auto expandInput = expandOp.getInput();
     auto quantizeCastOutputElemType = quantizeCastOutputType.getElementType();
     auto newQuantizeCastOp =
-            rewriter.create<IE::QuantizeCastOp>(quantizeCastOp->getLoc(), expandInput, quantizeCastOutputElemType);
+            IE::QuantizeCastOp::create(rewriter, quantizeCastOp->getLoc(), expandInput, quantizeCastOutputElemType);
     expandOp.setOperand(newQuantizeCastOp);
     expandOp.getOutput().setType(mlir::cast<mlir::RankedTensorType>(quantizeCastOutputType));
     quantizeCastOp->replaceAllUsesWith(expandOp);
@@ -676,7 +676,7 @@ mlir::LogicalResult SwapTanhShapeCast::matchAndRewrite(IE::TanhOp origOp, mlir::
     }
 
     auto newTanhOp =
-            rewriter.create<IE::TanhOp>(origOp.getLoc(), shapeCastOp.getSource().getType(), shapeCastOp.getSource());
+            IE::TanhOp::create(rewriter, origOp.getLoc(), shapeCastOp.getSource().getType(), shapeCastOp.getSource());
     auto outputType = mlir::cast<vpux::NDTypeInterface>(origOp.getResult().getType());
     auto castOp = rewriter.replaceOpWithNewOp<IE::ShapeCastOp>(
             origOp, outputType, newTanhOp.getResult(), getIntArrayAttr(origOp.getContext(), outputType.getShape()));
@@ -713,11 +713,11 @@ mlir::LogicalResult SwapDequantMemPermute::matchAndRewrite(IE::MemPermuteOp memP
         return mlir::failure();
     }
 
-    auto newPermute = rewriter.create<IE::MemPermuteOp>(memPermuteOp.getLoc(), dequant.getInput(),
-                                                        memPermuteOp.getDstOrderAttr(), memPermuteOp.getMemPermAttr());
+    auto newPermute = IE::MemPermuteOp::create(rewriter, memPermuteOp.getLoc(), dequant.getInput(),
+                                               memPermuteOp.getDstOrderAttr(), memPermuteOp.getMemPermAttr());
 
     auto newDequant =
-            rewriter.create<IE::DequantizeOp>(dequant.getLoc(), newPermute.getOutput(), dequant.getDstElemType());
+            IE::DequantizeOp::create(rewriter, dequant.getLoc(), newPermute.getOutput(), dequant.getDstElemType());
 
     rewriter.replaceOp(memPermuteOp, newDequant.getOutput());
     return mlir::success();
@@ -816,14 +816,14 @@ mlir::LogicalResult SwapAffineReshapeFakeQuantize::matchAndRewrite(IE::FakeQuant
     _log.trace("[{0}] Swap '{1}' at '{2}' with  '{3}' at '{4}'", getDebugName(), affineReshapeOp->getName(),
                affineReshapeOp->getLoc(), fakeQuantizeOp->getName(), fakeQuantizeOp->getLoc());
 
-    auto newFakeQuantizeOp = rewriter.create<IE::FakeQuantizeOp>(
-            fakeQuantizeOp->getLoc(), affineReshapeOp.getInput(), fakeQuantizeOp.getInputLow(),
+    auto newFakeQuantizeOp = IE::FakeQuantizeOp::create(
+            rewriter, fakeQuantizeOp->getLoc(), affineReshapeOp.getInput(), fakeQuantizeOp.getInputLow(),
             fakeQuantizeOp.getInputHigh(), fakeQuantizeOp.getOutputLow(), fakeQuantizeOp.getOutputHigh(),
             fakeQuantizeOp.getLevelsAttr(), fakeQuantizeOp.getLowFpTypeAttr(), fakeQuantizeOp.getAutoBroadcastAttr());
 
-    auto newAffineReshapeOp = rewriter.create<IE::AffineReshapeOp>(
-            affineReshapeOp.getLoc(), newFakeQuantizeOp.getOutput(), affineReshapeOp.getDimMappingAttr(),
-            affineReshapeOp.getShapeValueAttr());
+    auto newAffineReshapeOp =
+            IE::AffineReshapeOp::create(rewriter, affineReshapeOp.getLoc(), newFakeQuantizeOp.getOutput(),
+                                        affineReshapeOp.getDimMappingAttr(), affineReshapeOp.getShapeValueAttr());
     fakeQuantizeOp.replaceAllUsesWith(newAffineReshapeOp.getOutput());
 
     return mlir::success();
@@ -904,12 +904,12 @@ mlir::LogicalResult SwapBatchedMemPermuteSlice::matchAndRewrite(IE::MemPermuteOp
         // Get the actual batch offset from the original slice
         auto batchOffset = parseIntArrayAttr<int64_t>(sliceOp.getStaticOffsetsAttr())[0];
 
-        auto inputSlice = rewriter.create<IE::SliceOp>(takeOpLoc(memPermuteOp, "input_slice_{0}", batchOffset),
-                                                       memPermuteOp.getInput(), sliceOp.getStaticOffsetsAttr(),
-                                                       sliceOp.getStaticSizesAttr());
+        auto inputSlice = IE::SliceOp::create(rewriter, takeOpLoc(memPermuteOp, "input_slice_{0}", batchOffset),
+                                              memPermuteOp.getInput(), sliceOp.getStaticOffsetsAttr(),
+                                              sliceOp.getStaticSizesAttr());
 
-        auto newMemPermute = rewriter.create<IE::MemPermuteOp>(
-                takeOpLoc(memPermuteOp, "batch_permute_{0}", batchOffset), inputSlice.getResult(),
+        auto newMemPermute = IE::MemPermuteOp::create(
+                rewriter, takeOpLoc(memPermuteOp, "batch_permute_{0}", batchOffset), inputSlice.getResult(),
                 memPermuteOp.getDstOrderAttr(), memPermuteOp.getMemPermAttr());
 
         auto expectedOutputType = sliceOp.getResult().getType();
@@ -1165,7 +1165,7 @@ mlir::LogicalResult SwapLeakyReluTranspose::matchAndRewrite(IE::LeakyReluOp orig
     }
 
     auto newLeakyRelu =
-            rewriter.create<IE::LeakyReluOp>(origOp.getLoc(), convertOp.getOutput(), origOp.getNegativeSlopeAttr());
+            IE::LeakyReluOp::create(rewriter, origOp.getLoc(), convertOp.getOutput(), origOp.getNegativeSlopeAttr());
     auto origElemType = mlir::cast<vpux::NDTypeInterface>(origOp->getResult(0).getType()).getElementType();
     auto newType = mlir::cast<vpux::NDTypeInterface>(newLeakyRelu->getOpResult(0).getType());
     newLeakyRelu->getOpResult(0).setType(newType.changeElemType(origElemType));
@@ -1216,10 +1216,10 @@ mlir::LogicalResult SwapGatherQuantizeCast::matchAndRewrite(IE::GatherOp origOp,
     auto outputType = mlir::cast<vpux::NDTypeInterface>(quantizeCastOp.getOutput().getType());
     auto outElemType = outputType.getElementType();
     auto newQuantizeCastOp =
-            rewriter.create<IE::QuantizeCastOp>(quantizeCastOp->getLoc(), origOp.getInput(), outElemType);
+            IE::QuantizeCastOp::create(rewriter, quantizeCastOp->getLoc(), origOp.getInput(), outElemType);
     auto newGatherOp =
-            rewriter.create<IE::GatherOp>(origOp.getLoc(), newQuantizeCastOp.getOutput(), origOp.getIndices(),
-                                          origOp.getAxisValue(), origOp.getBatchDims(), origOp.getIndicesRankAttr());
+            IE::GatherOp::create(rewriter, origOp.getLoc(), newQuantizeCastOp.getOutput(), origOp.getIndices(),
+                                 origOp.getAxisValue(), origOp.getBatchDims(), origOp.getIndicesRankAttr());
     rewriter.replaceOp(quantizeCastOp, newGatherOp.getOutput());
     return mlir::success();
 }

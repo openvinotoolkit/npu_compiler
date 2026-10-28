@@ -79,7 +79,7 @@ void PatchPopulateWeightTableWithShavePass::safeRunOnFunc() {
 
         auto rootBuffer = getRootBuffer(wTable);
         auto wtDecBuf = rootBuffer.getDefiningOp<VPURT::DeclareBufferOp>();
-        VPUX_THROW_UNLESS(wtDecBuf != nullptr, "DeclareBufferOp expected as a weight_table parent");
+        VPUX_THROW_WHEN(wtDecBuf == nullptr, "DeclareBufferOp expected as a weight_table parent");
 
         // Get Shave operation that populates weights table for NCE Task
         auto* cstLoadOp = getShaveKernelOpForDstBuffer(wtDecBuf.getResult(), wtDecBuf.getResult());
@@ -88,7 +88,7 @@ void PatchPopulateWeightTableWithShavePass::safeRunOnFunc() {
         }
 
         auto swKernelOp = mlir::dyn_cast<VPUIP::SwKernelOp>(cstLoadOp);
-        VPUX_THROW_UNLESS(swKernelOp != nullptr, "Got invalid WT population op");
+        VPUX_THROW_WHEN(swKernelOp == nullptr, "Got invalid WT population op");
 
         // special condition for shave offset population, also consider multiple kernel runs
         _log.trace("Shave weight table population '{0}'", swKernelOp->getLoc());
@@ -253,7 +253,7 @@ SmallVector<int32_t> PatchPopulateWeightTableWithShavePass::getWeightsPerCluster
 
 int32_t PatchPopulateWeightTableWithShavePass::getWeightsAddressOffsetForSubView(VPUIP::NCEClusterTaskOp nceOp) {
     auto weights = nceOp.getWeights();
-    VPUX_THROW_UNLESS(weights != nullptr, "Failed to find weights");
+    VPUX_THROW_WHEN(weights == nullptr, "Failed to find weights");
 
     auto weightsType = mlir::dyn_cast<vpux::NDTypeInterface>(weights.getType());
     auto totalAllocSize = weightsType.getTotalAllocSize().count();

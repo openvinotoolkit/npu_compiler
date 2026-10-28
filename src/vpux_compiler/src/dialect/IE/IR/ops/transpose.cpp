@@ -386,7 +386,7 @@ mlir::LogicalResult vpux::IE::TransposeOp::reifyResultShapes(mlir::OpBuilder& bu
         if (outputShapedType.isDynamicDim(dimIdx)) {
             // Dynamic dimension: return mlir::Value according to permutation.
             auto dimLoc = appendLoc(loc, "dim_{0}", dimIdx);
-            auto index = builder.create<mlir::arith::ConstantIndexOp>(appendLoc(dimLoc, "const_index"), order[dimIdx]);
+            auto index = mlir::arith::ConstantIndexOp::create(builder, appendLoc(dimLoc, "const_index"), order[dimIdx]);
             mlir::OpFoldResult dimOp = builder.createOrFold<mlir::tensor::DimOp>(dimLoc, getInput(), index);
             shapes.push_back(mlir::getValueOrCreateConstantIndexOp(builder, appendLoc(loc, "const_index"), dimOp));
         } else {

@@ -132,9 +132,8 @@ mlir::LogicalResult EliminateConcat::matchAndRewrite(VPU::ConcatOp origOp, mlir:
 
         rewriter.setInsertionPoint(origSlice);
         if (permuteCastOp != nullptr) {
-            sliceInput = rewriter.create<VPU::PermuteCastOp>(permuteCastOp.getLoc(), sliceInput,
-                                                             permuteCastOp.getDstOrderAttr(),
-                                                             permuteCastOp.getMemPermAttr());
+            sliceInput = VPU::PermuteCastOp::create(rewriter, permuteCastOp.getLoc(), sliceInput,
+                                                    permuteCastOp.getDstOrderAttr(), permuteCastOp.getMemPermAttr());
         }
 
         rewriter.replaceOpWithNewOp<VPU::SliceOp>(origSlice, origSlice.getResult().getType(), sliceInput,
@@ -427,8 +426,8 @@ mlir::LogicalResult FuseMultipleConcatOpsAroundGatherDMA::matchAndRewrite(VPU::C
         }
     }
 
-    auto newConcat = rewriter.create<VPU::ConcatOp>(origOp.getLoc(), newInputs, /*per_axis=*/nullptr,
-                                                    getIntArrayOfArray(rewriter.getContext(), newConcatOffsets));
+    auto newConcat = VPU::ConcatOp::create(rewriter, origOp.getLoc(), newInputs, /*per_axis=*/nullptr,
+                                           getIntArrayOfArray(rewriter.getContext(), newConcatOffsets));
 
     if (reshapeOp.has_value()) {
         const auto outShape = getShape(origOp.getOutput()).toValues();

@@ -447,7 +447,7 @@ NPU_API(void) __mlir_execution_engine_init() {
     std::string logLevelFlag;
     vpux::parseEnv("OV_NPU_LOG_LEVEL", logLevelFlag);
     if (logLevelFlag.size() > 0 && std::string(logLevelFlag).find("LOG_") == 0) {
-        logger = std::make_unique<vpux::Logger>(llvm::StringLiteral("LEVEL_ZERO_WRAPPER"),
+        logger = std::make_unique<vpux::Logger>(llvm::StringLiteral("OPENVINO_INTEL_NPU_LEVEL_ZERO_WRAPPER"),
                                                 vpux::Logger::global().level());
     }
 #endif

@@ -25,11 +25,10 @@ mlir::IntegerAttr getOptionalInt(mlir::MLIRContext* ctx, std::optional<T> value)
 
 VPUIP::DpuProfilingMetadataAttr vpux::getDpuProfilingMetaAttr(mlir::MLIRContext* ctx, unsigned bufferId,
                                                               unsigned taskId, unsigned maxVariants,
-                                                              std::optional<unsigned> numVariants,
-                                                              std::optional<unsigned> clusterId) {
+                                                              unsigned numVariants, unsigned clusterId) {
     return VPUIP::DpuProfilingMetadataAttr::get(ctx, getIntAttr(ctx, bufferId), getIntAttr(ctx, taskId),
-                                                getIntAttr(ctx, maxVariants), getOptionalInt(ctx, numVariants),
-                                                getOptionalInt(ctx, clusterId));
+                                                getIntAttr(ctx, maxVariants), getIntAttr(ctx, numVariants),
+                                                getIntAttr(ctx, clusterId));
 }
 
 VPUIP::DmaProfilingMetadataAttr vpux::getDmaProfilingMetaAttrBegin(mlir::MLIRContext* ctx) {
@@ -42,16 +41,10 @@ VPUIP::DmaProfilingMetadataAttr vpux::getDmaProfilingMetaAttr(mlir::MLIRContext*
 
 VPUIP::SwProfilingMetadataAttr vpux::getSwProfilingMetaAttr(mlir::MLIRContext* ctx, size_t bufferId,
                                                             size_t bufferOffset, size_t clusterSize, size_t dataIndex,
-                                                            std::optional<size_t> tileId,
-                                                            std::optional<size_t> clusterId) {
+                                                            size_t tileId, size_t clusterId) {
     return VPUIP::SwProfilingMetadataAttr::get(ctx, getIntAttr(ctx, bufferId), getIntAttr(ctx, bufferOffset),
                                                getIntAttr(ctx, clusterSize), getIntAttr(ctx, dataIndex),
-                                               getOptionalInt(ctx, tileId), getOptionalInt(ctx, clusterId));
-}
-
-VPUIP::M2IProfilingMetadataAttr vpux::getM2IProfilingMetaAttr(mlir::MLIRContext* ctx, size_t bufferId,
-                                                              size_t bufferOffset) {
-    return VPUIP::M2IProfilingMetadataAttr::get(ctx, getIntAttr(ctx, bufferId), getIntAttr(ctx, bufferOffset));
+                                               getIntAttr(ctx, tileId), getIntAttr(ctx, clusterId));
 }
 
 DMAProfilingMode vpux::getDMAProfilingMode(config::ArchKind arch, const std::string& optionValue) {
@@ -99,8 +92,8 @@ mlir::BlockArgument vpux::addNewProfilingOutput(mlir::MLIRContext* ctx, mlir::fu
     auto outputUserResult =
             getTensorType(ndOutputType.getShape(), ndOutputType.getElementType(), ndOutputType.getDimsOrder(), nullptr);
     auto userInfoBuilder = mlir::OpBuilder::atBlockEnd(&netInfo.getProfilingOutputsInfo().front().front());
-    userInfoBuilder.create<net::DataInfoOp>(mlir::NameLoc::get(mlir::StringAttr::get(ctx, "profilingDataOutputInfo")),
-                                            name, outputUserResult);
+    net::DataInfoOp::create(userInfoBuilder, mlir::NameLoc::get(mlir::StringAttr::get(ctx, "profilingDataOutputInfo")),
+                            name, outputUserResult);
 
     const mlir::Location suffixLoc = mlir::NameLoc::get(mlir::StringAttr::get(ctx, "profiling_" + name));
     const auto argLoc = mlir::FusedLoc::get(ctx, {netFunc.getLoc(), suffixLoc});

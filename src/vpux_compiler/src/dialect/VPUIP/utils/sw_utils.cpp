@@ -26,6 +26,7 @@
 
 #include <iterator>
 #include <optional>
+#include <utility>
 
 namespace vpux {
 namespace VPUIP {
@@ -56,7 +57,7 @@ mlir::ModuleOp getVPUSWModule(mlir::ModuleOp module, const Logger& log) {
     // creating VPU.SW module if it is not yet created
     if (!innerModule) {
         auto mainModuleBuilder = mlir::OpBuilder::atBlockBegin(module.getBody(), &builderLog);
-        innerModule = mainModuleBuilder.create<mlir::ModuleOp>(mlir::UnknownLoc::get(ctx), vpuSwModuleName);
+        innerModule = mlir::ModuleOp::create(mainModuleBuilder, mlir::UnknownLoc::get(ctx), vpuSwModuleName);
     }
     return innerModule;
 }
@@ -102,8 +103,8 @@ mlir::SymbolRefAttr createBuiltInFunction(mlir::ModuleOp module, StringRef built
     const auto funcType = mlir::FunctionType::get(ctx, inputTypes, {});
 
     auto innerModuleBuilder = mlir::OpBuilder::atBlockBegin(vpuswModule.getBody(), &builderLog);
-    auto builtInOp = innerModuleBuilder.create<mlir::func::FuncOp>(mlir::UnknownLoc::get(ctx), builtInFunctionNameFinal,
-                                                                   funcType);
+    auto builtInOp = mlir::func::FuncOp::create(innerModuleBuilder, mlir::UnknownLoc::get(ctx),
+                                                builtInFunctionNameFinal, funcType);
 
     // modifying attributes
     builtInOp.setSymVisibilityAttr(mlir::StringAttr::get(ctx, "nested"));
@@ -146,10 +147,10 @@ mlir::SymbolRefAttr createBuiltInFunction(mlir::ModuleOp module, VPU::LayerOpInt
             result.emplace_back(
                     mlir::UnrankedMemRefType::get(compactType.getElementType(), compactType.getMemorySpace()));
         }
-        VPUX_THROW_UNLESS(!result.empty(),
-                          "Only MemRef or VPUIP::BoundedBufferType type are supported as createBuiltInFunction "
-                          "operands, got: {0}",
-                          operand.getType());
+        VPUX_THROW_WHEN(result.empty(),
+                        "Only MemRef or VPUIP::BoundedBufferType type are supported as createBuiltInFunction "
+                        "operands, got: {0}",
+                        operand.getType());
         return result;
     };
 
@@ -190,7 +191,7 @@ void createRuntimeKernelDefinition(mlir::ModuleOp module, const Logger& log) {
     const auto funcType = mlir::FunctionType::get(ctx, {}, {});
     auto innerModuleBuilder = mlir::OpBuilder::atBlockBegin(vpuswModule.getBody(), &builderLog);
     auto runtimeFunctionOp =
-            innerModuleBuilder.create<mlir::func::FuncOp>(mlir::UnknownLoc::get(ctx), runtimeKernelName, funcType);
+            mlir::func::FuncOp::create(innerModuleBuilder, mlir::UnknownLoc::get(ctx), runtimeKernelName, funcType);
 
     // modifying attributes
     runtimeFunctionOp.setSymVisibilityAttr(mlir::StringAttr::get(ctx, "nested"));
@@ -212,7 +213,8 @@ void createRuntimeKernelDefinition(mlir::ModuleOp module, const Logger& log) {
 
     //  adding runtime kernel configuration - stacks, etc
     auto moduleBuilder = mlir::OpBuilder::atBlockBegin(module.getBody(), &builderLog);
-    moduleBuilder.create<VPURT::SWRunTimeOp>(mlir::UnknownLoc::get(ctx), runtimeSym, getIntArrayAttr(ctx, stacksArray));
+    VPURT::SWRunTimeOp::create(moduleBuilder, mlir::UnknownLoc::get(ctx), runtimeSym,
+                               getIntArrayAttr(ctx, stacksArray));
 }
 
 void createPrefetchKernelDefinition(mlir::ModuleOp moduleOp, const Logger& log) {
@@ -229,7 +231,7 @@ void createPrefetchKernelDefinition(mlir::ModuleOp moduleOp, const Logger& log) 
     auto innerModuleBuilder = mlir::OpBuilder::atBlockBegin(vpuswModule.getBody(), &builderLog);
 
     const auto funcType = mlir::FunctionType::get(ctx, {}, {});
-    auto newFuncOp = innerModuleBuilder.create<mlir::func::FuncOp>(mlir::UnknownLoc::get(ctx), functionName, funcType);
+    auto newFuncOp = mlir::func::FuncOp::create(innerModuleBuilder, mlir::UnknownLoc::get(ctx), functionName, funcType);
 
     // modify attributes
     newFuncOp.setSymVisibilityAttr(mlir::StringAttr::get(ctx, "nested"));
@@ -281,7 +283,7 @@ void initSwKernel(VPUIP::SwKernelOp swKernelOp, mlir::ValueRange inputs, mlir::V
     if (swKernelRunOp != nullptr) {
         auto numBlockArgs = swKernelBlock.getNumArguments();
         auto numSwKernelRunArgs = swKernelRunOp->getNumOperands();
-        VPUX_THROW_UNLESS(numSwKernelRunArgs != 0, "SW Kernel Run has 0 Operands at '{0}'", swKernelOp->getLoc());
+        VPUX_THROW_WHEN(numSwKernelRunArgs == 0, "SW Kernel Run has 0 Operands at '{0}'", swKernelOp->getLoc());
         VPUX_THROW_UNLESS(numBlockArgs % numSwKernelRunArgs == 0, "Invalid block arg num at '{0}'",
                           swKernelOp->getLoc());
         auto tileNum = numBlockArgs / numSwKernelRunArgs;
@@ -313,8 +315,8 @@ void initSwKernel(VPUIP::SwKernelOp swKernelOp, mlir::ValueRange inputs, mlir::V
             log.trace("create {0}th tile of SwKernelRun {1}", tileIdx, swKernelRunOp);
         }
     } else {
-        swKernelBlockBuilder.create<VPUIP::SwKernelRun>(mlir::UnknownLoc::get(ctx), mlir::ValueRange(operands),
-                                                        argsAttr);
+        VPUIP::SwKernelRun::create(swKernelBlockBuilder, mlir::UnknownLoc::get(ctx), mlir::ValueRange(operands),
+                                   argsAttr);
     }
 }
 
@@ -372,7 +374,7 @@ void initSwKernel(VPUIP::SwKernelOp swKernelOp, VPUIP::SwKernelRun swKernelRunOp
 
     auto numBlockArgs = swKernelBlock.getNumArguments();
     auto numSwKernelRunArgs = swKernelRunOp->getNumOperands();
-    VPUX_THROW_UNLESS(numSwKernelRunArgs != 0, "SW Kernel Run has 0 Operands at '{0}'", swKernelOp->getLoc());
+    VPUX_THROW_WHEN(numSwKernelRunArgs == 0, "SW Kernel Run has 0 Operands at '{0}'", swKernelOp->getLoc());
     VPUX_THROW_UNLESS(numBlockArgs % numSwKernelRunArgs == 0, "Invalid block arg num at '{0}'", swKernelOp->getLoc());
     auto tileNum = numBlockArgs / numSwKernelRunArgs;
 
@@ -478,26 +480,6 @@ bool isSwKernelUseDpu(VPUIP::SwKernelOp swKernelOp) {
     auto kernelEntryName = getSwKernelEntryName(swKernelOp);
     if (llvm::find(SW_KERNELS_USE_DPU, kernelEntryName) != SW_KERNELS_USE_DPU.end()) {
         return true;
-    }
-    return false;
-}
-
-// Returns true for the guard (skip-position) sync DMA inserted before SHV execution to ensure
-// DMA descriptors are ready in CMX. Carries LOGICAL_TASK_INDEX_ATTR_NAME but not SHV_RELEASE_DMA_ATTR_NAME.
-bool isShvGuardSyncDmaTask(VPURT::TaskOp taskOp) {
-    if (auto syncDMAOp = mlir::dyn_cast<VPUIP::SyncDMAOp>(taskOp.getInnerTaskOp())) {
-        return syncDMAOp->hasAttr(VPUIP::LOGICAL_TASK_INDEX_ATTR_NAME) &&
-               !syncDMAOp->hasAttr(VPUIP::SHV_RELEASE_DMA_ATTR_NAME);
-    }
-    return false;
-}
-
-// Returns true for the release sync DMA inserted after SHV execution to signal completion.
-// Carries both LOGICAL_TASK_INDEX_ATTR_NAME and SHV_RELEASE_DMA_ATTR_NAME.
-bool isShvReleaseSyncDmaTask(VPURT::TaskOp taskOp) {
-    if (auto syncDMAOp = mlir::dyn_cast<VPUIP::SyncDMAOp>(taskOp.getInnerTaskOp())) {
-        return syncDMAOp->hasAttr(VPUIP::LOGICAL_TASK_INDEX_ATTR_NAME) &&
-               syncDMAOp->hasAttr(VPUIP::SHV_RELEASE_DMA_ATTR_NAME);
     }
     return false;
 }
@@ -649,8 +631,7 @@ void getQuantParamsAttr(mlir::Value qValue, mlir::Type pType, mlir::ArrayAttr& p
         packAsFpIntoU64<TS, float>(scales, params);
         packAsFpIntoU64<TZ, float>(zeroes, params);
     } else {
-        pType.dump();
-        VPUX_THROW("Supported non-quantized type : f16/f32");
+        VPUX_THROW("Supported non-quantized type f16/f32, got {0}", pType);
     }
     paramsAttr = getIntArrayAttr(qValue.getContext(), std::move(params));
 }
@@ -659,7 +640,7 @@ namespace {
 // reverse int attribute from the physical order
 int64_t reverseMemDim(const DimsOrder& inOrder, int64_t dimIdx) {
     const auto& origPerm = inOrder.toPermutation();
-    VPUX_THROW_UNLESS(!origPerm.empty(), "Got empty dims order");
+    VPUX_THROW_WHEN(origPerm.empty(), "Got empty dims order");
     VPUX_THROW_UNLESS(dimIdx >= 0 && checked_cast<size_t>(dimIdx) < origPerm.size(),
                       "Dim index '{0}' is out of bounds for dims order '{1}'", dimIdx, inOrder);
     return origPerm[origPerm.size() - 1 - dimIdx].ind();
@@ -1176,8 +1157,8 @@ InputTiling backInferDepthToSpaceSwKernelInputTile(VPUIP::SwKernelOp swKernelOp,
         VPUX_THROW_UNLESS(attrs.size() == 4, "Expecting SwKernelOp to have both pads begin/end present");
         auto inChPadding = mlir::dyn_cast<mlir::IntegerAttr>(attrs.getValue()[2]);
         auto outChPadding = mlir::dyn_cast<mlir::IntegerAttr>(attrs.getValue()[3]);
-        VPUX_THROW_UNLESS((inChPadding != nullptr) && (outChPadding != nullptr),
-                          "In/out Channel padding IntegerAttr(s) not found");
+        VPUX_THROW_WHEN(inChPadding == nullptr || outChPadding == nullptr,
+                        "In/out Channel padding IntegerAttr(s) not found");
         VPUX_THROW_UNLESS(inChPadding.getInt() == 0, "Input channel padding currently not supported");
         outChannelPad = outChPadding.getInt();
     }
@@ -2206,6 +2187,22 @@ InputTiling backInferYUVToRGBSwKernelInputTile(VPUIP::SwKernelOp swKernelOp, con
     }
 }
 
+InputTiling backInferGroupQuantCorrectionSwKernelInputTile(VPUIP::SwKernelOp swKernelOp,
+                                                           const vpux::TileInfo& outputTile, Logger) {
+    // act_in: [G, 1, 1, GS] — G (N) tiles with output; GS (W) is group size, never tiled
+    TileInfo actInTile(getShape(swKernelOp.getInputs()[1]));
+    transferTilingInfo(actInTile, outputTile, {Dim(Dims4D::Act::N)});
+
+    // scales and zp: [G, OC, 1, 1] — same layout as output
+    TileInfo scalesTile(getShape(swKernelOp.getInputs()[2]));
+    transferTilingInfo(scalesTile, outputTile, {Dim(Dims4D::Act::N), Dim(Dims4D::Act::C)});
+
+    TileInfo zpTile(getShape(swKernelOp.getInputs()[3]));
+    transferTilingInfo(zpTile, outputTile, {Dim(Dims4D::Act::N), Dim(Dims4D::Act::C)});
+
+    return TilingInfo{{outputTile, std::move(actInTile), std::move(scalesTile), std::move(zpTile)}};
+}
+
 }  // namespace
 
 InputTiling backInferSwKernelInputTile(VPUIP::SwKernelOp swKernelOp, const SmallVector<vpux::TileInfo>& outputTiles,
@@ -2279,6 +2276,8 @@ InputTiling backInferSwKernelInputTile(VPUIP::SwKernelOp swKernelOp, const Small
         return backInferFlashSDPASwKernelInputTile(swKernelOp, outputTile, log);
     } else if (kernelEntryName == "nv12_to_rgb" || kernelEntryName == "i420_to_rgb") {
         return backInferYUVToRGBSwKernelInputTile(swKernelOp, outputTile, log);
+    } else if (kernelEntryName == "group_quant_correction") {
+        return backInferGroupQuantCorrectionSwKernelInputTile(swKernelOp, outputTile, log);
     }
 
     SmallVector<TileInfo> inputTiles;
@@ -2366,7 +2365,7 @@ SmallVector<vpux::NDTypeInterface> getSwKernelTiledTypes(VPUIP::SwKernelOp swKer
     } else if (kernelEntryName == "gather") {
         auto args = kernelArgsRange(swKernelOp);
         const auto kernelAxisAttr = mlir::dyn_cast<mlir::IntegerAttr>(args.begin()[0]);
-        VPUX_THROW_UNLESS(kernelAxisAttr != nullptr, "Failed to extract axis at '{0}'", swKernelOp->getLoc());
+        VPUX_THROW_WHEN(kernelAxisAttr == nullptr, "Failed to extract axis at '{0}'", swKernelOp->getLoc());
         const auto kernelAxis = kernelAxisAttr.getValue().getSExtValue();
         const auto axisVal = convertKernelAxisToOrigAxis(swKernelOp.getInputs()[0], kernelAxis);
 
@@ -2467,8 +2466,8 @@ SmallVector<vpux::NDTypeInterface> getSwKernelTiledTypes(VPUIP::SwKernelOp swKer
 
         auto args = kernelArgsRange(swKernelOp);
         const auto isAcrossChannelsAttr = mlir::dyn_cast<mlir::BoolAttr>(args.begin()[0]);
-        VPUX_THROW_UNLESS(isAcrossChannelsAttr != nullptr, "Failed to extract AcrossChannelsAttr at '{0}'",
-                          swKernelOp->getLoc());
+        VPUX_THROW_WHEN(isAcrossChannelsAttr == nullptr, "Failed to extract AcrossChannelsAttr at '{0}'",
+                        swKernelOp->getLoc());
         const bool isAcrossChannels = isAcrossChannelsAttr.getValue();
 
         if (tileDim == Dims4D::Act::C && !isAcrossChannels) {
@@ -2504,6 +2503,17 @@ SmallVector<vpux::NDTypeInterface> getSwKernelTiledTypes(VPUIP::SwKernelOp swKer
         // Ticket: E#227030
         SmallVector<vpux::NDTypeInterface> tiledTypes;
         // input gamma broadcast on 'tileDim' is not tiled
+        for (auto input : swKernelOp->getOperands()) {
+            const auto inputType = mlir::cast<vpux::NDTypeInterface>(input.getType());
+            if (inputType.getShape()[tileDim] != 1) {
+                tiledTypes.push_back(inputType);
+            }
+        }
+        tiledTypes.push_back(mlir::cast<vpux::NDTypeInterface>(swKernelOp->getResult(0).getType()));
+        return tiledTypes;
+    } else if (kernelEntryName == "group_quant_correction") {
+        // act_in (input[1]) has C=1 and is broadcast on C; exclude it when tiling on C
+        SmallVector<vpux::NDTypeInterface> tiledTypes;
         for (auto input : swKernelOp->getOperands()) {
             const auto inputType = mlir::cast<vpux::NDTypeInterface>(input.getType());
             if (inputType.getShape()[tileDim] != 1) {
@@ -2609,7 +2619,7 @@ mlir::SymbolRefAttr createCacheHandlingFunction(mlir::MLIRContext* ctx, OpBuilde
         const auto funcType = mlir::FunctionType::get(ctx, {}, {});
         auto innerModuleBuilder = mlir::OpBuilder::atBlockBegin(vpuswModule.getBody(), &builderLog);
         auto newFuncOp =
-                innerModuleBuilder.create<mlir::func::FuncOp>(mlir::UnknownLoc::get(ctx), functionName, funcType);
+                mlir::func::FuncOp::create(innerModuleBuilder, mlir::UnknownLoc::get(ctx), functionName, funcType);
 
         // modify attributes
         newFuncOp.setSymVisibilityAttr(mlir::StringAttr::get(ctx, "nested"));

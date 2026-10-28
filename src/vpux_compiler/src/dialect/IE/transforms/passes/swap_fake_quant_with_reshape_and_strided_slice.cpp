@@ -100,6 +100,20 @@ bool matchFakeQuantReshapePattern(IE::FakeQuantizeOp fqOp) {
         return false;
     }
 
+    // The swap only handles per-tensor or per-channel-on-last-axis quantization. If a range constant is per-channel on
+    // a non-last axis, the following Reshape can change that axis and the constants cannot be remapped by broadcasting.
+    const auto isPerChannelOnNonLastAxis = [](mlir::Value rangeVal) {
+        const auto shape = getShape(rangeVal);
+        const auto greaterThanOneDim = llvm::find_if(shape, [](const auto dim) {
+            return dim != 1;
+        });
+        return greaterThanOneDim != shape.end() && greaterThanOneDim != std::prev(shape.end());
+    };
+    if (isPerChannelOnNonLastAxis(fqOp.getInputLow()) || isPerChannelOnNonLastAxis(fqOp.getInputHigh()) ||
+        isPerChannelOnNonLastAxis(fqOp.getOutputLow()) || isPerChannelOnNonLastAxis(fqOp.getOutputHigh())) {
+        return false;
+    }
+
     return true;
 }
 
@@ -145,10 +159,10 @@ mlir::LogicalResult FakeQuantReshapeSwapper::matchAndRewrite(IE::FakeQuantizeOp 
     const auto allOnes = (bigDim == inputLowShape.end());
     const auto bigDimNotLast = (bigDim != std::prev(inputLowShape.end()));
     if (allOnes || bigDimNotLast) {  // Per-tensor quantization
-        newFQ = rewriter.create<IE::FakeQuantizeOp>(origOp->getLoc(), lastReshapeOp->getResult(0), origOp.getInputLow(),
-                                                    origOp.getInputHigh(), origOp.getOutputLow(),
-                                                    origOp.getOutputHigh(), origOp.getLevelsAttr(),
-                                                    origOp.getLowFpTypeAttr(), origOp.getAutoBroadcastAttr());
+        newFQ = IE::FakeQuantizeOp::create(rewriter, origOp->getLoc(), lastReshapeOp->getResult(0),
+                                           origOp.getInputLow(), origOp.getInputHigh(), origOp.getOutputLow(),
+                                           origOp.getOutputHigh(), origOp.getLevelsAttr(), origOp.getLowFpTypeAttr(),
+                                           origOp.getAutoBroadcastAttr());
     } else {  // Reshape the quantization arrays accordingly when the quantization is per-channel
         auto inputLow = origOp.getInputLow();
         auto inputHigh = origOp.getInputHigh();
@@ -157,12 +171,12 @@ mlir::LogicalResult FakeQuantReshapeSwapper::matchAndRewrite(IE::FakeQuantizeOp 
 
         const auto newInputShapeAttr = getIntArrayAttr(rewriter.getContext(), fqOperationinputShape);
 
-        auto inputLowReshaped = rewriter.create<IE::ReshapeOp>(origOp->getLoc(), inputLow, newInputShapeAttr);
-        auto inputHighReshaped = rewriter.create<IE::ReshapeOp>(origOp->getLoc(), inputHigh, newInputShapeAttr);
-        newFQ = rewriter.create<IE::FakeQuantizeOp>(origOp->getLoc(), lastReshapeOp->getResult(0), inputLowReshaped,
-                                                    inputHighReshaped, origOp.getOutputLow(), origOp.getOutputHigh(),
-                                                    origOp.getLevelsAttr(), origOp.getLowFpTypeAttr(),
-                                                    origOp.getAutoBroadcast());
+        auto inputLowReshaped = IE::ReshapeOp::create(rewriter, origOp->getLoc(), inputLow, newInputShapeAttr);
+        auto inputHighReshaped = IE::ReshapeOp::create(rewriter, origOp->getLoc(), inputHigh, newInputShapeAttr);
+        newFQ = IE::FakeQuantizeOp::create(rewriter, origOp->getLoc(), lastReshapeOp->getResult(0), inputLowReshaped,
+                                           inputHighReshaped, origOp.getOutputLow(), origOp.getOutputHigh(),
+                                           origOp.getLevelsAttr(), origOp.getLowFpTypeAttr(),
+                                           origOp.getAutoBroadcast());
     }
 
     lastReshapeOp->getResult(0).replaceAllUsesExcept(newFQ.getOutput(), llvm::SmallPtrSet<mlir::Operation*, 1>{newFQ});
@@ -212,10 +226,10 @@ mlir::LogicalResult FakeQuantStridedSliceSwapper::matchAndRewrite(IE::FakeQuanti
     // Rewrite the sub-graph.
     for (auto user : origOp.getOutput().getUsers()) {
         rewriter.setInsertionPointAfter(user);
-        auto newFQ = rewriter.create<IE::FakeQuantizeOp>(origOp->getLoc(), user->getResult(0), origOp.getInputLow(),
-                                                         origOp.getInputHigh(), origOp.getOutputLow(),
-                                                         origOp.getOutputHigh(), origOp.getLevelsAttr(),
-                                                         origOp.getLowFpTypeAttr(), origOp.getAutoBroadcastAttr());
+        auto newFQ = IE::FakeQuantizeOp::create(rewriter, origOp->getLoc(), user->getResult(0), origOp.getInputLow(),
+                                                origOp.getInputHigh(), origOp.getOutputLow(), origOp.getOutputHigh(),
+                                                origOp.getLevelsAttr(), origOp.getLowFpTypeAttr(),
+                                                origOp.getAutoBroadcastAttr());
         user->getResult(0).replaceAllUsesExcept(newFQ.getOutput(), llvm::SmallPtrSet<mlir::Operation*, 1>{newFQ});
     }
 

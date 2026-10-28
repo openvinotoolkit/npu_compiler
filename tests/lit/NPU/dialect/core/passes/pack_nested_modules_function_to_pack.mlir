@@ -24,7 +24,7 @@ module @FunctionToPackBasic {
     }
 
     // CHECK: module @helper_module attributes {{.*}}config.packedModule{{.*}}
-    // CHECK:     func.func nested @helper_fn
+    // CHECK:     func.func @helper_fn
 
     // CHECK: func.func @main
     // CHECK:     Core.NestedCall @helper_module::@helper_fn

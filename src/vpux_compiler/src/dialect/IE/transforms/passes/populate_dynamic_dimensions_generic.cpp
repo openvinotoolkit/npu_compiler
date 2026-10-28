@@ -74,11 +74,11 @@ void populateDynamicResult(mlir::Operation* op, const unsigned resultIdx) {
         if (supportsStridedAccess(op)) {
             const SmallVector<int64_t> outputShape{resultShape.raw()};
             auto boundedType = mlir::dyn_cast<Core::BoundedTensorType>(op->getResult(0).getType());
-            VPUX_THROW_UNLESS(boundedType != nullptr, "Expected to get BoundedTensorType at {0}",
-                              op->getResult(0).getLoc());
+            VPUX_THROW_WHEN(boundedType == nullptr, "Expected to get BoundedTensorType at {0}",
+                            op->getResult(0).getLoc());
 
-            auto reshape = builder.create<IE::DynamicReshapeOp>(
-                    appendLoc(op->getLoc(), "dynamic_reshape"),
+            auto reshape = IE::DynamicReshapeOp::create(
+                    builder, appendLoc(op->getLoc(), "dynamic_reshape"),
                     /*data=*/op->getResult(0),
                     /*shape=*/concat.getOutput(),
                     /*output_shape=*/getIntArrayAttr(builder.getContext(), outputShape),

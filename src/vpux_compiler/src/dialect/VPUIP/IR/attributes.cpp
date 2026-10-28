@@ -115,8 +115,8 @@ VPUIP::SparsityCompressionAttr VPUIP::tileSparsityCompression(VPUIP::SparsityCom
     if (sparsityCompression == nullptr) {
         return nullptr;
     }
-    VPUX_THROW_UNLESS(sparsityCompression.getAxis() != nullptr,
-                      "Cannot tile compression scheme that is not over an axis");
+    VPUX_THROW_WHEN(sparsityCompression.getAxis() == nullptr,
+                    "Cannot tile compression scheme that is not over an axis");
     const size_t axis = sparsityCompression.getAxis().getInt();
     VPUX_THROW_UNLESS(axis < tileOffsets.size() && axis < tileShape.size(),
                       "Axis {0} outside the range of tile dimensions: offsets size {1}, shape size {2}", axis,

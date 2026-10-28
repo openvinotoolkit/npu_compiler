@@ -248,8 +248,7 @@ def IE_ReduceSquareOp :
         AnyRankedTensor:$input,
         OptionalAttr<F64Attr>:$epsilon,
         I64ArrayAttr:$axes_value,
-        UnitAttr:$keep_dims,
-        OptionalAttr<I64Attr>:$scale
+        UnitAttr:$keep_dims
     );
 
     let results = (outs

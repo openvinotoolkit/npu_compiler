@@ -4,6 +4,7 @@
 //
 
 #include "vpux/compiler/utils/jit_utils.hpp"
+#include "vpux/compiler/dialect/core/interfaces/type_interfaces.hpp"
 
 #include <mlir/Dialect/Quant/IR/QuantTypes.h>
 #include <mlir/Dialect/SparseTensor/IR/SparseTensor.h>
@@ -82,6 +83,23 @@ bool hasOnlySupportedTypes(mlir::Operation* op) {
     return llvm::all_of(op->getResultTypes(), [](mlir::Type t) {
         return isSupportedType(t);
     });
+}
+
+bool hasMatchingNonUnitMemDims(vpux::NDTypeInterface inType, vpux::NDTypeInterface outType) {
+    const auto getNonUnitMemDims = [](vpux::NDTypeInterface ndType) {
+        const auto memShape = ndType.getDimsOrder().toMemoryOrder(ndType.getShape());
+        SmallVector<int64_t> memDims;
+        for (auto dim : memShape.raw()) {
+            if (dim != 1) {
+                memDims.push_back(dim);
+            }
+        }
+        return memDims;
+    };
+
+    // Only unit dimensions are added and/or removed if and only if the non-unit dimensions of the
+    // two in-memory shapes match one to one, in order.
+    return getNonUnitMemDims(inType) == getNonUnitMemDims(outType);
 }
 
 }  // namespace vpux::ShaveCodeGen

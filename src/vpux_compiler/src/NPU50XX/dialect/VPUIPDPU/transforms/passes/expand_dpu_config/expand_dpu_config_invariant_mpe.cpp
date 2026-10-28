@@ -26,7 +26,7 @@ mlir::LogicalResult vpux::VPUIPDPU::arch50xx::buildDPUInvariantMPE(
              mlir::isa<mlir::BFloat16Type>(wtType)) ||
             (mlir::isa<mlir::BFloat16Type>(inActType) &&
              mlir::isa<mlir::Float8E5M2Type, mlir::Float8E4M3FNType>(wtType))) {
-            builder.create<VPUIPDPU::MPEBf16ModeOp>(origInvOp.getLoc());
+            VPUIPDPU::MPEBf16ModeOp::create(builder, origInvOp.getLoc());
         }
     }
 

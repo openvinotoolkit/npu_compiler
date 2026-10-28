@@ -128,4 +128,45 @@ public:
     }
 };
 
+//
+// LayerWithDmaInterfacePad
+//
+
+class LayerWithDmaInterfacePad final :
+        public IE::LayerWithDmaInterface::ExternalModel<LayerWithDmaInterfacePad, IE::PadOp> {
+public:
+    bool isSupported(mlir::Operation* origOp) const {
+        auto module = origOp->getParentOfType<mlir::ModuleOp>();
+        if (config::getWorkloadManagementMode(module) != WorkloadManagementMode::FWLM_V1_PAGES) {
+            return false;
+        }
+        if (config::getCompilationMode(origOp) == config::CompilationMode::ReferenceSW) {
+            return false;
+        }
+
+        auto padOp = mlir::cast<IE::PadOp>(origOp);
+        if (padOp.getMode() != IE::PadMode::CONSTANT) {
+            return false;
+        }
+        if (!vpux::IE::hasDynamicTensors(origOp)) {
+            return false;
+        }
+
+        // pad_dma kernel's memset path only supports FP16/FP32; other element types fall back.
+        const auto inputElemType = mlir::cast<vpux::NDTypeInterface>(padOp.getInput().getType()).getElementType();
+        if (!mlir::isa<mlir::Float16Type, mlir::Float32Type>(inputElemType)) {
+            return false;
+        }
+        // pads must be static
+        if (!padOp.getPadsBeginAttr().has_value() || !padOp.getPadsEndAttr().has_value()) {
+            return false;
+        }
+        // pad_value must be a static attribute, not a Parameter operand
+        if (padOp.getPadValue() != nullptr && padOp.getPadValueAttrAttr() == nullptr) {
+            return false;
+        }
+        return true;
+    }
+};
+
 }  // namespace vpux::VPU

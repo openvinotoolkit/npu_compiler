@@ -214,13 +214,13 @@ mlir::LogicalResult ReinterpretCastOpRewrite::matchAndRewrite(Core::ReinterpretC
         // ReinterpretCast is special, that is, it cannot cast anything to a
         // bounded buffer, so an explicit grouping is necessary
         const auto boundedBufferType = mlir::cast<VPUIP::BoundedBufferType>(convertedResultType);
-        auto dataCast = rewriter.create<Core::ReinterpretCastOp>(appendLoc(op->getLoc(), "data_cast"),
-                                                                 boundedBufferType.getData(), opAdaptor.getInput());
-        auto shapeAlloc = rewriter.create<mlir::memref::AllocOp>(
-                appendLoc(op->getLoc(), "shape_alloc"),
-                mlir::cast<mlir::MemRefType>(boundedBufferType.getDynamicShape()));
-        auto grouped = rewriter.create<VPUIP::GroupBoundedBufferOp>(appendLoc(op->getLoc(), "group"),
-                                                                    dataCast.getResult(), shapeAlloc);
+        auto dataCast = Core::ReinterpretCastOp::create(rewriter, appendLoc(op->getLoc(), "data_cast"),
+                                                        boundedBufferType.getData(), opAdaptor.getInput());
+        auto shapeAlloc =
+                mlir::memref::AllocOp::create(rewriter, appendLoc(op->getLoc(), "shape_alloc"),
+                                              mlir::cast<mlir::MemRefType>(boundedBufferType.getDynamicShape()));
+        auto grouped = VPUIP::GroupBoundedBufferOp::create(rewriter, appendLoc(op->getLoc(), "group"),
+                                                           dataCast.getResult(), shapeAlloc);
         rewriter.replaceOp(op, grouped.getResult());
         return mlir::success();
     }
@@ -229,10 +229,10 @@ mlir::LogicalResult ReinterpretCastOpRewrite::matchAndRewrite(Core::ReinterpretC
         log.trace("Legalizing input that is a bounded buffer");
         // ReinterpretCast is special, that is, it cannot cast a bounded buffer
         // to anything, so an explicit ungrouping is necessary
-        auto ungroupOp = rewriter.create<VPUIP::UngroupBoundedBufferOp>(appendLoc(op->getLoc(), "ungroup"),
-                                                                        opAdaptor.getInput());
-        auto newCastOp = rewriter.create<Core::ReinterpretCastOp>(appendLoc(op->getLoc(), "cast"), op.getType(),
-                                                                  ungroupOp.getData());
+        auto ungroupOp = VPUIP::UngroupBoundedBufferOp::create(rewriter, appendLoc(op->getLoc(), "ungroup"),
+                                                               opAdaptor.getInput());
+        auto newCastOp = Core::ReinterpretCastOp::create(rewriter, appendLoc(op->getLoc(), "cast"), op.getType(),
+                                                         ungroupOp.getData());
         rewriter.replaceOp(op, newCastOp.getResult());
         return mlir::success();
     }
@@ -324,7 +324,7 @@ void SwKernelOpRewrite::rewriteShapeOfSwKernel(Logger log, VPUIP::SwKernelOp op,
 
             log.trace("Legalizing operand '{0}' that is a dynamic memref", i);
             auto ungroup =
-                    rewriter.create<VPUIP::UngroupBoundedBufferOp>(appendLoc(op->getLoc(), "ungroup"), newOperand);
+                    VPUIP::UngroupBoundedBufferOp::create(rewriter, appendLoc(op->getLoc(), "ungroup"), newOperand);
             op->setOperand(i, ungroup.getDynamicShape());
         }
     });
@@ -408,7 +408,7 @@ void ConvertDynamicMemrefsToBoundedBuffers::safeRunOnModule() {
     const auto legalize = [](mlir::OpBuilder& builder, mlir::Type dstType, mlir::ValueRange inputs,
                              mlir::Location loc) -> mlir::Value {
         VPUX_THROW_UNLESS(inputs.size() == 1, "Got wrong number of inputs : {0}", inputs.size());
-        return builder.create<mlir::UnrealizedConversionCastOp>(loc, dstType, inputs).getResult(0);
+        return mlir::UnrealizedConversionCastOp::create(builder, loc, dstType, inputs).getResult(0);
     };
     typeConverter.addSourceMaterialization(legalize);
     typeConverter.addTargetMaterialization(legalize);

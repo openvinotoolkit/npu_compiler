@@ -10,13 +10,13 @@
 #include <vpux_elf/accessor.hpp>
 #include <vpux_elf/reader.hpp>
 #include <vpux_headers/serial_metadata.hpp>
+#include "vpux/compiler/core/attributes/dims_order.hpp"
 #include "vpux/compiler/dialect/ELFNPU37XX/attributes.hpp"
 #include "vpux/compiler/dialect/ELFNPU37XX/metadata.hpp"
 #include "vpux/compiler/dialect/HostExec/params.hpp"
+#include "vpux/compiler/dialect/VPUIP/utils/utils.hpp"
 #include "vpux/compiler/dialect/VPUMI37XX/network_description.hpp"
 #include "vpux/compiler/dialect/net/utils/network_info_utils.hpp"
-
-#include "vpux/compiler/core/attributes/dims_order.hpp"
 
 #include "vpux/utils/core/enums.hpp"
 #include "vpux/utils/core/error.hpp"
@@ -216,7 +216,7 @@ std::vector<IODescriptor> convertIODescriptors(const std::vector<elf::TensorRef>
 }
 
 void getNetworkMetadata(const std::shared_ptr<elf::NetworkMetadata>& metadata, NetworkMetadata& network) {
-    VPUX_THROW_UNLESS(metadata != nullptr, "METADATA NOT FOUND IN ELF");
+    VPUX_THROW_WHEN(metadata == nullptr, "METADATA NOT FOUND IN ELF");
     network.name = metadata->mIdentification.blob_name;
 
     OV_ITT_TASK_CHAIN(NETWORK_DESCRIPTION, itt::domains::VPUXPlugin, "getNetworkMetadata", "convertIODescriptors");
@@ -227,7 +227,7 @@ void getNetworkMetadata(const std::shared_ptr<elf::NetworkMetadata>& metadata, N
             convertIODescriptors(metadata->mNetOutputs, std::optional(metadata->mOVResults), /*areInputs=*/false);
     network.profilingOutputs = convertIODescriptors(metadata->mProfilingOutputs, std::nullopt, /*areInputs=*/false);
 
-    VPUX_THROW_UNLESS(!network.outputs.empty(), "Metadata structure does not contain info on outputs");
+    VPUX_THROW_WHEN(network.outputs.empty(), "Metadata structure does not contain info on outputs");
 
     network.numStreams = metadata->mResourceRequirements.nn_slice_count_;
 
@@ -240,7 +240,7 @@ NetworkMetadata vpux::VPUMI37XX::getNetworkMetadata(mlir::ArrayRef<uint8_t> blob
 
     OV_ITT_TASK_CHAIN(NETWORK_DESCRIPTION, itt::domains::VPUXPlugin, "NetworkDescription::NetworkDescription",
                       "elfReader");
-    VPUX_THROW_UNLESS(!blob.empty(), "Got NULL pointer");
+    VPUX_THROW_WHEN(blob.empty(), "Got NULL pointer");
 
     auto accessor = elf::DDRAccessManager<elf::DDRAlwaysEmplace>(blob.data(), blob.size());
     elf::Reader<elf::ELF_Bitness::Elf64> reader(&accessor);
@@ -282,7 +282,9 @@ NetworkMetadata vpux::VPUMI37XX::getHostCompileNetworkMetadata(mlir::ModuleOp mo
         auto netOps = module.getOps<net::NetworkInfoOp>();
         if (netOps.begin() != netOps.end()) {
             metadata = ELFNPU37XX::constructMetadata(module, vpux::Logger::global());
-            ELFNPU37XX::setResourceRequirement(module, *metadata);
+            // HostCompile requires the number of tiles used (stored in nn_slice_count_) to be set in the metadata,
+            // as it is used to decide whether concurrent execution is enabled in the NPU VM runtime.
+            metadata->mResourceRequirements.nn_slice_count_ = checked_cast<uint8_t>(VPUIP::getNumTilesUsed(module));
             ::getNetworkMetadata(metadata, network);
         } else {
             VPUX_THROW("NetworkInfoOp is not found in the module");

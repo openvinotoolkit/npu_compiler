@@ -94,11 +94,11 @@ void traverseDynamicSubgraph(mlir::Operation* op) {
                         appendLoc(op->getLoc(), "clear_dyn_garbage_{0}_operand_{1}", op->getName(), operand.index()),
                         builder, getShape(operand.value()), dynamicOperands);
 
-                auto clearGarbageMask = builder.create<IE::DynamicDataMaskOp>(
-                        appendLoc(op->getLoc(), "clear_garbage_Generate_Mask_operand_{0}", operand.index()),
+                auto clearGarbageMask = IE::DynamicDataMaskOp::create(
+                        builder, appendLoc(op->getLoc(), "clear_garbage_Generate_Mask_operand_{0}", operand.index()),
                         newShapeValue.getResult(), operand.value().getType());
-                auto cleanOperand = builder.create<IE::MultiplyOp>(
-                        appendLoc(op->getLoc(), "clear_garbage_Apply_Mask_operand_{0}", operand.index()),
+                auto cleanOperand = IE::MultiplyOp::create(
+                        builder, appendLoc(op->getLoc(), "clear_garbage_Apply_Mask_operand_{0}", operand.index()),
                         operand.value(), clearGarbageMask.getResult(), vpux::IE::AutoBroadcastType::NONE_OR_EXPLICIT,
                         nullptr, nullptr, nullptr, nullptr);
                 op->setOperand(operand.index(), cleanOperand.getResult());

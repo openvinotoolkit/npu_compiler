@@ -76,7 +76,7 @@ void UseUserPrecisionPass::safeRunOnModule() {
                                  vpux::NDTypeInterface newType) -> mlir::Operation* {
         const auto dstType = mlir::TypeAttr::get(newType.getElementType());
         const auto newLocation = appendLoc(baseLoc, "converted_to_{0}", dstType);
-        return builder.create<IE::ConvertOp>(newLocation, newType, val, dstType);
+        return IE::ConvertOp::create(builder, newLocation, newType, val, dstType);
     };
 
     if (mlir::failed(convertFunc(netFunc, newArgTypes, newResultTypes, cvtOpBuilder, _log))) {

@@ -419,6 +419,14 @@ public:
     void buildWlmTasksDependenciesFromEnqueueDma();
 
     /**
+     * @brief Append SHVwithDMA implied dependency edges to _wlmTaskDependencies.
+     * A SHAVE task that submits a DMA has an implicit dependency to the DMA task it submits,
+     * which is not represented at the barrier level neither by FIFO order of the SHAVE queue. Records an edge
+     * SHVwithDMA -> submitted DMA task.
+     */
+    void buildWlmTasksDependenciesFromShvWithDma();
+
+    /**
      * @brief Materialize the task to task dependency edges (see _wlmTaskDependencies) as temporary barriers.
      * Only edges whose producer and consumer both fall within the given task range are materialized.
      *
@@ -528,10 +536,11 @@ private:
     std::map<VPURT::TaskQueueType, llvm::BitVector> _taskQueueTypeMap;
 
     // WLM task to task dependency edges (producer -> consumer) that are not represented at the barrier level or by
-    // FIFO order (e.g. EnqueueDMA -> first enqueued task, TODO: SHVwithDMA -> DMA).
+    // FIFO order (e.g. EnqueueDMA -> first enqueued task, SHVwithDMA -> DMA).
     // Populated by buildWlmTasksDependencies() and stored globally for the entire function using global task indexes
-    // (not per task block). createBarrierDependenciesImpliedByWlm() selects the subset belonging to a given block
-    //  when materializing temporary barriers.
+    // (not per task block). Kept sorted by producer index (control-graph blocks are contiguous ranges of task indexes)
+    // so createBarrierDependenciesImpliedByWlm() can binary-search the subset belonging to a given block instead of
+    // scanning all edges for every block when materializing temporary barriers.
     SmallVector<std::pair<size_t, size_t>> _wlmTaskDependencies;
 };
 

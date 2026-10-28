@@ -9,7 +9,7 @@
 
 namespace ov::test {
 
-class SEPRollLayerTestTestCommon :
+class SEPRollLayerTestCommon :
         public VpuOv2LayerTest,
         public testing::WithParamInterface<std::tuple<ov::Shape, std::vector<int64_t>, std::vector<int64_t>,
                                                       ov::element::Type, ov::element::Type, ov::Layout, ov::Layout>> {
@@ -54,29 +54,25 @@ public:
     };
 };
 
-class SEPRollLayerTest_NPU3720 : public SEPRollLayerTestTestCommon {};
-class SEPRollLayerTest_NPU4000 : public SEPRollLayerTestTestCommon {};
-class SEPRollLayerTest_NPU5010 : public SEPRollLayerTestTestCommon {};
-class SEPRollLayerTest_NPU5020 : public SEPRollLayerTestTestCommon {};
-
-TEST_P(SEPRollLayerTest_NPU3720, HW) {
+TEST_P(SEPRollLayerTestCommon, NPU3720_HW) {
     setDefaultHardwareMode();
     configuration["NPU_COMPILATION_MODE_PARAMS"] = "enable-se-ptrs-operations=true";
     run(Platform::NPU3720);
 }
 
-TEST_P(SEPRollLayerTest_NPU4000, HW) {
+TEST_P(SEPRollLayerTestCommon, NPU4000_HW) {
     setDefaultHardwareMode();
     configuration["NPU_COMPILATION_MODE_PARAMS"] = "enable-se-ptrs-operations=true";
     run(Platform::NPU4000);
 }
 
-TEST_P(SEPRollLayerTest_NPU5010, HW) {
+TEST_P(SEPRollLayerTestCommon, NPU5010_HW) {
     setDefaultHardwareMode();
     configuration["NPU_COMPILATION_MODE_PARAMS"] = "enable-se-ptrs-operations=true";
     run(Platform::NPU5010);
 }
-TEST_P(SEPRollLayerTest_NPU5020, HW) {
+
+TEST_P(SEPRollLayerTestCommon, NPU5020_HW) {
     setDefaultHardwareMode();
     configuration["NPU_COMPILATION_MODE_PARAMS"] = "enable-se-ptrs-operations=true";
     run(Platform::NPU5020);
@@ -86,136 +82,46 @@ const std::vector<ov::Shape> inputShapesHW = {{1, 16, 5, 5}, {1, 128, 96, 96}};
 const std::vector<std::vector<int64_t>> shiftsHW = {{-2, 1}, {1, -4}};
 const std::vector<std::vector<int64_t>> axesHW = {{2, 3}};
 
-INSTANTIATE_TEST_SUITE_P(smoke_SEPRollTest_HeightAndWidth, SEPRollLayerTest_NPU3720,
+INSTANTIATE_TEST_SUITE_P(smoke_SEPRollTest_HeightAndWidth, SEPRollLayerTestCommon,
                          ::testing::Combine(::testing::ValuesIn(inputShapesHW), ::testing::ValuesIn(shiftsHW),
                                             ::testing::ValuesIn(axesHW), ::testing::Values(ov::element::f16),
                                             ::testing::Values(ov::element::f16), ::testing::Values(ov::Layout("NHWC")),
                                             ::testing::Values(ov::Layout("NCHW"))),
-                         SEPRollLayerTest_NPU3720::getTestCaseName);
-
-INSTANTIATE_TEST_SUITE_P(smoke_SEPRollTest_HeightAndWidth, SEPRollLayerTest_NPU4000,
-                         ::testing::Combine(::testing::ValuesIn(inputShapesHW), ::testing::ValuesIn(shiftsHW),
-                                            ::testing::ValuesIn(axesHW), ::testing::Values(ov::element::f16),
-                                            ::testing::Values(ov::element::f16), ::testing::Values(ov::Layout("NHWC")),
-                                            ::testing::Values(ov::Layout("NCHW"))),
-                         SEPRollLayerTest_NPU4000::getTestCaseName);
-
-INSTANTIATE_TEST_SUITE_P(smoke_SEPRollTest_HeightAndWidth, SEPRollLayerTest_NPU5010,
-                         ::testing::Combine(::testing::ValuesIn(inputShapesHW), ::testing::ValuesIn(shiftsHW),
-                                            ::testing::ValuesIn(axesHW), ::testing::Values(ov::element::f16),
-                                            ::testing::Values(ov::element::f16), ::testing::Values(ov::Layout("NHWC")),
-                                            ::testing::Values(ov::Layout("NCHW"))),
-                         SEPRollLayerTest_NPU5010::getTestCaseName);
-INSTANTIATE_TEST_SUITE_P(smoke_SEPRollTest_HeightAndWidth, SEPRollLayerTest_NPU5020,
-                         ::testing::Combine(::testing::ValuesIn(inputShapesHW), ::testing::ValuesIn(shiftsHW),
-                                            ::testing::ValuesIn(axesHW), ::testing::Values(ov::element::f16),
-                                            ::testing::Values(ov::element::f16), ::testing::Values(ov::Layout("NHWC")),
-                                            ::testing::Values(ov::Layout("NCHW"))),
-                         SEPRollLayerTest_NPU5020::getTestCaseName);
+                         SEPRollLayerTestCommon::getTestCaseName);
 
 const std::vector<ov::Shape> inputShapesHeightOrWidth = {{1, 16, 5, 5}, {1, 128, 96, 96}};
 const std::vector<std::vector<int64_t>> shiftsHeightOrWidth = {{4}, {-2}};
 const std::vector<std::vector<int64_t>> axesHeightOrWidth = {{2}, {3}};
 
-INSTANTIATE_TEST_SUITE_P(smoke_SEPRollTest_HeightOrWidth, SEPRollLayerTest_NPU3720,
+INSTANTIATE_TEST_SUITE_P(smoke_SEPRollTest_HeightOrWidth, SEPRollLayerTestCommon,
                          ::testing::Combine(::testing::ValuesIn(inputShapesHeightOrWidth),
                                             ::testing::ValuesIn(shiftsHeightOrWidth),
                                             ::testing::ValuesIn(axesHeightOrWidth), ::testing::Values(ov::element::f16),
                                             ::testing::Values(ov::element::f16), ::testing::Values(ov::Layout("NHWC")),
                                             ::testing::Values(ov::Layout("NCHW"))),
-                         SEPRollLayerTest_NPU3720::getTestCaseName);
-
-INSTANTIATE_TEST_SUITE_P(smoke_SEPRollTest_HeightOrWidth, SEPRollLayerTest_NPU4000,
-                         ::testing::Combine(::testing::ValuesIn(inputShapesHeightOrWidth),
-                                            ::testing::ValuesIn(shiftsHeightOrWidth),
-                                            ::testing::ValuesIn(axesHeightOrWidth), ::testing::Values(ov::element::f16),
-                                            ::testing::Values(ov::element::f16), ::testing::Values(ov::Layout("NHWC")),
-                                            ::testing::Values(ov::Layout("NCHW"))),
-                         SEPRollLayerTest_NPU4000::getTestCaseName);
-
-INSTANTIATE_TEST_SUITE_P(smoke_SEPRollTest_HeightOrWidth, SEPRollLayerTest_NPU5010,
-                         ::testing::Combine(::testing::ValuesIn(inputShapesHeightOrWidth),
-                                            ::testing::ValuesIn(shiftsHeightOrWidth),
-                                            ::testing::ValuesIn(axesHeightOrWidth), ::testing::Values(ov::element::f16),
-                                            ::testing::Values(ov::element::f16), ::testing::Values(ov::Layout("NHWC")),
-                                            ::testing::Values(ov::Layout("NCHW"))),
-                         SEPRollLayerTest_NPU5010::getTestCaseName);
-INSTANTIATE_TEST_SUITE_P(smoke_SEPRollTest_HeightOrWidth, SEPRollLayerTest_NPU5020,
-                         ::testing::Combine(::testing::ValuesIn(inputShapesHeightOrWidth),
-                                            ::testing::ValuesIn(shiftsHeightOrWidth),
-                                            ::testing::ValuesIn(axesHeightOrWidth), ::testing::Values(ov::element::f16),
-                                            ::testing::Values(ov::element::f16), ::testing::Values(ov::Layout("NHWC")),
-                                            ::testing::Values(ov::Layout("NCHW"))),
-                         SEPRollLayerTest_NPU5020::getTestCaseName);
+                         SEPRollLayerTestCommon::getTestCaseName);
 
 const std::vector<ov::Shape> inputShapesChannelAndHeight = {{1, 5, 7, 32}, {1, 96, 96, 128}};
 const std::vector<std::vector<int64_t>> shiftsChannelAndHeight = {{-1, 3}, {1, -3}};
 const std::vector<std::vector<int64_t>> axesChannelAndHeight = {{1, 2}};
 
-INSTANTIATE_TEST_SUITE_P(smoke_SEPRollTest_ChannelAndHeight, SEPRollLayerTest_NPU3720,
+INSTANTIATE_TEST_SUITE_P(smoke_SEPRollTest_ChannelAndHeight, SEPRollLayerTestCommon,
                          ::testing::Combine(::testing::ValuesIn(inputShapesChannelAndHeight),
                                             ::testing::ValuesIn(shiftsChannelAndHeight),
                                             ::testing::ValuesIn(axesChannelAndHeight),
                                             ::testing::Values(ov::element::f16), ::testing::Values(ov::element::f16),
                                             ::testing::Values(ov::Layout("NHWC")),
                                             ::testing::Values(ov::Layout("NCHW"))),
-                         SEPRollLayerTest_NPU3720::getTestCaseName);
-
-INSTANTIATE_TEST_SUITE_P(smoke_SEPRollTest_ChannelAndHeight, SEPRollLayerTest_NPU4000,
-                         ::testing::Combine(::testing::ValuesIn(inputShapesChannelAndHeight),
-                                            ::testing::ValuesIn(shiftsChannelAndHeight),
-                                            ::testing::ValuesIn(axesChannelAndHeight),
-                                            ::testing::Values(ov::element::f16), ::testing::Values(ov::element::f16),
-                                            ::testing::Values(ov::Layout("NHWC")),
-                                            ::testing::Values(ov::Layout("NCHW"))),
-                         SEPRollLayerTest_NPU4000::getTestCaseName);
-
-INSTANTIATE_TEST_SUITE_P(smoke_SEPRollTest_ChannelAndHeight, SEPRollLayerTest_NPU5010,
-                         ::testing::Combine(::testing::ValuesIn(inputShapesChannelAndHeight),
-                                            ::testing::ValuesIn(shiftsChannelAndHeight),
-                                            ::testing::ValuesIn(axesChannelAndHeight),
-                                            ::testing::Values(ov::element::f16), ::testing::Values(ov::element::f16),
-                                            ::testing::Values(ov::Layout("NHWC")),
-                                            ::testing::Values(ov::Layout("NCHW"))),
-                         SEPRollLayerTest_NPU5010::getTestCaseName);
-INSTANTIATE_TEST_SUITE_P(smoke_SEPRollTest_ChannelAndHeight, SEPRollLayerTest_NPU5020,
-                         ::testing::Combine(::testing::ValuesIn(inputShapesChannelAndHeight),
-                                            ::testing::ValuesIn(shiftsChannelAndHeight),
-                                            ::testing::ValuesIn(axesChannelAndHeight),
-                                            ::testing::Values(ov::element::f16), ::testing::Values(ov::element::f16),
-                                            ::testing::Values(ov::Layout("NHWC")),
-                                            ::testing::Values(ov::Layout("NCHW"))),
-                         SEPRollLayerTest_NPU5020::getTestCaseName);
+                         SEPRollLayerTestCommon::getTestCaseName);
 
 const std::vector<ov::Shape> inputShapesChannel = {{1, 5, 7, 10}, {1, 96, 96, 128}};
 const std::vector<std::vector<int64_t>> shiftsChannel = {{-1}};
 const std::vector<std::vector<int64_t>> axesChannel = {{1}};
 
-INSTANTIATE_TEST_SUITE_P(smoke_SEPRollTest_Channel, SEPRollLayerTest_NPU3720,
+INSTANTIATE_TEST_SUITE_P(smoke_SEPRollTest_Channel, SEPRollLayerTestCommon,
                          ::testing::Combine(::testing::ValuesIn(inputShapesChannel), ::testing::ValuesIn(shiftsChannel),
                                             ::testing::ValuesIn(axesChannel), ::testing::Values(ov::element::f16),
                                             ::testing::Values(ov::element::f16), ::testing::Values(ov::Layout("NHWC")),
                                             ::testing::Values(ov::Layout("NCHW"))),
-                         SEPRollLayerTest_NPU3720::getTestCaseName);
-
-INSTANTIATE_TEST_SUITE_P(smoke_SEPRollTest_Channel, SEPRollLayerTest_NPU4000,
-                         ::testing::Combine(::testing::ValuesIn(inputShapesChannel), ::testing::ValuesIn(shiftsChannel),
-                                            ::testing::ValuesIn(axesChannel), ::testing::Values(ov::element::f16),
-                                            ::testing::Values(ov::element::f16), ::testing::Values(ov::Layout("NHWC")),
-                                            ::testing::Values(ov::Layout("NCHW"))),
-                         SEPRollLayerTest_NPU4000::getTestCaseName);
-
-INSTANTIATE_TEST_SUITE_P(smoke_SEPRollTest_Channel, SEPRollLayerTest_NPU5010,
-                         ::testing::Combine(::testing::ValuesIn(inputShapesChannel), ::testing::ValuesIn(shiftsChannel),
-                                            ::testing::ValuesIn(axesChannel), ::testing::Values(ov::element::f16),
-                                            ::testing::Values(ov::element::f16), ::testing::Values(ov::Layout("NHWC")),
-                                            ::testing::Values(ov::Layout("NCHW"))),
-                         SEPRollLayerTest_NPU5010::getTestCaseName);
-INSTANTIATE_TEST_SUITE_P(smoke_SEPRollTest_Channel, SEPRollLayerTest_NPU5020,
-                         ::testing::Combine(::testing::ValuesIn(inputShapesChannel), ::testing::ValuesIn(shiftsChannel),
-                                            ::testing::ValuesIn(axesChannel), ::testing::Values(ov::element::f16),
-                                            ::testing::Values(ov::element::f16), ::testing::Values(ov::Layout("NHWC")),
-                                            ::testing::Values(ov::Layout("NCHW"))),
-                         SEPRollLayerTest_NPU5020::getTestCaseName);
-
+                         SEPRollLayerTestCommon::getTestCaseName);
 }  // namespace ov::test

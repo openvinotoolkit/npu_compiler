@@ -5,9 +5,11 @@
 
 #include "bytecode_builder.hpp"
 #include "npu_bytecode_utils/instructions.hpp"
-#include "npu_interpreter_runtime/virtual_machine.h"
 #include "utils/common.hpp"
+#include "vm_runtime/virtual_machine.h"
 #include "vm_value_helpers.hpp"
+
+#include <llvm/ADT/ScopeExit.h>
 
 #include <gtest/gtest.h>
 
@@ -385,6 +387,144 @@ TEST_F(VirtualMachineInstructionTest, BufferViewWithNonZeroByteOffset) {
     ASSERT_EQ(callWithResults(NPU_VM_MAIN_INFERENCE_FUNCTION_NAME, args, results), NPU_VM_SUCCESS);
 
     EXPECT_EQ(results.at(0).i64, 2);
+}
+
+// Exercise the whole buffer instruction set against a single strided buffer in one function
+TEST_F(VirtualMachineInstructionTest, BufferStoreLoadGetDimAndSubviewCompose) {
+    const auto i64 = getInt64Type();
+    constexpr int16_t kElemI64TypeIndex = 0;
+
+    constexpr int16_t kBufReg = 0;
+    constexpr int16_t kViewReg = 1;
+    constexpr int16_t kDim0Reg = 2;
+    constexpr int16_t kDim1Reg = 3;
+    constexpr int16_t kStride0Reg = 4;
+    constexpr int16_t kStride1Reg = 5;
+    constexpr int16_t kOffset0Reg = 6;
+    constexpr int16_t kOffset1Reg = 7;
+    constexpr int16_t kSrcDimReg = 8;
+    constexpr int16_t kViewDimReg = 9;
+    constexpr int16_t kLoadedReg = 10;
+    constexpr int16_t kStoredReg = 11;
+    constexpr int16_t kLoadIdx0Reg = 12;
+    constexpr int16_t kLoadIdx1Reg = 13;
+
+    auto function = BytecodeBuilder::FunctionBuilder(NPU_VM_MAIN_INFERENCE_FUNCTION_NAME,
+                                                     /*numGeneralRegisters=*/14,
+                                                     /*paramTypes=*/{},
+                                                     /*resultTypes=*/{i64, i64, i64},
+                                                     /*isEntrypoint=*/true)
+                            .setImm(kDim0Reg, /*imm=*/2)
+                            .setImm(kDim1Reg, /*imm=*/3)
+                            .setImm(kStride0Reg, /*imm=*/3)
+                            .setImm(kStride1Reg, /*imm=*/1)
+                            .setImm(kOffset0Reg, /*imm=*/1)
+                            .setImm(kOffset1Reg, /*imm=*/1)
+                            .setImm(kStoredReg, /*imm=*/42)
+                            .setImm(kLoadIdx0Reg, /*imm=*/1)
+                            .setImm(kLoadIdx1Reg, /*imm=*/2)
+                            // buf = int64_t[2][3], row-major strides (3, 1)
+                            .instruction(OpCode::BUFFER_CREATE, {kBufReg, kElemI64TypeIndex, /*rank=*/2,
+                                                                 /*shape=*/kDim0Reg, kDim1Reg,
+                                                                 /*strides=*/kStride0Reg, kStride1Reg})
+                            // buf[1][2] = 42
+                            .instruction(OpCode::BUFFER_STORE, {kBufReg, /*value=*/kStoredReg, /*rank=*/2,
+                                                                /*indices=*/kLoadIdx0Reg, kLoadIdx1Reg})
+                            // loaded = buf[1][2] -> 42
+                            .instruction(OpCode::BUFFER_LOAD, {/*dst=*/kLoadedReg, kBufReg, /*rank=*/2,
+                                                               /*indices=*/kLoadIdx0Reg, kLoadIdx1Reg})
+                            // srcDim = buf.shape[1] -> 3
+                            .instruction(OpCode::BUFFER_GET_DIM, {/*dst=*/kSrcDimReg, kBufReg, /*dim=*/kOffset1Reg})
+                            // view = buf[1:2, 1:3] -> shape (1, 2)
+                            .instruction(OpCode::BUFFER_SUBVIEW, {/*dst=*/kViewReg, /*src=*/kBufReg, /*rank=*/2,
+                                                                  /*offsets=*/kOffset0Reg, kOffset1Reg,
+                                                                  /*sizes=*/kOffset1Reg, kDim0Reg,
+                                                                  /*strides=*/kOffset1Reg, kOffset1Reg})
+                            // viewDim = view.shape[1] -> 2
+                            .instruction(OpCode::BUFFER_GET_DIM, {/*dst=*/kViewDimReg, kViewReg, /*dim=*/kOffset1Reg})
+                            .retv({kSrcDimReg, kViewDimReg, kLoadedReg});
+
+    const auto bytecode = BytecodeBuilder{}.addFunction(function).build();
+    ASSERT_EQ(loadEntrypoint(bytecode, NPU_VM_MAIN_INFERENCE_FUNCTION_NAME), NPU_VM_SUCCESS);
+
+    std::vector<npu_vm_value> args = {};
+    auto results = std::vector<npu_vm_value>(3, intel_npu::vm::makeI64(0));
+    ASSERT_EQ(callWithResults(NPU_VM_MAIN_INFERENCE_FUNCTION_NAME, args, results), NPU_VM_SUCCESS);
+
+    // Source dim 1 of the 2x3 buffer
+    EXPECT_EQ(results.at(0).i64, 3);
+    // Subview dim 1 comes from the requested size, not the source
+    EXPECT_EQ(results.at(1).i64, 2);
+    // Value round-tripped through buffer.store / buffer.load
+    EXPECT_EQ(results.at(2).i64, 42);
+}
+
+// buffer.copy accepts a copy only when the two buffer descriptors agree, element type included. A memref
+// parameter's descriptor is built by extractMemRef rather than by an opcode, so it has to name its element type
+// the same way buffer.create / buffer.view / buffer.from_const do. addFunction interns a function's parameter
+// types, then its result types, then its function type, in the order functions are added, so the leading helper
+// pins i64 to index 0 and leaves the entrypoint's BufferType at index 2. Naming the wrong one therefore fails
+// this test instead of passing by coincidence.
+TEST_F(VirtualMachineInstructionTest, BufferCopyIntoMemRefParameterMatchesBytecodeBuiltDescriptor) {
+    const auto i64 = getInt64Type();
+
+    constexpr int16_t kElemI64TypeIndex = 0;
+    constexpr int64_t kNumElements = 4;
+    constexpr int64_t kStoredValue = 0x123456789ABCDEF;
+    constexpr int16_t kOutputParamReg = 7;
+
+    intel_npu::vm::BufferType bufferType{};
+    bufferType.dataTypeIndex = kElemI64TypeIndex;
+    bufferType.rank = 1;
+    bufferType.shape = {kNumElements};
+    bufferType.strides = {1};
+
+    auto elemTypeHolder = BytecodeBuilder::FunctionBuilder("elem_type_holder", /*numGeneralRegisters=*/1,
+                                                           /*paramTypes=*/{i64},
+                                                           /*resultTypes=*/{},
+                                                           /*isEntrypoint=*/false)
+                                  .ret();
+
+    auto function = BytecodeBuilder::FunctionBuilder(NPU_VM_MAIN_INFERENCE_FUNCTION_NAME,
+                                                     /*numGeneralRegisters=*/8,
+                                                     /*paramTypes=*/{intel_npu::vm::Type{bufferType}},
+                                                     /*resultTypes=*/{},
+                                                     /*isEntrypoint=*/true)
+                            .setImm(/*dst=*/1, /*imm=*/kNumElements)
+                            .setImm(/*dst=*/2, /*imm=*/1)
+                            .instruction(OpCode::BUFFER_CREATE, {/*dst=*/0, kElemI64TypeIndex, /*rank=*/1,
+                                                                 /*shape=*/1,
+                                                                 /*strides=*/2})
+                            .setImm(/*dst=*/3, /*imm=*/kStoredValue)
+                            .setImm(/*dst=*/4, /*imm=*/0)
+                            .instruction(OpCode::BUFFER_STORE, {/*buffer=*/0, /*value=*/3, /*rank=*/1, /*indices=*/4})
+                            .instruction(OpCode::BUFFER_COPY, {/*dst=*/kOutputParamReg, /*src=*/0})
+                            .ret();
+
+    const auto bytecode = BytecodeBuilder{}.addFunction(elemTypeHolder).addFunction(function).build();
+    ASSERT_EQ(loadEntrypoint(bytecode, NPU_VM_MAIN_INFERENCE_FUNCTION_NAME), NPU_VM_SUCCESS);
+
+    std::vector<int64_t> output(kNumElements, 0);
+    std::vector<int64_t> sizes = {kNumElements};
+    std::vector<int64_t> strides = {1};
+
+    // Destroy on scope exit so a failing assertion below does not leak the memref
+    npu_vm_runtime_mem_ref_handle_t outputMemRef = nullptr;
+    ASSERT_EQ(npuVMRuntimeCreateMemRef(/*dimsCount=*/1, &outputMemRef), NPU_VM_RUNTIME_RESULT_SUCCESS);
+    const llvm::scope_exit memRefGuard([&outputMemRef]() {
+        EXPECT_EQ(npuVMRuntimeDestroyMemRef(outputMemRef), NPU_VM_RUNTIME_RESULT_SUCCESS);
+    });
+
+    ASSERT_EQ(npuVMRuntimeSetMemRef(outputMemRef, output.data(), output.data(), /*offset=*/0, sizes.data(),
+                                    strides.data(), /*dimsCount=*/1),
+              NPU_VM_RUNTIME_RESULT_SUCCESS);
+
+    npu_vm_runtime_execute_params_t params{};
+    params.pOutputs = &outputMemRef;
+    params.numOfOutputs = 1;
+
+    EXPECT_EQ(npu_vm_infer(engine, &params), NPU_VM_SUCCESS);
+    EXPECT_EQ(output.at(0), kStoredValue);
 }
 
 // NOLINTEND(cppcoreguidelines-avoid-magic-numbers)

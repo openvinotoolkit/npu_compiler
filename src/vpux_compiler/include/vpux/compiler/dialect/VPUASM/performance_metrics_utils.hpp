@@ -7,6 +7,7 @@
 #include <vpux/utils/core/range.hpp>
 #include "vpux/compiler/dialect/VPU/utils/performance_metrics.hpp"
 #include "vpux/compiler/dialect/config/IR/resources.hpp"
+#include "vpux/compiler/dialect/config/IR/utils.hpp"
 #include "vpux/compiler/dialect/config/constraints.hpp"
 #include "vpux/utils/core/error.hpp"
 

@@ -130,7 +130,7 @@ mlir::LogicalResult ActShaveRewriter::matchAndRewrite(IE::ReorderOp origOp, mlir
 
     const auto dstOrder = DimsOrder::fromValue(origOp->getResult(0));
     const auto dstOrderMap = dstOrder.toAffineMap(rewriter.getContext());
-    auto reorder = rewriter.create<IE::ReorderOp>(origOp->getLoc(), producer->getOperand(0), dstOrderMap);
+    auto reorder = IE::ReorderOp::create(rewriter, origOp->getLoc(), producer->getOperand(0), dstOrderMap);
     mlir::IRMapping mapper;
     mapper.map(producer->getOperand(0), reorder->getResult(0));
     auto newProducer = rewriter.clone(*producer, mapper);

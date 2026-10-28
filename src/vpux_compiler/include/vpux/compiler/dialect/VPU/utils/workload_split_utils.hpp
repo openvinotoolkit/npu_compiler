@@ -77,8 +77,15 @@ void correctWorkloadDescriptors(VPU::NCEOpInterface nceOp, SmallVector<WorkloadD
  * Back-infer input workload offsets/sizes from output workload descriptors.
  * Uses kernel, stride, padding from the op to compute the input region each workload reads.
  * For distributed tensors, applies per-cluster offset adjustments.
+ *
+ * @param fullInputShape  Shape of the whole activation the workloads are back-inferred against.
+ *                        Defaults to the shape of the first operand. In the SCF flow that operand
+ *                        may still have dynamic dimensions while the workloads were generated for
+ *                        the resolved (bounded) shape, so such callers pass that shape explicitly.
+ *                        It must be static: the input range cannot be clamped against kDynamic.
  */
-void backInferInputWorkloads(VPU::NCEOpInterface nceOp, SmallVector<WorkloadDescriptor, 4>& workloads, Logger log);
+void backInferInputWorkloads(VPU::NCEOpInterface nceOp, SmallVector<WorkloadDescriptor, 4>& workloads, Logger log,
+                             ShapeRef fullInputShape = {});
 
 // TODO: #E215880 — reimplement shiftWorkloadsForHalo once MC-in-SCF is fully fleshed out
 

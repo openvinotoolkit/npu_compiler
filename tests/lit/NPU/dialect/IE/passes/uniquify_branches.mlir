@@ -563,6 +563,46 @@ func.func @NoChangesPermuteCastModifySameAxis(%arg0: tensor<1x3x5x4xf16>) -> ten
 
 // -----
 
+#NCWH = affine_map<(d0, d1, d2, d3) -> (d0, d1, d3, d2)>
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+#NWHC = affine_map<(d0, d1, d2, d3) -> (d0, d3, d2, d1)>
+
+// The permutation is trivial for the sliced memory shape 1x1x1x300, but not for the source one 1x1x4x300.
+// CHECK-LABEL: @NoChangesPermuteCastNonTrivialForSliceSource
+// CHECK-SAME:  [[INPUT:%.+]]: tensor<1x1x300x4xf16, {order = #NCWH}>
+func.func @NoChangesPermuteCastNonTrivialForSliceSource(%arg0: tensor<1x1x300x4xf16, {order = #NCWH}>) -> tensor<1x4x300x1xf16, {order = #NHWC}> {
+    %0 = IE.Slice %arg0 [0, 0, 0, 0] [1, 1, 300, 1] : tensor<1x1x300x4xf16, {order = #NCWH}> to tensor<1x1x300x1xf16, {order = #NCWH}>
+    %1 = IE.Slice %arg0 [0, 0, 0, 1] [1, 1, 300, 1] : tensor<1x1x300x4xf16, {order = #NCWH}> to tensor<1x1x300x1xf16, {order = #NCWH}>
+    %2 = IE.Slice %arg0 [0, 0, 0, 2] [1, 1, 300, 1] : tensor<1x1x300x4xf16, {order = #NCWH}> to tensor<1x1x300x1xf16, {order = #NCWH}>
+    %3 = IE.Slice %arg0 [0, 0, 0, 3] [1, 1, 300, 1] : tensor<1x1x300x4xf16, {order = #NCWH}> to tensor<1x1x300x1xf16, {order = #NCWH}>
+
+    %4 = IE.PermuteCast(%0) {dst_order = #NHWC, mem_perm = #NWHC} : tensor<1x1x300x1xf16, {order = #NCWH}> -> tensor<1x1x300x1xf16, {order = #NHWC}>
+    %5 = IE.PermuteCast(%1) {dst_order = #NHWC, mem_perm = #NWHC} : tensor<1x1x300x1xf16, {order = #NCWH}> -> tensor<1x1x300x1xf16, {order = #NHWC}>
+    %6 = IE.PermuteCast(%2) {dst_order = #NHWC, mem_perm = #NWHC} : tensor<1x1x300x1xf16, {order = #NCWH}> -> tensor<1x1x300x1xf16, {order = #NHWC}>
+    %7 = IE.PermuteCast(%3) {dst_order = #NHWC, mem_perm = #NWHC} : tensor<1x1x300x1xf16, {order = #NCWH}> -> tensor<1x1x300x1xf16, {order = #NHWC}>
+
+    %8 = IE.Concat(%4, %5, %6, %7) {static_offsets = [[0, 0, 0, 0], [0, 1, 0, 0], [0, 2, 0, 0], [0, 3, 0, 0]]} : tensor<1x1x300x1xf16, {order = #NHWC}>, tensor<1x1x300x1xf16, {order = #NHWC}>, tensor<1x1x300x1xf16, {order = #NHWC}>, tensor<1x1x300x1xf16, {order = #NHWC}> -> tensor<1x4x300x1xf16, {order = #NHWC}>
+
+    return %8: tensor<1x4x300x1xf16, {order = #NHWC}>
+
+    // CHECK: [[SLICE0:%.+]] = IE.Slice [[INPUT]] [0, 0, 0, 0] [1, 1, 300, 1] : tensor<1x1x300x4xf16, {order = #NCWH}> to tensor<1x1x300x1xf16, {order = #NCWH}>
+    // CHECK: [[SLICE1:%.+]] = IE.Slice [[INPUT]] [0, 0, 0, 1] [1, 1, 300, 1] : tensor<1x1x300x4xf16, {order = #NCWH}> to tensor<1x1x300x1xf16, {order = #NCWH}>
+    // CHECK: [[SLICE2:%.+]] = IE.Slice [[INPUT]] [0, 0, 0, 2] [1, 1, 300, 1] : tensor<1x1x300x4xf16, {order = #NCWH}> to tensor<1x1x300x1xf16, {order = #NCWH}>
+    // CHECK: [[SLICE3:%.+]] = IE.Slice [[INPUT]] [0, 0, 0, 3] [1, 1, 300, 1] : tensor<1x1x300x4xf16, {order = #NCWH}> to tensor<1x1x300x1xf16, {order = #NCWH}>
+
+    // CHECK: [[PERMUTECAST0:%.+]] = IE.PermuteCast([[SLICE0]]) {dst_order = #NHWC, mem_perm = #NWHC} : tensor<1x1x300x1xf16, {order = #NCWH}> -> tensor<1x1x300x1xf16, {order = #NHWC}>
+    // CHECK: [[PERMUTECAST1:%.+]] = IE.PermuteCast([[SLICE1]]) {dst_order = #NHWC, mem_perm = #NWHC} : tensor<1x1x300x1xf16, {order = #NCWH}> -> tensor<1x1x300x1xf16, {order = #NHWC}>
+    // CHECK: [[PERMUTECAST2:%.+]] = IE.PermuteCast([[SLICE2]]) {dst_order = #NHWC, mem_perm = #NWHC} : tensor<1x1x300x1xf16, {order = #NCWH}> -> tensor<1x1x300x1xf16, {order = #NHWC}>
+    // CHECK: [[PERMUTECAST3:%.+]] = IE.PermuteCast([[SLICE3]]) {dst_order = #NHWC, mem_perm = #NWHC} : tensor<1x1x300x1xf16, {order = #NCWH}> -> tensor<1x1x300x1xf16, {order = #NHWC}>
+
+    // CHECK: [[CONCAT:%.+]] = IE.Concat([[PERMUTECAST0]], [[PERMUTECAST1]], [[PERMUTECAST2]], [[PERMUTECAST3]])
+    // CHECK-SAME{LITERAL}: {static_offsets = [[0, 0, 0, 0], [0, 1, 0, 0], [0, 2, 0, 0], [0, 3, 0, 0]]} : tensor<1x1x300x1xf16, {order = #NHWC}>, tensor<1x1x300x1xf16, {order = #NHWC}>, tensor<1x1x300x1xf16, {order = #NHWC}>, tensor<1x1x300x1xf16, {order = #NHWC}> -> tensor<1x4x300x1xf16, {order = #NHWC}>
+
+    // CHECK: return [[CONCAT]] : tensor<1x4x300x1xf16, {order = #NHWC}>
+}
+
+// -----
+
 #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
@@ -955,7 +995,7 @@ func.func @NoMoveReorderBeforeSplitAsOutputHasMultipleUsers(%arg0: tensor<1x32x9
 // -----
 
 !qElemType = !quant.uniform<u4:f16:1, {1.0:128,2.0:128}>
-!qElemType1 = !quant.uniform<!QuantileType.quantile<ui4:f8E4M3FN, {-9.000000e+00,-8.000000e+00,-7.000000e+00,-6.000000e+00,-5.000000e+00,-4.000000e+00,-3.000000e+00,-2.000000e+00,-1.000000e+00,0.000000e+00,1.000000e+00,2.000000e+00,3.000000e+00,4.000000e+00,5.000000e+00,6.000000e+00}>:f16:1, {4.000000e+00,6.000000e+00}>
+!qElemType1 = !quant.uniform<!quant.quantile<ui4:f8E4M3FN, {-9.000000e+00,-8.000000e+00,-7.000000e+00,-6.000000e+00,-5.000000e+00,-4.000000e+00,-3.000000e+00,-2.000000e+00,-1.000000e+00,0.000000e+00,1.000000e+00,2.000000e+00,3.000000e+00,4.000000e+00,5.000000e+00,6.000000e+00}>:f16:1, {4.000000e+00,6.000000e+00}>
 
 // CHECK-LABEL: @MoveQuantizeCastBeforeMultipleSlices
 // CHECK-SAME:      [[INPUT:%.+]]: tensor<4x2x!qElemType>
@@ -976,8 +1016,8 @@ func.func @MoveQuantizeCastBeforeMultipleSlices(%arg0: tensor<4x2x!qElemType>) -
 
 // -----
 
-!qElemType = !quant.uniform<!QuantileType.quantile<ui4:f8E4M3FN, {-9.000000e+00,-8.000000e+00,-7.000000e+00,-6.000000e+00,-5.000000e+00,-4.000000e+00,-3.000000e+00,-2.000000e+00,-1.000000e+00,0.000000e+00,1.000000e+00,2.000000e+00,3.000000e+00,4.000000e+00,5.000000e+00,6.000000e+00}>:f16:1, {2.000000e+00,3.000000e+00}>
-!qElemType1 = !quant.uniform<!QuantileType.quantile<ui4:f8E4M3FN, {-9.000000e+00,-8.000000e+00,-7.000000e+00,-6.000000e+00,-5.000000e+00,-4.000000e+00,-3.000000e+00,-2.000000e+00,-1.000000e+00,0.000000e+00,1.000000e+00,2.000000e+00,3.000000e+00,4.000000e+00,5.000000e+00,6.000000e+00}>:f16:1, {4.000000e+00,6.000000e+00}>
+!qElemType = !quant.uniform<!quant.quantile<ui4:f8E4M3FN, {-9.000000e+00,-8.000000e+00,-7.000000e+00,-6.000000e+00,-5.000000e+00,-4.000000e+00,-3.000000e+00,-2.000000e+00,-1.000000e+00,0.000000e+00,1.000000e+00,2.000000e+00,3.000000e+00,4.000000e+00,5.000000e+00,6.000000e+00}>:f16:1, {2.000000e+00,3.000000e+00}>
+!qElemType1 = !quant.uniform<!quant.quantile<ui4:f8E4M3FN, {-9.000000e+00,-8.000000e+00,-7.000000e+00,-6.000000e+00,-5.000000e+00,-4.000000e+00,-3.000000e+00,-2.000000e+00,-1.000000e+00,0.000000e+00,1.000000e+00,2.000000e+00,3.000000e+00,4.000000e+00,5.000000e+00,6.000000e+00}>:f16:1, {4.000000e+00,6.000000e+00}>
 
 // CHECK-LABEL: @MoveQuantizeCastBeforeMultipleSlicesQuantile
 // CHECK-SAME:      [[INPUT:%.+]]: tensor<4x2x!qElemType>
@@ -1411,4 +1451,40 @@ func.func @MoveAffineReshapeMergeMappingBeforeOverlappingSlices(%arg0: tensor<4x
     // CHECK-DAG:   [[SLICE_8:%.+]] = IE.Slice [[RESHAPE]] [8, 0] [8, 4] : tensor<16x4xf16> to tensor<8x4xf16>
     // CHECK-NOT:   IE.Slice [[RESHAPE]] [0, 0] [8, 4]
     // CHECK:       return [[SLICE_4]], [[SLICE_8]] : tensor<8x4xf16>, tensor<8x4xf16>
+}
+
+// -----
+
+// CHECK-LABEL: @FuseChainedConvertsThroughSlices
+// CHECK-SAME:      [[INPUT:%.+]]: tensor<1x1x1x16512xsi64>
+func.func @FuseChainedConvertsThroughSlices(%arg0: tensor<1x1x1x16512xsi64>) -> (tensor<1x1x1x1xi8>, tensor<1x1x1x16512xi8>) {
+    %0 = IE.Convert(%arg0) {dstElemType = f16} : tensor<1x1x1x16512xsi64> -> tensor<1x1x1x16512xf16>
+    %1 = IE.Slice %0 [0, 0, 0, 16511] [1, 1, 1, 1] : tensor<1x1x1x16512xf16> to tensor<1x1x1x1xf16>
+    %2 = IE.Convert(%1) {dstElemType = i8} : tensor<1x1x1x1xf16> -> tensor<1x1x1x1xi8>
+    %3 = IE.Convert(%0) {dstElemType = i8} : tensor<1x1x1x16512xf16> -> tensor<1x1x1x16512xi8>
+    return %2, %3 : tensor<1x1x1x1xi8>, tensor<1x1x1x16512xi8>
+
+    // CHECK: [[FUSED:%.+]] = IE.Convert([[INPUT]]) {dstElemType = i8} : tensor<1x1x1x16512xsi64> -> tensor<1x1x1x16512xi8>
+    // CHECK: [[SLICE:%.+]] = IE.Slice [[FUSED]] [0, 0, 0, 16511] [1, 1, 1, 1] : tensor<1x1x1x16512xi8> to tensor<1x1x1x1xi8>
+    // CHECK: return [[SLICE]], [[FUSED]] : tensor<1x1x1x1xi8>, tensor<1x1x1x16512xi8>
+}
+
+// -----
+
+// CHECK-LABEL: @NoFuseChainedConvertsThroughSlicesWhenTrafficIncreases
+// CHECK-SAME:      [[INPUT:%.+]]: tensor<1024xsi8>
+func.func @NoFuseChainedConvertsThroughSlicesWhenTrafficIncreases(%arg0: tensor<1024xsi8>) -> (tensor<1xsi64>, tensor<1xsi64>) {
+    %0 = IE.Convert(%arg0) {dstElemType = f16} : tensor<1024xsi8> -> tensor<1024xf16>
+    %1 = IE.Slice %0 [0] [1] : tensor<1024xf16> to tensor<1xf16>
+    %2 = IE.Slice %0 [100] [1] : tensor<1024xf16> to tensor<1xf16>
+    %3 = IE.Convert(%1) {dstElemType = si64} : tensor<1xf16> -> tensor<1xsi64>
+    %4 = IE.Convert(%2) {dstElemType = si64} : tensor<1xf16> -> tensor<1xsi64>
+    return %3, %4 : tensor<1xsi64>, tensor<1xsi64>
+
+    // CHECK: [[MID:%.+]] = IE.Convert([[INPUT]]) {dstElemType = f16} : tensor<1024xsi8> -> tensor<1024xf16>
+    // CHECK: [[SLICE0:%.+]] = IE.Slice [[MID]] [0] [1] : tensor<1024xf16> to tensor<1xf16>
+    // CHECK: [[SLICE1:%.+]] = IE.Slice [[MID]] [100] [1] : tensor<1024xf16> to tensor<1xf16>
+    // CHECK: [[C0:%.+]] = IE.Convert([[SLICE0]]) {dstElemType = si64} : tensor<1xf16> -> tensor<1xsi64>
+    // CHECK: [[C1:%.+]] = IE.Convert([[SLICE1]]) {dstElemType = si64} : tensor<1xf16> -> tensor<1xsi64>
+    // CHECK: return [[C0]], [[C1]] : tensor<1xsi64>, tensor<1xsi64>
 }

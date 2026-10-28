@@ -66,6 +66,17 @@ TEST_P(MatMulLayerTest_SW_NPU3720, SW) {
     setReferenceSoftwareMode();
     run(Platform::NPU3720);
 }
+class MatMulLayerTestCommon_HW_DynQuant : public MatMulLayerTestCommon {
+    void configure_model() override {
+        configuration[ov::intel_npu::compiler_dynamic_quantization.name()] = "YES";
+    }
+};
+
+TEST_P(MatMulLayerTestCommon_HW_DynQuant, NPU5010) {
+    rel_threshold = 0.001;
+    setDefaultHardwareMode();
+    run(Platform::NPU5010);
+}
 
 TEST_P(MatMulLayerTestCommon_SW, NPU4000) {
     rel_threshold = 0.001;
@@ -393,5 +404,18 @@ INSTANTIATE_TEST_SUITE_P(MatMul1dBothTrans, MatMulLayerTest_HW_NPU3720, matMul1d
 
 INSTANTIATE_TEST_SUITE_P(MatMul1dBothTrans, MatMulLayerTestCommon_HW, matMul1dBothTransParams,
                          MatMulLayerTestCommon_HW::getTestCaseName);
+
+const std::vector<std::vector<ov::Shape>> shapeWithBatchDynQuant = {
+        {{4, 8, 16}, {4, 16, 64}},
+};
+
+const auto matMulWithBatchDynQuantParams =
+        ::testing::Combine(::testing::ValuesIn(static_shapes_to_test_representation(shapeWithBatchDynQuant)),
+                           ::testing::Values(transposeInputs.at(0)), ::testing::Values(ov::element::f16),
+                           ::testing::Values(InputLayerType::PARAMETER), ::testing::Values(test_utils::TARGET_DEVICE),
+                           ::testing::Values(additional_config));
+
+INSTANTIATE_TEST_SUITE_P(MatMulWithBatchDynQuant, MatMulLayerTestCommon_HW_DynQuant, matMulWithBatchDynQuantParams,
+                         MatMulLayerTestCommon_HW_DynQuant::getTestCaseName);
 
 }  // namespace

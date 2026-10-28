@@ -330,12 +330,12 @@ void UnpackNestedModulesPass::flattenCallSites(mlir::ModuleOp mainModule,
         mlir::ValueRange newCallResults;
 
         if (auto flatSymbolAttr = mlir::dyn_cast<mlir::FlatSymbolRefAttr>(symbolAttrVal); flatSymbolAttr != nullptr) {
-            const auto newCallOp = builder.create<mlir::func::CallOp>(callOp.getLoc(), flatSymbolAttr,
-                                                                      callOp->getResultTypes(), callOp->getOperands());
+            const auto newCallOp = mlir::func::CallOp::create(builder, callOp.getLoc(), flatSymbolAttr,
+                                                              callOp->getResultTypes(), callOp->getOperands());
             newCallResults = newCallOp->getResults();
         } else if (auto symbolAttr = mlir::dyn_cast<mlir::SymbolRefAttr>(symbolAttrVal); symbolAttr != nullptr) {
-            const auto newCoreCallOp = builder.create<Core::NestedCallOp>(
-                    callOp.getLoc(), symbolAttr, callOp->getResultTypes(), callOp->getOperands());
+            const auto newCoreCallOp = Core::NestedCallOp::create(builder, callOp.getLoc(), symbolAttr,
+                                                                  callOp->getResultTypes(), callOp->getOperands());
             newCallResults = newCoreCallOp->getResults();
         } else {
             _log.trace("Failed to construct an attr of type `FlatSymbolRefAttr` or `SymbolRefAttr`");

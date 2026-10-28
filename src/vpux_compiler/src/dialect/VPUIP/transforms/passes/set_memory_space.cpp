@@ -6,12 +6,12 @@
 #include "vpux/compiler/dialect/VPUIP/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPUIP/IR/ops_interfaces.hpp"
 #include "vpux/compiler/dialect/VPUIP/transforms/passes.hpp"
-#include "vpux/compiler/dialect/core/IR/memref_attr.hpp"
 #include "vpux/compiler/dialect/core/IR/ops.hpp"
 #include "vpux/compiler/dialect/core/interfaces/ops_interfaces.hpp"
+#include "vpux/compiler/dialect/net/utils/network_info_utils.hpp"
 
 #include "vpux/compiler/core/aliases_info.hpp"
-#include "vpux/compiler/utils/memref_attr_utils.hpp"
+#include "vpux/compiler/utils/analysis.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 
 #include <mlir/Dialect/MemRef/IR/MemRef.h>
@@ -30,6 +30,15 @@ namespace {
 // SetMemorySpacePass
 //
 
+mlir::Type changeMemSpace(mlir::Type type, VPU::MemoryKind memKind) {
+    if (const auto asyncType = mlir::dyn_cast<mlir::async::ValueType>(type)) {
+        const auto newValueType = mlir::cast<vpux::NDTypeInterface>(asyncType.getValueType()).changeMemSpace(memKind);
+        return mlir::async::ValueType::get(newValueType);
+    }
+
+    return mlir::cast<vpux::NDTypeInterface>(type).changeMemSpace(memKind);
+}
+
 class SetMemorySpacePass final : public VPUIP::impl::SetMemorySpaceBase<SetMemorySpacePass> {
 public:
     SetMemorySpacePass(VPUIP::MemKindCreateFunc memKindCb, bool setMemorySpaceForFunctionBoundaries, Logger log);
@@ -39,8 +48,11 @@ public:
 
 private:
     void updateFunction(mlir::func::FuncOp func, const AliasesInfo& aliasInfo) const;
-    void updateAliases(AliasesInfo& aliasInfo, mlir::Value value) const;
-    void updateFunctionBoundaryAliases(mlir::func::FuncOp func, const AliasesInfo& aliasInfo) const;
+    void updateAliases(
+            AliasesInfo& aliasInfo, mlir::Value value, FuncRef<bool(mlir::Value)> pred = [](mlir::Value) {
+                return true;
+            }) const;
+    void updateFunctionPreservingBoundaries(mlir::func::FuncOp func, AliasesInfo& aliasInfo) const;
     void safeRunOnModule() final;
 
 private:
@@ -52,7 +64,7 @@ private:
 SetMemorySpacePass::SetMemorySpacePass(VPUIP::MemKindCreateFunc memKindCb, bool setMemorySpaceForFunctionBoundaries,
                                        Logger log)
         : _memKindCb(std::move(memKindCb)), _setMemorySpaceForFunctionBoundaries(setMemorySpaceForFunctionBoundaries) {
-    VPUX_THROW_UNLESS(_memKindCb != nullptr, "Missing memKindCb");
+    VPUX_THROW_WHEN(_memKindCb == nullptr, "Missing memKindCb");
     Base::initLogger(log, Base::getArgumentName());
 }
 
@@ -80,21 +92,11 @@ void SetMemorySpacePass::updateFunction(mlir::func::FuncOp func, const AliasesIn
 
     const auto updateArgTypes = [&](mlir::ValueRange args, SmallVector<mlir::Type>& newTypes) {
         for (auto arg : args) {
-            const auto argType = mlir::cast<vpux::NDTypeInterface>(arg.getType());
-            const auto newArgType = argType.changeMemSpace(_memKind);
-
+            const auto newArgType = changeMemSpace(arg.getType(), _memKind);
             newTypes.push_back(newArgType);
             const auto& aliases = aliasInfo.getAllAliases(arg);
             for (auto var : aliases) {
-                auto aliasType = var.getType();
-                mlir::Type newAliasType;
-                if (auto asyncType = mlir::dyn_cast<mlir::async::ValueType>(aliasType)) {
-                    newAliasType = mlir::async::ValueType::get(
-                            mlir::cast<vpux::NDTypeInterface>(asyncType.getValueType()).changeMemSpace(_memKind));
-                } else {
-                    newAliasType = mlir::cast<vpux::NDTypeInterface>(aliasType).changeMemSpace(_memKind);
-                }
-
+                const auto newAliasType = changeMemSpace(var.getType(), _memKind);
                 var.setType(newAliasType);
             }
         }
@@ -111,69 +113,67 @@ void SetMemorySpacePass::updateFunction(mlir::func::FuncOp func, const AliasesIn
                       newReturnTypes);
 }
 
-void SetMemorySpacePass::updateAliases(AliasesInfo& aliasInfo, mlir::Value value) const {
+void SetMemorySpacePass::updateAliases(AliasesInfo& aliasInfo, mlir::Value value,
+                                       FuncRef<bool(mlir::Value)> pred) const {
     const auto& aliases = aliasInfo.getAllAliases(value);
 
     for (auto var : aliases) {
+        if (!pred(var)) {
+            continue;
+        }
+
         _log.nest().trace("Process alias buffer '{0}'", var);
 
-        if (const auto futureType = mlir::dyn_cast<mlir::async::ValueType>(var.getType())) {
-            const auto origType = mlir::dyn_cast<vpux::NDTypeInterface>(futureType.getValueType());
-            VPUX_THROW_UNLESS(origType != nullptr, "Got non vpux::NDTypeInterface Type '{0}'", var.getType());
-
-            const auto newType = origType.changeMemSpace(_memKind);
-            const auto newFutureType = mlir::async::ValueType::get(newType);
-
-            var.setType(newFutureType);
-        } else {
-            auto type = var.getType();
-            const auto ndType = mlir::dyn_cast<vpux::NDTypeInterface>(type);
-            VPUX_THROW_UNLESS(ndType != nullptr, "Got non vpux::NDTypeInterface Type '{0}'", type);
-
-            const auto newType = ndType.changeMemSpace(_memKind);
-            var.setType(newType);
-        }
+        const auto newType = changeMemSpace(var.getType(), _memKind);
+        var.setType(newType);
     }
 }
 
-void SetMemorySpacePass::updateFunctionBoundaryAliases(mlir::func::FuncOp func, const AliasesInfo& aliasInfo) const {
-    const auto hasBoundaryUse = [](mlir::Value value) {
-        return llvm::any_of(value.getUses(), [](mlir::OpOperand& use) {
-            return mlir::isa<mlir::func::CallOp, mlir::func::ReturnOp>(use.getOwner());
-        });
-    };
-
-    const auto isPureViewAlias = [](mlir::Value value) {
-        auto* definingOp = value.getDefiningOp();
-        return definingOp != nullptr && VPUIP::isPureViewOp(definingOp);
-    };
-
-    const auto updateValueType = [this](mlir::Value value) {
-        auto type = value.getType();
-        if (const auto asyncType = mlir::dyn_cast<mlir::async::ValueType>(type)) {
-            const auto newType = mlir::cast<vpux::NDTypeInterface>(asyncType.getValueType()).changeMemSpace(_memKind);
-            value.setType(mlir::async::ValueType::get(newType));
-            return;
-        }
-
-        value.setType(mlir::cast<vpux::NDTypeInterface>(type).changeMemSpace(_memKind));
-    };
-
+void SetMemorySpacePass::updateFunctionPreservingBoundaries(mlir::func::FuncOp func, AliasesInfo& aliasInfo) const {
     for (auto arg : func.getArguments()) {
-        const auto& aliases = aliasInfo.getAllAliases(arg);
-        for (auto alias : aliases) {
-            if (alias == arg || hasBoundaryUse(alias) || !isPureViewAlias(alias)) {
-                continue;
-            }
+        _log.nest().trace("Updating aliases of a function arg '{0}'", arg);
+        updateAliases(aliasInfo, arg, [&](mlir::Value alias) {
+            return alias != arg;
+        });
+    }
 
-            _log.nest().trace("Updating function-boundary alias '{0}'", alias);
-            updateValueType(alias);
-        }
+    _log.nest().trace("Casting arguments of non-host function '{0}' to memory space '{1}'", func.getSymName(),
+                      _memKind);
+    auto builder = mlir::OpBuilder::atBlockBegin(&func.getBody().front());
+    for (auto arg : func.getArguments()) {
+        const auto newType = changeMemSpace(arg.getType(), _memKind);
+        // In HostCompile mode, block arguments must remain device-info-free
+        // so that the function_type attribute stays consistent with the
+        // call site (the caller passes buffers without an explicit memory
+        // space). Instead of mutating the block argument type, insert a
+        // Core.ReinterpretCast that adds the required memory space at this
+        // specific use inside the function body.
+        assert(!_setMemorySpaceForFunctionBoundaries && "This only applies to host-compile");
+        // Note: ReinterpretCast is eventually transformed into a no-op, so
+        // inserting it here unconditionally is not a significant problem.
+        auto castOp = Core::ReinterpretCastOp::create(builder, appendLoc(arg.getLoc(), "memspace_cast"), newType, arg);
+        _log.nest().trace("Inserted ReinterpretCast for device-info-free block arg: '{0}'", castOp.getResult());
+        arg.replaceAllUsesExcept(castOp.getResult(), castOp);
+        aliasInfo.addAlias(arg, castOp.getResult());
+    }
+
+    _log.nest().trace("Casting return values of non-host function '{0}' to memory space '{1}'", func.getSymName(),
+                      _memKind);
+    auto returnOp = findReturnOp(func);
+    auto returnTypes = func.getFunctionType().getResults();
+    builder.setInsertionPoint(returnOp);
+    for (auto [operand, returnType] : llvm::zip(returnOp->getOperands(), returnTypes)) {
+        auto castOp = Core::ReinterpretCastOp::create(builder, appendLoc(operand.getLoc(), "memspace_cast"), returnType,
+                                                      operand);
+        _log.nest().trace("Inserted ReinterpretCast for device-info-free return operand: '{0}'", castOp.getResult());
+        operand.replaceAllUsesExcept(castOp.getResult(), castOp);
+        aliasInfo.addAlias(operand, castOp.getResult());
     }
 }
 
 void SetMemorySpacePass::safeRunOnModule() {
     auto moduleOp = getOperation();
+    auto entryPointFunc = net::getMainFunc(moduleOp);
 
     moduleOp.walk([&](mlir::func::FuncOp funcOp) {
         // Probably is ACT_SHAVE kernel
@@ -184,10 +184,10 @@ void SetMemorySpacePass::safeRunOnModule() {
         auto& aliasInfo = getChildAnalysis<AliasesInfo>(funcOp);
         // note: This is disabled in host-compile pipeline because the nestCallOp and host-side memrefs do not have
         // memory space locations.
-        if (_setMemorySpaceForFunctionBoundaries) {
+        if (_setMemorySpaceForFunctionBoundaries || funcOp != entryPointFunc) {
             updateFunction(funcOp, aliasInfo);
         } else {
-            updateFunctionBoundaryAliases(funcOp, aliasInfo);
+            updateFunctionPreservingBoundaries(funcOp, aliasInfo);
         }
 
         const auto allocOpCallback = [&](mlir::memref::AllocOp allocOp) {
@@ -227,23 +227,6 @@ void SetMemorySpacePass::safeRunOnModule() {
                 }
 
                 _log.nest().trace("Updating memory space for operand '{0}'", operand.index());
-
-                // In HostCompile mode, block arguments must remain device-info-free so that the
-                // function_type attribute stays consistent with the call site (the caller passes
-                // buffers without an explicit memory space). Instead of mutating the block argument
-                // type, insert a Core.ReinterpretCast that adds the required memory space at this
-                // specific use inside the function body.
-                if (!_setMemorySpaceForFunctionBoundaries && mlir::isa<mlir::BlockArgument>(operand.value())) {
-                    const auto newType =
-                            mlir::cast<vpux::NDTypeInterface>(operand.value().getType()).changeMemSpace(_memKind);
-                    mlir::OpBuilder builder(groupOp);
-                    auto castOp = builder.create<Core::ReinterpretCastOp>(groupOp->getLoc(), newType, operand.value());
-                    _log.nest().trace("Inserted ReinterpretCast for device-info-free block arg: '{0}'",
-                                      castOp.getResult());
-                    groupOp->setOperand(operand.index(), castOp.getResult());
-                    continue;
-                }
-
                 updateAliases(aliasInfo, operand.value());
             }
         };

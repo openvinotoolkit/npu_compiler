@@ -148,6 +148,7 @@ public:
             uint64_t originalOC);
     [[nodiscard]] SpecializedContentSetup swizzleConstant(uint64_t swizzleKey, uint64_t arch);
     [[nodiscard]] SpecializedContentSetup add(double bias);
+    [[nodiscard]] SpecializedContentSetup clamp(double lowerBound, double upperBound);
     [[nodiscard]] SpecializedContentSetup reshape(vpux::ShapeRef newShape);
     [[nodiscard]] SpecializedContentSetup reverse(Dim axis);
     [[nodiscard]] SpecializedContentSetup reorder(const vpux::DimsOrder& newOrder);

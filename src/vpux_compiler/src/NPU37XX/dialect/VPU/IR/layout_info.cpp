@@ -804,7 +804,7 @@ void redirectLayoutOpInterfacesForIE(mlir::DialectRegistry& registry) {
         IE::ReduceProdOp::attachInterface<vpux::VPU::ReduceDimsOrderOpModelForSW>(*ctx);
         IE::ReduceMinOp::attachInterface<vpux::VPU::ReduceDimsOrderOpModelForSW>(*ctx);
         IE::ReduceL1Op::attachInterface<vpux::VPU::ReduceDimsOrderOpModelForSW>(*ctx);
-        IE::ReduceL2Op::attachInterface<vpux::VPU::ReduceDimsOrderOpModelForSW>(*ctx);
+        IE::ReduceL2Op::attachInterface<vpux::VPU::ReduceL2DimsOrderOpModelForSW>(*ctx);
 
         IE::AffineReshapeOp::attachInterface<vpux::VPU::AffineReshapeDimsOrderOpModelForSW>(*ctx);
 

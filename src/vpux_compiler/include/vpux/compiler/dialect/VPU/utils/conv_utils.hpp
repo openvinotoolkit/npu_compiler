@@ -15,6 +15,7 @@
 #include "vpux/compiler/utils/attributes.hpp"
 
 #include <llvm/ADT/SmallVector.h>
+#include <mlir/IR/OpDefinition.h>
 
 namespace vpux::VPU {
 enum class MultiClusterStrategy : uint64_t;
@@ -100,5 +101,10 @@ bool isDilatedGroupConv(GroupConvOpType groupConvOp) {
 /// constant-folds, or kept as kDynamic otherwise.
 SmallVector<int64_t> resolveRawFilterShape(ArrayRef<int64_t> staticRawFilterShape,
                                            mlir::ValueRange dynamicRawFilterShapeValues);
+
+/// Return constant raw filter shape values.
+/// Dynamic SSA dimensions are folded to closed upper bounds when value bounds can prove them;
+/// otherwise this helper throws (since callers expect a fully-constant shape).
+SmallVector<int64_t> getConstRawFilterShape(ArrayRef<mlir::OpFoldResult> mixedRawFilterShape, mlir::Location loc);
 
 }  // namespace vpux::VPU

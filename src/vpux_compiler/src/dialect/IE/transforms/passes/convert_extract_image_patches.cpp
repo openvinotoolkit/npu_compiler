@@ -81,7 +81,7 @@ mlir::LogicalResult replaceExtractImagePatchesWithTranspose(IE::ExtractImagePatc
     // The equivalent permutation order
     log.trace("ExtractImagePatches op is replaced with a Transpose op - '{0}'", op->getLoc());
     const auto orderOutputAttr = mlir::AffineMapAttr::get(vpux::DimsOrder::NWHC.toAffineMap(ctx));
-    auto newOp = rewriter.create<IE::TransposeOp>(op.getLoc(), op.getType(), op.getData(), nullptr, orderOutputAttr);
+    auto newOp = IE::TransposeOp::create(rewriter, op.getLoc(), op.getType(), op.getData(), nullptr, orderOutputAttr);
     extendOpLoc(newOp, "as_transpose");
     rewriter.replaceAllOpUsesWith(op, newOp.getOutput());
     return mlir::success();
@@ -161,15 +161,15 @@ mlir::LogicalResult ConvertToReduceSumRewriter::matchAndRewrite(IE::ExtractImage
         // Create the array attribute containing the fused reduction axes
         mlir::MLIRContext* ctx = origOp->getContext();
         auto axesAttr = getIntArrayAttr(ctx, ArrayRef(aboveReduceSumOpAxes));
-        auto newReduceSumOp = rewriter.create<IE::ReduceSumOp>(takeOpLoc(origOp, "reduce_sum_in"),
-                                                               aboveReduceSumOp.getInput(), axesAttr, nullptr);
+        auto newReduceSumOp = IE::ReduceSumOp::create(rewriter, takeOpLoc(origOp, "reduce_sum_in"),
+                                                      aboveReduceSumOp.getInput(), axesAttr, nullptr);
         mlir::SmallVector<int64_t> unsqueezeAxis{vpux::Dims4D::Act::H.ind()};
         if (belowReduceSumOp.getKeepDims()) {
             unsqueezeAxis.push_back(belowReduceSumOpAxes[0]);
         }
         const auto unsqueezeAxesAttr = getIntArrayAttr(getContext(), unsqueezeAxis);
-        auto newUnsqueezeOp =
-                rewriter.create<IE::UnsqueezeOp>(belowReduceSumOp.getLoc(), newReduceSumOp, nullptr, unsqueezeAxesAttr);
+        auto newUnsqueezeOp = IE::UnsqueezeOp::create(rewriter, belowReduceSumOp.getLoc(), newReduceSumOp, nullptr,
+                                                      unsqueezeAxesAttr);
         rewriter.replaceAllOpUsesWith(belowReduceSumOp, newUnsqueezeOp);
         return mlir::success();
     }
@@ -275,23 +275,22 @@ mlir::LogicalResult ConvertToSliceConcatRewriter::matchAndRewrite(IE::ExtractIma
             staticOffsets[vpux::Dims4D::Act::H.ind()] = idx;
             mlir::SmallVector<int64_t> staticSizes = to_small_vector(dataShape.raw());
             staticSizes[vpux::Dims4D::Act::H.ind()] = sizesHeight;
-            auto sliceOp = rewriter.create<IE::SliceOp>(takeOpLoc(origOp, "slice_{0}", idx), origOp.getData(),
-                                                        getIntArrayAttr(ctx, staticOffsets),
-                                                        getIntArrayAttr(ctx, staticSizes));
+            auto sliceOp = IE::SliceOp::create(rewriter, takeOpLoc(origOp, "slice_{0}", idx), origOp.getData(),
+                                               getIntArrayAttr(ctx, staticOffsets), getIntArrayAttr(ctx, staticSizes));
             sliceOpValues.push_back(sliceOp.getResult());
         }
         if (suitableReshape) {
             auto newConcatOp =
-                    rewriter.create<IE::ConcatOp>(affineReshapeOp.getLoc(), sliceOpValues, vpux::Dims4D::Act::C);
+                    IE::ConcatOp::create(rewriter, affineReshapeOp.getLoc(), sliceOpValues, vpux::Dims4D::Act::C);
             rewriter.replaceAllOpUsesWith(affineReshapeOp, newConcatOp);
         } else {
-            auto concatOp = rewriter.create<IE::ConcatOp>(takeOpLoc(origOp, "out_reshape"), sliceOpValues,
-                                                          vpux::Dims4D::Act::C);
+            auto concatOp = IE::ConcatOp::create(rewriter, takeOpLoc(origOp, "out_reshape"), sliceOpValues,
+                                                 vpux::Dims4D::Act::C);
 
             const auto transposeShape = transposeOp.getType().getShape();
             const auto transposeShapeAttr = getIntArrayAttr(ctx, transposeShape);
 
-            auto newReshapeOp = rewriter.create<IE::ReshapeOp>(transposeOp.getLoc(), concatOp, transposeShapeAttr);
+            auto newReshapeOp = IE::ReshapeOp::create(rewriter, transposeOp.getLoc(), concatOp, transposeShapeAttr);
             rewriter.replaceAllOpUsesWith(transposeOp, newReshapeOp);
         }
         return mlir::success();

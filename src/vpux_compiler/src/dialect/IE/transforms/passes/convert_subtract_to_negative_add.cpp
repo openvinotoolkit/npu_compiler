@@ -66,9 +66,9 @@ IE::FakeQuantizeOp createNewFq(mlir::PatternRewriter& rewriter, mlir::Location l
     mlir::Value outHigh =
             createNegativeFqVal(rewriter, appendLoc(loc, "out_high"), initialFqOp.getOutputLow(), storageType);
 
-    return rewriter.create<IE::FakeQuantizeOp>(appendLoc(loc, "new_fq"), fqInput, inLow, inHigh, outLow, outHigh,
-                                               initialFqOp.getLevelsAttr(), initialFqOp.getLowFpTypeAttr(),
-                                               initialFqOp.getAutoBroadcastAttr());
+    return IE::FakeQuantizeOp::create(rewriter, appendLoc(loc, "new_fq"), fqInput, inLow, inHigh, outLow, outHigh,
+                                      initialFqOp.getLevelsAttr(), initialFqOp.getLowFpTypeAttr(),
+                                      initialFqOp.getAutoBroadcastAttr());
 }
 
 bool shouldConvertSubtractOp(IE::SubtractOp op) {
@@ -207,14 +207,14 @@ mlir::LogicalResult ConvertSubtractToDWConvAdd::matchAndRewrite(IE::SubtractOp s
         auto handleConstantInput = [&](auto constInputOp, mlir::Value otherInput, mlir::Value maybeFqInput) {
             const auto& constInputContent = constInputOp.getContentAttr();
             auto negativeContent = constInputContent.transform().rescale(-1.0).get();
-            mlir::Value negativeInput = rewriter.create<Const::DeclareOp>(constInputOp.getLoc(), constInputOp.getType(),
-                                                                          std::move(negativeContent));
+            mlir::Value negativeInput = Const::DeclareOp::create(rewriter, constInputOp.getLoc(),
+                                                                 constInputOp.getType(), std::move(negativeContent));
             auto fqInput = maybeFqInput.getDefiningOp<IE::FakeQuantizeOp>();
             if (fqInput != nullptr) {
                 negativeInput = createNewFq(rewriter, fqInput.getLoc(), negativeInput, fqInput).getOutput();
             }
-            auto negativeMulOp = rewriter.create<IE::MultiplyOp>(
-                    takeOpLoc(mulOp, "neg"), negativeInput, otherInput, mulOp.getAutoBroadcastAttr(),
+            auto negativeMulOp = IE::MultiplyOp::create(
+                    rewriter, takeOpLoc(mulOp, "neg"), negativeInput, otherInput, mulOp.getAutoBroadcastAttr(),
                     /*post_op=*/nullptr, /*clamp=*/nullptr, /*outputPadding=*/nullptr, /*inputPadding=*/nullptr);
             auto addOp = rewriter.replaceOpWithNewOp<IE::AddOp>(
                     subOp, input1, negativeMulOp.getOutput(), subOp.getAutoBroadcastAttr(),
@@ -249,7 +249,7 @@ mlir::LogicalResult ConvertSubtractToDWConvAdd::matchAndRewrite(IE::SubtractOp s
         }
         auto constInput1Type = mlir::cast<vpux::NDTypeInterface>(constInput1Op.getType());
         auto newInput1Type = constInput1Type.changeShape(ShapeRef(newInput1Shape));
-        biasInput = rewriter.create<Const::DeclareOp>(subOpLoc, newInput1Type, broadcastContentSetup.get());
+        biasInput = Const::DeclareOp::create(rewriter, subOpLoc, newInput1Type, broadcastContentSetup.get());
     }
 
     auto fqInput2 = input2.getDefiningOp<IE::FakeQuantizeOp>();
@@ -258,8 +258,8 @@ mlir::LogicalResult ConvertSubtractToDWConvAdd::matchAndRewrite(IE::SubtractOp s
     if (auto constInput2 = getInputConstantOp(input2)) {
         const auto& constInput2Content = constInput2.getContentAttr();
         auto negativeContent = constInput2Content.transform().rescale(-1.0).get();
-        negativeInput = rewriter.create<Const::DeclareOp>(appendLoc(subOpLoc, "neg_cst"), constInput2.getType(),
-                                                          std::move(negativeContent));
+        negativeInput = Const::DeclareOp::create(rewriter, appendLoc(subOpLoc, "neg_cst"), constInput2.getType(),
+                                                 std::move(negativeContent));
     } else {
         const auto elemType = outputType.getElementType();
         const auto inputC = input2Shape[Dims4D::Act::C];
@@ -271,9 +271,9 @@ mlir::LogicalResult ConvertSubtractToDWConvAdd::matchAndRewrite(IE::SubtractOp s
             // TODO(E#145633): FQ(-1,-1) will cause GroupConv output 3x larger than reference for unknown reason.
             auto low = Const::createFloatConst(rewriter, subOpLoc, fqArgType, -1.0f);
             auto high = Const::createFloatConst(rewriter, subOpLoc, fqArgType, 0.0f);
-            auto filterFQ = rewriter.create<IE::FakeQuantizeOp>(subOpLoc, filter, low, high, low, high,
-                                                                fqInput2.getLevelsAttr(), fqInput2.getLowFpTypeAttr(),
-                                                                fqInput2.getAutoBroadcastAttr());
+            auto filterFQ = IE::FakeQuantizeOp::create(rewriter, subOpLoc, filter, low, high, low, high,
+                                                       fqInput2.getLevelsAttr(), fqInput2.getLowFpTypeAttr(),
+                                                       fqInput2.getAutoBroadcastAttr());
             filter = filterFQ.getOutput();
         }
 
@@ -284,10 +284,10 @@ mlir::LogicalResult ConvertSubtractToDWConvAdd::matchAndRewrite(IE::SubtractOp s
         auto groupAttr = getIntAttr(rewriter, inputC);
 
         auto dwConv =
-                rewriter.create<IE::GroupConvolutionOp>(appendLoc(subOpLoc, "as_gconv"), input2, filter, biasInput,
-                                                        stridesAttr, padBeginAttr, padEndAttr, dilationsAttr, groupAttr,
-                                                        /*post_opAttr=*/nullptr, /*clampAttr=*/nullptr,
-                                                        /*outputPadding=*/nullptr, /*inputPadding=*/nullptr);
+                IE::GroupConvolutionOp::create(rewriter, appendLoc(subOpLoc, "as_gconv"), input2, filter, biasInput,
+                                               stridesAttr, padBeginAttr, padEndAttr, dilationsAttr, groupAttr,
+                                               /*post_opAttr=*/nullptr, /*clampAttr=*/nullptr,
+                                               /*outputPadding=*/nullptr, /*inputPadding=*/nullptr);
         negativeInput = dwConv.getOutput();
         if (biasInput) {
             rewriter.replaceOp(subOp, negativeInput);

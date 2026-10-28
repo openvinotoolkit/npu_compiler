@@ -78,13 +78,13 @@ TEST_P(ConversionLayerTestCommon, NPU5020_SW) {
 class ConversionLayerTest_HostCompile : public ConversionLayerTestCommon {};
 
 TEST_P(ConversionLayerTest_HostCompile, NPU4000_HC) {
-    setHostCompileMode();
+    setHostCompileMode("HostCompile");
     setPluginCompilerType();
     run(Platform::NPU4000);
 }
 
 TEST_P(ConversionLayerTest_HostCompile, NPU5010_HC) {
-    setHostCompileMode();
+    setHostCompileMode("HostCompile");
     setPluginCompilerType();
     run(Platform::NPU5010);
 }
@@ -97,13 +97,13 @@ class ConversionLayerTest_HostCompile_Interpreter : public ConversionLayerTestCo
 };
 
 TEST_P(ConversionLayerTest_HostCompile_Interpreter, NPU4000_HC) {
-    setHostCompileMode("HostCompile_Interpreter");
+    setHostCompileMode();
     setPluginCompilerType();
     run(Platform::NPU4000);
 }
 
 TEST_P(ConversionLayerTest_HostCompile_Interpreter, NPU5010_HC) {
-    setHostCompileMode("HostCompile_Interpreter");
+    setHostCompileMode();
     setPluginCompilerType();
     run(Platform::NPU5010);
 }
@@ -170,6 +170,11 @@ const auto configParamsBF16ToF16 = genParams({bf16}, {f16}, inShape);
 const auto configParamsI32ToU64 = genParams({i32}, {u64}, inShape);
 const auto configParamsF64ToI64 = genParams({f64}, {i64}, inShape);
 const auto configParamsI64ToF64 = genParams({i64}, {f64}, inShape);
+// Vectorized I64->FP16 kernel path: covers the regular shape and
+// an odd-sized shape to exercise the scalar tail/remainder handling.
+const auto configParamsI64ToF16 = genParams({i64}, {f16}, inShape);
+const auto configParamsI64ToF16Odd = genParams({i64}, {f16}, inShapeOdd);
+const auto configParamsI16ToF16 = genParams({i16}, {f16}, inShapeOdd);
 const auto configParamsU4Tiling = genParams({u4}, {f16, u8, i8}, inShapeTiling);
 const auto configParamsU2Tiling = genParams({u2}, {f16}, inShapeTiling, false);
 const auto configParamsI4Tiling = genParams({i4}, {i8, f16}, inShapeTiling);
@@ -177,11 +182,19 @@ const auto configParamsU4OddShape = genParams({u4}, {f16, u8, i8}, inShapeOdd);
 const auto configParamsNF4ToF16 = genParams({nf4}, {f16}, inShape1, false);
 const auto configParamsU16ToF16 = genParams({u16}, {f16}, inShapeOdd);
 const auto configParamsF16ToU16 = genParams({f16}, {u16}, inShapeOdd);
+const auto configParamsF16ToI16 = genParams({f16}, {i16}, inShapeOdd);
 const auto configParamsF8ToF16 = genParams({f8e4m3, f8e5m2}, {f16}, inShapeOdd, false);
 const auto configParamsF16ToF8 = genParams({f16}, {f8e4m3, f8e5m2}, inShapeOdd, false);
 const auto configParamsF32ToF16Tiling = genParams({f32}, {f16}, inShapeTiling);
 const auto configParamsF16ToU4 = genParams({f16}, {u4}, inShapeFP16To4, false);
 const auto configParamsF16ToI4 = genParams({f16}, {i4}, inShapeFP16To4, false);
+
+// convert_p02 kernel routes (NPU40XX+): FP32 <-> FP64 and FP64 <-> I32 bridges.
+// ConvertLike is excluded: the template reference backend does not handle these endpoints.
+const auto configParamsF32ToF64 = genParams({f32}, {f64}, inShape, false);
+const auto configParamsF64ToF32 = genParams({f64}, {f32}, inShape, false);
+const auto configParamsF64ToI32 = genParams({f64}, {i32}, inShape, false);
+const auto configParamsI32ToF64 = genParams({i32}, {f64}, inShape, false);
 
 const std::vector<std::vector<ov::test::InputShape>> dynamicShapes = {
         {generateTestShape(std::vector<BoundedDim>{1, 16, 2048_Dyn, 2048}, hostCompileSmallShapesLimitationCallback)},
@@ -232,10 +245,22 @@ INSTANTIATE_TEST_SUITE_P(smoke_f64_i64_Conversion, ConversionLayerTestCommon_HW,
 INSTANTIATE_TEST_SUITE_P(smoke_i64_f64_Conversion, ConversionLayerTestCommon_HW, configParamsI64ToF64,
                          ConversionLayerTest::getTestCaseName);
 
+INSTANTIATE_TEST_SUITE_P(smoke_i64_f16_Conversion, ConversionLayerTestCommon_HW, configParamsI64ToF16,
+                         ConversionLayerTest::getTestCaseName);
+
+INSTANTIATE_TEST_SUITE_P(smoke_i64_f16_odd_Conversion, ConversionLayerTestCommon_HW, configParamsI64ToF16Odd,
+                         ConversionLayerTest::getTestCaseName);
+
+INSTANTIATE_TEST_SUITE_P(smoke_i16_f16_Conversion, ConversionLayerTestCommon_HW, configParamsI16ToF16,
+                         ConversionLayerTest::getTestCaseName);
+
 INSTANTIATE_TEST_SUITE_P(smoke_u16_f16_Conversion, ConversionLayerTestCommon_HW, configParamsU16ToF16,
                          ConversionLayerTest::getTestCaseName);
 
 INSTANTIATE_TEST_SUITE_P(smoke_f16_u16_Conversion, ConversionLayerTestCommon_HW, configParamsF16ToU16,
+                         ConversionLayerTest::getTestCaseName);
+
+INSTANTIATE_TEST_SUITE_P(smoke_f16_i16_Conversion, ConversionLayerTestCommon_HW, configParamsF16ToI16,
                          ConversionLayerTest::getTestCaseName);
 
 INSTANTIATE_TEST_SUITE_P(smoke_f8_f16_Conversion, ConversionLayerTestCommon_HW, configParamsF8ToF16,
@@ -267,6 +292,12 @@ INSTANTIATE_TEST_SUITE_P(smoke_f64_i64_ShaveCodeGen_Conversion, ShaveCodeGenConv
 INSTANTIATE_TEST_SUITE_P(smoke_i64_f64_ShaveCodeGen_Conversion, ShaveCodeGenConversionLayerTest, configParamsI64ToF64,
                          ConversionLayerTest::getTestCaseName);
 
+INSTANTIATE_TEST_SUITE_P(smoke_i64_f16_ShaveCodeGen_Conversion, ShaveCodeGenConversionLayerTest, configParamsI64ToF16,
+                         ConversionLayerTest::getTestCaseName);
+
+INSTANTIATE_TEST_SUITE_P(smoke_i64_f16_odd_ShaveCodeGen_Conversion, ShaveCodeGenConversionLayerTest,
+                         configParamsI64ToF16Odd, ConversionLayerTest::getTestCaseName);
+
 // Tracking number [E#128077]
 INSTANTIATE_TEST_SUITE_P(DISABLED_TMP_smoke_precommit_u4_odd_Conversion, ConversionLayerTestCommon_HW,
                          configParamsU4OddShape, ConversionLayerTest::getTestCaseName);
@@ -291,6 +322,21 @@ INSTANTIATE_TEST_SUITE_P(smoke_precommit_u4_odd_Conversion, ConversionLayerTestC
                          ConversionLayerTest::getTestCaseName);
 
 INSTANTIATE_TEST_SUITE_P(smoke_precommit_bf16_Conversion, ConversionLayerTestCommon, configParamsBF16ToF16,
+                         ConversionLayerTest::getTestCaseName);
+
+// ------ SW: convert_p02 FP64 bridge routes (NPU40XX+) ------
+// Precommit: one representative per direction of the FP32 <-> FP64 bridge.
+INSTANTIATE_TEST_SUITE_P(smoke_precommit_f32_f64_Conversion, ConversionLayerTestCommon, configParamsF32ToF64,
+                         ConversionLayerTest::getTestCaseName);
+
+INSTANTIATE_TEST_SUITE_P(smoke_precommit_f64_f32_Conversion, ConversionLayerTestCommon, configParamsF64ToF32,
+                         ConversionLayerTest::getTestCaseName);
+
+// Extended smoke: I32 <-> FP64 bridge (less common, not critical for precommit).
+INSTANTIATE_TEST_SUITE_P(smoke_f64_i32_Conversion, ConversionLayerTestCommon, configParamsF64ToI32,
+                         ConversionLayerTest::getTestCaseName);
+
+INSTANTIATE_TEST_SUITE_P(smoke_i32_f64_Conversion, ConversionLayerTestCommon, configParamsI32ToF64,
                          ConversionLayerTest::getTestCaseName);
 
 // ------ HostCompile ------

@@ -20,7 +20,7 @@ func.func @PatchWeightTable() ->  memref<1008x1x1x4xsi32, [@CMX_NN, 0]> {
 
     %4 = VPUIP.NNDMA inputs(%weight_table_const : memref<1008x1x1x4xsi32>) outputs(%weight_table : memref<1008x1x1x4xsi32, [@CMX_NN, 0]>) -> memref<1008x1x1x4xsi32, [@CMX_NN, 0]>
 
-    %5 = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [7, 7], kernel_strides = [7, 7], task_type = #VPUIP.nce_task_type<DWCONV>}> input(%in : memref<1x1008x14x14xf16, {order = #NHWC}, [@CMX_NN, 0]>) weights(%weights : memref<1008x64x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>) weight_table(%weight_table : memref<1008x1x1x4xsi32, [@CMX_NN, 0]>) parent_input(%in : memref<1x1008x14x14xf16, {order = #NHWC}, [@CMX_NN, 0]>) parent_output(%out : memref<1x1008x2x2xf16, {order = #NHWC}, [@CMX_NN, 0]>) outputs(%out : memref<1x1008x2x2xf16, {order = #NHWC}, [@CMX_NN, 0]>) -> memref<1x1008x2x2xf16, {order = #NHWC}, [@CMX_NN, 0]> variants :  {
+    %5 = VPUIP.NCEClusterTask <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>, kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [7, 7], kernel_strides = [7, 7], task_type = #VPUIP.nce_task_type<DWCONV>}> input(%in : memref<1x1008x14x14xf16, {order = #NHWC}, [@CMX_NN, 0]>) weights(%weights : memref<1008x64x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>) weight_table(%weight_table : memref<1008x1x1x4xsi32, [@CMX_NN, 0]>) parent_input(%in : memref<1x1008x14x14xf16, {order = #NHWC}, [@CMX_NN, 0]>) parent_output(%out : memref<1x1008x2x2xf16, {order = #NHWC}, [@CMX_NN, 0]>) outputs(%out : memref<1x1008x2x2xf16, {order = #NHWC}, [@CMX_NN, 0]>) -> memref<1x1008x2x2xf16, {order = #NHWC}, [@CMX_NN, 0]> variants :  {
         DPUTask {outEnd = [1, 0, 1007], mpe_mode = #VPU.mpe_mode<VECTOR_FP16>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, outStart = [0, 0, 0]}
     } PPE :  {
     }
@@ -49,7 +49,7 @@ func.func @PatchWeightTableWeightsOnly() -> memref<256x1x1x1xsi32, [@CMX_NN, 0]>
     %in = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x16x59x227xf16, {order = #NHWC}, [@CMX_NN, 0]>
     %out = VPURT.DeclareBuffer <CMX_NN> [0] <428608> -> memref<1x64x29x113xf16, {order = #NHWC}, [@CMX_NN, 0]>
     %4 = VPUIP.NNDMA inputs(%weight_table_const : memref<256x1x1x1xsi32>) outputs(%weight_table : memref<256x1x1x1xsi32, [@CMX_NN, 0]>) -> memref<256x1x1x1xsi32, [@CMX_NN, 0]>
-    %5 = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [3, 3], kernel_strides = [2, 2], task_type = #VPUIP.nce_task_type<CONV>}> input(%in : memref<1x16x59x227xf16, {order = #NHWC}, [@CMX_NN, 0]>) weights(%weights : memref<64x16x3x3xf16, {order = #NHWC}, [@CMX_NN, 0]>) weight_table(%weight_table : memref<256x1x1x1xsi32, [@CMX_NN, 0]>) parent_input(%in : memref<1x16x59x227xf16, {order = #NHWC}, [@CMX_NN, 0]>) parent_output(%out : memref<1x64x29x113xf16, {order = #NHWC}, [@CMX_NN, 0]>) outputs(%out : memref<1x64x29x113xf16, {order = #NHWC}, [@CMX_NN, 0]>) -> memref<1x64x29x113xf16, {order = #NHWC}, [@CMX_NN, 0]> variants : {
+    %5 = VPUIP.NCEClusterTask <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>, kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [3, 3], kernel_strides = [2, 2], task_type = #VPUIP.nce_task_type<CONV>}> input(%in : memref<1x16x59x227xf16, {order = #NHWC}, [@CMX_NN, 0]>) weights(%weights : memref<64x16x3x3xf16, {order = #NHWC}, [@CMX_NN, 0]>) weight_table(%weight_table : memref<256x1x1x1xsi32, [@CMX_NN, 0]>) parent_input(%in : memref<1x16x59x227xf16, {order = #NHWC}, [@CMX_NN, 0]>) parent_output(%out : memref<1x64x29x113xf16, {order = #NHWC}, [@CMX_NN, 0]>) outputs(%out : memref<1x64x29x113xf16, {order = #NHWC}, [@CMX_NN, 0]>) -> memref<1x64x29x113xf16, {order = #NHWC}, [@CMX_NN, 0]> variants : {
       DPUTask {outEnd = [112, 4, 63], mpe_mode = #VPU.mpe_mode<VECTOR_FP16>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, outStart = [0, 0, 0]}
     } PPE :  {
     }
@@ -84,7 +84,7 @@ func.func @PatchWeightTableWithSpill() ->  memref<1x1008x2x2xf16, {order = #NHWC
     %3 = VPUIP.NNDMA inputs(%weight_table_1 : memref<1008x1x1x4xsi32, [@CMX_NN, 0]>) outputs(%weight_table_DDR : memref<1008x1x1x4xsi32, @DDR>) -> memref<1008x1x1x4xsi32, @DDR>
     %4 = VPUIP.NNDMA inputs(%weight_table_DDR : memref<1008x1x1x4xsi32, @DDR>) outputs(%weight_table_2 : memref<1008x1x1x4xsi32, [@CMX_NN, 0]>) -> memref<1008x1x1x4xsi32, [@CMX_NN, 0]>
 
-    %5 = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [7, 7], kernel_strides = [7, 7], task_type = #VPUIP.nce_task_type<DWCONV>}> input(%in : memref<1x1008x14x14xf16, {order = #NHWC}, [@CMX_NN, 0]>) weights(%weights : memref<1008x64x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>) weight_table(%weight_table_2 : memref<1008x1x1x4xsi32, [@CMX_NN, 0]>) parent_input(%in : memref<1x1008x14x14xf16, {order = #NHWC}, [@CMX_NN, 0]>) parent_output(%out : memref<1x1008x2x2xf16, {order = #NHWC}, [@CMX_NN, 0]>) outputs(%out : memref<1x1008x2x2xf16, {order = #NHWC}, [@CMX_NN, 0]>) -> memref<1x1008x2x2xf16, {order = #NHWC}, [@CMX_NN, 0]> variants :  {
+    %5 = VPUIP.NCEClusterTask <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>, kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [7, 7], kernel_strides = [7, 7], task_type = #VPUIP.nce_task_type<DWCONV>}> input(%in : memref<1x1008x14x14xf16, {order = #NHWC}, [@CMX_NN, 0]>) weights(%weights : memref<1008x64x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>) weight_table(%weight_table_2 : memref<1008x1x1x4xsi32, [@CMX_NN, 0]>) parent_input(%in : memref<1x1008x14x14xf16, {order = #NHWC}, [@CMX_NN, 0]>) parent_output(%out : memref<1x1008x2x2xf16, {order = #NHWC}, [@CMX_NN, 0]>) outputs(%out : memref<1x1008x2x2xf16, {order = #NHWC}, [@CMX_NN, 0]>) -> memref<1x1008x2x2xf16, {order = #NHWC}, [@CMX_NN, 0]> variants :  {
         DPUTask {outEnd = [1, 0, 1007], mpe_mode = #VPU.mpe_mode<VECTOR_FP16>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, outStart = [0, 0, 0]}
     } PPE :  {
     }
@@ -176,7 +176,7 @@ func.func @PatchWeightTableWithDistributedBuffers(%arg0: !Input_DDR) -> !Output_
     }
 
     VPURT.Task waits(%6 : !VPURT.Barrier) updates(%7 : !VPURT.Barrier) attributes {isTrailingSWLayer = false}  {
-        %8 = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [1, 1], kernel_strides = [1, 1], task_type = #VPUIP.nce_task_type<CONV>}> input(%buf_in : !InputDistributed) weights(%buf_W : !WeightsDistributed) weight_table(%buf_WT : !WeightsTableDistributed) parent_input(%buf_in : !InputDistributed) parent_output(%buf_out : !OutputDistributed) outputs(%buf_out : !OutputDistributed) -> !OutputDistributed variants :  {
+        %8 = VPUIP.NCEClusterTask <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>, kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [1, 1], kernel_strides = [1, 1], task_type = #VPUIP.nce_task_type<CONV>}> input(%buf_in : !InputDistributed) weights(%buf_W : !WeightsDistributed) weight_table(%buf_WT : !WeightsTableDistributed) parent_input(%buf_in : !InputDistributed) parent_output(%buf_out : !OutputDistributed) outputs(%buf_out : !OutputDistributed) -> !OutputDistributed variants :  {
           DPUTask {outEnd = [31, 15, 15], mpe_mode = #VPU.mpe_mode<VECTOR_FP16>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, outStart = [0, 0, 0]}
         } PPE :  {
         }
@@ -309,7 +309,7 @@ func.func @PatchWeightTableWithDistributedBuffersWithSpilling(%arg0: !Input_DDR)
     }
 
     VPURT.Task waits(%8 : !VPURT.Barrier) updates(%9 : !VPURT.Barrier) attributes {isTrailingSWLayer = false}  {
-        %11 = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [1, 1], kernel_strides = [1, 1], task_type = #VPUIP.nce_task_type<CONV>}> input(%buf_in : !InputDistributed) weights(%buf_W : !WeightsDistributed) weight_table(%buf_WT_2 : !WeightsTableDistributed) parent_input(%buf_in : !InputDistributed) parent_output(%buf_out : !OutputDistributed) outputs(%buf_out : !OutputDistributed) -> !OutputDistributed variants :  {
+        %11 = VPUIP.NCEClusterTask <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>, kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [1, 1], kernel_strides = [1, 1], task_type = #VPUIP.nce_task_type<CONV>}> input(%buf_in : !InputDistributed) weights(%buf_W : !WeightsDistributed) weight_table(%buf_WT_2 : !WeightsTableDistributed) parent_input(%buf_in : !InputDistributed) parent_output(%buf_out : !OutputDistributed) outputs(%buf_out : !OutputDistributed) -> !OutputDistributed variants :  {
           DPUTask {outEnd = [31, 15, 15], mpe_mode = #VPU.mpe_mode<VECTOR_FP16>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, outStart = [0, 0, 0]}
         } PPE :  {
         }
@@ -426,7 +426,7 @@ func.func @PatchWeightTableWithDistributedBufferWithSOHAndWeightsOnly() -> !Outp
 
     VPURT.Task waits(%bar0: !VPURT.Barrier) {
 
-              %1 = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
+              %1 = VPUIP.NCEClusterTask <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>,
                         kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
                         kernel_size = [1, 1],
                         kernel_strides = [1, 1],
@@ -523,7 +523,7 @@ func.func @PatchWeightTableWithDistributedBufferWithSOKAndWeightsOnly() -> !Pare
 
     VPURT.Task waits(%bar0: !VPURT.Barrier) {
 
-        %1 = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
+        %1 = VPUIP.NCEClusterTask <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>,
                     kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
                     kernel_size = [1, 1],
                     kernel_strides = [1, 1],
@@ -619,7 +619,7 @@ func.func @PatchWeightTableWithDistributedBufferWithSOH() -> !OutputDistributed 
     VPURT.Task waits(%bar0: !VPURT.Barrier) {
 
 
-        %1 = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
+        %1 = VPUIP.NCEClusterTask <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>,
                   kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
                   kernel_size = [1, 1],
                   kernel_strides = [1, 1],
@@ -716,7 +716,7 @@ func.func @PatchWeightTableWithDistributedBufferWithSOK() -> !ParentOutputDistri
 
     VPURT.Task waits(%bar0: !VPURT.Barrier) {
 
-        %1 = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
+        %1 = VPUIP.NCEClusterTask <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>,
                     kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
                     kernel_size = [1, 1],
                     kernel_strides = [1, 1],
@@ -813,7 +813,7 @@ func.func @PatchWeightTableWithDistributedBufferWithDuplicatedSegmentedWeights()
 
     VPURT.Task waits(%bar0: !VPURT.Barrier) {
 
-               %1 = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
+               %1 = VPUIP.NCEClusterTask <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>,
                          kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
                          kernel_size = [1, 1],
                          kernel_strides = [1, 1],
@@ -868,7 +868,7 @@ func.func @PatchWeightTableI4WeightsOnly() -> memref<256x1x1x1xsi32, [@CMX_NN, 0
     %in = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x16x59x227xf16, {order = #NHWC}, [@CMX_NN, 0]>
     %out = VPURT.DeclareBuffer <CMX_NN> [0] <428608> -> memref<1x64x29x113xf16, {order = #NHWC}, [@CMX_NN, 0]>
     %4 = VPUIP.NNDMA inputs(%weight_table_const : memref<256x1x1x1xsi32>) outputs(%weight_table : memref<256x1x1x1xsi32, [@CMX_NN, 0]>) -> memref<256x1x1x1xsi32, [@CMX_NN, 0]>
-    %5 = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [3, 3], kernel_strides = [2, 2], task_type = #VPUIP.nce_task_type<CONV>}>
+    %5 = VPUIP.NCEClusterTask <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>, kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [3, 3], kernel_strides = [2, 2], task_type = #VPUIP.nce_task_type<CONV>}>
         input(%in : memref<1x16x59x227xf16, {order = #NHWC}, [@CMX_NN, 0]>)
         weights(%weights : memref<64x16x3x3x!qElemType, {order = #NHWC}, [@CMX_NN, 0]>)
         weight_table(%weight_table : memref<256x1x1x1xsi32, [@CMX_NN, 0]>)
@@ -905,7 +905,7 @@ func.func @PatchWeightTableWithSubViews() -> memref<64x1x1x4xsi32> {
 
     %0 = VPUIP.SubView %weights [64, 0, 0, 0] [64, 448, 1, 1] : !VPUIP.DistributedBuffer<512x448x1x1xf16, affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>, @CMX_NN, {mode = "DUPLICATED", num_tiles = [2, 1, 1, 1], num_clusters = 2 : i64, alignment = [16, 1, 1, 1]}> to !VPUIP.DistributedBuffer<64x448x1x1xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>, strides = [448, 1, 448, 448]}, @CMX_NN, {mode = "DUPLICATED", num_tiles = [2, 1, 1, 1], num_clusters = 2 : i64, alignment = [2, 1, 1, 1]}>
     %1 = VPUIP.DistributedCast inputs(%0 : !VPUIP.DistributedBuffer<64x448x1x1xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>, strides = [448, 1, 448, 448]}, @CMX_NN, {mode = "DUPLICATED", num_tiles = [2, 1, 1, 1], num_clusters = 2 : i64, alignment = [2, 1, 1, 1]}>) -> !VPUIP.DistributedBuffer<64x448x1x1xf16, affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>, @CMX_NN, {mode = "DUPLICATED|SEGMENTED", num_tiles = [2, 1, 1, 1], num_clusters = 2 : i64, alignment = [16, 1, 1, 1]}>
-    %2 = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 716 : i64, resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [1, 1], kernel_strides = [1, 1], task_type = #VPUIP.nce_task_type<CONV>}>
+    %2 = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 716 : i64} <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>, kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [1, 1], kernel_strides = [1, 1], task_type = #VPUIP.nce_task_type<CONV>}>
         input(%in : !VPUIP.DistributedBuffer<1x448x1x1xf16, affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>, @CMX_NN, {mode = "DUPLICATED", num_clusters = 2 : i64, alignment = [1, 16, 1, 1]}>)
         weights(%1 : !VPUIP.DistributedBuffer<64x448x1x1xf16, affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>, @CMX_NN, {mode = "DUPLICATED|SEGMENTED", num_tiles = [2, 1, 1, 1], num_clusters = 2 : i64, alignment = [16, 1, 1, 1]}>)
         weight_table(%weight_table : !VPUIP.DistributedBuffer<64x1x1x4xsi32, affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>, @CMX_NN, {mode = "SEGMENTED", num_tiles = [2, 1, 1, 1], num_clusters = 2 : i64, alignment = [16, 1, 1, 1]}>)
@@ -940,7 +940,7 @@ func.func @PatchWeightTable5D() ->  memref<4x1008x1x1x4xsi32, [@CMX_NN, 0]> {
 
     %4 = VPUIP.NNDMA inputs(%weight_table_const : memref<4x1008x1x1x4xsi32>) outputs(%weight_table : memref<4x1008x1x1x4xsi32, [@CMX_NN, 0]>) -> memref<4x1008x1x1x4xsi32, [@CMX_NN, 0]>
 
-    %5 = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
+    %5 = VPUIP.NCEClusterTask <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>,
             kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
             kernel_size = [1, 1],
             kernel_strides = [1, 1],
@@ -984,7 +984,7 @@ func.func @DoNotPatchWeightTableWhenZeroOffset() ->  memref<1008x1x1x4xsi32, [@C
 
     %4 = VPUIP.NNDMA inputs(%weight_table_const : memref<1008x1x1x4xsi32>) outputs(%weight_table : memref<1008x1x1x4xsi32, [@CMX_NN, 0]>) -> memref<1008x1x1x4xsi32, [@CMX_NN, 0]>
 
-    %5 = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{is_zero_offset_weights_table, kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [7, 7], kernel_strides = [7, 7], task_type = #VPUIP.nce_task_type<DWCONV>}> input(%in : memref<1x1008x14x14xf16, {order = #NHWC}, [@CMX_NN, 0]>) weights(%weights : memref<1008x64x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>) weight_table(%weight_table : memref<1008x1x1x4xsi32, [@CMX_NN, 0]>) parent_input(%in : memref<1x1008x14x14xf16, {order = #NHWC}, [@CMX_NN, 0]>) parent_output(%out : memref<1x1008x2x2xf16, {order = #NHWC}, [@CMX_NN, 0]>) outputs(%out : memref<1x1008x2x2xf16, {order = #NHWC}, [@CMX_NN, 0]>) -> memref<1x1008x2x2xf16, {order = #NHWC}, [@CMX_NN, 0]> variants :  {
+    %5 = VPUIP.NCEClusterTask <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>, is_zero_offset_weights_table, kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [7, 7], kernel_strides = [7, 7], task_type = #VPUIP.nce_task_type<DWCONV>}> input(%in : memref<1x1008x14x14xf16, {order = #NHWC}, [@CMX_NN, 0]>) weights(%weights : memref<1008x64x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>) weight_table(%weight_table : memref<1008x1x1x4xsi32, [@CMX_NN, 0]>) parent_input(%in : memref<1x1008x14x14xf16, {order = #NHWC}, [@CMX_NN, 0]>) parent_output(%out : memref<1x1008x2x2xf16, {order = #NHWC}, [@CMX_NN, 0]>) outputs(%out : memref<1x1008x2x2xf16, {order = #NHWC}, [@CMX_NN, 0]>) -> memref<1x1008x2x2xf16, {order = #NHWC}, [@CMX_NN, 0]> variants :  {
         DPUTask {outEnd = [1, 0, 1007], mpe_mode = #VPU.mpe_mode<VECTOR_FP16>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, outStart = [0, 0, 0]}
     } PPE :  {
     }

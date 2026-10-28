@@ -55,6 +55,9 @@ struct DefaultHWOptions : public VPU::DefaultHWOptionsDialectBase, virtual vpux:
 
 void buildDefaultHWPipeline(mlir::OpPassManager& pm, const DefaultHWOptions& options, Logger log = Logger::global());
 
+void buildNCEWorkloadsPipeline(mlir::OpPassManager& pm, const VPU::NCEWorkloadsOptions& options,
+                               Logger log = Logger::global());
+
 //
 // Registration
 //

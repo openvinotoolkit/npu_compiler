@@ -108,7 +108,7 @@ mlir::LogicalResult FuseCopies::matchAndRewrite(VPUIP::ConcatViewOp origConcatOp
     SmallVector<mlir::Value> eligibleInputs;
     std::copy_if(concatInputs.begin(), concatInputs.end(), std::back_inserter(eligibleInputs), isEligible);
     if (eligibleInputs.empty()) {
-        return matchFailed(rewriter, origConcatOp, "No DDR2DDR copy to fuse. Skipping ConcatView.");
+        return matchFailed(_log, rewriter, origConcatOp, "No DDR2DDR copy to fuse. Skipping ConcatView.");
     }
     rewriter.setInsertionPoint(origConcatOp);
     for (const auto& input : eligibleInputs) {
@@ -121,7 +121,7 @@ mlir::LogicalResult FuseCopies::matchAndRewrite(VPUIP::ConcatViewOp origConcatOp
         auto distributedOpBuffs = distributedOp.getOutputBuff();
         auto distributedOpAlloc = distributedOpBuffs.getDefiningOp<mlir::memref::AllocOp>();
         auto copyOpAlloc = copyOp.getOutputBuff();
-        auto newCopy = rewriter.create<VPUIP::CopyOp>(copyOp->getLoc(), distributedOp.getInput(), copyOpAlloc);
+        auto newCopy = VPUIP::CopyOp::create(rewriter, copyOp->getLoc(), distributedOp.getInput(), copyOpAlloc);
         copyOp.replaceAllUsesWith(newCopy.getOperation());
         rewriter.eraseOp(copyOp);
 

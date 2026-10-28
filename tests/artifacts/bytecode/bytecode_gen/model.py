@@ -110,6 +110,10 @@ class OpCode(IntEnum):
     # v1.1.0
     BUFFER_LOAD = 0x51
 
+    # v1.2.0
+    BUFFER_FROM_CONST = 0x52
+    BUFFER_COPY = 0x53
+
 
 class TypeCode(IntEnum):
     """Type section identifiers."""

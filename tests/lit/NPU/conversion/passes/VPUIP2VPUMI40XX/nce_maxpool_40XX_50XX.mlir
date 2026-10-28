@@ -14,7 +14,7 @@ DataInfo "input_0" : tensor<1x64x16x16xf16>
 DataInfo "output_0" : tensor<1x64x8x8xf16>
 }
 
-func.func nested @maxpool_f16_f16(%arg0: memref<1x64x16x16xf16, {order = #NHWC}, @DDR>, %arg1: memref<1x64x8x8xf16, {order = #NHWC}, @DDR>) -> memref<1x64x8x8xf16, {order = #NHWC}, @DDR> {
+func.func @maxpool_f16_f16(%arg0: memref<1x64x16x16xf16, {order = #NHWC}, @DDR>, %arg1: memref<1x64x8x8xf16, {order = #NHWC}, @DDR>) -> memref<1x64x8x8xf16, {order = #NHWC}, @DDR> {
   %0 = VPURT.ConfigureBarrier<0> -> !VPURT.Barrier
   %1 = VPURT.ConfigureBarrier<1> -> !VPURT.Barrier
 
@@ -38,8 +38,7 @@ func.func nested @maxpool_f16_f16(%arg0: memref<1x64x16x16xf16, {order = #NHWC},
       %8 = VPUIP.NNDMA <{port = 0 : i64}> inputs(%cst : memref<64x1x1x4xsi32, {order = #NHWC}, @DDR>) outputs(%7 : memref<64x1x1x4xsi32, {order = #NHWC}, [@CMX_NN, 0]>) -> memref<64x1x1x4xsi32, {order = #NHWC}, [@CMX_NN, 0]>
   }
   VPURT.Task waits(%0 : !VPURT.Barrier) updates(%1 : !VPURT.Barrier) {
-      %8 = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>}
-     <{kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [2, 2], kernel_strides = [2, 2], task_type = #VPUIP.nce_task_type<MAXPOOL>}> input(%2 : memref<1x64x16x16xf16, {order = #NHWC}, [@CMX_NN, 0]>) weight_table(%7 : memref<64x1x1x4xsi32, {order = #NHWC}, [@CMX_NN, 0]>) parent_input(%4 : memref<1x64x16x16xf16, {order = #NHWC}, [@CMX_NN, 0]>) parent_output(%5 : memref<1x64x8x8xf16, {order = #NHWC}, [@CMX_NN, 0]>) outputs(%3 : memref<1x64x8x8xf16, {order = #NHWC}, [@CMX_NN, 0]>) -> memref<1x64x8x8xf16, {order = #NHWC}, [@CMX_NN, 0]> variants : {
+      %8 = VPUIP.NCEClusterTask <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>, kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [2, 2], kernel_strides = [2, 2], task_type = #VPUIP.nce_task_type<MAXPOOL>}> input(%2 : memref<1x64x16x16xf16, {order = #NHWC}, [@CMX_NN, 0]>) weight_table(%7 : memref<64x1x1x4xsi32, {order = #NHWC}, [@CMX_NN, 0]>) parent_input(%4 : memref<1x64x16x16xf16, {order = #NHWC}, [@CMX_NN, 0]>) parent_output(%5 : memref<1x64x8x8xf16, {order = #NHWC}, [@CMX_NN, 0]>) outputs(%3 : memref<1x64x8x8xf16, {order = #NHWC}, [@CMX_NN, 0]>) -> memref<1x64x8x8xf16, {order = #NHWC}, [@CMX_NN, 0]> variants : {
       DPUTask {inStart = [0, 0, 0], inEnd = [15, 15, 15], outEnd = [7, 7, 63], mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, outStart = [0, 0, 0]}
       } PPE : {
       PPETask {ppe = #VPU.PPEStub<>}
@@ -53,7 +52,7 @@ func.func nested @maxpool_f16_f16(%arg0: memref<1x64x16x16xf16, {order = #NHWC},
 }
 
 
-//CHECK-LABEL: func.func nested @maxpool_f16_f16
+//CHECK-LABEL: func.func @maxpool_f16_f16
 //CHECK-SAME: [[ARG_0:%[^:]+]]: memref<1x64x16x16xf16, {order = #NHWC}, @DDR>
 
 //CHECK: [[BARRIER0:%.+]] = VPUMI40XX.ConfigureBarrier <{consumer_count = 1 : ui8, producer_count = 3 : ui8}> <0, -1> -> !VPURegMapped.Index<0:0:0>
@@ -96,7 +95,7 @@ module @mainModule {
     DataInfo "output_1" : tensor<1x64x18x56xi1>
   }
 
-  func.func nested @maxpool_f16_f16_two_outputs(%arg0: memref<1x64x38x112xf16, {order = #NHWC, strides = [802816, 1, 7168, 64]}, @DDR>,
+  func.func @maxpool_f16_f16_two_outputs(%arg0: memref<1x64x38x112xf16, {order = #NHWC, strides = [802816, 1, 7168, 64]}, @DDR>,
                                      %arg1: memref<1x64x18x56xf16, {order = #NHWC, strides = [200704, 1, 3584, 64]}, @DDR>,
                                      %arg2: memref<1x64x18x56xi1, {order = #NHWC, strides = [200704, 1, 3584, 64]}, @DDR>) ->
       (memref<1x64x18x56xf16, {order = #NHWC, strides = [200704, 1, 3584, 64]}, @DDR>,
@@ -153,8 +152,7 @@ module @mainModule {
       %25 = VPUIP.NNDMA <{port = 0 : i64}> inputs(%arg0 : memref<1x64x38x112xf16, {order = #NHWC, strides = [802816, 1, 7168, 64]}, @DDR>) outputs(%0 : memref<1x64x38x112xf16, {order = #NHWC}, [@CMX_NN, 0]>) -> memref<1x64x38x112xf16, {order = #NHWC}, [@CMX_NN, 0]>
     }
     VPURT.Task waits(%bar_1 : !VPURT.Barrier) updates(%bar_2 : !VPURT.Barrier) attributes {isTrailingSWLayer = false} {
-      %25:2 = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 4294967400 : i64, resultSegmentSizes = array<i32: 1, 1, 0, 0, 0, 0>}
-     <{
+      %25:2 = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 4294967400 : i64} <{resultSegmentSizes = array<i32: 1, 1, 0, 0, 0, 0>,
         kernel_padding = #VPU.Padding<left = 1 : i64, right = 0 : i64, top = 1 : i64, bottom = 0 : i64>,
         kernel_size = [3, 3],
         kernel_strides = [2, 2],
@@ -191,8 +189,7 @@ module @mainModule {
       %25 = VPUIP.NNDMA <{port = 0 : i64}> inputs(%18 : memref<1x64x37x112xf16, {order = #NHWC, strides = [802816, 1, 7168, 64]}, @DDR>) outputs(%7 : memref<1x64x37x112xf16, {order = #NHWC}, [@CMX_NN, 0]>) -> memref<1x64x37x112xf16, {order = #NHWC}, [@CMX_NN, 0]>
     }
     VPURT.Task waits(%bar_6 : !VPURT.Barrier) updates(%bar_8, %bar_9 : !VPURT.Barrier, !VPURT.Barrier) attributes {isTrailingSWLayer = false} {
-      %25:2 = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 4294967400 : i64 , resultSegmentSizes = array<i32: 1, 1, 0, 0, 0, 0>}
-       <{
+      %25:2 = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 4294967400 : i64} <{resultSegmentSizes = array<i32: 1, 1, 0, 0, 0, 0>,
         kernel_padding = #VPU.Padding<left = 1 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
         kernel_size = [3, 3],
         kernel_strides = [2, 2],
@@ -219,8 +216,7 @@ module @mainModule {
       %25 = VPUIP.NNDMA <{port = 0 : i64}> inputs(%4 : memref<1x64x19x56xf16, {order = #NHWC}, [@CMX_NN, 0]>) outputs(%21 : memref<1x64x19x56xf16, {order = #NHWC, strides = [200704, 1, 3584, 64]}, @DDR>) -> memref<1x64x19x56xf16, {order = #NHWC, strides = [200704, 1, 3584, 64]}, @DDR>
     }
     VPURT.Task waits(%bar_9 : !VPURT.Barrier) updates(%bar_11 : !VPURT.Barrier) attributes {isTrailingSWLayer = false} {
-      %25:2 = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 4294967400 : i64, resultSegmentSizes = array<i32: 1, 1, 0, 0, 0, 0>}
-      <{
+      %25:2 = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 4294967400 : i64} <{resultSegmentSizes = array<i32: 1, 1, 0, 0, 0, 0>,
         kernel_padding = #VPU.Padding<left = 1 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
         kernel_size = [3, 3],
         kernel_strides = [2, 2],
@@ -259,7 +255,7 @@ module @mainModule {
   }
 }
 
-// CHECK: func.func nested @maxpool_f16_f16_two_outputs
+// CHECK: func.func @maxpool_f16_f16_two_outputs
 // CHECK: VPUMI40XX.ConfigureBarrier <{consumer_count = 1 : ui8, producer_count = 0 : ui8}> <15, -1> -> !VPURegMapped.Index<0:0:0>
 // CHECK: VPUMI40XX.ConfigureBarrier <{consumer_count = 1 : ui8, producer_count = 1 : ui8}> <14, -1> -> !VPURegMapped.Index<0:0:1>
 // CHECK: VPUMI40XX.ConfigureBarrier <{consumer_count = 1 : ui8, producer_count = 1 : ui8}> <12, -1> -> !VPURegMapped.Index<0:0:2>

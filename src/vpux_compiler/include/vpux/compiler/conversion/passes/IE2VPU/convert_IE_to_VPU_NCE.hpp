@@ -6,12 +6,14 @@
 #pragma once
 
 #include "vpux/compiler/dialect/IE/IR/ops/convolution.hpp"
+#include "vpux/compiler/dialect/IE/IR/ops/eltwise.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/pooling.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/specialized.hpp"
 #include "vpux/compiler/dialect/VPU/IR/attributes.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/dpu.hpp"
+#include "vpux/compiler/dialect/VPU/interfaces/strategies.hpp"
 #include "vpux/compiler/dialect/VPU/utils/const_utils.hpp"
-#include "vpux/compiler/dialect/VPU/utils/mpe_engine_utils.hpp"
+#include "vpux/compiler/dialect/VPU/utils/manual_strategy_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/ppe_version_config.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 #include "vpux/compiler/utils/walk_utils.hpp"
@@ -167,7 +169,8 @@ mlir::LogicalResult EltwiseToNCE<ConcreteOp>::matchAndRewrite(ConcreteOp origOp,
 
         Const::ContentAttr bias = nullptr;
 
-        const auto isNewWeightTableFormat = VPU::MPEEngineConfig::useNewWeightTableFormat(origOp, false);
+        const auto isNewWeightTableFormat =
+                VPU::getVPUStrategyFactory(origOp->getContext())->useNewWeightTableFormat(origOp, false);
         const auto ppeConverter = VPU::NCESparsity::getPPEConverterCb(_arch, isNewWeightTableFormat);
         const auto biasConverter = VPU::NCESparsity::getBiasConverterCb(_arch, isNewWeightTableFormat);
 
@@ -188,8 +191,8 @@ mlir::LogicalResult EltwiseToNCE<ConcreteOp>::matchAndRewrite(ConcreteOp origOp,
                 auto staticScaleEqualToOne =
                         scaleTableContent.isSplat() && isFloatEqual(scaleTableContent.getSplatValue<float>(), 1.0f);
                 if (!staticScaleEqualToOne) {
-                    scaleTensor = rewriter.create<IE::MultiplyOp>(
-                            origOp.getLoc(), scaleTensor, newWeightsTableTensors.scaleTensor,
+                    scaleTensor = IE::MultiplyOp::create(
+                            rewriter, origOp.getLoc(), scaleTensor, newWeightsTableTensors.scaleTensor,
                             IE::AutoBroadcastType::NUMPY, nullptr, nullptr, nullptr, nullptr);
                 }
             }
@@ -208,8 +211,8 @@ mlir::LogicalResult EltwiseToNCE<ConcreteOp>::matchAndRewrite(ConcreteOp origOp,
         mpeEngineAttr = mlir::cast<VPU::MPEEngineAttr>(mpeEngineInterface.getMPEEngineWithZP(input1, input2));
     }
 
-    auto nceOp = rewriter.create<VPU::NCEEltwiseOp>(
-            origOp->getLoc(), origOp.getType(), /*reduce_xy_max=*/nullptr,
+    auto nceOp = VPU::NCEEltwiseOp::create(
+            rewriter, origOp->getLoc(), origOp.getType(), /*reduce_xy_max=*/nullptr,
             /*reduce_xy_min=*/nullptr, /*reduce_tensor_min_max=*/nullptr, origOp.getInput1(), origOp.getInput2(),
             scaleTensor, biasTensor, VPU::EltwiseTypeAttr::get(this->getContext(), _opType), ppeAttr, mpeEngineAttr,
             /*multi_cluster_strategyAttr=*/nullptr,

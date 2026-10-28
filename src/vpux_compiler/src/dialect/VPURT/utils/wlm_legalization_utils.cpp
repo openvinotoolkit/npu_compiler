@@ -139,7 +139,7 @@ VPURT::DeclareVirtualBarrierOp createNewBarrier(mlir::OpBuilder& builder, Barrie
     if (insertionPoint != nullptr) {
         builder.setInsertionPointAfter(insertionPoint);
     }
-    auto newBarrierOp = builder.create<VPURT::DeclareVirtualBarrierOp>(mlir::UnknownLoc::get(builder.getContext()));
+    auto newBarrierOp = VPURT::DeclareVirtualBarrierOp::create(builder, mlir::UnknownLoc::get(builder.getContext()));
     barrierInfo.addNewBarrier(newBarrierOp);
 
     if (producer != nullptr) {

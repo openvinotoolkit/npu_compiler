@@ -1183,7 +1183,7 @@ constexpr llvm::StringLiteral DYNAMIC_QUANTIZE_IR = R"(
 module @test {
   func.func @main(%arg0: tensor<1x1x4x8xf32>, %arg1: tensor<1x1x1x1xf32>, %arg2: tensor<1x1x1x1xf32>)
       -> (tensor<1x1x4x8xui8>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xui8>) {
-    %output, %scale, %zp = VPU.DynamicQuantize(%arg0, %arg1, %arg2) {dstElemType = ui8}
+    %output, %scale, %zp = VPU.DynamicQuantize(%arg0, %arg1, %arg2) {dstElemType = ui8, operandSegmentSizes = array<i32: 1, 1, 1>}
         : tensor<1x1x4x8xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>
         -> tensor<1x1x4x8xui8>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xui8>
     return %output, %scale, %zp : tensor<1x1x4x8xui8>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xui8>
@@ -1196,7 +1196,7 @@ constexpr llvm::StringLiteral DYNAMIC_QUANTIZE_PER_TOKEN_IR = R"(
 module @test {
   func.func @main(%arg0: tensor<1x1x4x8xf32>, %arg1: tensor<1x1x4x1xf32>, %arg2: tensor<1x1x4x1xf32>)
       -> (tensor<1x1x4x8xui8>, tensor<1x1x4x1xf32>, tensor<1x1x4x1xui8>) {
-    %output, %scale, %zp = VPU.DynamicQuantize(%arg0, %arg1, %arg2) {dstElemType = ui8}
+    %output, %scale, %zp = VPU.DynamicQuantize(%arg0, %arg1, %arg2) {dstElemType = ui8, operandSegmentSizes = array<i32: 1, 1, 1>}
         : tensor<1x1x4x8xf32>, tensor<1x1x4x1xf32>, tensor<1x1x4x1xf32>
         -> tensor<1x1x4x8xui8>, tensor<1x1x4x1xf32>, tensor<1x1x4x1xui8>
     return %output, %scale, %zp : tensor<1x1x4x8xui8>, tensor<1x1x4x1xf32>, tensor<1x1x4x1xui8>

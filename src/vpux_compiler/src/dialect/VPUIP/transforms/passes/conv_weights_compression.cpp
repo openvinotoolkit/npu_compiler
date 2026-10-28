@@ -38,8 +38,9 @@ mlir::Value reduceWeightsConstant(VPUIP::NCEClusterTaskOp nceOp, VPUIP::CopyOp w
     auto newContentAttr = weightsConstOp.transformContentAttr().subview(ShapeRef(currentOffset), origShape).get();
 
     auto newConstType = mlir::cast<vpux::NDTypeInterface>(weightsConstOp.getType()).changeShape(origShape);
-    auto newWeightsConstOp = constBuilder.create<Const::DeclareOp>(
-            weightsConstOp.getLoc(), mlir::cast<mlir::MemRefType>(newConstType), std::move(newContentAttr));
+    auto newWeightsConstOp =
+            Const::DeclareOp::create(constBuilder, weightsConstOp.getLoc(), mlir::cast<mlir::MemRefType>(newConstType),
+                                     std::move(newContentAttr));
     weightsConstOp.replaceAllUsesWith(newWeightsConstOp.getOperation());
 
     constexpr int64_t requiredAlignment = 16;
@@ -104,15 +105,15 @@ mlir::Value reduceWeightsConstant(VPUIP::NCEClusterTaskOp nceOp, VPUIP::CopyOp w
             alignment = copyAllocOp.getAlignmentAttr();
         }
         mlir::Location loc = nceOp->getLoc();
-        auto allocOp = builder.create<VPURT::AllocDistributed>(loc, distrib, alignment, nullptr);
+        auto allocOp = VPURT::AllocDistributed::create(builder, loc, distrib, alignment, nullptr);
 
-        return builder.create<VPUIP::CopyOp>(loc, newWeightsConstOp.getOutput(), allocOp).getResult();
+        return VPUIP::CopyOp::create(builder, loc, newWeightsConstOp.getOutput(), allocOp).getResult();
     }
 
-    auto allocOp =
-            builder.create<mlir::memref::AllocOp>(nceOp->getLoc(), mlir::cast<mlir::MemRefType>(weightsCopyOutputType));
+    auto allocOp = mlir::memref::AllocOp::create(builder, nceOp->getLoc(),
+                                                 mlir::cast<mlir::MemRefType>(weightsCopyOutputType));
 
-    auto copyOp = builder.create<VPUIP::CopyOp>(nceOp->getLoc(), newWeightsConstOp.getOutput(), allocOp);
+    auto copyOp = VPUIP::CopyOp::create(builder, nceOp->getLoc(), newWeightsConstOp.getOutput(), allocOp);
 
     return copyOp.getOutput();
 }
@@ -137,8 +138,8 @@ mlir::Value getAdjustWeightsTable(Const::DeclareOp weightsTableConstOp, const in
     const auto dataStorageType = mlir::RankedTensorType::get(weightTableShape.raw(), elemType);
     const auto dataAttr = Const::createConstContent(dataStorageType, ArrayRef(weightsTableVals));
 
-    auto dataConstOp = constBuilder.create<Const::DeclareOp>(
-            weightsTableConstOp.getLoc(), weightsTableConstOp.getType(), Const::ContentAttr::get(dataAttr));
+    auto dataConstOp = Const::DeclareOp::create(constBuilder, weightsTableConstOp.getLoc(),
+                                                weightsTableConstOp.getType(), Const::ContentAttr::get(dataAttr));
 
     return dataConstOp;
 }
@@ -235,8 +236,8 @@ void compressConvWeights(Logger& log, VPUIP::NCEClusterTaskOp origOp) {
         } else {
             // In this case, the weights table is shared between multiple ops,
             // compressing current op should not affect the others
-            auto newWeightsTableCopy = builder.create<VPUIP::CopyOp>(weightsTableCopyOp->getLoc(), newWeightsTableConst,
-                                                                     weightsTableCopyOp.getOutputBuff());
+            auto newWeightsTableCopy = VPUIP::CopyOp::create(builder, weightsTableCopyOp->getLoc(),
+                                                             newWeightsTableConst, weightsTableCopyOp.getOutputBuff());
             weightsTableCopyOp.replaceAllUsesWith(newWeightsTableCopy.getOperation());
 
             weightsTableCopyOp.erase();
@@ -251,8 +252,8 @@ void compressConvWeights(Logger& log, VPUIP::NCEClusterTaskOp origOp) {
     const auto explicitOutputAlignment = weightsCopyDistributedType != nullptr
                                                  ? weightsCopyDistributedType.getDistribution().getAlignment()
                                                  : nullptr;
-    auto shapeCastOp = builder.create<VPUIP::ShapeCastOp>(origOp.getLoc(), weightsCopyOp, finalShapeAttr, nullptr,
-                                                          nullptr, explicitOutputAlignment);
+    auto shapeCastOp = VPUIP::ShapeCastOp::create(builder, origOp.getLoc(), weightsCopyOp, finalShapeAttr, nullptr,
+                                                  nullptr, explicitOutputAlignment);
 
     const int64_t cmSpPattern =
             paddingDoneOnlyOnC ? (static_cast<int64_t>(1) << origChannelVal) - 1

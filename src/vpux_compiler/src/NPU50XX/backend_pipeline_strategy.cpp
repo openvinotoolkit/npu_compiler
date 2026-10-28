@@ -27,8 +27,8 @@ void BackendPipelineStrategy50XX::buildELFPipeline(mlir::OpPassManager& pm, cons
 
     const auto options = parseCompilationModeParams<DefaultHWOptions50XX>(
             config.get<vpux::OV::COMPILATION_MODE_PARAMS>(), getArchKind(config));
-    VPUX_THROW_UNLESS(options != nullptr, "build ELF pipeline failed to parse COMPILATION_MODE_PARAMS: {0}",
-                      config.get<vpux::OV::COMPILATION_MODE_PARAMS>());
+    VPUX_THROW_WHEN(options == nullptr, "build ELF pipeline failed to parse COMPILATION_MODE_PARAMS: {0}",
+                    config.get<vpux::OV::COMPILATION_MODE_PARAMS>());
 
     if (config.get<vpux::OV::TURBO>()) {
         overwriteIfUnset(options->workloadManagementMode, WorkloadManagementMode::FWLM_V1_PAGES);

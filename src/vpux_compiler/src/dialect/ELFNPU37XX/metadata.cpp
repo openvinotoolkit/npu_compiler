@@ -5,7 +5,7 @@
 
 #include "vpux/compiler/dialect/ELFNPU37XX/metadata.hpp"
 #include "vpux/compiler/core/attributes/shape.hpp"
-#include "vpux/compiler/core/types/quantile_float/types.hpp"
+#include "vpux/compiler/core/types/quantile_types/types.hpp"
 #include "vpux/compiler/dialect/VPUASM/ops.hpp"
 #include "vpux/compiler/dialect/VPUIP/utils/utils.hpp"
 #include "vpux/compiler/dialect/config/IR/resources.hpp"
@@ -77,7 +77,7 @@ elf::DType ELFNPU37XX::createDType(mlir::Type type) {
         return elf::DType::DType_BIN;
     } else if (mlir::isa<mlir::quant::QuantizedType>(type)) {
         return createDType(mlir::cast<mlir::quant::QuantizedType>(type).getStorageType());
-    } else if (mlir::isa<type::QuantileType>(type)) {
+    } else if (mlir::isa<mlir::quant::QuantileType>(type)) {
         return elf::DType::DType_I4X;
     } else {
         VPUX_THROW("Unsupported element type {0}", type);
@@ -190,7 +190,7 @@ elf::OVNodeType ELFNPU37XX::createOVNodeType(mlir::Type type) {
     } else if (type.isInteger(1)) {
         // Both signed and unsigned 1-bit integers are converted to U1
         return elf::OVNodeType::OVNodeType_U1;
-    } else if (mlir::isa<type::QuantileType>(type)) {
+    } else if (mlir::isa<mlir::quant::QuantileType>(type)) {
         // 4 bit quantile float dtype
         return elf::OVNodeType::OVNodeType_NF4;
     } else {

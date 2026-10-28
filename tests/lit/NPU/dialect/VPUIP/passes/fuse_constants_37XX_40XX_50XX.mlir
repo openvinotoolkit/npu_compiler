@@ -32,7 +32,7 @@ func.func @FuseConstantsConv(%in : !Input_DDR) -> !OutputStub_CMX {
     %0 = VPUIP.Copy inputs(%weight_table : !WeightsTable_DDR) outputs(%buf2 : !WeightsTableStub_CMX) -> !WeightsTableStub_CMX
     %1 = VPUIP.Copy inputs(%in : !Input_DDR) outputs(%buf0 : !InputStub_CMX) -> !InputStub_CMX
     %2 = VPUIP.Copy inputs(%weights : !Weights_DDR) outputs(%buf3 : !WeightsStub_CMX) -> !WeightsStub_CMX
-    %3 = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
+    %3 = VPUIP.NCEClusterTask <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>,
             kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
             kernel_size = [1, 1],
             kernel_strides = [1, 1],
@@ -134,7 +134,7 @@ func.func @FuseConstantsConv(%in : !Input_DDR) -> !OutputStub_CMX {
     %0 = VPUIP.Copy inputs(%weight_table : !WeightsTable_DDR) outputs(%buf2 : !WeightsTableStub_CMX) -> !WeightsTableStub_CMX
     %1 = VPUIP.Copy inputs(%in : !Input_DDR) outputs(%buf0 : !InputStub_CMX) -> !InputStub_CMX
     %2 = VPUIP.Copy inputs(%weights : !Weights_DDR) outputs(%buf3 : !WeightsStub_CMX) -> !WeightsStub_CMX
-    %3 = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
+    %3 = VPUIP.NCEClusterTask <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>,
             kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
             kernel_size = [1, 1],
             kernel_strides = [1, 1],
@@ -232,7 +232,7 @@ func.func @FuseConstantsMaxPool(%in : !Input_DDR) -> !OutputStub_CMX {
 
     %0 = VPUIP.Copy inputs(%weight_table : !WeightsTable_DDR) outputs(%buf2 : !WeightsTableStub_CMX) -> !WeightsTableStub_CMX
     %2 = VPUIP.Copy inputs(%in : !Input_DDR) outputs(%buf0 : !InputStub_CMX) -> !InputStub_CMX
-    %3 = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
+    %3 = VPUIP.NCEClusterTask <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>,
             kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
             kernel_size = [1, 1],
             kernel_strides = [1, 1],
@@ -328,7 +328,7 @@ func.func @FuseConstantsConvSparseWeights(%in : !Input_DDR) -> !OutputStub_CMX {
     %1 = VPUIP.Copy inputs(%in : !Input_DDR) outputs(%buf0 : !InputStub_CMX) -> !InputStub_CMX
     %2 = VPUIP.Copy inputs(%weights : !Weights_DDR) outputs(%buf3 : !WeightsStub_CMX) -> !WeightsStub_CMX
     %3 = VPUIP.Copy inputs(%weights_sm : !WeightsSM_DDR) outputs(%buf4 : !WeightsSMStub_CMX) -> !WeightsSMStub_CMX
-    %4 = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
+    %4 = VPUIP.NCEClusterTask <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>,
             kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
             kernel_size = [1, 1],
             kernel_strides = [1, 1],
@@ -472,7 +472,7 @@ func.func @FuseDuplicatedConstants(%input : !Input_DDR) -> !Output_DDR
     %3 = VPUIP.Copy { out_mem_space = @CMX_NN } inputs(%weights: !Weights_DDR) outputs(%weights_cmx: !WeightsDistributed) -> !WeightsDistributed
 
 
-    %4 = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
+    %4 = VPUIP.NCEClusterTask <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>,
             kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
             kernel_size = [1, 1],
             kernel_strides = [1, 1],
@@ -589,7 +589,7 @@ func.func @FuseDuplicatedConstantsWithShapeCast(%input : !Input_DDR) -> !Output_
     %3 = VPUIP.Copy { out_mem_space = @CMX_NN } inputs(%weights: !Weights_DDR) outputs(%weights_cmx: !WeightsDistributed) -> !WeightsDistributed
 
 
-    %4 = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
+    %4 = VPUIP.NCEClusterTask <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>,
             kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
             kernel_size = [1, 1],
             kernel_strides = [1, 1],
@@ -717,7 +717,7 @@ func.func @FuseDuplicatedConstantsWithExplicitDistributedAttr(%input : !Input_DD
     %3 = VPUIP.Copy { out_mem_space = @CMX_NN } inputs(%weights: !Weights_DDR) outputs(%weights_cmx: !WeightsDistributed)
             -> !WeightsDistributed
 
-    %4 = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
+    %4 = VPUIP.NCEClusterTask <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>,
             kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
             kernel_size = [1, 1],
             kernel_strides = [1, 1],
@@ -828,7 +828,7 @@ func.func @DoNotFuseWeightsFromNonConstant(%input : !Input_0_DDR, %input1 : !Inp
         outputs(%alloc_2 : memref<80x1x1x4xsi32, [@CMX_NN, 0]>)
         -> memref<80x1x1x4xsi32, [@CMX_NN, 0]>
     %alloc_3 = memref.alloc() : memref<1x80x1x4xf16, {order = #NHWC}, [@CMX_NN, 0]>
-    %4 = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 4294967195 : i64, resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
+    %4 = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 4294967195 : i64} <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>,
             kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
             kernel_size = [1, 1],
             kernel_strides = [1, 1],
@@ -945,7 +945,7 @@ func.func @FuseSignedQuantizedWeightsMixedPrecision(%arg0: memref<1x16x16x16xf16
     %alloc_wt_table = memref.alloc() : memref<16x1x1x4xsi32, [@CMX_NN, 0]>
     %weights_table_cmx = VPUIP.Copy inputs(%weight_table : memref<16x1x1x4xsi32>) outputs(%alloc_wt_table : memref<16x1x1x4xsi32, [@CMX_NN, 0]>) -> memref<16x1x1x4xsi32, [@CMX_NN, 0]>
     %out_alloc = memref.alloc() : memref<1x16x16x16xf16, {order = #NHWC}, [@CMX_NN, 0]>
-    %out_cmx = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 4294967195 : i64, resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [1, 1], kernel_strides = [1, 1], task_type = #VPUIP.nce_task_type<CONV>}>
+    %out_cmx = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 4294967195 : i64} <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>, kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [1, 1], kernel_strides = [1, 1], task_type = #VPUIP.nce_task_type<CONV>}>
         input(%input_cmx : memref<1x16x16x16xf16, {order = #NHWC}, [@CMX_NN, 0]>)
         weights(%weights_cmx : memref<16x16x1x1x!qElemType, {order = #NHWC}, [@CMX_NN, 0]>)
         weight_table(%weights_table_cmx : memref<16x1x1x4xsi32, [@CMX_NN, 0]>)
@@ -991,7 +991,7 @@ func.func @FuseWeightsWithMajorityOfF16Type(%arg0: memref<1x16x16x16xf16, {order
     %alloc_wt_table = memref.alloc() : memref<16x1x1x4xsi32, [@CMX_NN, 0]>
     %weights_table_cmx = VPUIP.Copy inputs(%weight_table : memref<16x1x1x4xsi32>) outputs(%alloc_wt_table : memref<16x1x1x4xsi32, [@CMX_NN, 0]>) -> memref<16x1x1x4xsi32, [@CMX_NN, 0]>
     %out_alloc = memref.alloc() : memref<1x16x16x16xf16, {order = #NHWC}, [@CMX_NN, 0]>
-    %out_cmx = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 4294967195 : i64, resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [1, 1], kernel_strides = [1, 1], task_type = #VPUIP.nce_task_type<CONV>}>
+    %out_cmx = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 4294967195 : i64} <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>, kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [1, 1], kernel_strides = [1, 1], task_type = #VPUIP.nce_task_type<CONV>}>
         input(%input_cmx : memref<1x16x16x16xf16, {order = #NHWC}, [@CMX_NN, 0]>)
         weights(%weights_cmx : memref<16x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>)
         weight_table(%weights_table_cmx : memref<16x1x1x4xsi32, [@CMX_NN, 0]>)

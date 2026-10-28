@@ -6,8 +6,6 @@
 // RUN: vpux-opt --split-input-file --init-compiler="platform=%platform% compilation-mode=DefaultHW allow-custom-values=true enable-sw-kernel-fifo-per-shave-engine=true" --mlir-elide-elementsattrs-if-larger 8 --default-hw-mode-vpuip="workload-management-mode=FWLM_V1_PAGES enable-schedule-trace=true" %s | FileCheck %s
 // RUN: rm compileTimeScheduleTrace.json
 // REQUIRES: platform-NPU5010
-// UNSUPPORTED: true
-// Tracked in E#-232429: is stale after fixing REQUIRES condition
 
 #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
 
@@ -65,7 +63,7 @@ module @LogSoftmax attributes {config.platform = #config.platform<NPU5010>, conf
         // CHECK-DAG:   [[DUMMY_BUFF2:%.+]] = VPURT.DeclareBuffer <DDR> <0> -> memref<0x0x0x0xi32, @DDR>
         // CHECK-DAG:   [[DUMMY_BUFF3:%.+]] = VPURT.DeclareBuffer <DDR> <0> -> memref<0x0x0x0xi32, @DDR>
         // CHECK-DAG:   [[DUMMY_BUFF4:%.+]] = VPURT.DeclareBuffer <DDR> <0> -> memref<0x0x0x0xi32, @DDR>
-        // CHECK-DAG:   [[DUMMY_BUFF5:%.+]] = VPURT.DeclareBuffer <DDR> <0> -> memref<0x0x0x0xi32, @DDR>
+        // CHECK-DAG:   [[DUMMY_BUFF5:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<0x0x0x0xi32, [@CMX_NN, 0]>
         // CHECK-DAG:   [[OUT:%.+]] = VPURT.DeclareBuffer <NetworkOutput> [0] <0> -> memref<1x1000xf16, @DDR>
         // CHECK-DAG:   [[BUFF0:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x1x1x1000xf16, [@CMX_NN, 0]>
         // CHECK-DAG:   [[BUFF1:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <2048> -> memref<1x1x1x1000xf16, [@CMX_NN, 0]>
@@ -73,27 +71,27 @@ module @LogSoftmax attributes {config.platform = #config.platform<NPU5010>, conf
 
         // CHECK-DAG:   [[BUFF2:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <2048> -> memref<1x1000xf16, [@CMX_NN, 0]>
 
-        // CHECK:                VPURT.Task updates([[BAR0]] : !VPURT.Barrier) wlmPage(0) {
-        // CHECK-NEXT:                VPUIP.SyncDMA <{is_out_of_order, port = 0 : i64}> inputs([[DUMMY_BUFF2]] : memref<0x0x0x0xi32, @DDR>) outputs([[DUMMY_BUFF3]] : memref<0x0x0x0xi32, @DDR>)
-        // CHECK-SAME:                -> memref<0x0x0x0xi32, @DDR>
-        // CHECK-NEXT:           }
+        // CHECK:       VPURT.Task updates([[BAR0]] : !VPURT.Barrier) wlmPage(0) {
+        // CHECK-NEXT:     VPUIP.SyncDMA <{is_out_of_order, port = 0 : i64}> inputs([[DUMMY_BUFF2]] : memref<0x0x0x0xi32, @DDR>) outputs([[DUMMY_BUFF3]] : memref<0x0x0x0xi32, @DDR>)
+        // CHECK-SAME:     -> memref<0x0x0x0xi32, @DDR>
+        // CHECK-NEXT:  }
 
-        // CHECK:              VPURT.Task updates([[BAR1]] : !VPURT.Barrier) wlmPage(0) {
-        // CHECK-NEXT:            VPUIP.NNDMA <{is_out_of_order, port = 0 : i64}> inputs([[IN]] : memref<1x1x1x1000xf16, @DDR>) outputs([[BUFF0]] : memref<1x1x1x1000xf16, [@CMX_NN, 0]>)
-        // CHECK-SAME:            -> memref<1x1x1x1000xf16, [@CMX_NN, 0]>
+        // CHECK:       VPURT.Task updates([[BAR1]] : !VPURT.Barrier) wlmPage(0) {
+        // CHECK-NEXT:     VPUIP.NNDMA <{is_out_of_order, port = 0 : i64}> inputs([[IN]] : memref<1x1x1x1000xf16, @DDR>) outputs([[BUFF0]] : memref<1x1x1x1000xf16, [@CMX_NN, 0]>)
+        // CHECK-SAME:     -> memref<1x1x1x1000xf16, [@CMX_NN, 0]>
+        // CHECK-NEXT:  }
+
+        // CHECK:      VPURT.Task waits([[BAR1]] : !VPURT.Barrier) updates([[BAR2]] : !VPURT.Barrier) wlmPage(0) {
+        // CHECK-NEXT:    VPUIP.SW.Kernel {resultSegmentSizes = array<i32: 1, 0, 0>} @VPU.SW::@builtin_LogSoftmax inputs([[BUFF0]] as {{[^:]+}}: memref<1x1x1x1000xf16, [@CMX_NN, 0]>) outputs([[BUFF1]] as {{[^:]+}}: memref<1x1x1x1000xf16, [@CMX_NN, 0]>)
+        // CHECK-SAME:    on tile 0 list 0 -> memref<1x1x1x1000xf16, [@CMX_NN, 0]>{
+        // CHECK-NEXT:    VPUIP.SW.Kernel.run {attrs = {{\[\[}}0, 12884901889, 4294967297000, 4294967297, 4294967297, 4294967297000, 4294967297, 4294967297000{{\]\]}}}({{[^:]+}}, {{[^:]+}}) : memref<1x1x1x1000xf16, [@CMX_NN, 0]>, memref<1x1x1x1000xf16, [@CMX_NN, 0]>
         // CHECK-NEXT:    }
+        // CHECK-NEXT: }
 
-        // CHECK:        VPURT.Task waits([[BAR1]] : !VPURT.Barrier) updates([[BAR2]] : !VPURT.Barrier) wlmPage(0) {
-        // CHECK-NEXT:      VPUIP.SW.Kernel {resultSegmentSizes = array<i32: 1, 0, 0>} @VPU.SW::@builtin_LogSoftmax inputs([[BUFF0]] as {{[^:]+}}: memref<1x1x1x1000xf16, [@CMX_NN, 0]>) outputs([[BUFF1]] as {{[^:]+}}: memref<1x1x1x1000xf16, [@CMX_NN, 0]>)
-        // CHECK-SAME:      on tile 0 list 0 -> memref<1x1x1x1000xf16, [@CMX_NN, 0]>{
-        // CHECK-NEXT:       VPUIP.SW.Kernel.run {attrs = {{\[\[}}0, 12884901889, 4294967297000, 4294967297, 4294967297, 4294967297000, 4294967297, 4294967297000{{\]\]}}}({{[^:]+}}, {{[^:]+}}) : memref<1x1x1x1000xf16, [@CMX_NN, 0]>, memref<1x1x1x1000xf16, [@CMX_NN, 0]>
-        // CHECK-NEXT:      }
-        // CHECK-NEXT:    }
-
-        // CHECK:       VPURT.Task waits([[BAR2]] : !VPURT.Barrier) updates([[BAR3]] : !VPURT.Barrier) wlmPage(0) {
+        // CHECK:      VPURT.Task waits([[BAR2]] : !VPURT.Barrier) updates([[BAR3]] : !VPURT.Barrier) wlmPage(0) {
         // CHECK-NEXT:    VPUIP.NNDMA <{port = 0 : i64}> inputs([[BUFF2]] : memref<1x1000xf16, [@CMX_NN, 0]>) outputs([[OUT]] : memref<1x1000xf16, @DDR>)
         // CHECK-SAME:    -> memref<1x1000xf16, @DDR>
-        // CHECK-NEXT:  }
+        // CHECK-NEXT: }
 
         // CHECK-NEXT: return [[ARG1]] : memref<1x1000xf16, @DDR>
         }

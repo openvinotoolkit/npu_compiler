@@ -137,8 +137,8 @@ mlir::LogicalResult InnermostConcatOptimizer::matchAndRewrite(IE::ConcatOp origO
     for (size_t i = 0; i < numInputs; ++i) {
         // Swap MemDim(3) to MemDim(1)
         auto perm = DimsOrder::NWCH.toAffineMap(ctx);
-        auto inputPermuteCast = rewriter.create<IE::PermuteCastOp>(
-                appendLoc(origOp.getLoc(), "input{0}_swap_inner_dim", i), inputs[i],
+        auto inputPermuteCast = IE::PermuteCastOp::create(
+                rewriter, appendLoc(origOp.getLoc(), "input{0}_swap_inner_dim", i), inputs[i],
                 mlir::AffineMapAttr::get(DimsOrder::NCHW.toAffineMap(ctx)), mlir::AffineMapAttr::get(perm));
 
         permuteCastInputs.push_back(inputPermuteCast.getOutput());
@@ -158,10 +158,10 @@ mlir::LogicalResult InnermostConcatOptimizer::matchAndRewrite(IE::ConcatOp origO
                                               firstReshapedShape[Dim(2)], firstReshapedShape[Dim(3)]};
     auto concatOutputType =
             mlir::cast<vpux::NDTypeInterface>(permuteCastInputs[0].getType()).changeShape(ShapeRef(concatOutputShape));
-    auto newConcatOp = rewriter.create<IE::ConcatOp>(appendLoc(origOp.getLoc(), "optimized_concat"), concatOutputType,
-                                                     permuteCastInputs,
-                                                     nullptr,  // per_axis
-                                                     getIntArrayOfArray(ctx, newOffsets));
+    auto newConcatOp = IE::ConcatOp::create(rewriter, appendLoc(origOp.getLoc(), "optimized_concat"), concatOutputType,
+                                            permuteCastInputs,
+                                            nullptr,  // per_axis
+                                            getIntArrayOfArray(ctx, newOffsets));
 
     // Step 3: Apply MemPermute to move channel dimension to last position
     // Permutation: [0, 2, 3, 1] to get [dim0, dim2, dim3, numInputs]
@@ -175,8 +175,8 @@ mlir::LogicalResult InnermostConcatOptimizer::matchAndRewrite(IE::ConcatOp origO
     auto memPermuteOutputType =
             concatOutputType.changeShape(memPermuteOutputShapeLogicalOrder).changeDimsOrder(origOutputOrder);
 
-    auto memPermuteOp = rewriter.create<IE::MemPermuteOp>(
-            appendLoc(origOp.getLoc(), "mem_permute"), memPermuteOutputType, newConcatOp.getOutput(),
+    auto memPermuteOp = IE::MemPermuteOp::create(
+            rewriter, appendLoc(origOp.getLoc(), "mem_permute"), memPermuteOutputType, newConcatOp.getOutput(),
             mlir::AffineMapAttr::get(origOutputOrder.toAffineMap(ctx)), mlir::AffineMapAttr::get(permutationMap));
 
     _log.trace("Successfully optimized innermost concat at {0}", origOp.getLoc());

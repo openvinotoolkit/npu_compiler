@@ -20,7 +20,7 @@ func.func @ConvToDistributedOpSOHOverlapped(%arg0: tensor<1x64x28x28xf16, {order
         multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
         pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
         ppe = #VPU.PPEStub<>,
-        
+
         strides = [1, 1]}
       : tensor<1x64x28x28xf16, {order = #NHWC}>, tensor<80x64x3x3xf16, {order = #NHWC}>, tensor<80x1x1x4xsi32> -> tensor<1x80x28x28xf16, {order = #NHWC}>
     return %0 : tensor<1x80x28x28xf16, {order = #NHWC}>
@@ -248,6 +248,70 @@ func.func @MatMulToDistributedOpSOG6Clusters(%arg0:  tensor<8x1x32x64x1xf16, {or
     // CHECK:               [[COPY_OUT:%.+]] = VPU.Copy([[MATMUL_OUT]]
 
     // CHECK: return [[COPY_OUT]] : tensor<8x1x64x64x1xf16, {order = #GNHWC}>
+}
+
+}
+
+// -----
+
+#GNHWC = affine_map<(d0, d1, d2, d3, d4) -> (d0, d1, d3, d4, d2)>
+
+module @executors {
+config.Resources 4 of @NCE at 1.700000e+03 MHz
+
+// Shared weight table (G=1) is DUPLICATED across all clusters instead of SEGMENTED per group.
+// CHECK-LABEL: @MatMulSharedWeightTableToDistributedOpSOG
+// CHECK-SAME:    [[FUNC_INPUT1:%.+]]:  tensor<4x1x32x64x1xf16, {order = #GNHWC}>
+// CHECK-SAME:    [[FUNC_INPUT2:%.+]]:  tensor<4x64x32x1x1xf16, {order = #GNHWC}>
+func.func @MatMulSharedWeightTableToDistributedOpSOG(%arg0: tensor<4x1x32x64x1xf16, {order = #GNHWC}>, %arg1: tensor<4x64x32x1x1xf16, {order = #GNHWC}>)
+    -> tensor<4x1x64x64x1xf16, {order = #GNHWC}> {
+    %cst = const.Declare tensor<1x64x1x1x4xsi32> = dense<1> : tensor<1x64x1x1x4xsi32>
+    // CHECK:   [[IN_WT_CONST:%.+]] = const.Declare tensor<1x64x1x1x4xsi32> = dense<1> : tensor<1x64x1x1x4xsi32>
+
+    %0 = VPU.NCE.MatMul(%arg0, %arg1, %cst) rawFilterShape [4, 1, 64, 32, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
+        multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverGroup>,
+        pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
+        ppe = #VPU.PPEStub<>,
+        strides = [1, 1]
+    } -> tensor<4x1x64x64x1xf16, {order = #GNHWC}>
+
+    return %0 : tensor<4x1x64x64x1xf16, {order = #GNHWC}>
+
+    // CHECK:               [[IN1:%.+]] = VPU.Copy([[FUNC_INPUT1]]
+    // CHECK-SAME:          -> !VPU.DistributedTensor<4x1x32x64x1xf16, #GNHWC, @CMX_NN, {mode = "SEGMENTED", num_tiles = [4, 1, 1, 1, 1], num_clusters = 4 : i64, uniform_distributed_segments,
+    // CHECK-SAME{LITERAL}:            compute_shapes = [[1, 1, 32, 64, 1], [1, 1, 32, 64, 1], [1, 1, 32, 64, 1], [1, 1, 32, 64, 1]],
+    // CHECK-SAME{LITERAL}:            compute_offsets = [[0, 0, 0, 0, 0], [1, 0, 0, 0, 0], [2, 0, 0, 0, 0], [3, 0, 0, 0, 0]],
+    // CHECK-SAME{LITERAL}:            memory_shapes = [[1, 1, 32, 64, 1], [1, 1, 32, 64, 1], [1, 1, 32, 64, 1], [1, 1, 32, 64, 1]],
+    // CHECK-SAME{LITERAL}:            memory_offsets = [[0, 0, 0, 0, 0], [1, 0, 0, 0, 0], [2, 0, 0, 0, 0], [3, 0, 0, 0, 0]]}>
+
+    // CHECK:               [[IN2:%.+]] = VPU.Copy([[FUNC_INPUT2]]
+    // CHECK-SAME:          -> !VPU.DistributedTensor<4x64x32x1x1xf16, #GNHWC, @CMX_NN, {mode = "SEGMENTED", num_tiles = [4, 1, 1, 1, 1], num_clusters = 4 : i64, uniform_distributed_segments,
+    // CHECK-SAME{LITERAL}:            compute_shapes = [[1, 64, 32, 1, 1], [1, 64, 32, 1, 1], [1, 64, 32, 1, 1], [1, 64, 32, 1, 1]],
+    // CHECK-SAME{LITERAL}:            compute_offsets = [[0, 0, 0, 0, 0], [1, 0, 0, 0, 0], [2, 0, 0, 0, 0], [3, 0, 0, 0, 0]],
+    // CHECK-SAME{LITERAL}:            memory_shapes = [[1, 64, 32, 1, 1], [1, 64, 32, 1, 1], [1, 64, 32, 1, 1], [1, 64, 32, 1, 1]],
+    // CHECK-SAME{LITERAL}:            memory_offsets = [[0, 0, 0, 0, 0], [1, 0, 0, 0, 0], [2, 0, 0, 0, 0], [3, 0, 0, 0, 0]]}>
+
+    // Weight table with G=1 must be DUPLICATED (not SEGMENTED) across all clusters.
+    // CHECK:               [[IN_WT:%.+]] = VPU.Copy([[IN_WT_CONST]]
+    // CHECK-SAME:          -> !VPU.DistributedTensor<1x64x1x1x4xsi32, #NCDHW, @CMX_NN, {mode = "DUPLICATED", num_clusters = 4 : i64, uniform_distributed_segments,
+    // CHECK-SAME{LITERAL}:            compute_shapes = [[1, 64, 1, 1, 4], [1, 64, 1, 1, 4], [1, 64, 1, 1, 4], [1, 64, 1, 1, 4]],
+    // CHECK-SAME{LITERAL}:            compute_offsets = [[0, 0, 0, 0, 0], [0, 0, 0, 0, 0], [0, 0, 0, 0, 0], [0, 0, 0, 0, 0]],
+    // CHECK-SAME{LITERAL}:            memory_shapes = [[1, 64, 1, 1, 4], [1, 64, 1, 1, 4], [1, 64, 1, 1, 4], [1, 64, 1, 1, 4]],
+    // CHECK-SAME{LITERAL}:            memory_offsets = [[0, 0, 0, 0, 0], [0, 0, 0, 0, 0], [0, 0, 0, 0, 0], [0, 0, 0, 0, 0]]}>
+
+    // CHECK:               [[MATMUL_OUT:%.+]] = VPU.NCE.MatMul
+    // CHECK-SAME:                        [[IN1]]
+    // CHECK-SAME:                        [[IN2]]
+    // CHECK-SAME:                        [[IN_WT]]
+    // CHECK-SAME:          -> !VPU.DistributedTensor<4x1x64x64x1xf16, #GNHWC, @CMX_NN, {mode = "SEGMENTED", num_tiles = [4, 1, 1, 1, 1], num_clusters = 4 : i64, uniform_distributed_segments,
+    // CHECK-SAME{LITERAL}:            compute_shapes = [[1, 1, 64, 64, 1], [1, 1, 64, 64, 1], [1, 1, 64, 64, 1], [1, 1, 64, 64, 1]],
+    // CHECK-SAME{LITERAL}:            compute_offsets = [[0, 0, 0, 0, 0], [1, 0, 0, 0, 0], [2, 0, 0, 0, 0], [3, 0, 0, 0, 0]],
+    // CHECK-SAME{LITERAL}:            memory_shapes = [[1, 1, 64, 64, 1], [1, 1, 64, 64, 1], [1, 1, 64, 64, 1], [1, 1, 64, 64, 1]],
+    // CHECK-SAME{LITERAL}:            memory_offsets = [[0, 0, 0, 0, 0], [1, 0, 0, 0, 0], [2, 0, 0, 0, 0], [3, 0, 0, 0, 0]]}>
+
+    // CHECK:               [[COPY_OUT:%.+]] = VPU.Copy([[MATMUL_OUT]]
+
+    // CHECK: return [[COPY_OUT]] : tensor<4x1x64x64x1xf16, {order = #GNHWC}>
 }
 
 }

@@ -33,7 +33,7 @@ func.func @SparseConvWeights(%arg0: memref<1x16x64x64xf16, {order = #NHWC}>, %ar
         -> memref<32x16x3x3xf16, {order = #NHWC}, @CMX_NN>, memref<32x1x1x256xi1, @CMX_NN>
 
     %output_cmx = memref.alloc() : memref<1x32x64x64xf16, {order = #NHWC}, @CMX_NN>
-    %conv_out = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
+    %conv_out = VPUIP.NCEClusterTask <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>,
             kernel_padding = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
             kernel_size = [3, 3],
             kernel_strides = [1, 1],
@@ -139,7 +139,7 @@ func.func @SparseConvWeightsDistributed(%arg0: !IODistributed) -> !IODistributed
     %weights_data, %weights_sm = VPUIP.UngroupSparseBuffer(%weights) {resultSegmentSizes = array<i32: 1, 1, 0>}
         -> !WeightsDistributed, !WeightsSMDistributed
 
-    %output = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
+    %output = VPUIP.NCEClusterTask <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>,
         kernel_padding = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
         kernel_size = [3, 3],
         kernel_strides = [1, 1],

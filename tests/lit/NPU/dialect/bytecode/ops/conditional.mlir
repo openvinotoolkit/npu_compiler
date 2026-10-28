@@ -8,7 +8,7 @@
 
 bytecode.func_section @function_section {
     bytecode.ext.func @select (i64, i64, i64) -> () {
-        %dst = bytecode.virtual_general_register
+        %dst = bytecode.virtual_value_register
         %cond = bytecode.virtual_parameter_register 0
         %trueVal = bytecode.virtual_parameter_register 1
         %falseVal = bytecode.virtual_parameter_register 2
@@ -18,7 +18,7 @@ bytecode.func_section @function_section {
 }
 
 // CHECK-LABEL: bytecode.ext.func @select
-// CHECK:         [[DST:%.+]] = bytecode.virtual_general_register
+// CHECK:         [[DST:%.+]] = bytecode.virtual_value_register
 // CHECK:         [[COND:%.+]] = bytecode.virtual_parameter_register 0
 // CHECK:         [[TRUE:%.+]] = bytecode.virtual_parameter_register 1
 // CHECK:         [[FALSE:%.+]] = bytecode.virtual_parameter_register 2

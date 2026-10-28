@@ -232,7 +232,7 @@ void MathExpression::parse(StringRef expression) {
                 tokenStack.pop();
             }
 
-            VPUX_THROW_UNLESS(!tokenStack.empty(), "Mismatched parentheses in '{0}'", expression);
+            VPUX_THROW_WHEN(tokenStack.empty(), "Mismatched parentheses in '{0}'", expression);
             tokenStack.pop();
 
             leftPart = leftPart.drop_front();
@@ -243,7 +243,7 @@ void MathExpression::parse(StringRef expression) {
     }
 
     while (!tokenStack.empty()) {
-        VPUX_THROW_UNLESS(tokenStack.top() != "(", "Mismatched parentheses in '{0}'", expression);
+        VPUX_THROW_WHEN(tokenStack.top() == "(", "Mismatched parentheses in '{0}'", expression);
 
         const auto tokenType = isOperator(tokenStack.top()[0]) ? TokenType::Operator : TokenType::Function;
         _tokens.emplace_back(tokenType, IntOrFloat(0), tokenStack.top());
@@ -275,7 +275,7 @@ IntOrFloat MathExpression::evaluate() const {
         }
 
         case TokenType::Function: {
-            VPUX_THROW_UNLESS(!values.empty(), "Illegal expression: not enough values for function evaluation");
+            VPUX_THROW_WHEN(values.empty(), "Illegal expression: not enough values for function evaluation");
 
             const auto val1 = values.top();
             values.pop();

@@ -25,11 +25,10 @@ func.func @RemoveQuantDequantSequence(%arg0: tensor<1x3x16x16xf16>) -> (tensor<1
 
   return %6, %4 : tensor<1x3x14x14xf16>, tensor<1x3x14x14xf16>
 
-  // CHECK: [[VAL1:%.+]] = IE.Quantize([[ARG_0]]) {dstElemType = !qElemType} : tensor<1x3x16x16xf16> -> tensor<1x3x16x16x!qElemType>
-  // CHECK-DAG: [[WEIGHTS:%.+]] = const.Declare tensor<3x3x3x3x!qElemType1> =
+  // CHECK-DAG: [[WEIGHTS:%.+]] = const.Declare tensor<3x3x3x3x!qElemType> =
   // CHECK-SAME:                 dense<1.000000e+00> : tensor<3x3x3x3xf16>,
-  // CHECK-SAME:                 [#const.CastElemType<ui8>, #const.CastElemType<!qElemType1>]
-  // CHECK: [[VAL2:%.+]] = IE.Dequantize([[WEIGHTS]]) {dstElemType = f16} : tensor<3x3x3x3x!qElemType1> -> tensor<3x3x3x3xf16>
+  // CHECK-SAME:                 [#const.CastElemType<ui8>, #const.CastElemType<!qElemType>]
+  // CHECK: [[VAL2:%.+]] = IE.Dequantize([[WEIGHTS]]) {dstElemType = f16} : tensor<3x3x3x3x!qElemType> -> tensor<3x3x3x3xf16>
 
   // CHECK: [[VAL3:%.+]] = IE.Convolution([[ARG_0]], [[VAL2]]) {dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]} : tensor<1x3x16x16xf16>, tensor<3x3x3x3xf16> -> tensor<1x3x14x14xf16>
   // CHECK: return [[VAL3]], [[VAL3]]

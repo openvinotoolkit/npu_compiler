@@ -50,7 +50,7 @@ void convertExtAssertOp(bytecode::ExtAssertOp extAssertOp, bytecode::SectionBuil
     // Replace the original ExtAssertOp with AssertOp, which uses the string from the string section
     mlir::OpBuilder builder(extAssertOp);
     builder.setInsertionPoint(extAssertOp);
-    auto assertOp = builder.create<bytecode::AssertOp>(extAssertOp.getLoc(), extAssertOp.getCondition(), stringSym);
+    auto assertOp = bytecode::AssertOp::create(builder, extAssertOp.getLoc(), extAssertOp.getCondition(), stringSym);
     extAssertOp->replaceAllUsesWith(assertOp->getResults());
     extAssertOp.erase();
 }
@@ -85,7 +85,7 @@ void convertExtBufferCreateOp(bytecode::ExtBufferCreateOp extOp, bytecode::Secti
     auto memrefType = extOp.getBufferType();
     auto loc = extOp.getLoc();
 
-    auto elementSym = sections.getCachedTypeSymName(memrefType.getElementType());
+    auto elementSym = sections.getCachedTypeSymName(memrefType.getElementType(), loc);
     auto* ctx = extOp.getContext();
     auto elemTypeRef =
             mlir::SymbolRefAttr::get(ctx, bytecode::TYPE_SECTION_NAME, {mlir::FlatSymbolRefAttr::get(elementSym)});
@@ -131,7 +131,7 @@ void convertExtBufferViewOp(bytecode::ExtBufferViewOp extOp, bytecode::SectionBu
     auto loc = extOp.getLoc();
     auto elemType = extOp.getElemType();
 
-    auto elemSym = sections.getCachedTypeSymName(elemType);
+    auto elemSym = sections.getCachedTypeSymName(elemType, loc);
     auto* ctx = extOp.getContext();
     auto symRef = mlir::SymbolRefAttr::get(ctx, bytecode::TYPE_SECTION_NAME, {mlir::FlatSymbolRefAttr::get(elemSym)});
 

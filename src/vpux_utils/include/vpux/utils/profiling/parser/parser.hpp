@@ -35,7 +35,6 @@ struct RawProfilingData {
     RawProfilingRecords dmaTasks;
     RawProfilingRecords dpuTasks;
     RawProfilingRecords swTasks;
-    RawProfilingRecords m2iTasks;
     // Pair of workpoint and offset
     WorkpointRecords workpoints;
     // Vector of [ExecutorType; offset in blob(bytes)]

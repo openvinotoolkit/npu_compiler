@@ -156,6 +156,7 @@ TEST_P(FuseDQTestCommon, NPU5010_HW) {
     setDefaultHardwareMode();
     run(Platform::NPU5010);
 }
+
 TEST_P(FuseDQTestCommon, NPU5020_HW) {
     setDefaultHardwareMode();
     run(Platform::NPU5020);
@@ -287,6 +288,7 @@ TEST_P(FuseDQSignedTestCommon, NPU5010_HW) {
     setDefaultHardwareMode();
     run(Platform::NPU5010);
 }
+
 TEST_P(FuseDQSignedTestCommon, NPU5020_HW) {
     setDefaultHardwareMode();
     run(Platform::NPU5020);

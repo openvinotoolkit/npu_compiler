@@ -52,8 +52,8 @@ mlir::LogicalResult AdjustLSTMCellInputs::matchAndRewrite(VPU::LSTMCellOp lstmCe
     auto recurrenceWeights = lstmCellOp.getRecurrenceWeights().getDefiningOp<Const::DeclareOp>();
     auto biases = lstmCellOp.getBiases().getDefiningOp<Const::DeclareOp>();
 
-    VPUX_THROW_UNLESS(weights != nullptr && recurrenceWeights != nullptr && biases != nullptr,
-                      "Only constant weights are supported for LSTMCell");
+    VPUX_THROW_WHEN(weights == nullptr || recurrenceWeights == nullptr || biases == nullptr,
+                    "Only constant weights are supported for LSTMCell");
 
     const auto weightsShape = getShape(weights).raw();
     const auto recurrenceWeightsShape = getShape(recurrenceWeights).raw();
@@ -83,12 +83,13 @@ mlir::LogicalResult AdjustLSTMCellInputs::matchAndRewrite(VPU::LSTMCellOp lstmCe
                                                .get();
     auto newBiasesConent = biases.getContentAttr().transform().reshape(newBiasesShape).reorder(newBiasesOrder).get();
 
-    auto newWeightsOp = rewriter.create<Const::DeclareOp>(weights.getLoc(), newWeightsContent.getType(),
-                                                          std::move(newWeightsContent));
-    auto newRecurrenceWeightsOp = rewriter.create<Const::DeclareOp>(
-            recurrenceWeights.getLoc(), newRecurrenceWeightsContent.getType(), std::move(newRecurrenceWeightsContent));
+    auto newWeightsOp = Const::DeclareOp::create(rewriter, weights.getLoc(), newWeightsContent.getType(),
+                                                 std::move(newWeightsContent));
+    auto newRecurrenceWeightsOp =
+            Const::DeclareOp::create(rewriter, recurrenceWeights.getLoc(), newRecurrenceWeightsContent.getType(),
+                                     std::move(newRecurrenceWeightsContent));
     auto newBiasesMemPermOp =
-            rewriter.create<Const::DeclareOp>(biases.getLoc(), newBiasesConent.getType(), std::move(newBiasesConent));
+            Const::DeclareOp::create(rewriter, biases.getLoc(), newBiasesConent.getType(), std::move(newBiasesConent));
 
     rewriter.replaceOpWithNewOp<VPU::LSTMCellOp>(
             lstmCellOp, lstmCellOp.getInputData(), lstmCellOp.getInitialHiddenState(), lstmCellOp.getInitialCellState(),

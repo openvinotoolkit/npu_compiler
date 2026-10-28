@@ -2344,7 +2344,7 @@ TEST_F(MLIR_NDTypeInterface, SubByteVerifyByteAligned) {
         // Verify that DistributedTensorType::verify succeeds for a subbyte (si4) SEGMENTED type
         // when all per-cluster memory offsets are byte-aligned.
         //
-        // Shape [1, 1, 5, 1] in NHWC, si4 (4 bits). SEGMENTED over C with 2 tiles, with alignment [1, 1, 2, 1]
+        // Shape [1, 1, 5, 1] in NHWC, si4 (4 bits). SEGMENTED over H with 2 tiles, with alignment [1, 1, 2, 1]
         // Cluster 1 offset = [0, 0, 4, 0]: bit offset = 4 * 4bits = 16 bits. 16 % 8 == 0, byte-aligned.
         const auto distributionMode = VPU::DistributionModeAttr::get(&ctx, VPU::DistributionMode::SEGMENTED);
         const auto numTiles = getIntArrayAttr(&ctx, SmallVector<int64_t>({1, 1, 2, 1}));
@@ -2366,7 +2366,7 @@ TEST_F(MLIR_NDTypeInterface, SubByteVerifyByteAligned) {
         // Verify that DistributedTensorType::verify succeeds for a subbyte (si4) SEGMENTED type
         // when all per-cluster memory offsets are byte-aligned.
         //
-        // Shape [1, 1, 7, 1] in NHWC, si4 (4 bits). SEGMENTED over C with 2 tiles
+        // Shape [1, 1, 7, 1] in NHWC, si4 (4 bits). SEGMENTED over H with 2 tiles
         // Cluster 1 offset = [0, 0, 4, 0]: bit offset = 4 * 4bits = 16 bits. 16 % 8 == 0, byte-aligned.
         const auto distributionMode = VPU::DistributionModeAttr::get(&ctx, VPU::DistributionMode::SEGMENTED);
         const auto numTiles = getIntArrayAttr(&ctx, SmallVector<int64_t>({1, 1, 2, 1}));

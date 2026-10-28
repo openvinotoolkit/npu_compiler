@@ -5,6 +5,7 @@
 
 #include "vpux/compiler/core/attributes/shape.hpp"
 #include "vpux/compiler/core/attributes/stride_reqs.hpp"
+#include "vpux/compiler/dialect/VPU/utils/distributed_tensor_utils.hpp"
 #include "vpux/compiler/dialect/VPUIP/IR/types.hpp"
 #include "vpux/compiler/dialect/VPUIP/utils/swizzling_utils.hpp"
 #include "vpux/compiler/dialect/core/IR/memref_attr.hpp"
@@ -448,59 +449,13 @@ mlir::LogicalResult VPUIP::DistributedBufferType::verify(FuncRef<mlir::InFlightD
         }
     }
 
-    // duplicated mode has the same offset in full tensor for all clusters; allocation should ensure it's byte aligned.
-    // non-subbyte types always have byte-aligned element offsets (element_size >= 8 bits); only subbyte types require
-    // the per-cluster offset byte-alignment check below.
-    // 1-bit element type is used in sparsity maps, which do not need the same restrictions; skipping check
-    const auto elemTypeSize = vpux::getElemTypeSize(elementType).count();
-    auto subbyteNotI1 = elemTypeSize < CHAR_BIT && elemTypeSize > 1;
-    if (!subbyteNotI1 || distribution.getMode().getValue() == VPU::DistributionMode::DUPLICATED) {
-        return mlir::success();
-    }
-
     const auto candidateShape = Shape(shape);
     const auto dimsOrder = retrieveDimsOrder(layout);
     const auto memStrides = retrieveMemStrides(layout, vpux::getElemTypeSize(elementType), dimsOrder,
                                                dimsOrder.toMemoryOrder(candidateShape));
 
-    auto checkPerClusterByteAlignment = [&](ArrayRef<Shape> offsets) {
-        for (const auto& clusterOff : offsets) {
-            auto offset = Bit(0);
-            for (auto pos = static_cast<int64_t>(clusterOff.size() - 1); pos >= 0; pos--) {
-                auto logicalDim = dimsOrder.dimAt(pos);
-                offset += clusterOff[logicalDim] * memStrides[MemDim(pos)];
-            }
-
-            if (offset.count() % CHAR_BIT != 0) {
-                return false;
-            }
-        }
-
-        return true;
-    };
-
-    const auto memoryOffsets = distribution.getMemoryOffsets() != nullptr
-                                       ? VPU::arrayAttrToVecOfShapes(distribution.getMemoryOffsets())
-                                       : VPU::getPerClusterMemoryShapeOffsets(candidateShape, distribution);
-    if (!checkPerClusterByteAlignment(memoryOffsets)) {
-        return printTo(emitError(),
-                       "Memory offsets are not byte-aligned, distribution = {0}, elemType = {1}, shape = {2}.",
-                       distribution, elementType, shape);
-    }
-
-    const auto computeOffsets = distribution.getComputeOffsets() != nullptr
-                                        ? VPU::arrayAttrToVecOfShapes(distribution.getComputeOffsets())
-                                        : VPU::getPerClusterComputeShapeOffsets(candidateShape, distribution);
-    if (computeOffsets != memoryOffsets) {
-        return checkPerClusterByteAlignment(computeOffsets)
-                       ? mlir::success()
-                       : printTo(emitError(),
-                                 "Compute offsets are not byte-aligned, distribution = {0}, elemType = {1}, shape = "
-                                 "{2}.",
-                                 distribution, elementType, shape);
-    }
-
-    return mlir::success();
+    return VPU::checkPerClusterByteAlignment(distribution, candidateShape, elementType, dimsOrder, memStrides,
+                                             emitError);
 }
 
 //
@@ -516,8 +471,8 @@ mlir::MemRefType VPUIP::DistributedBufferType::getCompactType() const {
     if (swizzlingSchemeAttr != nullptr && (distributionMode == VPU::DistributionMode::SEGMENTED ||
                                            distributionMode == VPU::DistributionMode::OVERLAPPED)) {
         const auto distributionAttr = getDistribution();
-        VPUX_THROW_UNLESS(distributionAttr.getNumClusters() != distributionAttr.getNumTiles(),
-                          "Unsupported case to re-align compact buffer with swizzling");
+        VPUX_THROW_WHEN(distributionAttr.getNumClusters() == distributionAttr.getNumTiles(),
+                        "Unsupported case to re-align compact buffer with swizzling");
 
         const auto ctx = getContext();
         // In case of spilling swizzled buffer each per cluster buffer needs to be copied as is together with
@@ -727,7 +682,7 @@ SmallVector<StridedShape> VPUIP::DistributedBufferType::getPerClusterMemoryStrid
 // of broadcasting.
 StridedShape VPUIP::DistributedBufferType::getLargestStridedShape() const {
     auto stridedShapes = getPerClusterMemoryStridedShapes();
-    VPUX_THROW_UNLESS(!stridedShapes.empty(), "Missing per-cluster strided shapes");
+    VPUX_THROW_WHEN(stridedShapes.empty(), "Missing per-cluster strided shapes");
     return *getLargestStridedShapeIt(stridedShapes);
 }
 
@@ -928,7 +883,7 @@ int64_t VPUIP::DistributedBufferType::getNumElements() const {
         return getSparsityCompression().getTotalNumElems();
     }
     auto shape = getShape().raw();
-    VPUX_THROW_UNLESS(!details::isDynamicDimValues(shape), "Cannot get element count of dynamic shaped type");
+    VPUX_THROW_WHEN(details::isDynamicDimValues(shape), "Cannot get element count of dynamic shaped type");
     return details::calcTotalShapeSize(shape);
 }
 

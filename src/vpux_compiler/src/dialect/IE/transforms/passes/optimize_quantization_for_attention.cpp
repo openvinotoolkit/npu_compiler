@@ -181,27 +181,27 @@ mlir::LogicalResult OptimizeQuantizationForScatter::matchAndRewrite(IE::ScatterU
     _log.trace("Matched KV cache ScatterUpdate pattern at '{0}'", scatterOp->getLoc());
 
     mlir::Value curToken = scatterOp.getUpdates();
-    auto qMul = rewriter.create<IE::MultiplyOp>(takeOpLoc(scatterOp, "quant_mul"), curToken, quantChain.qScale,
-                                                quantChain.multiply.getAutoBroadcastAttr());
+    auto qMul = IE::MultiplyOp::create(rewriter, takeOpLoc(scatterOp, "quant_mul"), curToken, quantChain.qScale,
+                                       quantChain.multiply.getAutoBroadcastAttr());
 
-    auto qRound = rewriter.create<IE::RoundOp>(takeOpLoc(scatterOp, "quant_round"), qMul.getOutput(),
-                                               quantChain.round.getModeAttr());
+    auto qRound = IE::RoundOp::create(rewriter, takeOpLoc(scatterOp, "quant_round"), qMul.getOutput(),
+                                      quantChain.round.getModeAttr());
 
-    auto qClamp = rewriter.create<IE::ClampOp>(takeOpLoc(scatterOp, "quant_clamp"), qRound.getOutput(),
-                                               quantChain.clamp.getMinAttr(), quantChain.clamp.getMaxAttr());
-    auto qConvert = rewriter.create<IE::ConvertOp>(takeOpLoc(scatterOp, "quant_convert"), qClamp.getOutput(),
-                                                   quantChain.convert.getDstElemTypeAttr());
+    auto qClamp = IE::ClampOp::create(rewriter, takeOpLoc(scatterOp, "quant_clamp"), qRound.getOutput(),
+                                      quantChain.clamp.getMinAttr(), quantChain.clamp.getMaxAttr());
+    auto qConvert = IE::ConvertOp::create(rewriter, takeOpLoc(scatterOp, "quant_convert"), qClamp.getOutput(),
+                                          quantChain.convert.getDstElemTypeAttr());
 
     // ScatterUpdate in si8
-    auto si8Scatter = rewriter.create<IE::ScatterUpdateOp>(
-            takeOpLoc(scatterOp, "scatter_si8"), dequantChain.convert.getInput(), scatterOp.getIndices(),
+    auto si8Scatter = IE::ScatterUpdateOp::create(
+            rewriter, takeOpLoc(scatterOp, "scatter_si8"), dequantChain.convert.getInput(), scatterOp.getIndices(),
             qConvert.getOutput(), scatterOp.getAxis(), scatterOp.getAxisValueAttr());
 
     // Dequantize for SDPA consumers: Convert + Multiply(dq_scale)
-    auto dqConvert = rewriter.create<IE::ConvertOp>(takeOpLoc(scatterOp, "dequant_convert"), si8Scatter.getOutput(),
-                                                    dequantChain.convert.getDstElemTypeAttr());
-    auto dqMul = rewriter.create<IE::MultiplyOp>(takeOpLoc(scatterOp, "dequant_mul"), dqConvert.getOutput(),
-                                                 dequantChain.dqScale, dequantChain.multiply.getAutoBroadcastAttr());
+    auto dqConvert = IE::ConvertOp::create(rewriter, takeOpLoc(scatterOp, "dequant_convert"), si8Scatter.getOutput(),
+                                           dequantChain.convert.getDstElemTypeAttr());
+    auto dqMul = IE::MultiplyOp::create(rewriter, takeOpLoc(scatterOp, "dequant_mul"), dqConvert.getOutput(),
+                                        dequantChain.dqScale, dequantChain.multiply.getAutoBroadcastAttr());
 
     rewriter.replaceAllUsesWith(quantChain.convert.getOutput(), si8Scatter.getOutput());
     rewriter.replaceAllUsesWith(scatterOp.getOutput(), dqMul.getOutput());

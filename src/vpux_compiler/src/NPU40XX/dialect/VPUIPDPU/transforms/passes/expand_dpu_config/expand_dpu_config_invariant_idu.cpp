@@ -6,7 +6,7 @@
 #include "vpux/compiler/NPU40XX/dialect/VPUIPDPU/transforms/passes/expand_dpu_config/expand_dpu_config_invariant_idu.hpp"
 #include "vpux/compiler/NPU40XX/dialect/VPUIPDPU/ops.hpp"
 #include "vpux/compiler/NPU40XX/dialect/VPUIPDPU/transforms/passes/expand_dpu_config/expand_dpu_config_invariant.hpp"
-#include "vpux/compiler/core/types/quantile_float/types.hpp"
+#include "vpux/compiler/core/types/quantile_types/types.hpp"
 #include "vpux/compiler/dialect/VPUASM/ops.hpp"
 #include "vpux/compiler/dialect/VPUIPDPU/rewriters/utils.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
@@ -67,7 +67,7 @@ mlir::LogicalResult configurePalletization(const Logger& log, IDUConfig::Weights
                 weightsType)) {
         auto quantized = mlir::cast<mlir::quant::QuantizedType>(weightsType);
         if (const auto quantileStorageType =
-                    mlir::dyn_cast_if_present<vpux::type::QuantileType>(quantized.getStorageType())) {
+                    mlir::dyn_cast_if_present<mlir::quant::QuantileType>(quantized.getStorageType())) {
             const auto bitWidth = quantileStorageType.getStorageWidth();
 
             if (bitWidth != 1 && bitWidth != 2 && bitWidth != 4) {
@@ -109,7 +109,7 @@ mlir::LogicalResult configureWeights(const Logger& log, IDUConfig::Weights& conf
             if (mlir::isa_and_present<mlir::quant::UniformQuantizedType, mlir::quant::UniformQuantizedPerAxisType>(
                         weightsType)) {
                 auto quantized = mlir::cast<mlir::quant::QuantizedType>(weightsType);
-                if (mlir::isa_and_present<vpux::type::QuantileType>(quantized.getStorageType())) {
+                if (mlir::isa_and_present<mlir::quant::QuantileType>(quantized.getStorageType())) {
                     return true;
                 }
             }
@@ -231,8 +231,8 @@ mlir::LogicalResult configureWorkload(const Logger& log, IDUConfig::WorkloadCfg&
 }
 
 mlir::LogicalResult configureDepthWiseCfg(const Logger&, IDUConfig::DepthWiseCfg& config, VPUIP::NCETaskType taskType,
-                                          std::optional<bool> smallKernelOptimization) {
-    if (taskType == VPUIP::NCETaskType::DWCONV && smallKernelOptimization.value_or(true) == false) {
+                                          bool smallKernelOptimization) {
+    if (taskType == VPUIP::NCETaskType::DWCONV && !smallKernelOptimization) {
         config.dw3x3s1OptDisable = true;
     } else if (taskType == VPUIP::NCETaskType::MAXPOOL) {
         // Must be set = 1 (true) for MAXPOOL ops
@@ -350,7 +350,7 @@ PPETask evalPPETasks(mlir::Region& ppeRegion, std::optional<VPUIP::NCETaskType> 
 mlir::LogicalResult configureIDU(const Logger& log, IDUConfig& config, const vpux::NDTypeInterface& inActType,
                                  mlir::Type weightsElementType, VPUIP::NCETaskType taskType,
                                  std::optional<int64_t> spPattern, std::optional<bool> inChannelsCompression,
-                                 std::optional<bool> smallKernelOptimization, bool inActSparse, bool weightsSparse,
+                                 bool smallKernelOptimization, bool inActSparse, bool weightsSparse,
                                  std::optional<mlir::ArrayAttr> kernelSize,
                                  std::optional<mlir::ArrayAttr> kernelStrides, std::optional<int64_t> seSize,
                                  const PPETask& ppeTask) {
@@ -409,39 +409,39 @@ mlir::LogicalResult configureIDU(const Logger& log, IDUConfig& config, const vpu
 mlir::LogicalResult buildIDUConfig(mlir::OpBuilder& builder, const mlir::Location& loc, const IDUConfig& config,
                                    mlir::Value inAct) {
     // IDUInActivations
-    builder.create<IDUInActivationsOp>(loc, inAct, config.inActivations.inSparse);
+    IDUInActivationsOp::create(builder, loc, inAct, config.inActivations.inSparse);
 
     // IDUWeights
     auto poolWtDataAttr = getI64IntegerAttrOrNull(builder, config.weights.poolWtData);
     auto quantileLUTAttr = getF64ArrayAttrOrNull(builder, config.weights.quantileLUT);
-    builder.create<IDUWeightsOp>(loc, config.weights.wMode, poolWtDataAttr, config.weights.wtSparse,
-                                 config.weights.pltMode, quantileLUTAttr);
+    IDUWeightsOp::create(builder, loc, config.weights.wMode, poolWtDataAttr, config.weights.wtSparse,
+                         config.weights.pltMode, quantileLUTAttr);
 
     // IDUInputLayerCfg
     if (config.inputLayerCfg.sparsityPattern) {
-        builder.create<IDUInputLayerCfgOp>(loc, config.inputLayerCfg.sparsityPattern,
-                                           config.inputLayerCfg.inputCompressed);
+        IDUInputLayerCfgOp::create(builder, loc, config.inputLayerCfg.sparsityPattern,
+                                   config.inputLayerCfg.inputCompressed);
     }
 
     // IDUStorageElement
     if (config.storageElement.seSize) {
         auto numSEsInZDirAttr = getI64IntegerAttrOrNull(builder, config.storageElement.numSEsInZDir);
-        builder.create<IDUStorageElementOp>(loc, config.storageElement.seSize, numSEsInZDirAttr);
+        IDUStorageElementOp::create(builder, loc, config.storageElement.seSize, numSEsInZDirAttr);
     }
 
     // IDUKernel
-    builder.create<IDUKernelOp>(loc, config.kernel.kernelX, config.kernel.kernelY);
+    IDUKernelOp::create(builder, loc, config.kernel.kernelX, config.kernel.kernelY);
 
     // IDUStride
-    builder.create<IDUStrideOp>(loc, config.stride.strideX, config.stride.strideY);
+    IDUStrideOp::create(builder, loc, config.stride.strideX, config.stride.strideY);
 
     // IDUWorkloadCfg
-    builder.create<IDUWorkloadCfgOp>(loc, config.workloadCfg.workloadType);
+    IDUWorkloadCfgOp::create(builder, loc, config.workloadCfg.workloadType);
 
     // IDUDepthWiseCfg
     if (config.depthWiseCfg.dw3x3s1OptDisable || config.depthWiseCfg.dwOptOffset.has_value()) {
         auto dwOptOffsetAttr = getI64IntegerAttrOrNull(builder, config.depthWiseCfg.dwOptOffset);
-        builder.create<IDUDepthWiseCfgOp>(loc, config.depthWiseCfg.dw3x3s1OptDisable, dwOptOffsetAttr);
+        IDUDepthWiseCfgOp::create(builder, loc, config.depthWiseCfg.dw3x3s1OptDisable, dwOptOffsetAttr);
     }
 
     // IDUEltWiseCfg
@@ -449,11 +449,11 @@ mlir::LogicalResult buildIDUConfig(mlir::OpBuilder& builder, const mlir::Locatio
         if (config.eltWiseCfg.elopScapeFp) {
             auto fpElopScaleAAttr = builder.getF32FloatAttr(config.eltWiseCfg.fpElopScaleA);
             auto fpElopScaleBAttr = builder.getF32FloatAttr(config.eltWiseCfg.fpElopScaleB);
-            builder.create<IDUEltWiseCfgOp>(loc, config.eltWiseCfg.bf16FlowOn, fpElopScaleAAttr, fpElopScaleBAttr);
+            IDUEltWiseCfgOp::create(builder, loc, config.eltWiseCfg.bf16FlowOn, fpElopScaleAAttr, fpElopScaleBAttr);
         } else {
             auto elopScaleAAttr = getI64IntegerAttrOrNull(builder, config.eltWiseCfg.elopScaleA);
             auto elopScaleBAttr = getI64IntegerAttrOrNull(builder, config.eltWiseCfg.elopScaleB);
-            builder.create<IDUEltWiseCfgOp>(loc, config.eltWiseCfg.bf16FlowOn, elopScaleAAttr, elopScaleBAttr);
+            IDUEltWiseCfgOp::create(builder, loc, config.eltWiseCfg.bf16FlowOn, elopScaleAAttr, elopScaleBAttr);
         }
     }
 

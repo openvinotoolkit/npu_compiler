@@ -238,6 +238,13 @@ module @DynamicConvAddTranpose {
 
 // -----
 
+// CHECK: !qElemType = !quant.uniform<u8:f16, 0.078431375324726104:127>
+// CHECK: !qElemType1 = !quant.uniform<i8:f16, 0.078431372549019607:-1>
+// CHECK: !qElemType2 = !quant.uniform<i8:f16, 1.000000e+00>
+// CHECK: !qElemType3 = !quant.uniform<i8:f16, 0.078431375324726104:-1>
+// CHECK: !qElemType4 = !quant.uniform<u8:f16, 0.025974026848288142:128>
+// CHECK: !qElemType5 = !quant.uniform<u8:f16, 0.078431372549019607:128>
+
 // CHECK-LABEL: @MultiplyFQFusion
 module @MultiplyFQFusion {
     net.NetworkInfo entryPoint : @main
@@ -266,17 +273,15 @@ module @MultiplyFQFusion {
 
         return %add2 : tensor<1x64x250x256xf32>
 
-        // CHECK-DAG:   [[BIAS:%.+]] = const.Declare tensor<1x64x250x256x{{[^:]+}}, {order = #NHWC}> = dense<2.000000e+00>
+        // CHECK-DAG:   [[CST:%.+]] = const.Declare tensor<1x64x250x256x!qElemType, {order = #NHWC}> = dense<2.000000e+00> : tensor<1x64x250x256xf32>, [#const.CastElemType<f16>, #const.Quantize<!qElemType1>, #const.CastElemType<si8>, #const.CastElemType<!qElemType2>, #const.CastElemType<!qElemType3>, #const.ConvertElemType<!qElemType>, #const.Reorder<#NHWC>]
         // CHECK:       [[CONVERT1:%.+]] = IE.Convert([[ARG0]])
         // CHECK-NEXT:  [[PERMUTE_QUANT:%.+]] = IE.PermuteQuantize([[CONVERT1]])
-
         // CHECK-NEXT:  [[ADD1:%.+]] = IE.Add([[PERMUTE_QUANT]], [[PERMUTE_QUANT]])
         // CHECK-NEXT:  [[QUANT_CAST:%.+]] = IE.QuantizeCast([[ADD1]])
         // CHECK-NOT:   IE.GroupConvolution
-        // CHECK-NOT:   IE.AvgPool
-        // CHECK-NEXT:  [[ADD2:%.+]] = IE.Add([[QUANT_CAST]], [[BIAS]])
-        // CHECK-NEXT:  [[CONVERT2:%.+]] = IE.Convert([[ADD2]])
-        // CHECK-NEXT:  return [[CONVERT2]]
+        // CHECK-NEXT:  [[ADD2:%.+]] = IE.Add([[QUANT_CAST]], [[CST]])
+        // CHECK-NEXT:  [[RESULT:%.+]] = IE.Convert([[ADD2]])
+        // CHECK-NEXT:  return [[RESULT]]
     }
 }
 

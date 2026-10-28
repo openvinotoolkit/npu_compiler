@@ -152,6 +152,33 @@ Byte computeQPipeliningReservation(VPU::FlashSDPAOp origOp, ArrayRef<vpux::NDTyp
     return reservedMemory;
 }
 
+// Decode (target SL 1, the KV-cache case) is bound by the Key/Value DMA and, with a
+// single Query row, has no Q-tile loop to hide it behind. Reserve one extra KV block of
+// Key and Value so the scheduler can prefetch the next block while the current block
+// computes, overlapping DMA with compute.
+Byte computeKVPipeliningReservation(VPU::FlashSDPAOp origOp, ArrayRef<vpux::NDTypeInterface> tiledTensorTypes,
+                                    int64_t kvBlocks) {
+    const auto targetSeqLen = getShape(origOp.getResultRunningOutput())[Dims4D::Act::H];
+    if (targetSeqLen != 1) {
+        return Byte{0};
+    }
+
+    const auto kvBlockSize = origOp.getKeyValueBlockSize(kvBlocks);
+
+    auto reservedMemory = Byte{0};
+    for (const auto index : {1, 2}) {
+        auto bufferType = tiledTensorTypes[index];
+
+        auto blockShape = Shape(bufferType.getShape());
+        blockShape[Dims4D::Act::H] = kvBlockSize;
+        bufferType = bufferType.changeShape(blockShape);
+
+        reservedMemory += bufferType.getTotalAllocSize();
+    }
+
+    return reservedMemory;
+}
+
 // Head (C) tile sizes to try, largest first.
 //
 // The kernel requires exactly 1 KV head per cluster invocation, so the natural tile size follows from
@@ -288,7 +315,8 @@ std::optional<FlashSDPATilingStrategy> estimateTiling(VPU::FlashSDPAOp origOp, L
         while (true) {
             auto tiledTensorTypes = getAllOperandsSwInterface(swOp, TileInfo{tiledResultShape}, log);
 
-            const auto reservedMemory = computeQPipeliningReservation(origOp, tiledTensorTypes, kvBlocks);
+            auto reservedMemory = computeQPipeliningReservation(origOp, tiledTensorTypes, kvBlocks);
+            reservedMemory += computeKVPipeliningReservation(origOp, tiledTensorTypes, kvBlocks);
 
             const bool fits = origOp.fitIntoCMXAfterKeyValueTiling(tiledTensorTypes, reservedMemory, kvBlocks);
 
@@ -367,11 +395,12 @@ mlir::LogicalResult applyTileStrategyFlashSDPA(VPU::TilingBuilderOpInterface ori
     using TileCacheKey = SmallVector<int64_t>;
     auto tiledInputCache = std::map<TileCacheKey, mlir::Value>();
 
-    for (const auto& outputTile : tiles) {
-        auto inputTiling = origOp.backInferTileInfo(outputTile, log);
+    const auto tileCoordinates = getTileCoordinates(tiles);
+    for (const auto& [tileIndex, mainOutputTile] : tiles | indexed) {
+        auto inputTiling = origOp.backInferTileInfo(mainOutputTile, log);
         auto& inTiles = inputTiling.tiles;
 
-        VPUX_THROW_UNLESS(!inTiles.empty(), "Got empty tile information");
+        VPUX_THROW_WHEN(inTiles.empty(), "Got empty tile information");
 
         mlir::IRMapping mapper;
         for (auto [inputIdx, origInput] : origOp->getOperands() | indexed) {
@@ -394,7 +423,7 @@ mlir::LogicalResult applyTileStrategyFlashSDPA(VPU::TilingBuilderOpInterface ori
             mapper.map(origInput, tiledInput);
         }
 
-        const auto tileLoc = appendLoc(origOp->getLoc(), "output tile {0}", outputTile.offsets);
+        const auto tileLoc = appendLoc(origOp->getLoc(), "output tile {0}", mainOutputTile.offsets);
 
         auto* tiledOp = rewriter.clone(*origOp, mapper);
         tiledOp->setLoc(tileLoc);
@@ -403,16 +432,21 @@ mlir::LogicalResult applyTileStrategyFlashSDPA(VPU::TilingBuilderOpInterface ori
         VPUX_THROW_WHEN(tiledBuilderOp == nullptr, "Operation '{0}' doesn't implement TilingBuilderOpInterface",
                         tiledOp->getName());
 
-        tiledBuilderOp.adjustAttrs(inputTiling, outputTile);
+        tiledBuilderOp.adjustAttrs(inputTiling, mainOutputTile);
 
         vpux::inferReturnTypes(tiledOp, vpux::InferShapedTypeMode::ALL);
 
         auto tiledResults = tiledOp->getResults();
 
-        const auto outputTiling = origOp.getOutputTiling(outputTile, log);
+        const auto outputTiling = origOp.getOutputTiling(mainOutputTile, log);
         VPUX_THROW_UNLESS(results.size() == outputTiling.size(),
                           "Number of results '{0}' doesn't match with number of output tiles '{1}' at '{2}'",
                           results.size(), outputTiling.size(), origOp->getLoc());
+
+        copyLoopAttributes(origOp, tiledOp);
+        if (tiledOp->hasAttr(TILING_LOOP_INDEX_ATTR_NAME) || tiledOp->hasAttr(VF_LOOP_INDEX_ATTR_NAME)) {
+            tiledOp->setAttr(LOOP_TILE_COORD, getTileCoordinateAttr(origOp->getContext(), tileCoordinates[tileIndex]));
+        }
 
         for (const auto i : irange(results.size())) {
             const auto& outputTile = outputTiling[i];
@@ -428,8 +462,6 @@ mlir::LogicalResult applyTileStrategyFlashSDPA(VPU::TilingBuilderOpInterface ori
 
             tiledResult.setType(resultDenseTile);
 
-            copyLoopAttributes(origOp, tiledResult.getDefiningOp());
-
             resultTileValues[i].push_back(tiledResult);
             resultTileOffsets[i].push_back(outputTiling[i].offsets);
         }
@@ -441,7 +473,7 @@ mlir::LogicalResult applyTileStrategyFlashSDPA(VPU::TilingBuilderOpInterface ori
         auto tileValues = mlir::ValueRange(resultTileValues[i]);
         auto tileOffsets = ArrayRef(resultTileOffsets[i]);
 
-        auto concatOp = rewriter.create<VPU::ConcatOp>(origOp->getLoc(), resultType, tileValues, tileOffsets);
+        auto concatOp = VPU::ConcatOp::create(rewriter, origOp->getLoc(), resultType, tileValues, tileOffsets);
 
         concatOps.push_back(concatOp.getOutput());
     }
@@ -559,6 +591,9 @@ mlir::LogicalResult FlashSDPAQuerySeqTilingRewrite::matchAndRewrite(VPU::FlashSD
     // Clear the marker before cloning so the Q-tile clones don't re-trigger this rewriter.
     rewriter.modifyOpInPlace(origOp, [&] {
         origOp->removeAttr(Q_NUM_TILES_ATTR_NAME);
+        if (querySeqTiles <= 1 && origOp->hasAttr(TILING_LOOP_INDEX_ATTR_NAME)) {
+            origOp->setAttr(LOOP_TILE_COORD, getTileCoordinateAttr(origOp->getContext(), {}));
+        }
     });
 
     if (querySeqTiles <= 1) {
@@ -614,7 +649,7 @@ mlir::Value createSlice(mlir::PatternRewriter& rewriter, mlir::Location loc, mli
     auto sizesAttr = getIntArrayAttr(rewriter.getContext(), sliceSize);
 
     log.trace("Created SliceOp with offset {0} and size {1} at {2}", sliceOffset, sliceSize, loc);
-    return rewriter.create<VPU::SliceOp>(loc, value, offsetsAttr, sizesAttr);
+    return VPU::SliceOp::create(rewriter, loc, value, offsetsAttr, sizesAttr);
 }
 
 mlir::LogicalResult FlashSDPAKVUnrollRewrite::matchAndRewrite(VPU::FlashSDPAOp origOp,
@@ -680,9 +715,9 @@ mlir::LogicalResult FlashSDPAKVUnrollRewrite::matchAndRewrite(VPU::FlashSDPAOp o
         auto sourceSeqLenPadSize = (i + 1 == kvNumBlocks) ? origOp.getSourceSeqLenPadSizeAttr() : zeroPadAttr;
 
         auto tileLoc = appendLoc(origOp->getLoc(), "flash_sdpa_kv_tile_{0}", i);
-        tiledOp = rewriter.create<VPU::FlashSDPAOp>(tileLoc, query, keySlice, valueSlice, out, max, sum,
-                                                    attentionMaskSlice, sourceSeqLenPadSize, isHeadAttr, isTailAttr,
-                                                    origOp.getMultiClusterStrategyAttr());
+        tiledOp = VPU::FlashSDPAOp::create(rewriter, tileLoc, query, keySlice, valueSlice, out, max, sum,
+                                           attentionMaskSlice, sourceSeqLenPadSize, isHeadAttr, isTailAttr,
+                                           origOp.getMultiClusterStrategyAttr());
 
         // Propagate q_num_tiles so the Q rewriter can tile each KV-unrolled op
         if (auto qAttr = origOp->getAttr(Q_NUM_TILES_ATTR_NAME)) {
@@ -743,6 +778,7 @@ void FlashSDPATiling::applyQuerySeqTilingPatterns(mlir::Operation* func) {
 
 void FlashSDPATiling::safeRunOnFunc() {
     auto func = getOperation();
+    auto module = func->getParentOfType<mlir::ModuleOp>();
 
     // 1) Annotate every FlashSDPA with head_tile_size + kv_num_tiles + q_num_tiles.
     //    Each rewriter consumes its own attribute and propagates the rest.
@@ -758,9 +794,11 @@ void FlashSDPATiling::safeRunOnFunc() {
     }
 
     // 2) Mark each operation with a tiling loop index for loop-allocation scheduling.
-    func->walk([tilingIndex = 0ll](VPU::FlashSDPAOp flashSdpa) mutable {
-        flashSdpa->setAttr(TILING_LOOP_INDEX_ATTR_NAME, TilingLoopIndexAttr::get(flashSdpa->getContext(), tilingIndex));
-        ++tilingIndex;
+    //    Use a module-wide index when the function belongs to a module.
+    //    Isolated function tests have no module, so retain the original local counter.
+    func->walk([module, tilingIndex = 0ll](VPU::FlashSDPAOp flashSdpa) mutable {
+        const auto loopIndex = module != nullptr ? getNextTilingLoopIndex(module) : tilingIndex++;
+        flashSdpa->setAttr(TILING_LOOP_INDEX_ATTR_NAME, TilingLoopIndexAttr::get(flashSdpa->getContext(), loopIndex));
     });
 
     // 3) Three-phase tiling producing {Heads, sSL, tSL} execution order:
@@ -776,9 +814,10 @@ void FlashSDPATiling::safeRunOnFunc() {
     // same pipeline loop (those within one KV block) versus sequential KV-block chains.
     // Without this, all Q-tiles from all KV blocks share the pre-tiling index, so the
     // scheduler cannot isolate the correct pipeline group for double-buffering.
-    func->walk([tilingIndex = 0ll](VPU::FlashSDPAOp flashSdpa) mutable {
-        flashSdpa->setAttr(TILING_LOOP_INDEX_ATTR_NAME, TilingLoopIndexAttr::get(flashSdpa->getContext(), tilingIndex));
-        ++tilingIndex;
+    // Use the same module-wide versus isolated-function fallback as the first assignment.
+    func->walk([module, tilingIndex = 0ll](VPU::FlashSDPAOp flashSdpa) mutable {
+        const auto loopIndex = module != nullptr ? getNextTilingLoopIndex(module) : tilingIndex++;
+        flashSdpa->setAttr(TILING_LOOP_INDEX_ATTR_NAME, TilingLoopIndexAttr::get(flashSdpa->getContext(), loopIndex));
     });
 
     applyQuerySeqTilingPatterns(func);

@@ -20,7 +20,7 @@ using namespace vpux;
 namespace {
 
 bool isSupportedWeightsElemType(mlir::Type elemType) {
-    if (isLowFpType(elemType) || mlir::isa<vpux::type::QuantileType>(elemType)) {
+    if (isLowFpType(elemType) || mlir::isa<mlir::quant::QuantileType>(elemType)) {
         return true;
     }
 
@@ -60,7 +60,7 @@ mlir::Value createRankAlignedZeroPoint(mlir::PatternRewriter& rewriter, mlir::Lo
     auto zpContentAttr = std::move(contentSetup).get();
     const auto zpType = mlir::cast<vpux::NDTypeInterface>(shiftConst.getType())
                                 .changeShapeElemType(ShapeRef(alignedShape), zpElemType);
-    return rewriter.create<Const::DeclareOp>(loc, mlir::cast<mlir::RankedTensorType>(zpType), zpContentAttr)
+    return Const::DeclareOp::create(rewriter, loc, mlir::cast<mlir::RankedTensorType>(zpType), zpContentAttr)
             .getOutput();
 }
 
@@ -110,7 +110,7 @@ mlir::LogicalResult finishDynamicDequantizeRewrite(mlir::PatternRewriter& rewrit
                                                                               dstType, rawWeights);
 
     auto dynamicDequant =
-            rewriter.create<IE::DynamicDequantizeOp>(appendLoc(loc, "ddq"), rawWeights, scaleValue, zpValue, dstType);
+            IE::DynamicDequantizeOp::create(rewriter, appendLoc(loc, "ddq"), rawWeights, scaleValue, zpValue, dstType);
 
     // Mark the op for the DynDeq -> FakeQuantize bridge pass.
     if (wdInfo.isKVcachedPattern() || !zpElemType.isInteger(2)) {
@@ -176,8 +176,8 @@ public:
 
         const auto baseInputElemType = origOp.getContentAttr().getBaseContent().getElementType();
 
-        const auto quantileType = mlir::isa<vpux::type::QuantileType>(zpElemType)
-                                          ? mlir::cast<vpux::type::QuantileType>(zpElemType)
+        const auto quantileType = mlir::isa<mlir::quant::QuantileType>(zpElemType)
+                                          ? mlir::cast<mlir::quant::QuantileType>(zpElemType)
                                           : IE::tryParsingNF4(origOp);
 
         const auto rawWeightsElemType =
@@ -187,7 +187,7 @@ public:
 
         auto rawContentAttr = origOp.getContentAttr().transform().castElemType(rawWeightsElemType).get();
 
-        auto rawDeclareOp = rewriter.create<Const::DeclareOp>(loc, rawType, rawContentAttr);
+        auto rawDeclareOp = Const::DeclareOp::create(rewriter, loc, rawType, rawContentAttr);
 
         if (!rawDeclareOp) {
             _log.trace("Invalid rawDeclareOp for DynDeq");

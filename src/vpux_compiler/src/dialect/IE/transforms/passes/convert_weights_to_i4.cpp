@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-#include "vpux/compiler/core/types/quantile_float/types.hpp"
+#include "vpux/compiler/core/types/quantile_types/types.hpp"
 #include "vpux/compiler/dialect/IE/IR/dialect.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/convolution.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/data_type.hpp"
@@ -51,7 +51,7 @@ mlir::LogicalResult LayerRewriter::matchAndRewrite(IE::LayerOpInterface origOp, 
     _log.trace("Process Operation '{0}' at '{1}", origOp->getName(), origOp->getLoc());
 
     const auto* typeConverter = this->getTypeConverter();
-    VPUX_THROW_UNLESS(typeConverter != nullptr, "TypeConverter was not set");
+    VPUX_THROW_WHEN(typeConverter == nullptr, "TypeConverter was not set");
 
     const auto origOperands = origOp->getOperands();
     VPUX_THROW_UNLESS(origOperands.size() == newOperands.size(), "Wrong operands size : {0}", newOperands.size());
@@ -99,7 +99,7 @@ mlir::LogicalResult QuantizeLikeOpRewriter<QuantizeLikeOp>::matchAndRewrite(
     _log.trace("Process Operation '{0}' at '{1}", origOp->getName(), origOp->getLoc());
 
     auto* typeConverter = this->getTypeConverter();
-    VPUX_THROW_UNLESS(typeConverter != nullptr, "TypeConverter was not set");
+    VPUX_THROW_WHEN(typeConverter == nullptr, "TypeConverter was not set");
 
     auto resultType = origOp->getResult(0).getType();
     const auto dstElemType = mlir::cast<vpux::NDTypeInterface>(typeConverter->convertType(resultType)).getElementType();
@@ -130,7 +130,7 @@ mlir::LogicalResult ConstRewriter::matchAndRewrite(Const::DeclareOp origOp, OpAd
     _log.trace("Process Operation '{0}' at '{1}", origOp->getName(), origOp->getLoc());
 
     const auto* typeConverter = this->getTypeConverter();
-    VPUX_THROW_UNLESS(typeConverter != nullptr, "TypeConverter was not set");
+    VPUX_THROW_WHEN(typeConverter == nullptr, "TypeConverter was not set");
 
     const auto outputType = origOp.getType();
     const auto origQuantType =
@@ -204,7 +204,7 @@ void ConvertWeightsToI4Pass::safeRunOnFunc() {
     auto func = getOperation();
 
     const auto isQuantileStorage = [](mlir::quant::QuantizedType quantType) -> bool {
-        return mlir::isa<vpux::type::QuantileType>(quantType.getStorageType());
+        return mlir::isa<mlir::quant::QuantileType>(quantType.getStorageType());
     };
 
     mlir::TypeConverter typeConverter;

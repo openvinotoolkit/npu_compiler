@@ -1,5 +1,5 @@
 //
-// Copyright (C) 2022-2025 Intel Corporation
+// Copyright (C) 2022-2026 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -37,8 +37,8 @@ mlir::OwningOpRef<Const::DeclareOp> createConstOp(mlir::MLIRContext* context,
     const auto dataAttr = Const::createConstContent(dataType, mlir::ArrayRef<float>(content));
 
     mlir::OpBuilder builder(context);
-    return builder.create<Const::DeclareOp>(mlir::UnknownLoc::get(context), dataType,
-                                            Const::ContentAttr::get(dataAttr));
+    return Const::DeclareOp::create(builder, mlir::UnknownLoc::get(context), dataType,
+                                    Const::ContentAttr::get(dataAttr));
 }
 
 SmallVector<int64_t> getNumElemsPerOC(Const::DeclareOp constOp) {

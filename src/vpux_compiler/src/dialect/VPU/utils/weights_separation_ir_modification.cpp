@@ -55,7 +55,7 @@ mlir::Value castToQuantizedType(mlir::OpBuilder& builder, mlir::Location loc, ml
     if (!info.valid()) {
         return input;
     }
-    return builder.create<VPU::QuantizeCastOp>(appendLoc(loc, "quant_cast"), input, info.quantizedType);
+    return VPU::QuantizeCastOp::create(builder, appendLoc(loc, "quant_cast"), input, info.quantizedType);
 }
 }  // namespace
 
@@ -94,7 +94,7 @@ void MainFunctionUpdater::fixCallSite(mlir::OpBuilder& callerBuilder, mlir::func
     }
 
     callerBuilder.setInsertionPoint(oldCall);
-    auto newCall = callerBuilder.create<mlir::func::CallOp>(oldCall.getLoc(), calleeOp, newCallArguments);
+    auto newCall = mlir::func::CallOp::create(callerBuilder, oldCall.getLoc(), calleeOp, newCallArguments);
     oldCall.replaceAllUsesWith(newCall.getResults());
     oldCall->erase();
 }

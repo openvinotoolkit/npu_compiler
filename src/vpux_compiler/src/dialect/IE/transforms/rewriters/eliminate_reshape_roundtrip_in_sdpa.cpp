@@ -237,14 +237,14 @@ mlir::LogicalResult EliminateReshapeRoundtripInSDPA::matchAndRewrite(IE::Reshape
 
     mlir::Value softmaxInput = outerRe.getInput();
     if (addOp != nullptr) {
-        softmaxInput = rewriter.create<IE::AddOp>(
-                takeOpLoc(addOp, "shrunk"), softmaxInput, shrunkMask, addOp.getAutoBroadcastAttr(),
-                addOp.getPostOpAttr(), addOp.getClampAttr(), addOp.getOutputPaddingAttr(), addOp.getInputPaddingAttr());
+        softmaxInput = IE::AddOp::create(rewriter, takeOpLoc(addOp, "shrunk"), softmaxInput, shrunkMask,
+                                         addOp.getAutoBroadcastAttr(), addOp.getPostOpAttr(), addOp.getClampAttr(),
+                                         addOp.getOutputPaddingAttr(), addOp.getInputPaddingAttr());
     }
 
-    auto newSoftmaxOp = rewriter.create<IE::SoftMaxOp>(takeOpLoc(softmaxOp, "shrunk"), softmaxInput,
-                                                       softmaxOp.getAxisIndAttr(), softmaxOp.getPadSizeAttr(),
-                                                       softmaxOp.getDstElemTypeAttr(), softmaxOp.getMaskAwareAttr());
+    auto newSoftmaxOp = IE::SoftMaxOp::create(rewriter, takeOpLoc(softmaxOp, "shrunk"), softmaxInput,
+                                              softmaxOp.getAxisIndAttr(), softmaxOp.getPadSizeAttr(),
+                                              softmaxOp.getDstElemTypeAttr(), softmaxOp.getMaskAwareAttr());
 
     rewriter.replaceOp(innerRe, newSoftmaxOp.getOutput());
     return mlir::success();

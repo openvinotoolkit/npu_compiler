@@ -278,7 +278,7 @@ func.func @WeightsMultToDynamicDequantizeU4WithFP16Storage(%input: tensor<1x1x28
 
 // -----
 
-!quantFloatType = !QuantileType.quantile<ui4:f16, {-1.0, -0.8, -0.7, -0.6, -0.5, -0.4, -0.3, 0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 1.0}>
+!quantileType = !quant.quantile<ui4:f16, {-1.0, -0.8, -0.7, -0.6, -0.5, -0.4, -0.3, 0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 1.0}>
 
 {-#
   dialect_resources: {
@@ -294,7 +294,7 @@ func.func @WeightsMultToDynamicDequantizeNF4(%input: tensor<1x1x28x28xf16>) -> t
   %cst_0 = const.Declare tensor<1x1x2x2xf16> = dense_resource<blob> : tensor<1x1x2x2xui4>,
     [
       #const.ConvertElemType<si8>,
-      #const.CastElemType<!quantFloatType>,
+      #const.CastElemType<!quantileType>,
       #const.CastElemType<f16>
     ]
   %cst_1 = const.Declare tensor<1x1x1x1xf16> = dense<[[[[0.00294781756]]]]> : tensor<1x1x1x1xf16>
@@ -303,7 +303,7 @@ func.func @WeightsMultToDynamicDequantizeNF4(%input: tensor<1x1x28x28xf16>) -> t
   return %2 : tensor<1x1x29x29xf16>
 
   // CHECK-DAG: [[SCALE:%.+]] = const.Declare tensor<1x1x1x1xf16> = dense<2.948760e-03>
-  // CHECK-DAG: [[WT_RAW:%.+]] = const.Declare tensor<1x1x2x2x!QuantileType.quantile<ui4:f16, {-1.000000e+00,-8.000000e-01,-0.69999999999999996,-6.000000e-01,-5.000000e-01,-4.000000e-01,-3.000000e-01,0.000000e+00,1.000000e-01,2.000000e-01,3.000000e-01,4.000000e-01,5.000000e-01,6.000000e-01,0.69999999999999996,1.000000e+00}>> = dense_resource<blob>
+  // CHECK-DAG: [[WT_RAW:%.+]] = const.Declare tensor<1x1x2x2x!quantileType> = dense_resource<blob>
 
   // CHECK: [[DDQ:%.+]] = IE.DynamicDequantize([[WT_RAW]], [[SCALE]]) {dstElemType = f16, vpux.weights_import_dyn_dequant}
   // CHECK: [[CONV:%.+]] = IE.Convolution([[INPUT]], [[DDQ]]) {dilations = [1, 1], pads_begin = [1, 1], pads_end = [1, 1], strides = [1, 1]}

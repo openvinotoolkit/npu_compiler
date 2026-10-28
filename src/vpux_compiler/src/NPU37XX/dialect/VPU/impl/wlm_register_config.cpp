@@ -24,3 +24,7 @@ uint32_t RegisterConfig::getNCEBarrierFifoAddr() {
 uint32_t RegisterConfig::getNCEBarrierFifoDepth() {
     return 0;
 }
+
+uint32_t RegisterConfig::getBarrierFifoDummyEntry() {
+    return 0;
+}

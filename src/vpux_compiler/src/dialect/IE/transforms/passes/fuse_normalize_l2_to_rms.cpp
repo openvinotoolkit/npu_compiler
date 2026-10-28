@@ -96,20 +96,22 @@ mlir::FailureOr<mlir::Value> broadcastAndRescaleGamma(mlir::OpBuilder& builder, 
 
     auto gammaType =
             mlir::RankedTensorType::get({targetSize}, mlir::cast<mlir::ShapedType>(constOp.getType()).getElementType());
-    mlir::Value gamma = builder.create<Const::DeclareOp>(appendLoc(loc, "gamma"), gammaType, finalContentAttr);
+    mlir::Value gamma = Const::DeclareOp::create(builder, appendLoc(loc, "gamma"), gammaType, finalContentAttr);
     return gamma;
 }
 
 IE::RMSOp createRMSOp(mlir::OpBuilder& builder, mlir::Operation* headOp, mlir::Value gamma, int64_t layerSize,
-                      mlir::FloatAttr epsilonAttr) {
+                      mlir::FloatAttr epsilonAttr, IE::EpsMode epsMode) {
     auto gammaRank = mlir::cast<vpux::NDTypeInterface>(gamma.getType()).getRank();
     if (gammaRank != 1) {
-        auto reshapeOp = builder.create<IE::ReshapeOp>(
-                gamma.getLoc(), gamma, getIntArrayAttr(headOp->getContext(), SmallVector<int64_t>({layerSize})));
+        auto reshapeOp =
+                IE::ReshapeOp::create(builder, gamma.getLoc(), gamma,
+                                      getIntArrayAttr(headOp->getContext(), SmallVector<int64_t>({layerSize})));
         gamma = reshapeOp;
     }
-    auto rmsOp =
-            builder.create<IE::RMSOp>(appendLoc(headOp->getLoc(), "rms"), headOp->getOperand(0), gamma, epsilonAttr);
+    auto epsModeAttr = IE::EpsModeAttr::get(headOp->getContext(), epsMode);
+    auto rmsOp = IE::RMSOp::create(builder, appendLoc(headOp->getLoc(), "rms"), headOp->getOperand(0), gamma,
+                                   epsilonAttr, epsModeAttr);
     return rmsOp;
 }
 
@@ -119,7 +121,7 @@ IE::RMSOp createRMSOp(mlir::OpBuilder& builder, mlir::Operation* headOp, mlir::V
 
 void fuseNormalizeL2Pattern(IE::NormalizeL2Op normalizeL2Op, mlir::MLIRContext& ctx, vpux::Logger /*log*/) {
     const auto epsMode = normalizeL2Op.getEpsMode();
-    if (epsMode != IE::EpsMode::ADD) {
+    if (epsMode != IE::EpsMode::ADD && epsMode != IE::EpsMode::MAX) {
         return;
     }
 
@@ -173,7 +175,7 @@ void fuseNormalizeL2Pattern(IE::NormalizeL2Op normalizeL2Op, mlir::MLIRContext& 
     }
     mlir::Value gamma = gammaResult.value();
 
-    auto rmsOp = createRMSOp(builder, normalizeL2Op, gamma, reduceSize, epsilonAttr);
+    auto rmsOp = createRMSOp(builder, normalizeL2Op, gamma, reduceSize, epsilonAttr, epsMode);
     scaleMultiplyOp->replaceAllUsesWith(rmsOp);
 }
 

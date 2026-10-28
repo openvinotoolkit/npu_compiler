@@ -141,8 +141,8 @@ mlir::LogicalResult vpux::bufferizeSWLayerOp(mlir::RewriterBase& rewriter, mlir:
                                    : VPUIP::createBuiltInFunction(module, layerOp, newOperands, swKernelResults,
                                                                   swLayerOp.getKernelInfo(), log.nest());
 
-    auto swKernelOp = rewriter.create<VPUIP::SwKernelOp>(op->getLoc(), newOperands, swKernelResults, builtInFunction,
-                                                         getIntAttr(ctx, tileIndex));
+    auto swKernelOp = VPUIP::SwKernelOp::create(rewriter, op->getLoc(), newOperands, swKernelResults, builtInFunction,
+                                                getIntAttr(ctx, tileIndex));
 
     vpux::VPUIP::initSwKernel(swKernelOp, newOperands, swKernelResults, swLayerOp.getKernelInfo().args, log.nest(),
                               /*swKernelRunOp=*/nullptr);
@@ -156,7 +156,7 @@ mlir::LogicalResult vpux::bufferizeSWLayerOp(mlir::RewriterBase& rewriter, mlir:
                 cmxOperands.push_back(operand);
             } else {
                 const auto outputBuffer = VPUIP::allocateBuffer(log, operand.getLoc(), rewriter, operand, memSpaceCMX);
-                auto copyOp = rewriter.create<VPUIP::CopyOp>(op->getLoc(), operand, outputBuffer);
+                auto copyOp = VPUIP::CopyOp::create(rewriter, op->getLoc(), operand, outputBuffer);
                 cmxOperands.push_back(copyOp.getOutput());
             }
         }
@@ -185,8 +185,8 @@ mlir::LogicalResult vpux::bufferizeSWLayerOp(mlir::RewriterBase& rewriter, mlir:
                                                     log.nest());
         }
 
-        swKernelOp = rewriter.create<VPUIP::SwKernelOp>(op->getLoc(), cmxOperands, cmxResults, builtInFunction,
-                                                        getIntAttr(ctx, tileIndex));
+        swKernelOp = VPUIP::SwKernelOp::create(rewriter, op->getLoc(), cmxOperands, cmxResults, builtInFunction,
+                                               getIntAttr(ctx, tileIndex));
 
         vpux::VPUIP::initSwKernel(swKernelOp, cmxOperands, cmxResults, swLayerOp.getKernelInfo().args, log.nest(),
                                   /*swKernelRunOp=*/nullptr);
@@ -200,7 +200,7 @@ mlir::LogicalResult vpux::bufferizeSWLayerOp(mlir::RewriterBase& rewriter, mlir:
                 // Copy outputs that were mapped to CMX back to DDR
                 log.trace("Create DDR buffer for output: {0}", result.getLoc());
                 const auto outputBuffer = VPUIP::allocateBuffer(log, op->getLoc(), rewriter, result, nullptr);
-                auto copyOp = rewriter.create<VPUIP::CopyOp>(op->getLoc(), result, outputBuffer);
+                auto copyOp = VPUIP::CopyOp::create(rewriter, op->getLoc(), result, outputBuffer);
                 newResults.push_back(copyOp.getOutput());
             } else {
                 newResults.push_back(result);
@@ -253,8 +253,8 @@ mlir::LogicalResult vpux::bufferizeDistributedSWLayerOp(mlir::RewriterBase& rewr
                                             : createBuiltInFunction(module, layerOp, newOperands, outputBuffers,
                                                                     swLayerOp.getKernelInfo(), log.nest());
 
-    auto swKernelOp = rewriter.create<VPUIP::SwKernelOp>(op->getLoc(), newOperands, outputBuffers, builtInFunction,
-                                                         getIntAttr(op->getContext(), tileIndex));
+    auto swKernelOp = VPUIP::SwKernelOp::create(rewriter, op->getLoc(), newOperands, outputBuffers, builtInFunction,
+                                                getIntAttr(op->getContext(), tileIndex));
     vpux::VPUIP::initSwKernel(swKernelOp, newOperands, outputBuffers, swLayerOp.getKernelInfo().args, log.nest(),
                               /*swKernelRunOp=*/nullptr);
     auto finalResults = SmallVector<mlir::Value>(swKernelOp->getResults().begin(),
@@ -412,6 +412,7 @@ void vpux::registerSoftwareLayerBufferizableOpInterfaces(mlir::DialectRegistry& 
         VPU::LRNOp::attachInterface<SoftwareLayerOpBufferizeModel<VPU::LRNOp>>(*ctx);
         VPU::MemPermuteOp::attachInterface<SoftwareLayerOpBufferizeModel<VPU::MemPermuteOp>>(*ctx);
         VPU::PadOp::attachInterface<SoftwareLayerOpBufferizeModel<VPU::PadOp>>(*ctx);
+        VPU::PadDmaOp::attachInterface<SoftwareLayerOpBufferizeModel<VPU::PadDmaOp>>(*ctx);
         VPU::DepthToSpaceOp::attachInterface<SoftwareLayerOpBufferizeModel<VPU::DepthToSpaceOp>>(*ctx);
         VPU::SpaceToDepthOp::attachInterface<SoftwareLayerOpBufferizeModel<VPU::SpaceToDepthOp>>(*ctx);
         VPU::SpaceToBatch::attachInterface<SoftwareLayerOpBufferizeModel<VPU::SpaceToBatch>>(*ctx);
@@ -539,6 +540,7 @@ void vpux::registerSoftwareLayerBufferizableOpInterfaces(mlir::DialectRegistry& 
         VPU::AttentionOp::attachInterface<SoftwareLayerOpBufferizeModel<VPU::AttentionOp>>(*ctx);
         VPU::DynamicDataMaskOp::attachInterface<SoftwareLayerOpBufferizeModel<VPU::DynamicDataMaskOp>>(*ctx);
         VPU::FlashSDPAOp::attachInterface<SoftwareLayerOpBufferizeModel<VPU::FlashSDPAOp>>(*ctx);
+        VPU::GroupQuantCorrectionOp::attachInterface<SoftwareLayerOpBufferizeModel<VPU::GroupQuantCorrectionOp>>(*ctx);
     });
 
     registry.addExtension(+[](mlir::MLIRContext* ctx, Shave::ShaveDialect*) {

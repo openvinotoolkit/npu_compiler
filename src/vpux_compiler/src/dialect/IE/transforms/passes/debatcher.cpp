@@ -102,9 +102,9 @@ std::list<mlir::Value> getOperandsToDebatch(mlir::Operation* op,
 
 template <class Integer>
 SmallVector<Integer> consumeArrayAttrAsIntegerArray(mlir::Operation* op, std::string_view attName) {
-    VPUX_THROW_UNLESS(op != nullptr, "consumeArrayAttrAsIntegerArray failed on nullptr");
+    VPUX_THROW_WHEN(op == nullptr, "consumeArrayAttrAsIntegerArray failed on nullptr");
     auto attr = mlir::dyn_cast_or_null<mlir::ArrayAttr>(op->getAttr(attName));
-    VPUX_THROW_UNLESS(attr != nullptr, "Unexpected type for \"{0}\", only \"mlir::ArrayAttr\" supported", attName);
+    VPUX_THROW_WHEN(attr == nullptr, "Unexpected type for \"{0}\", only \"mlir::ArrayAttr\" supported", attName);
 
     return parseIntArrayAttr<Integer>(attr);
 }
@@ -126,7 +126,7 @@ void debatchOpAttribute(mlir::Operation* op, const StringRef attrName, const Con
 
     log.trace("Attribute \"{0}\" now has value: {1}", attrName, expectedResultshapeValue);
     auto downcastedAttr = getIntArrayAttr(op->getContext(), expectedResultshapeValue);
-    VPUX_THROW_UNLESS(downcastedAttr != nullptr, "Cannot create downcasted attribute \"{0}\"", attrName);
+    VPUX_THROW_WHEN(downcastedAttr == nullptr, "Cannot create downcasted attribute \"{0}\"", attrName);
     op->setAttr(attrName, downcastedAttr);
 }
 
@@ -233,8 +233,9 @@ struct DynamicReshapeAttrOpConverter : public OpConverter {
             mlir::Location loc = appendLoc(op->getLoc(), "dynReshape_substitution");
             auto currResultshapeValue =
                     Shape(consumeArrayAttrAsIntegerArray<int64_t>(dynamicReshapeOp, getShapeValueAttrName()));
-            mlir::Operation* reshapeSubstitutionOp = builder.create<IE::ReshapeOp>(
-                    loc, dynamicReshapeOp.getInput(), getIntArrayAttr(builder.getContext(), currResultshapeValue));
+            mlir::Operation* reshapeSubstitutionOp =
+                    IE::ReshapeOp::create(builder, loc, dynamicReshapeOp.getInput(),
+                                          getIntArrayAttr(builder.getContext(), currResultshapeValue));
             ShapeValueAttrOpConverter{const_cast<Logger&>(_log)}.apply(reshapeSubstitutionOp, operands);
             auto origType = mlir::cast<vpux::NDTypeInterface>(dynamicReshapeOp.getResult().getType());
             auto originShape = origType.getShape();
@@ -317,8 +318,8 @@ struct SizesAttrOpConverter : public OpConverter {
                 (operands[0].from[operands[0].coeff.batchPositionIndex] / to[operands[0].coeff.batchPositionIndex]);
 
         auto downcastedAttr = getIntArrayAttr(op->getContext(), expectedResultshapeValue);
-        VPUX_THROW_UNLESS(downcastedAttr != nullptr, "Cannot create downcasted attribute \"{0}\"",
-                          getShapeValueAttrName());
+        VPUX_THROW_WHEN(downcastedAttr == nullptr, "Cannot create downcasted attribute \"{0}\"",
+                        getShapeValueAttrName());
         op->setAttr(getShapeValueAttrName(), downcastedAttr);
     }
 
@@ -515,8 +516,8 @@ struct AttributedConstOpConverter : public OpConverter {
         _log.trace("Additional processing required for an operation: {0} as it has a special content attribute",
                    op->getName().getStringRef());
         auto constDeclareOp = mlir::dyn_cast<vpux::Const::DeclareOp>(op);
-        VPUX_THROW_UNLESS(constDeclareOp != nullptr, "Expected vpux::Const::DeclareOp, got: {0}",
-                          op->getName().getStringRef());
+        VPUX_THROW_WHEN(constDeclareOp == nullptr, "Expected vpux::Const::DeclareOp, got: {0}",
+                        op->getName().getStringRef());
         auto attrType = constDeclareOp.getContentAttr().getType();
         const auto opType = mlir::cast<vpux::NDTypeInterface>(constDeclareOp.getType());
 
@@ -535,7 +536,7 @@ struct AttributedConstOpConverter : public OpConverter {
                 builder.setInsertionPointAfterValue(operand);
                 const auto debatchedArgLoc = appendLoc(operand.getLoc(), "debatched_const");
                 auto unrealized_cast =
-                        builder.create<mlir::UnrealizedConversionCastOp>(debatchedArgLoc, opType, operand);
+                        mlir::UnrealizedConversionCastOp::create(builder, debatchedArgLoc, opType, operand);
                 operand.replaceUsesWithIf(unrealized_cast.getResult(0), [&](mlir::OpOperand& opOperand) {
                     return opOperand.getOwner() != unrealized_cast;
                 });
@@ -640,7 +641,7 @@ struct OpCastVisitor {
             DenseMap<mlir::Value, detail::ConversionDescription>& operandsConversionDescription) {
         // NOTE: operands = operandsToDebatch
         // NOTE: operandsConversionDescription = debatchedOperandStorage
-        VPUX_THROW_UNLESS(op != nullptr, "Empty operation");
+        VPUX_THROW_WHEN(op == nullptr, "Empty operation");
         std::vector<detail::ConversionDescription> operationArguments;
         operationArguments.reserve(operands.size());
         for (mlir::Value operand : operands) {
@@ -688,9 +689,9 @@ struct OpCastVisitor {
             for (auto resultPair : zip(deductedResultShapes, predictedResultTypes)) {
                 auto [opResult, debachCoeff] = std::get<0>(resultPair);
                 auto predictedResultType = mlir::dyn_cast<vpux::NDTypeInterface>(std::get<1>(resultPair));
-                VPUX_THROW_UNLESS(predictedResultType != nullptr,
-                                  "predictedResultType has non vpux::NDTypeInterface type '{0}'",
-                                  std::get<1>(resultPair));
+                VPUX_THROW_WHEN(predictedResultType == nullptr,
+                                "predictedResultType has non vpux::NDTypeInterface type '{0}'",
+                                std::get<1>(resultPair));
 
                 unsigned numOperands = op->getNumOperands();
                 unsigned operandIndex = 0;
@@ -907,7 +908,7 @@ void DebatcherPass::safeRunOnModule() {
         builder.setInsertionPointAfterValue(arg);
         const auto debatchedArgLoc = appendLoc(arg.getLoc(), "debatched_arg");
         auto unrealized_cast =
-                builder.create<mlir::UnrealizedConversionCastOp>(debatchedArgLoc, descr.downcastedType, arg);
+                mlir::UnrealizedConversionCastOp::create(builder, debatchedArgLoc, descr.downcastedType, arg);
         _log.trace("apply unrealized_cast");
         arg.replaceUsesWithIf(unrealized_cast.getResult(0), [&](mlir::OpOperand& opOperand) {
             return opOperand.getOwner() != unrealized_cast;
@@ -1026,7 +1027,7 @@ void DebatcherPass::safeRunOnModule() {
             castedType.changeShape(mlir::cast<vpux::NDTypeInterface>(originalOpType).getShape());
             const auto debatchedResLoc = appendLoc(operand.getLoc(), "debatched_arg");
             auto unrealizedCast =
-                    builder.create<mlir::UnrealizedConversionCastOp>(debatchedResLoc, originalOpType, operand);
+                    mlir::UnrealizedConversionCastOp::create(builder, debatchedResLoc, originalOpType, operand);
             operand.replaceUsesWithIf(unrealizedCast.getResult(0), [&](mlir::OpOperand& opOperand) {
                 return opOperand.getOwner() == op;
             });

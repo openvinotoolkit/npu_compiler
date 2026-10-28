@@ -32,6 +32,11 @@ public:
     void preAllocateForNewOps(size_t numOfNewOps);
     mlir::async::ExecuteOp getExecuteOpAtIndex(size_t opIdx) const;
     const llvm::SmallVector<size_t> getOpDeps(size_t opIdx) const;
+    // Order-independent view of the dependencies of an operation.
+    // Unlike getOpDeps() this does not materialize and sort a vector, so it must only be used by
+    // callers whose result does not depend on the iteration order (membership / any / all / min / max).
+    // Callers that feed scheduling order must keep using getOpDeps() - see E102917.
+    const llvm::DenseSet<size_t>& getOpDepsUnordered(size_t opIdx) const;
     const llvm::SmallVector<size_t> getConsumerOps(size_t opIdx) const;
     std::unordered_map<size_t, size_t> calculateOpInDegreeTable() const;
     std::unordered_map<size_t, size_t> calculateOpOutDegreeTable() const;

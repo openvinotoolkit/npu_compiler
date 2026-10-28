@@ -29,7 +29,7 @@ PPETask evalPPETasks(mlir::Region& ppeRegion, std::optional<VPUIP::NCETaskType> 
 mlir::LogicalResult configureIDU(const Logger& log, VPUIPDPU::arch50xx::IDU::IDUConfig& config,
                                  const vpux::NDTypeInterface& inActType, mlir::Type weightsElementType,
                                  VPUIP::NCETaskType taskType, std::optional<int64_t> spPattern,
-                                 std::optional<bool> inChannelsCompression, std::optional<bool> smallKernelOptimization,
+                                 std::optional<bool> inChannelsCompression, bool smallKernelOptimization,
                                  bool inActSparse, bool weightsSparse, std::optional<mlir::ArrayAttr> kernelSize,
                                  std::optional<mlir::ArrayAttr> kernelStrides, std::optional<int64_t> seSize,
                                  std::optional<VPU::EltwiseType> eltwiseType, const PPETask& ppeTask);

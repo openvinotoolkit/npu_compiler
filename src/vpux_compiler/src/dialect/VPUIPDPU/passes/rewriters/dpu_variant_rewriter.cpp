@@ -21,9 +21,9 @@ DPUVariantRewriter::DPUVariantRewriter(
 
 mlir::LogicalResult DPUVariantRewriter::matchAndRewrite(VPUASM::DPUVariantOp op,
                                                         mlir::PatternRewriter& rewriter) const {
-    auto variant = rewriter.create<VPUIPDPU::DPUVariantOp>(
-            op.getLoc(), op.getSymNameAttr(), op.getTaskIndexAttr(), op.getTaskLocationAttr(), op.getNextLinkAttr(),
-            op.getInvariantTaskLocationAttr(), op.getWeightsAttr(), op.getWeightTableAttr(),
+    auto variant = VPUIPDPU::DPUVariantOp::create(
+            rewriter, op.getLoc(), op.getSymNameAttr(), op.getTaskIndexAttr(), op.getTaskLocationAttr(),
+            op.getNextLinkAttr(), op.getInvariantTaskLocationAttr(), op.getWeightsAttr(), op.getWeightTableAttr(),
             op.getWeightTableDataPtrAttr(), op.getWeightTableSpPtrAttr(), op.getWeightTableScaleAttr(),
             op.getWeightTableBiasAttr(), op.getWeightTableAlphaAttr(), op.getWeightZeroPointsAttr(),
             op.getNceTaskTypeAttr(), op.getWorkloadIdAttr(), op.getVariantPrimitiveIdAttr());
@@ -61,14 +61,14 @@ mlir::LogicalResult DPUVariantRewriter::matchAndRewrite(VPUASM::DPUVariantOp op,
     }
 
     auto invariant = mlir::cast<VPUASM::DPUInvariantOp>(_symRefMap.lookupSymbol(op.getInvariant()));
-    rewriter.create<VPUIPDPU::BarrierCfgOp>(op.getLoc(), invariant.getWaitBarriers(), invariant.getUpdateBarriers(),
-                                            invariant.getStartAfterAttr(), invariant.getCleanAfterAttr());
+    VPUIPDPU::BarrierCfgOp::create(rewriter, op.getLoc(), invariant.getWaitBarriers(), invariant.getUpdateBarriers(),
+                                   invariant.getStartAfterAttr(), invariant.getCleanAfterAttr());
 
     auto taskIndex = op.getIndexType().getValue();
     auto isFirstVariant = invariant.getFirstVariantIndex() == taskIndex;
     auto isLastVariant = invariant.getVariantCount() > 1 && invariant.getLastVariantIndex() == taskIndex;
-    rewriter.create<VPUIPDPU::DPUGroupOp>(op.getLoc(), invariant.getIndexType(), invariant.getVariantCount(),
-                                          isFirstVariant, isLastVariant);
+    VPUIPDPU::DPUGroupOp::create(rewriter, op.getLoc(), invariant.getIndexType(), invariant.getVariantCount(),
+                                 isFirstVariant, isLastVariant);
 
     rewriter.eraseOp(op);
 

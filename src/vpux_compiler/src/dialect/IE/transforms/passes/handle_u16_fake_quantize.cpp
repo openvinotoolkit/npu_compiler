@@ -283,8 +283,8 @@ mlir::LogicalResult HandleU16FakeQuantizePass::RemoveU16FakeQuantizeRewriter::ma
                 Const::createConstContent(mlir::cast<mlir::ShapedType>(fqInputContentType), ArrayRef(newContent));
         Const::ContentSetup newContentAttrSetup(newFoldedBaseContent, fqInputContentType);
         auto newContentAttr = Const::ContentAttr::get(newFoldedBaseContent, newContentAttrSetup);
-        auto clonedFoldedConstant =
-                rewriter.create<Const::DeclareOp>(origOp.getLoc(), newContentAttr.getType(), std::move(newContentAttr));
+        auto clonedFoldedConstant = Const::DeclareOp::create(rewriter, origOp.getLoc(), newContentAttr.getType(),
+                                                             std::move(newContentAttr));
 
         // Apply fakeQuantize on the constant
         auto newFqInput = applyU16FakequantizeOnConstant(rewriter, origOp, clonedFoldedConstant);
@@ -653,7 +653,7 @@ public:
         auto addOutElemType = mlir::cast<vpux::NDTypeInterface>(addOp.getType()).getElementType();
         auto lastOpElemType = mlir::cast<vpux::NDTypeInterface>(lastOp->getResult(0).getType()).getElementType();
         if (addOutElemType != lastOpElemType) {
-            lastOp = rewriter.create<IE::ConvertOp>(addOp->getLoc(), lastOp->getResult(0), addOutElemType);
+            lastOp = IE::ConvertOp::create(rewriter, addOp->getLoc(), lastOp->getResult(0), addOutElemType);
         }
 
         rewriter.replaceAllUsesWith(addOp, lastOp->getResult(0));
@@ -772,10 +772,10 @@ private:
         // Produce an FQ with output == input to enable stripping downstream.
         if (levels.has_value() && isFloatEqual(origOutLow.front(), 0.0f) &&
             isFloatEqual(origOutHigh.front(), static_cast<float>(*levels - 1))) {
-            return builder.create<IE::FakeQuantizeOp>(loc, oldFqOp.getInput(), oldFqOp.getInputLow(),
-                                                      oldFqOp.getInputHigh(), oldFqOp.getInputLow(),
-                                                      oldFqOp.getInputHigh(), oldFqOp.getLevelsAttr(),
-                                                      oldFqOp.getLowFpTypeAttr(), oldFqOp.getAutoBroadcastAttr());
+            return IE::FakeQuantizeOp::create(builder, loc, oldFqOp.getInput(), oldFqOp.getInputLow(),
+                                              oldFqOp.getInputHigh(), oldFqOp.getInputLow(), oldFqOp.getInputHigh(),
+                                              oldFqOp.getLevelsAttr(), oldFqOp.getLowFpTypeAttr(),
+                                              oldFqOp.getAutoBroadcastAttr());
         }
 
         // General case: compute new output range from scale and bias
@@ -787,9 +787,9 @@ private:
         auto newOutLowConst = Const::createConst(builder, oldFqOp.getLoc(), outLowConstType, ArrayRef(newOutputLow));
         auto newOutHighConst = Const::createConst(builder, oldFqOp.getLoc(), outLowConstType, ArrayRef(newOutputHigh));
 
-        return builder.create<IE::FakeQuantizeOp>(
-                loc, oldFqOp.getInput(), oldFqOp.getInputLow(), oldFqOp.getInputHigh(), newOutLowConst, newOutHighConst,
-                oldFqOp.getLevelsAttr(), oldFqOp.getLowFpTypeAttr(), oldFqOp.getAutoBroadcastAttr());
+        return IE::FakeQuantizeOp::create(
+                builder, loc, oldFqOp.getInput(), oldFqOp.getInputLow(), oldFqOp.getInputHigh(), newOutLowConst,
+                newOutHighConst, oldFqOp.getLevelsAttr(), oldFqOp.getLowFpTypeAttr(), oldFqOp.getAutoBroadcastAttr());
     }
 
 private:
@@ -825,9 +825,9 @@ public:
         auto quantType = mlir::quant::UniformQuantizedType::get(
                 dstElemType.isUnsignedInteger() ? 0 : mlir::quant::QuantizationFlags::Signed, storageType,
                 convertInputElemType, 1.0 / scale.front(), bias.front(), storageMin, storageMax);
-        auto quantizeOp = rewriter.create<IE::QuantizeOp>(takeOpLoc(op, "quant"), fqOp.getInput(), quantType);
+        auto quantizeOp = IE::QuantizeOp::create(rewriter, takeOpLoc(op, "quant"), fqOp.getInput(), quantType);
         auto quantizeCast =
-                rewriter.create<IE::QuantizeCastOp>(takeOpLoc(op, "quant_cast"), quantizeOp.getResult(), dstElemType);
+                IE::QuantizeCastOp::create(rewriter, takeOpLoc(op, "quant_cast"), quantizeOp.getResult(), dstElemType);
         rewriter.replaceOp(op, quantizeCast.getResult());
         return mlir::success();
     }

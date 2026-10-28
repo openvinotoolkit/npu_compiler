@@ -11,6 +11,7 @@
 #include "vpux/compiler/dialect/VPU/IR/ops/data_type.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/dpu.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/internal.hpp"
+#include "vpux/compiler/dialect/VPU/utils/distributed_tensor_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/sibling_ops_analysis.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
@@ -922,6 +923,21 @@ OverlapDistributionParams vpux::VPU::getOutputOverlappedParams(
 
     auto consumers = siblingsAnalysis.getConsumers(clusteredOp);
     const auto clusteringAxis = VPU::getDistributedTilingAxis(outputTensorNumTiles);
+    auto nceOp = mlir::dyn_cast_if_present<VPU::NCEOpInterface>(clusteredOp.getOperation());
+    if (nceOp != nullptr && nceOp.hasReduceOutput()) {
+        // Reduce-XY fused outputs (max/min per XY, min-max per tensor) are produced by the DPU together with the main
+        // output. They are not halo-shared between clusters - each cluster owns its own per-XY reduce buffer segment
+        // matching the per-cluster compute view of the main output. Therefore, we should avoid setting distribution
+        // mode with HALO regions for DPU ops which have ReduceMax/Min already fused into them.
+        // Track E#233730. Support halo-sharing for reduce buffer.
+        auto producerOutputType = (outputType != nullptr)
+                                          ? outputType
+                                          : mlir::cast<vpux::NDTypeInterface>(clusteredOp->getResult(0).getType());
+        return getOverlappedDistributionParameters(producerOutputType, {}, outputTensorNumTiles[clusteringAxis],
+                                                   outputTensorNumTiles, uniformDistributedSegments, tileInfo,
+                                                   outputTensorMemoryNumTiles, alignment);
+    }
+
     return getOverlappedDistributionParameters(
             (outputType != nullptr) ? outputType
                                     : mlir::cast<vpux::NDTypeInterface>(clusteredOp->getResult(0).getType()),

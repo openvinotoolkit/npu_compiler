@@ -10,12 +10,15 @@
 // This version is exposed via L0 API and reported as (read-only) plugin property NPU_COMPILER_VERSION
 //
 #define NPU_COMPILER_VERSION_MAJOR 8
-#define NPU_COMPILER_VERSION_MINOR 3
+#define NPU_COMPILER_VERSION_MINOR 4
 
 /*
 
 Change Log:
 -----------
+NPU Compiler 8.4.0
+  - 2026 UD44 release
+
 NPU Compiler 8.3.0
   - 2026 UD38 release
 

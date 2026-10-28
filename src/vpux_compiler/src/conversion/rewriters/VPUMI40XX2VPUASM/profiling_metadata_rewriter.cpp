@@ -14,7 +14,7 @@ mlir::FailureOr<SymbolizationResult> ProfilingMetadataRewriter::symbolize(
     auto result = op.getResult();
     mlir::StringAttr symName = findSym(result).getRootReference();
 
-    auto newOp = rewriter.create<VPUASM::ProfilingMetadataOp>(op.getLoc(), symName, op.getMetadataAttr());
+    auto newOp = VPUASM::ProfilingMetadataOp::create(rewriter, op.getLoc(), symName, op.getMetadataAttr());
     rewriter.eraseOp(op);
 
     return SymbolizationResult(newOp);

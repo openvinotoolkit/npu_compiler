@@ -139,13 +139,13 @@ mlir::FailureOr<mlir::func::FuncOp> SerializeELFToBinaryPass::serialize(vpux::Co
     // Store the serialized ELF data as binary data op
     auto object = moduleBuilder.getAttr<HostExec::ObjectAttr>(moduleBuilder.getStringAttr(
             StringRef(reinterpret_cast<const char*>(binaryBuffer.data()), binaryBuffer.size())));
-    auto binaryOp = moduleBuilder.create<HostExec::BinaryOp>(moduleOp.getLoc(), moduleOp.getName().value());
+    auto binaryOp = HostExec::BinaryOp::create(moduleBuilder, moduleOp.getLoc(), moduleOp.getName().value());
     mlir::OpBuilder binaryOpBuilder(binaryOp.getBody());
-    binaryOpBuilder.create<HostExec::BinaryDataOp>(binaryOp.getLoc(), "serialized_" + funcOp.getName().str(), object);
+    HostExec::BinaryDataOp::create(binaryOpBuilder, binaryOp.getLoc(), "serialized_" + funcOp.getName().str(), object);
 
     // Kernel functions do not return data/objects. All inputs and output ptrs are passed as function arguments
     // func op is set to private to indicate that function has no body just declaration
-    auto newFuncOp = binaryOpBuilder.create<mlir::func::FuncOp>(binaryOp.getLoc(), funcOp.getName(), funcType.value());
+    auto newFuncOp = mlir::func::FuncOp::create(binaryOpBuilder, binaryOp.getLoc(), funcOp.getName(), funcType.value());
     newFuncOp.setNested();
     moduleOp.erase();
     return newFuncOp;
@@ -206,8 +206,8 @@ void SerializeELFToBinaryPass::safeRunOnModule() {
         }
 
         builder.setInsertionPoint(callOp);
-        builder.create<vpux::Core::NestedCallOp>(callOp.getLoc(), calleeAttr, newFuncOp.getFunctionType().getResults(),
-                                                 callOp.getOperands());
+        vpux::Core::NestedCallOp::create(builder, callOp.getLoc(), calleeAttr, newFuncOp.getFunctionType().getResults(),
+                                         callOp.getOperands());
         callOp.erase();
     }
 }

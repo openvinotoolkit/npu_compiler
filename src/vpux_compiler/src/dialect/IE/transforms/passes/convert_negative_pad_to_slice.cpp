@@ -119,8 +119,8 @@ void ConvertNegativePadToSlicePass::safeRunOnFunc() {
         auto sliceOffsetsAttr = getIntArrayAttr(&ctx, sliceOffsets);
         auto sliceSizesAttr = getIntArrayAttr(&ctx, sliceSizes);
 
-        auto sliceOp = builder.create<IE::SliceOp>(takeOpLoc(padOp, "slice"), padOp.getInput(), sliceOffsetsAttr,
-                                                   sliceSizesAttr);
+        auto sliceOp = IE::SliceOp::create(builder, takeOpLoc(padOp, "slice"), padOp.getInput(), sliceOffsetsAttr,
+                                           sliceSizesAttr);
 
         if (!hasPositivePad) {
             // All pads were negative, replace Pad with just Slice
@@ -130,10 +130,10 @@ void ConvertNegativePadToSlicePass::safeRunOnFunc() {
             auto newPadsBeginAttr = getIntArrayAttr(&ctx, newPadsBegin);
             auto newPadsEndAttr = getIntArrayAttr(&ctx, newPadsEnd);
 
-            auto newPadOp = builder.create<IE::PadOp>(padOp->getLoc(), sliceOp.getResult(), nullptr, nullptr, nullptr,
-                                                      newPadsBeginAttr, newPadsEndAttr, padOp.getPadValueAttrAttr(),
-                                                      padOp.getModeAttr(), padOp.getOutputPaddingAttr(),
-                                                      padOp.getInputPaddingAttr(), nullptr, nullptr);
+            auto newPadOp = IE::PadOp::create(builder, padOp->getLoc(), sliceOp.getResult(), nullptr, nullptr, nullptr,
+                                              newPadsBeginAttr, newPadsEndAttr, padOp.getPadValueAttrAttr(),
+                                              padOp.getModeAttr(), padOp.getOutputPaddingAttr(),
+                                              padOp.getInputPaddingAttr(), nullptr, nullptr);
             padOp.replaceAllUsesWith(newPadOp.getOutput());
         }
         padOp->erase();

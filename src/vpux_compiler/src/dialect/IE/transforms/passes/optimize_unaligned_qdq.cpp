@@ -122,8 +122,8 @@ mlir::LogicalResult UnalignedFakeQuantizeRewriter::matchAndRewrite(IE::FakeQuant
     if (oldAffineReshape == nullptr) {
         return matchFailed(_log.nest(), rewriter, oldAffineReshape, "No following FakeQuantize");
     }
-    auto newFakeQuantize = rewriter.create<IE::FakeQuantizeOp>(
-            oldFakeQuantize->getLoc(), oldAffineReshape.getInput(), oldFakeQuantize.getInputLow(),
+    auto newFakeQuantize = IE::FakeQuantizeOp::create(
+            rewriter, oldFakeQuantize->getLoc(), oldAffineReshape.getInput(), oldFakeQuantize.getInputLow(),
             oldFakeQuantize.getInputHigh(), oldFakeQuantize.getOutputLow(), oldFakeQuantize.getOutputHigh(),
             oldFakeQuantize.getLevelsAttr(), oldFakeQuantize.getLowFpTypeAttr(),
             oldFakeQuantize.getAutoBroadcastAttr());

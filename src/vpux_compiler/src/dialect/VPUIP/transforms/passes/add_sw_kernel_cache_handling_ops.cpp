@@ -38,17 +38,17 @@ mlir::async::ExecuteOp createCacheHandlingSwKernel(mlir::OpBuilder builder, OpBu
         const int64_t tileIndex = 0;
         SmallVector<mlir::Value> buffers = {};
         const auto buffersRange = mlir::ValueRange(buffers);
-        auto cacheHandlingSwKernel = builder.create<VPUIP::SwKernelOp>(loc, buffersRange, buffersRange, nullptr,
-                                                                       functionSymbol, getIntAttr(builder, tileIndex));
+        auto cacheHandlingSwKernel = VPUIP::SwKernelOp::create(builder, loc, buffersRange, buffersRange, nullptr,
+                                                               functionSymbol, getIntAttr(builder, tileIndex));
         const SmallVector<mlir::Attribute> args = {};
         vpux::VPUIP::initSwKernel(cacheHandlingSwKernel, buffersRange, buffersRange, args, log.nest(),
                                   /*swKernelRunOp=*/nullptr);
 
-        builder.create<mlir::async::YieldOp>(loc, /* operands */ mlir::ValueRange{});
+        mlir::async::YieldOp::create(builder, loc, /* operands */ mlir::ValueRange{});
     };
 
-    auto execOp = builder.create<mlir::async::ExecuteOp>(loc, /* resultTypes */ mlir::TypeRange{}, dependencies,
-                                                         /* operands */ mlir::ValueRange{}, bodyBuilder);
+    auto execOp = mlir::async::ExecuteOp::create(builder, loc, /* resultTypes */ mlir::TypeRange{}, dependencies,
+                                                 /* operands */ mlir::ValueRange{}, bodyBuilder);
     VPUIP::VPUIPDialect::setExecutor(execOp,
                                      vpux::IndexedSymbolAttr::get(ctx, stringifyEnum(config::ExecutorKind::SHAVE_ACT)));
     return execOp;

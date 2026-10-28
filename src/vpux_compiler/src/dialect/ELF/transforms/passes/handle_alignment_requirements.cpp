@@ -89,7 +89,7 @@ void HandleAlignmentRequirementsPass::safeRunOnFunc() {
             if (paddingRequired) {
                 builder.setInsertionPoint(binarySizeOperation);
                 auto paddingSize = alignmentRequirement - paddingRequired;
-                builder.template create<ELF::PadOp>(builder.getUnknownLoc(), paddingSize, nullptr);
+                ELF::PadOp::create(builder, builder.getUnknownLoc(), paddingSize, nullptr);
                 offsetTracker += paddingSize;
             }
             offsetTracker += binarySize;
@@ -97,7 +97,7 @@ void HandleAlignmentRequirementsPass::safeRunOnFunc() {
 
         if (requiresEndPadding && section.getSectionType() != ELF::SectionTypeAttr::SHT_NOBITS) {
             builder.setInsertionPointToEnd(block);
-            builder.template create<ELF::PadOp>(builder.getUnknownLoc(), VPUX_SHAVE_KERNEL_PREFETCH_PAD, nullptr);
+            ELF::PadOp::create(builder, builder.getUnknownLoc(), VPUX_SHAVE_KERNEL_PREFETCH_PAD, nullptr);
             offsetTracker += VPUX_SHAVE_KERNEL_PREFETCH_PAD;
         }
     }

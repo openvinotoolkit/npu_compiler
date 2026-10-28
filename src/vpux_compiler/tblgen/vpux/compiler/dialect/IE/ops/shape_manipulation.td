@@ -134,7 +134,10 @@ def IE_ShapeCastOp :
 
 def IE_ShapeOfOp :
         IE_LayerOp<
-            "ShapeOf"
+            "ShapeOf",
+            [
+                DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface, ["reifyResultShapes"]>
+            ]
         > {
     let summary = "InferenceEngine ShapeOf layer";
 

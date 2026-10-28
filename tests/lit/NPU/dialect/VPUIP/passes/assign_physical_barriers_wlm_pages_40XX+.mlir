@@ -73,7 +73,7 @@ func.func @DmaAndDpuGraph() -> memref<1x16x8x32xf16, {order = #NHWC}, [@CMX_NN, 
     VPURT.Task waits(%bar1: !VPURT.Barrier)
                updates(%bar2, %bar3: !VPURT.Barrier, !VPURT.Barrier)
     {
-        VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
+        VPUIP.NCEClusterTask <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>,
                 kernel_padding = #VPU.Padding<left = 0 , right = 0, top = 0, bottom = 0>, kernel_size = [1, 1], kernel_strides = [1, 1], task_type = #VPUIP.nce_task_type<CONV>
             }>
             input(%buf0: memref<1x16x8x32xf16, {order = #NHWC}, [@CMX_NN, 0]>) weights(%buf1: memref<16x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>) parent_input(%buf0: memref<1x16x8x32xf16, {order = #NHWC}, [@CMX_NN, 0]>) parent_output(%buf3: memref<1x16x8x32xf16, {order = #NHWC}, [@CMX_NN, 0]>) outputs(%buf3: memref<1x16x8x32xf16, {order = #NHWC}, [@CMX_NN, 0]>) -> memref<1x16x8x32xf16, {order = #NHWC}, [@CMX_NN, 0]>
@@ -84,7 +84,7 @@ func.func @DmaAndDpuGraph() -> memref<1x16x8x32xf16, {order = #NHWC}, [@CMX_NN, 
     VPURT.Task waits(%bar2: !VPURT.Barrier)
                updates(%bar4: !VPURT.Barrier)
     {
-        VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
+        VPUIP.NCEClusterTask <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>,
                 kernel_padding = #VPU.Padding<left = 0 , right = 0, top = 0, bottom = 0>, kernel_size = [1, 1], kernel_strides = [1, 1], task_type = #VPUIP.nce_task_type<CONV>
             }>
             input(%buf0: memref<1x16x8x32xf16, {order = #NHWC}, [@CMX_NN, 0]>) weights(%buf1: memref<16x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>) parent_input(%buf0: memref<1x16x8x32xf16, {order = #NHWC}, [@CMX_NN, 0]>) parent_output(%buf3: memref<1x16x8x32xf16, {order = #NHWC}, [@CMX_NN, 0]>) outputs(%buf3: memref<1x16x8x32xf16, {order = #NHWC}, [@CMX_NN, 0]>) -> memref<1x16x8x32xf16, {order = #NHWC}, [@CMX_NN, 0]>
@@ -95,7 +95,7 @@ func.func @DmaAndDpuGraph() -> memref<1x16x8x32xf16, {order = #NHWC}, [@CMX_NN, 
     VPURT.Task waits(%bar3: !VPURT.Barrier)
                updates(%bar4: !VPURT.Barrier)
     {
-        VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
+        VPUIP.NCEClusterTask <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>,
                 kernel_padding = #VPU.Padding<left = 0 , right = 0, top = 0, bottom = 0>, kernel_size = [1, 1], kernel_strides = [1, 1], task_type = #VPUIP.nce_task_type<CONV>
             }>
             input(%buf0: memref<1x16x8x32xf16, {order = #NHWC}, [@CMX_NN, 0]>) weights(%buf1: memref<16x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>) parent_input(%buf0: memref<1x16x8x32xf16, {order = #NHWC}, [@CMX_NN, 0]>) parent_output(%buf3: memref<1x16x8x32xf16, {order = #NHWC}, [@CMX_NN, 0]>) outputs(%buf3: memref<1x16x8x32xf16, {order = #NHWC}, [@CMX_NN, 0]>) -> memref<1x16x8x32xf16, {order = #NHWC}, [@CMX_NN, 0]>
@@ -106,7 +106,7 @@ func.func @DmaAndDpuGraph() -> memref<1x16x8x32xf16, {order = #NHWC}, [@CMX_NN, 
     VPURT.Task waits(%bar4: !VPURT.Barrier)
                updates(%bar5: !VPURT.Barrier)
     {
-        VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
+        VPUIP.NCEClusterTask <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>,
                 kernel_padding = #VPU.Padding<left = 0 , right = 0, top = 0, bottom = 0>, kernel_size = [1, 1], kernel_strides = [1, 1], task_type = #VPUIP.nce_task_type<CONV>
             }>
             input(%buf0: memref<1x16x8x32xf16, {order = #NHWC}, [@CMX_NN, 0]>) weights(%buf1: memref<16x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>) parent_input(%buf0: memref<1x16x8x32xf16, {order = #NHWC}, [@CMX_NN, 0]>) parent_output(%buf3: memref<1x16x8x32xf16, {order = #NHWC}, [@CMX_NN, 0]>) outputs(%buf3: memref<1x16x8x32xf16, {order = #NHWC}, [@CMX_NN, 0]>) -> memref<1x16x8x32xf16, {order = #NHWC}, [@CMX_NN, 0]>

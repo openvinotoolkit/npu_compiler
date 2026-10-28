@@ -97,14 +97,16 @@ mlir::LogicalResult vpux::VPU::AttentionDMAOp::reifyResultShapes(
 void vpux::VPU::AttentionDMAOp::build(::mlir::OpBuilder& odsBuilder, ::mlir::OperationState& odsState,
                                       ::mlir::Value inputQ, ::mlir::Value inputK, ::mlir::Value inputV,
                                       ::mlir::Value inputMask, ::mlir::Value inputScale, ::mlir::Value inputSink,
-                                      ::mlir::Value inputBias, ::mlir::Value seqLenK, ::mlir::IntegerAttr padSizeS) {
+                                      ::mlir::Value inputBias, ::mlir::Value seqLenK, ::mlir::Value kScale,
+                                      ::mlir::Value vScale, ::mlir::IntegerAttr padSizeS,
+                                      ::mlir::IntegerAttr localWindowSize, ::mlir::UnitAttr smoothSoftmax) {
     auto loc = odsState.location;
     auto module = getModuleOp(odsBuilder);
     auto auxBufferType = getAuxiliaryBufferType(module);
     auto auxBuffer = VPU::createEmptyAuxiliaryBuffer(odsBuilder, loc, auxBufferType);
 
     build(odsBuilder, odsState, inputQ, inputK, inputV, inputMask, inputScale, inputSink, inputBias, auxBuffer, seqLenK,
-          padSizeS, nullptr);
+          kScale, vScale, padSizeS, localWindowSize, smoothSoftmax, nullptr);
 }
 
 //
@@ -163,6 +165,21 @@ bool vpux::VPU::AttentionDMAOp::fitsForNonFlashKernel(VPU::AttentionDMAOp origOp
     }
     if (origOp.getSeqLenK()) {
         buffersSize.push_back(Byte(1 * sizeof(int32_t)));
+    }
+    if (origOp.getKScale()) {
+        buffersSize.push_back(Byte(e * fp16Size));
+    }
+    if (origOp.getVScale()) {
+        buffersSize.push_back(Byte(eV * fp16Size));
+    }
+
+    // Quantized (si8) K/V: the kernel loads raw bytes into an extra scratch buffer (1 byte/elem)
+    // on top of the (already counted above) half CMX buffer it dequantizes into.
+    if (kType.getElementType().isSignedInteger(8)) {
+        buffersSize.push_back(Byte(sSL * e));
+    }
+    if (vType.getElementType().isSignedInteger(8)) {
+        buffersSize.push_back(Byte(eV * sSL));
     }
 
     int64_t numShaves = (static_cast<VPU::SwIoDmaOpInterface>(origOp)).getDuplicatedNumShaves();

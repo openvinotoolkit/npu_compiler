@@ -7,7 +7,6 @@
 #include "vpux/compiler/dialect/VPUMI40XX/passes.hpp"
 #include "vpux/compiler/dialect/VPUMI40XX/utils.hpp"
 #include "vpux/compiler/dialect/config/IR/resources.hpp"
-#include "vpux/compiler/dialect/config/IR/utils.hpp"
 #include "vpux/compiler/dialect/config/utils/config_option_utils.hpp"
 #include "vpux/compiler/utils/passes.hpp"
 #include "vpux/compiler/utils/shave.hpp"
@@ -41,16 +40,17 @@ void ResolveWLMTaskLocationPass::safeRunOnFunc() {
     const auto availableShaveEnginesPerTile =
             config::getAvailableExecutor(parentModule, config::ExecutorKind::SHAVE_ACT).getCount();
 
-    auto archKind = config::getArch(netFunc);
+    // Each task type reserves double the per-group capacity to support ping-pong buffering
+    constexpr size_t kDoubleBuffer = 2;
     const llvm::DenseMap<VPURegMapped::TaskType, size_t> sizes = {
             {VPURegMapped::TaskType::DPUInvariant,
-             config::getConstraint(netFunc, config::METADATA_MAX_INVARIANT_COUNT) / 2},
+             config::getConstraint(netFunc, config::METADATA_MAX_INVARIANT_COUNT) / kDoubleBuffer},
             {VPURegMapped::TaskType::DPUVariant,
-             config::getConstraint(netFunc, config::METADATA_MAX_VARIANT_COUNT) / 2},
+             config::getConstraint(netFunc, config::METADATA_MAX_VARIANT_COUNT) / kDoubleBuffer},
             {VPURegMapped::TaskType::ActKernelInvocation,
-             config::getConstraint(netFunc, config::METADATA_MAX_KERNEL_INVOCATION_COUNT) / 2},
+             config::getConstraint(netFunc, config::METADATA_MAX_KERNEL_INVOCATION_COUNT) / kDoubleBuffer},
             {VPURegMapped::TaskType::ActKernelRange,
-             config::getConstraint(netFunc, config::METADATA_MAX_KERNEL_RANGE_COUNT) / 2}};
+             config::getConstraint(netFunc, config::METADATA_MAX_KERNEL_RANGE_COUNT) / kDoubleBuffer}};
 
     auto getSize = [&sizes](VPURegMapped::TaskType type) -> size_t {
         auto mapIt = sizes.find(type);
@@ -62,22 +62,22 @@ void ResolveWLMTaskLocationPass::safeRunOnFunc() {
     // Key: tileIdx, Value: current offset
     llvm::DenseMap<int64_t, int64_t> offsetTrackers;
 
-    auto populate = [&offsetTrackers, &netFunc, &archKind](mlir::OpBuilder builder, VPURegMapped::TaskType taskType,
-                                                           size_t tileIdx, size_t listIdx,
-                                                           size_t count) -> std::vector<mlir::Value> {
+    auto populate = [&offsetTrackers, &netFunc](mlir::OpBuilder builder, VPURegMapped::TaskType taskType,
+                                                size_t tileIdx, size_t listIdx,
+                                                size_t count) -> std::vector<mlir::Value> {
         std::vector<mlir::Value> taskBuffers;
-        auto ctx = builder.getContext();
+        auto* ctx = builder.getContext();
         int64_t& offsetTracker = offsetTrackers[tileIdx];
+        const auto binarySize = static_cast<int64_t>(VPUMI40XX::getTaskBinarySizeConstraint(netFunc, taskType));
         for (size_t i = 0; i < count; ++i) {
             auto index = VPURegMapped::IndexType::get(ctx, static_cast<uint32_t>(tileIdx), listIdx,
                                                       static_cast<uint32_t>(i));
             auto offsetAttr = mlir::IntegerAttr::get(getUInt64Type(ctx), offsetTracker);
 
-            auto binarySize = VPUMI40XX::getTaskBinarySize(taskType, archKind);
             auto taskBuffer =
-                    builder.create<VPUMI40XX::DeclareTaskBufferOp>(netFunc.getLoc(), index, taskType, offsetAttr);
+                    VPUMI40XX::DeclareTaskBufferOp::create(builder, netFunc.getLoc(), index, taskType, offsetAttr);
             taskBuffers.push_back(taskBuffer.getResult());
-            offsetTracker += static_cast<int64_t>(binarySize);
+            offsetTracker += binarySize;
         }
 
         return taskBuffers;

@@ -56,7 +56,7 @@ mlir::LogicalResult ConvertDynamicReshapeToInPlacePass::makeInPlaceDynamicReshap
     bool inputIsDynamic = hasUngroupedInputBoundedBuffers(dynamicReshape);
     auto operands = dynamicReshape.getOperands();
 
-    auto updatedDataBuffer = builder.create<VPUIP::ViewOp>(takeOpLoc(dynamicReshape, "view"), output.getType(), input);
+    auto updatedDataBuffer = VPUIP::ViewOp::create(builder, takeOpLoc(dynamicReshape, "view"), output.getType(), input);
     auto updatedDataBufferResults = updatedDataBuffer.getResult();
 
     SmallVector<mlir::Value> inputs{dynamicReshape.getOperand(0), dynamicReshape.getOperand(1)};
@@ -76,16 +76,16 @@ mlir::LogicalResult ConvertDynamicReshapeToInPlacePass::makeInPlaceDynamicReshap
         auto inputBounds = dynamicReshape.getOperand(2);
         auto inputShapesMap = dynamicReshape.getDynamicInputShapesMapAttr();
 
-        newSwKernelOp = builder.create<VPUIP::SwKernelOp>(
-                takeOpLoc(dynamicReshape, "swKernel"), inputs, outputs[0], inputBounds, inputShapesMap,
+        newSwKernelOp = VPUIP::SwKernelOp::create(
+                builder, takeOpLoc(dynamicReshape, "swKernel"), inputs, outputs[0], inputBounds, inputShapesMap,
                 dynamicReshape.getDynamicOutputShapeBuffs(), dynamicReshape.getDynamicOutputShapesMapAttr(),
                 dynamicReshape.getKernelFunction(), tileIndex);
     } else {
         SmallVector<int32_t> inputShapesMap(inputs.size(), -1);
 
-        newSwKernelOp = builder.create<VPUIP::SwKernelOp>(
-                takeOpLoc(dynamicReshape, "swKernel"), inputs, outputs[0], dynamicReshape.getDynamicInputShapes(),
-                inputShapesMap, dynamicReshape.getDynamicOutputShapeBuffs(),
+        newSwKernelOp = VPUIP::SwKernelOp::create(
+                builder, takeOpLoc(dynamicReshape, "swKernel"), inputs, outputs[0],
+                dynamicReshape.getDynamicInputShapes(), inputShapesMap, dynamicReshape.getDynamicOutputShapeBuffs(),
                 dynamicReshape.getDynamicOutputShapesMapAttr(), dynamicReshape.getKernelFunction(), tileIndex);
     }
 

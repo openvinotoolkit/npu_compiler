@@ -23,6 +23,7 @@ void config::ConstraintsInitializer40XX::initialize(mlir::MLIRContext* context) 
     constraints.dynamicStridesMinElfAbiVersion = config::Version(1, 3, 0);
 
     constraints.maxKernelSize = arch37xx::DPU_MAX_KERNEL_SIZE;
+    constraints.legalRoPEConfigs = getDefaultLegalRoPEConfigs();
 
     setNPUConstraints(context, constraints);
 }

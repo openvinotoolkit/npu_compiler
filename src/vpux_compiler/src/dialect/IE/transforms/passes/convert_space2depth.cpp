@@ -69,7 +69,7 @@ mlir::LogicalResult ConvertSpace2DepthLayerPass::Space2DepthLayerConverter::matc
     const auto mode = origOp.getMode();
     const auto blockSize = origOp.getBlockSize();
     if (blockSize <= 0) {
-        return matchFailed(rewriter, origOp, "Unsupported block size: {0}", blockSize);
+        return matchFailed(_log, rewriter, origOp, "Unsupported block size: {0}", blockSize);
     }
 
     // Should fail in frontend if input rank < 3
@@ -120,13 +120,13 @@ mlir::LogicalResult ConvertSpace2DepthLayerPass::Space2DepthLayerConverter::matc
             outShape.size() == shapeEnd.size() && std::equal(shapeEnd.begin(), shapeEnd.end(), outShape.begin()),
             "Replacing failed due to output shape mismatch: original '{0}', new '{1}'", outShape, shapeEnd);
 
-    auto reshapeBegin = rewriter.create<IE::ReshapeOp>(takeOpLoc(origOp, "reshape_in"), origOp.getInput(),
-                                                       getIntArrayAttr(ctx, shapeBegin));
+    auto reshapeBegin = IE::ReshapeOp::create(rewriter, takeOpLoc(origOp, "reshape_in"), origOp.getInput(),
+                                              getIntArrayAttr(ctx, shapeBegin));
     auto transpose =
-            rewriter.create<IE::TransposeOp>(takeOpLoc(origOp, "transpose_in"), reshapeBegin.getOutput(), nullptr,
-                                             mlir::AffineMapAttr::get(mlir::AffineMap::getPermutationMap(order, ctx)));
-    auto reshapeEnd = rewriter.create<IE::ReshapeOp>(takeOpLoc(origOp, "reshape_out"), transpose.getOutput(),
-                                                     getIntArrayAttr(ctx, shapeEnd));
+            IE::TransposeOp::create(rewriter, takeOpLoc(origOp, "transpose_in"), reshapeBegin.getOutput(), nullptr,
+                                    mlir::AffineMapAttr::get(mlir::AffineMap::getPermutationMap(order, ctx)));
+    auto reshapeEnd = IE::ReshapeOp::create(rewriter, takeOpLoc(origOp, "reshape_out"), transpose.getOutput(),
+                                            getIntArrayAttr(ctx, shapeEnd));
     rewriter.replaceOp(origOp, reshapeEnd.getOutput());
 
     return mlir::success();

@@ -4,7 +4,7 @@
 //
 
 #include "vpux/compiler/dialect/const/utils/utils.hpp"
-#include "vpux/compiler/core/types/quantile_float/types.hpp"
+#include "vpux/compiler/core/types/quantile_types/types.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/data_type.hpp"
 #include "vpux/compiler/dialect/IE/utils/quantization.hpp"
 #include "vpux/compiler/dialect/const/attributes/content.hpp"
@@ -59,7 +59,7 @@ mlir::Value createZerosConstImpl(mlir::OpBuilder& builder, mlir::Location loc, T
             "Upsampling has incompatible data type {0}, only float16, float32 or uniform quantized type are supported",
             elemType);
 
-    return builder.create<Const::DeclareOp>(loc, type, Const::ContentAttr::get(denseElementVal)).getOutput();
+    return Const::DeclareOp::create(builder, loc, type, Const::ContentAttr::get(denseElementVal)).getOutput();
 }
 }  // namespace
 
@@ -87,6 +87,16 @@ bool isConstValue(mlir::Value value) {
         return fq.getInput().getDefiningOp<Const::DeclareOp>() != nullptr && IE::hasStaticLowAndHighValues(fq);
     }
 
+    // Handle the case of dynamic dequantize, similar to the case of FakeQuantize, we need to check that the input is a
+    // constant and that the scale and zero point are also constants (or null).
+    if (auto dynDeq = value.getDefiningOp<IE::DynamicDequantizeOp>()) {
+        const auto isConstOperand = [](mlir::Value operand) {
+            return operand == nullptr || operand.getDefiningOp<Const::DeclareOp>() != nullptr;
+        };
+        return dynDeq.getInput().getDefiningOp<Const::DeclareOp>() != nullptr && isConstOperand(dynDeq.getScale()) &&
+               isConstOperand(dynDeq.getZp());
+    }
+
     return value.getDefiningOp<Const::DeclareOp>() != nullptr;
 }
 
@@ -106,10 +116,10 @@ mlir::Value createFloatConst(mlir::OpBuilder& builder, mlir::Location loc, mlir:
                       "Create float Const failed with unexpect data size");
 
     const auto denseElementVal = createConstContent(type, values);
-    VPUX_THROW_UNLESS(denseElementVal != nullptr, "Incompatible data type {0}, only float16 or float32 are supported",
-                      type.getElementType());
+    VPUX_THROW_WHEN(denseElementVal == nullptr, "Incompatible data type {0}, only float16 or float32 are supported",
+                    type.getElementType());
 
-    return builder.create<Const::DeclareOp>(loc, type, Const::ContentAttr::get(denseElementVal)).getOutput();
+    return Const::DeclareOp::create(builder, loc, type, Const::ContentAttr::get(denseElementVal)).getOutput();
 }
 
 Const::ContentAttr createFloatContentAttr(mlir::OpBuilder&, mlir::Location, mlir::RankedTensorType type,
@@ -121,8 +131,8 @@ Const::ContentAttr createFloatContentAttr(mlir::OpBuilder&, mlir::Location, mlir
                       "Create float Const failed with unexpect data size");
 
     const auto denseElementVal = createConstContent(type, values);
-    VPUX_THROW_UNLESS(denseElementVal != nullptr, "Incompatible data type {0}, only float16 or float32 are supported",
-                      type.getElementType());
+    VPUX_THROW_WHEN(denseElementVal == nullptr, "Incompatible data type {0}, only float16 or float32 are supported",
+                    type.getElementType());
 
     return Const::ContentAttr::get(denseElementVal);
 }
@@ -160,7 +170,7 @@ mlir::Type getWeightsConstFilterElemType(mlir::Type activationElemType) {
         const auto zeroPoint = 0;
         auto storageType = qInputElemType.getStorageType();
         if (const auto quantileStorageType =
-                    mlir::dyn_cast<vpux::type::QuantileType>(qInputElemType.getStorageType())) {
+                    mlir::dyn_cast<mlir::quant::QuantileType>(qInputElemType.getStorageType())) {
             storageType = quantileStorageType.getStorageType();
         }
 
@@ -208,7 +218,7 @@ mlir::Value buildWeightsConst(mlir::OpBuilder& builder, mlir::Location loc, mlir
     contentAttrSetup = contentAttrSetup.reorder(mlir::cast<NDTypeInterface>(type).getDimsOrder());
     auto contentAttr = Const::ContentAttr::get(dataAttr, std::move(contentAttrSetup));
 
-    return builder.create<Const::DeclareOp>(loc, contentAttr.getType(), std::move(contentAttr)).getOutput();
+    return Const::DeclareOp::create(builder, loc, contentAttr.getType(), std::move(contentAttr)).getOutput();
 }
 
 SmallVector<Const::DeclareOp> getDeclareOpsUses(Const::RodataOp rodataOp, mlir::Operation* from) {

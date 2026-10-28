@@ -447,7 +447,7 @@ func.func @GatherNDClustering(%arg0: tensor<1x1x1792x16xf16>, %arg1: tensor<1x1x
 // CHECK-SAME:  [[INPUT0:%.+]]: tensor<1x1x667x400xf32>, [[INPUT1:%.+]]: tensor<1x1x1x1xf32>, [[INPUT2:%.+]]: tensor<1x1x1x1xf32>
 func.func @DynamicQuantizeSOH(%arg0: tensor<1x1x667x400xf32>, %arg1: tensor<1x1x1x1xf32>, %arg2: tensor<1x1x1x1xf32>)
 -> (tensor<1x1x667x400xui8>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xui8>) {
-     %output, %scale, %zero_point = VPU.DynamicQuantize(%arg0, %arg1, %arg2) {dstElemType = ui8, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>} : tensor<1x1x667x400xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32> -> tensor<1x1x667x400xui8>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xui8>
+     %output, %scale, %zero_point = VPU.DynamicQuantize(%arg0, %arg1, %arg2) {dstElemType = ui8, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, operandSegmentSizes = array<i32: 1, 1, 1>} : tensor<1x1x667x400xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32> -> tensor<1x1x667x400xui8>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xui8>
     return %output, %scale, %zero_point : tensor<1x1x667x400xui8>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xui8>
 
     // CHECK: [[DATA:%.+]] = VPU.UnrolledType([[INPUT0]] : tensor<1x1x667x400xf32>)
@@ -483,7 +483,7 @@ func.func @DynamicQuantizeSOH(%arg0: tensor<1x1x667x400xf32>, %arg1: tensor<1x1x
 // CHECK-SAME:  [[INPUT0:%.+]]: tensor<1x1x667x400xf32>, [[INPUT1:%.+]]: tensor<1x1x1x1xf32>, [[INPUT2:%.+]]: tensor<1x1x1x1xf32>
 func.func @DynamicQuantizeSOW(%arg0: tensor<1x1x667x400xf32>, %arg1: tensor<1x1x1x1xf32>, %arg2: tensor<1x1x1x1xf32>)
 -> (tensor<1x1x667x400xui8>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xui8>) {
-     %output, %scale, %zero_point = VPU.DynamicQuantize(%arg0, %arg1, %arg2) {dstElemType = ui8, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverWidth>} : tensor<1x1x667x400xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32> -> tensor<1x1x667x400xui8>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xui8>
+     %output, %scale, %zero_point = VPU.DynamicQuantize(%arg0, %arg1, %arg2) {dstElemType = ui8, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverWidth>, operandSegmentSizes = array<i32: 1, 1, 1>} : tensor<1x1x667x400xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32> -> tensor<1x1x667x400xui8>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xui8>
     return %output, %scale, %zero_point : tensor<1x1x667x400xui8>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xui8>
 
     // CHECK: [[DATA:%.+]] = VPU.UnrolledType([[INPUT0]] : tensor<1x1x667x400xf32>)
@@ -519,7 +519,7 @@ func.func @DynamicQuantizeSOW(%arg0: tensor<1x1x667x400xf32>, %arg1: tensor<1x1x
 // CHECK-SAME:  [[INPUT0:%.+]]: tensor<1x667x400x1xf32>, [[INPUT1:%.+]]: tensor<1x1x1x1xf32>, [[INPUT2:%.+]]: tensor<1x1x1x1xf32>
 func.func @DynamicQuantizeSOC(%arg0: tensor<1x667x400x1xf32>, %arg1: tensor<1x1x1x1xf32>, %arg2: tensor<1x1x1x1xf32>)
 -> (tensor<1x667x400x1xui8>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xui8>) {
-     %output, %scale, %zero_point = VPU.DynamicQuantize(%arg0, %arg1, %arg2) {dstElemType = ui8, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>} : tensor<1x667x400x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32> -> tensor<1x667x400x1xui8>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xui8>
+     %output, %scale, %zero_point = VPU.DynamicQuantize(%arg0, %arg1, %arg2) {dstElemType = ui8, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>, operandSegmentSizes = array<i32: 1, 1, 1>} : tensor<1x667x400x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32> -> tensor<1x667x400x1xui8>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xui8>
     return %output, %scale, %zero_point : tensor<1x667x400x1xui8>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xui8>
 
     // CHECK: [[DATA:%.+]] = VPU.UnrolledType([[INPUT0]] : tensor<1x667x400x1xf32>)
@@ -555,7 +555,7 @@ func.func @DynamicQuantizeSOC(%arg0: tensor<1x667x400x1xf32>, %arg1: tensor<1x1x
 // CHECK-SAME:  [[INPUT0:%.+]]: tensor<1x6x400x1xf32>, [[INPUT1:%.+]]: tensor<1x1x1x1xf32>, [[INPUT2:%.+]]: tensor<1x1x1x1xf32>
 func.func @DynamicQuantizeClustering(%arg0: tensor<1x6x400x1xf32>, %arg1: tensor<1x1x1x1xf32>, %arg2: tensor<1x1x1x1xf32>)
 -> (tensor<1x6x400x1xui8>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xui8>) {
-     %output, %scale, %zero_point = VPU.DynamicQuantize(%arg0, %arg1, %arg2) {dstElemType = ui8, multiClusterStrategy = #VPU.multi_cluster_strategy<Clustering>} : tensor<1x6x400x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32> -> tensor<1x6x400x1xui8>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xui8>
+     %output, %scale, %zero_point = VPU.DynamicQuantize(%arg0, %arg1, %arg2) {dstElemType = ui8, multiClusterStrategy = #VPU.multi_cluster_strategy<Clustering>, operandSegmentSizes = array<i32: 1, 1, 1>} : tensor<1x6x400x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32> -> tensor<1x6x400x1xui8>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xui8>
     return %output, %scale, %zero_point : tensor<1x6x400x1xui8>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xui8>
 
     // CHECK: [[DATA:%.+]] = VPU.UnrolledType([[INPUT0]] : tensor<1x6x400x1xf32>)

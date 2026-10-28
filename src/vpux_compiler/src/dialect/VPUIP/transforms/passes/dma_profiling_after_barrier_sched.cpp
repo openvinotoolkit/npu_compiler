@@ -82,11 +82,12 @@ VPURT::TaskOp DMATaskProfilingAfterBarrierSchedPass::createProfTask(
 
     // Create declaration for source buffer which corresponds to HW register with free-running counter
     auto hwRegType = getMemRefType(ShapeRef({1}), _timerType, DimsOrder::C, VPU::MemoryKind::Register);
-    auto hwRegOp = builder.create<VPURT::DeclareBufferOp>(loc, hwRegType, VPURT::BufferSection::Register, _hwAddr);
+    auto hwRegOp = VPURT::DeclareBufferOp::create(builder, loc, hwRegType, VPURT::BufferSection::Register, _hwAddr);
 
     // Create declaration for destination buffer in CMX where timestamp is to be stored
     auto profBufType = getMemRefType(ShapeRef({1}), _timerType, DimsOrder::C, _Cmx0MemKind);
-    auto profBufOp = builder.create<VPURT::DeclareBufferOp>(loc, profBufType, VPURT::BufferSection::CMX_NN, 0, address);
+    auto profBufOp =
+            VPURT::DeclareBufferOp::create(builder, loc, profBufType, VPURT::BufferSection::CMX_NN, 0, address);
 
     // Insert profiling DMA wrapped in TaskOp with proper barriers settings
     auto profDMA = VPURT::wrapIntoTaskOp<VPUIP::NNDMAOp>(builder, waitBarriers, updateBarriers, loc,
@@ -114,13 +115,13 @@ void DMATaskProfilingAfterBarrierSchedPass::createCmx2DdrProfDma(mlir::OpBuilder
     auto profilingBufferType = getMemRefType({numOfElements}, _timerType, DimsOrder::C, _Cmx0MemKind);
 
     // Create declaration for source CMX buffer
-    auto srcBufProfCmxOp = builder.create<VPURT::DeclareBufferOp>(loc, profilingBufferType,
-                                                                  VPURT::BufferSection::CMX_NN, 0, srcCmxAddr);
+    auto srcBufProfCmxOp = VPURT::DeclareBufferOp::create(builder, loc, profilingBufferType,
+                                                          VPURT::BufferSection::CMX_NN, 0, srcCmxAddr);
     // Create declaration for destination in profiling output
     auto profilingOutputType =
             vpux::getMemRefType(ShapeRef(profilingBufferType.getShape()), profilingBufferType.getElementType());
-    auto dstBufProfResultOp = builder.create<VPURT::DeclareBufferOp>(
-            loc, profilingOutputType, VPURT::BufferSection::ProfilingOutput, _profOutputId, dstDdrAddr);
+    auto dstBufProfResultOp = VPURT::DeclareBufferOp::create(
+            builder, loc, profilingOutputType, VPURT::BufferSection::ProfilingOutput, _profOutputId, dstDdrAddr);
 
     // Insert DMA wrapped in TaskOp with proper barriers settings
     auto dmaOp = VPURT::wrapIntoTaskOp<VPUIP::NNDMAOp>(builder, {}, updateBarriers, loc, srcBufProfCmxOp.getBuffer(),
@@ -211,7 +212,7 @@ void DMATaskProfilingAfterBarrierSchedPass::safeRunOnModule() {
     // Update network output information to have also new dma profiling result
     auto profilingResult = addNewProfilingOutput(ctx, func, netInfo, outputResult, profiling::ExecutorType::DMA_SW);
     auto returnOp = mlir::dyn_cast_or_null<mlir::func::ReturnOp>(func.getBody().front().getTerminator());
-    VPUX_THROW_UNLESS(returnOp != nullptr, "No ReturnOp was found");
+    VPUX_THROW_WHEN(returnOp == nullptr, "No ReturnOp was found");
     builder.setInsertionPoint(returnOp);
     returnOp.getOperandsMutable().append(profilingResult);
 

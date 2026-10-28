@@ -60,8 +60,8 @@ void AddHostParsedInferencePass::safeRunOnFunc() {
         managedSection = dataSection;
         break;
     }
-    VPUX_THROW_UNLESS(managedOp != nullptr, "Could not find ManagedMappedInferenceOp");
-    VPUX_THROW_UNLESS(managedSection != nullptr, "Could not find DataSectionOp for ManagedMappedInferenceOp");
+    VPUX_THROW_WHEN(managedOp == nullptr, "Could not find ManagedMappedInferenceOp");
+    VPUX_THROW_WHEN(managedSection == nullptr, "Could not find DataSectionOp for ManagedMappedInferenceOp");
 
     auto mappedRef = mlir::SymbolRefAttr::get(managedSection.getSymNameAttr(),
                                               {mlir::FlatSymbolRefAttr::get(managedOp.getSymNameAttr())});
@@ -73,8 +73,8 @@ void AddHostParsedInferencePass::safeRunOnFunc() {
     const auto nnBarriers = 0;
 
     auto builder = mlir::OpBuilder::atBlockEnd(elfMain.getBody());
-    auto hpiOp = builder.create<VPUASM::HostParsedInferenceOp>(
-            elfMain.getLoc(), builder.getStringAttr("HostParsedInference"), mappedRef,
+    auto hpiOp = VPUASM::HostParsedInferenceOp::create(
+            builder, elfMain.getLoc(), builder.getStringAttr("HostParsedInference"), mappedRef,
             builder.getI64IntegerAttr(nnSliceLength), builder.getI64IntegerAttr(nnSliceCount),
             builder.getI64IntegerAttr(nnBarriers));
 

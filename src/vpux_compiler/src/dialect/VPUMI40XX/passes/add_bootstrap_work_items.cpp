@@ -97,9 +97,9 @@ int64_t addEnqueueForOp(mlir::MLIRContext* ctx, mlir::func::FuncOp netFunc, mlir
             }
         }
         auto trivialIndexType = VPURegMapped::IndexType::get(ctx, checked_cast<uint32_t>(0));
-        auto bootstrapEnqueue = builder.create<VPURegMapped::EnqueueOp>(
-                startTask->getLoc(), trivialIndexType, nullptr, nullptr, /*previousTaskIdxOnSameBarrier*/ nullptr,
-                taskType, startTask->getResult(0), endTask->getResult(0));
+        auto bootstrapEnqueue = VPURegMapped::EnqueueOp::create(
+                builder, startTask->getLoc(), trivialIndexType, nullptr, nullptr,
+                /*previousTaskIdxOnSameBarrier*/ nullptr, taskType, startTask->getResult(0), endTask->getResult(0));
         if (firstEnqueueOp) {
             bootstrapEnqueue.getOperation()->moveBefore(
                     mlir::cast<VPURegMapped::EnqueueOp>(firstEnqueueOp).getOperation());

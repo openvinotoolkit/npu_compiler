@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-#include "vpux/compiler/core/types/quantile_float/types.hpp"
+#include "vpux/compiler/core/types/quantile_types/types.hpp"
 #include "vpux/compiler/dialect/IE/IR/dialect.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/data_movement.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/data_type.hpp"
@@ -67,12 +67,12 @@ public:
         auto quantiles = to_small_vector(content.getValues<double>());
         auto nf4Type = vpux::type::NF4Type::get(ctx, getUInt4Type(ctx), baseContentElemType, quantiles);
 
-        auto quantCastOp = rewriter.create<IE::QuantizeCastOp>(gatherOp.getLoc(), patternOps->nf4Weights, nf4Type);
+        auto quantCastOp = IE::QuantizeCastOp::create(rewriter, gatherOp.getLoc(), patternOps->nf4Weights, nf4Type);
         if (!patternOps->postConvertOp.has_value()) {
             auto dstElemType =
                     mlir::dyn_cast<NDTypeInterface>(patternOps->gatherOp.getOutput().getType()).getElementType();
-            auto convertOp = rewriter.create<IE::ConvertOp>(appendLoc(quantCastOp.getLoc(), "post_convert"),
-                                                            quantCastOp.getOutput(), dstElemType);
+            auto convertOp = IE::ConvertOp::create(rewriter, appendLoc(quantCastOp.getLoc(), "post_convert"),
+                                                   quantCastOp.getOutput(), dstElemType);
             rewriter.replaceAllUsesWith(patternOps->gatherOp.getOutput(), convertOp.getOutput());
         }
 

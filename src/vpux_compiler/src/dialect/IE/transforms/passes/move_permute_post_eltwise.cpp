@@ -446,8 +446,8 @@ mlir::LogicalResult PermuteEltwiseRewriter<EltwiseOp>::matchAndRewrite(EltwiseOp
         rewriter.setInsertionPoint(curPermute);
         mlir::Value outputVal;
         if (permuteInputLayouts[0] != eltwiseInputLayout) {
-            auto permuteCast = rewriter.template create<IE::PermuteCastOp>(
-                    curPermute->getLoc(), curPermute->getOperand(0), dstOrder, neutralMemPerm);
+            auto permuteCast = IE::PermuteCastOp::create(rewriter, curPermute->getLoc(), curPermute->getOperand(0),
+                                                         dstOrder, neutralMemPerm);
             auto newPermuteCastOutputType = mlir::cast<vpux::NDTypeInterface>(permuteCast.getOutput().getType());
             auto newMappedShape = newPermuteCastOutputType.getShape().toValues();
             canAvoidShapeCast = canAvoidShapeCast && isChannelAligned(newMappedShape);
@@ -457,14 +457,14 @@ mlir::LogicalResult PermuteEltwiseRewriter<EltwiseOp>::matchAndRewrite(EltwiseOp
             }
             outputVal = permuteCast.getResult();
             if (!canAvoidShapeCast) {
-                outputVal = rewriter.template create<IE::ShapeCastOp>(
-                        curPermute->getLoc(), newPermuteCastOutputType.changeShape(eltwiseInputShape),
+                outputVal = IE::ShapeCastOp::create(
+                        rewriter, curPermute->getLoc(), newPermuteCastOutputType.changeShape(eltwiseInputShape),
                         permuteCast.getOutput(), getIntArrayAttr(ctx, eltwiseInputShape.raw()));
             }
         } else {
-            outputVal = rewriter.template create<IE::ShapeCastOp>(
-                    curPermute->getLoc(), permuteOutputType.changeShape(eltwiseInputShape), curPermute->getOperand(0),
-                    getIntArrayAttr(ctx, eltwiseInputShape.raw()));
+            outputVal = IE::ShapeCastOp::create(
+                    rewriter, curPermute->getLoc(), permuteOutputType.changeShape(eltwiseInputShape),
+                    curPermute->getOperand(0), getIntArrayAttr(ctx, eltwiseInputShape.raw()));
         }
         curPermute->getResult(0).replaceUsesWithIf(outputVal, [&](mlir::OpOperand& opOperand) {
             return getOwnerIgnoreCasts(opOperand) == eltwiseOp;
@@ -525,9 +525,8 @@ mlir::LogicalResult PermuteEltwiseRewriter<EltwiseOp>::matchAndRewrite(EltwiseOp
     auto getOutputPermute = [&](const mlir::Operation* op,
                                 const mlir::Value inputValue) -> mlir::FailureOr<mlir::Operation*> {
         if (auto memPermute = mlir::dyn_cast<IE::MemPermuteOp>(op)) {
-            return rewriter
-                    .template create<IE::MemPermuteOp>(appendLoc(eltwiseOp->getLoc(), "mempermute"), inputValue,
-                                                       memPermute.getDstOrderAttr(), memPermute.getMemPermAttr())
+            return IE::MemPermuteOp::create(rewriter, appendLoc(eltwiseOp->getLoc(), "mempermute"), inputValue,
+                                            memPermute.getDstOrderAttr(), memPermute.getMemPermAttr())
                     .getOperation();
         } else if (auto permuteQuantize = mlir::dyn_cast<IE::PermuteQuantizeOp>(op)) {
             auto srcElemType = mlir::cast<vpux::NDTypeInterface>(permuteQuantize.getInput().getType()).getElementType();
@@ -540,19 +539,16 @@ mlir::LogicalResult PermuteEltwiseRewriter<EltwiseOp>::matchAndRewrite(EltwiseOp
                 // create memPermute here so later it can be fused into ODU of the eltwise
                 // However, this only benefits when a single cluster is used, becauese the eltwise will be assigned the
                 // NWCH layout while it does not support SOW which will eventually lead to StridesDMA.
-                return rewriter
-                        .template create<IE::MemPermuteOp>(appendLoc(eltwiseOp->getLoc(), "mempermute"), inputValue,
-                                                           permuteQuantize.getDstOrderAttr(),
-                                                           permuteQuantize.getMemPermAttr())
+                return IE::MemPermuteOp::create(rewriter, appendLoc(eltwiseOp->getLoc(), "mempermute"), inputValue,
+                                                permuteQuantize.getDstOrderAttr(), permuteQuantize.getMemPermAttr())
                         .getOperation();
             } else {
                 auto dstElemTypeAttr =
                         mlir::TypeAttr::get(mlir::cast<vpux::NDTypeInterface>(inputValue.getType()).getElementType());
-                return rewriter
-                        .template create<IE::PermuteQuantizeOp>(
-                                appendLoc(eltwiseOp->getLoc(), "_permutequantize"), inputValue,
-                                permuteQuantize.getDstOrderAttr(), permuteQuantize.getMemPermAttr(), dstElemTypeAttr,
-                                permuteQuantize.getPadsBeginAttr(), permuteQuantize.getPadsEndAttr())
+                return IE::PermuteQuantizeOp::create(
+                               rewriter, appendLoc(eltwiseOp->getLoc(), "_permutequantize"), inputValue,
+                               permuteQuantize.getDstOrderAttr(), permuteQuantize.getMemPermAttr(), dstElemTypeAttr,
+                               permuteQuantize.getPadsBeginAttr(), permuteQuantize.getPadsEndAttr())
                         .getOperation();
             }
         } else {
@@ -580,11 +576,11 @@ mlir::LogicalResult PermuteEltwiseRewriter<EltwiseOp>::matchAndRewrite(EltwiseOp
                 currOutput = parentOp->getOperand(0);
             }
         }
-        auto outputShapeCast = rewriter.template create<IE::ShapeCastOp>(
-                eltwiseOp->getLoc(), newOutputShapeCastType, outputValue, getIntArrayAttr(ctx, mappedShape.raw()));
+        auto outputShapeCast = IE::ShapeCastOp::create(rewriter, eltwiseOp->getLoc(), newOutputShapeCastType,
+                                                       outputValue, getIntArrayAttr(ctx, mappedShape.raw()));
         const auto outputDstOrder = mlir::AffineMapAttr::get(permuteInputLayouts[0].toAffineMap(ctx));
-        auto outputPermuteCast = rewriter.template create<IE::PermuteCastOp>(
-                eltwiseOp->getLoc(), outputShapeCast.getResult(), outputDstOrder, neutralMemPerm);
+        auto outputPermuteCast = IE::PermuteCastOp::create(rewriter, eltwiseOp->getLoc(), outputShapeCast.getResult(),
+                                                           outputDstOrder, neutralMemPerm);
         auto permuteOrFailure = getOutputPermute(inputPermutes[0], outputPermuteCast.getOutput());
         if (mlir::failed(permuteOrFailure)) {
             return mlir::failure();
@@ -626,14 +622,14 @@ mlir::LogicalResult PermuteEltwiseRewriter<EltwiseOp>::matchAndRewrite(EltwiseOp
                     ShapeCast
              There should be an extra ShapeCast.
         */
-        auto outputPermuteShapeCast = rewriter.template create<IE::ShapeCastOp>(
-                eltwiseOp->getLoc(), eltwiseOutputType, outputPermute->getResult(0),
-                getIntArrayAttr(ctx, eltwiseOutputShape.raw()));
+        auto outputPermuteShapeCast =
+                IE::ShapeCastOp::create(rewriter, eltwiseOp->getLoc(), eltwiseOutputType, outputPermute->getResult(0),
+                                        getIntArrayAttr(ctx, eltwiseOutputShape.raw()));
         outputValue.replaceAllUsesExcept(outputPermuteShapeCast, outputShapeCast);
     } else {
-        auto outputShapeCast = rewriter.template create<IE::ShapeCastOp>(
-                eltwiseOp->getLoc(), newOutputShapeCastType.changeShape(permuteInputTypes[0].getShape()), outputValue,
-                getIntArrayAttr(ctx, permuteInputTypes[0].getShape().raw()));
+        auto outputShapeCast = IE::ShapeCastOp::create(
+                rewriter, eltwiseOp->getLoc(), newOutputShapeCastType.changeShape(permuteInputTypes[0].getShape()),
+                outputValue, getIntArrayAttr(ctx, permuteInputTypes[0].getShape().raw()));
         auto permuteOrFailure = getOutputPermute(inputPermutes[0], outputShapeCast.getResult());
         if (mlir::failed(permuteOrFailure)) {
             return mlir::failure();
@@ -642,8 +638,8 @@ mlir::LogicalResult PermuteEltwiseRewriter<EltwiseOp>::matchAndRewrite(EltwiseOp
         auto permuteOutShape = mlir::cast<vpux::NDTypeInterface>(inputPermutes[0]->getResult(0).getType()).getShape();
         auto outPermuteType = eltwiseOutputType.changeShape(permuteOutShape);
         outputPermute->getResult(0).setType(outPermuteType);
-        auto permuteOutShapeCast = rewriter.template create<IE::ShapeCastOp>(
-                eltwiseOp->getLoc(), newOutputShapeCastType.changeShape(eltwiseOutputType.getShape()),
+        auto permuteOutShapeCast = IE::ShapeCastOp::create(
+                rewriter, eltwiseOp->getLoc(), newOutputShapeCastType.changeShape(eltwiseOutputType.getShape()),
                 outputPermute->getResult(0), getIntArrayAttr(ctx, eltwiseOutputType.getShape().raw()));
         outputValue.replaceAllUsesExcept(permuteOutShapeCast, outputShapeCast);
     }
@@ -737,6 +733,36 @@ mlir::LogicalResult PermuteEltwiseDiffLayoutRewriter::matchAndRewrite(IE::AddOp 
 
     auto leftInputOps = getNonViewLikeAndPermuteInput(origOp.getInput1());
     auto rightInputOps = getNonViewLikeAndPermuteInput(origOp.getInput2());
+
+    // The rewrite keeps the view/permute chain of one side only and replays it on the sum, while the
+    // other side is reconnected through a PermuteCast. A PermuteCast is metadata-only, so it cannot
+    // compensate for a difference in the actual data shuffling done by the two chains. Replaying a
+    // single chain is therefore correct only when both chains perform the same memory permutation;
+    // otherwise the discarded side's permutation is lost and that operand is read with the wrong
+    // layout. Only IE.MemPermute moves data - IE.PermuteCast and IE.ShapeCast do not - so compose
+    // the mem_perm of the MemPermute ops found on each side and require them to match.
+    const auto getChainMemPerm = [&](ArrayRef<mlir::Operation*> chainOps) -> mlir::AffineMap {
+        mlir::AffineMap composed;
+        // chainOps are ordered from the eltwise upwards, so walk them producer-first.
+        for (auto* chainOp : llvm::reverse(chainOps)) {
+            auto memPermuteOp = mlir::dyn_cast<IE::MemPermuteOp>(chainOp);
+            if (memPermuteOp == nullptr) {
+                continue;
+            }
+            const auto memPerm = memPermuteOp.getMemPerm();
+            composed = composed ? memPerm.compose(composed) : memPerm;
+        }
+        return composed;
+    };
+
+    const auto leftMemPerm = getChainMemPerm(leftInputOps);
+    const auto rightMemPerm = getChainMemPerm(rightInputOps);
+    if (leftMemPerm != rightMemPerm) {
+        return matchFailed(_log, rewriter, origOp,
+                           "Skipping: inputs perform different memory permutations ({0} vs {1})", leftMemPerm,
+                           rightMemPerm);
+    }
+
     auto firstLeftOp = leftInputOps.back();
     auto firstRightOp = rightInputOps.back();
     auto firstLeftNCEOp = firstLeftOp->getOperand(0).getDefiningOp();
@@ -804,9 +830,9 @@ mlir::LogicalResult PermuteEltwiseDiffLayoutRewriter::matchAndRewrite(IE::AddOp 
     auto newAddInputs = isLeftNCEOp ? SmallVector<mlir::Value>{firstLeftValue, permuteCastOp.getResult()}
                                     : SmallVector<mlir::Value>{permuteCastOp.getResult(), firstRightValue};
 
-    auto newAddOp = rewriter.create<IE::AddOp>(origOpLoc, newType, newAddInputs[0], newAddInputs[1], origOp.getScale(),
-                                               origOp.getAutoBroadcastAttr(), origOp.getPostOpAttr(),
-                                               origOp.getClampAttr(), origOp.getStaticScaleAttr(), nullptr, nullptr);
+    auto newAddOp = IE::AddOp::create(rewriter, origOpLoc, newType, newAddInputs[0], newAddInputs[1], origOp.getScale(),
+                                      origOp.getAutoBroadcastAttr(), origOp.getPostOpAttr(), origOp.getClampAttr(),
+                                      origOp.getStaticScaleAttr(), nullptr, nullptr);
     mlir::Value newOutput = newAddOp.getOutput();
 
     auto inputOps = isLeftNCEOp ? leftInputOps : rightInputOps;
