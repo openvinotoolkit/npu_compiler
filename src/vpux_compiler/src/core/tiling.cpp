@@ -3960,8 +3960,13 @@ mlir::FailureOr<OutputTiling> vpux::getHWLayerTilingStrategyWithTileDimOrderForP
     };
 
     auto updatePrefetchableTilesOnDim = [&](vpux::Dim dim) -> bool {
-        if (prefetchableTilesOnDim[dim] >= MAX_PREFETCH_TILING_TIME * nTilesOnDim[dim] ||
-            !isDimLeftToTile(prefetchableTilesOnDim, maxNumTiles, dim)) {
+        // With a neutral isolated strategy (the op fits CMX untiled) we only get here for large-filter
+        // pipelining. A cap relative to the isolated tile count (MAX_PREFETCH_TILING_TIME * 1 = 3) is then too
+        // small: e.g. an int4 GEMV (FC with one token) needs 4 tiles before two filter tiles fit CMX, so it fell
+        // back to no tiling and the weight DMA could not overlap with DPU compute.
+        const int64_t prefetchCap =
+                dimsToTile.empty() ? MAX_LARGE_FILTER_PIPELINE_TILES : MAX_PREFETCH_TILING_TIME * nTilesOnDim[dim];
+        if (prefetchableTilesOnDim[dim] >= prefetchCap || !isDimLeftToTile(prefetchableTilesOnDim, maxNumTiles, dim)) {
             log.nest(3).trace("Fallback to isolated strategy: {0}", nTilesOnDim);
             return false;
         }
