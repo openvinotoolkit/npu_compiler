@@ -113,7 +113,9 @@ mlir::LogicalResult finishDynamicDequantizeRewrite(mlir::PatternRewriter& rewrit
             rewriter.create<IE::DynamicDequantizeOp>(appendLoc(loc, "ddq"), rawWeights, scaleValue, zpValue, dstType);
 
     // Mark the op for the DynDeq -> FakeQuantize bridge pass.
-    if (wdInfo.isKVcachedPattern() || !zpElemType.isInteger(2)) {
+    // Constant 2-bit weights are marked in the multi-row (prefill) pattern too: left unmarked, they are dequantized by
+    // the DynamicDequantize SW kernel, which returns zeros for them on NPU4000 / NPU5010 (openvino#39010).
+    if (wdInfo.isKVcachedPattern() || !zpElemType.isInteger(2) || wdInfo.hasConstWeights()) {
         dynamicDequant->setAttr(IE::WEIGHTS_IMPORT_DYN_DEQUANT_ATTR, mlir::UnitAttr::get(rewriter.getContext()));
     }
 
