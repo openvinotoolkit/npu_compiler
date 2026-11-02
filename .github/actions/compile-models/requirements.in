@@ -1,6 +1,6 @@
 --extra-index-url https://download.pytorch.org/whl/cpu
 # Basic
-setuptools>=84.0.0
+setuptools>=84.2.1
 
 # Core
 transformers>=5.20.1

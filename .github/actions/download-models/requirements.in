@@ -10,3 +10,4 @@ pygments>=2.21.0
 idna>=3.20
 anyio>=4.15.1
 fsspec>=2026.9.0
+certifi>=2026.10.23
