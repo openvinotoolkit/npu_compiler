@@ -39,12 +39,31 @@ private:
     void safeRunOnFunc() final;
 };
 
+// IE.Split appears in two RoPE forms:
+//  - interleaved: the input is reshaped to [..., D/2, 2] and split along that axis of size 2
+//    into even and odd elements;
+//  - split-half (rotate_half): the last axis of the input itself is split into two halves.
+// Both split the last axis in two; only an axis of size 2 makes it interleaved.
+bool isLastAxisSplitInTwo(IE::SplitOp splitOp) {
+    const auto axis = splitOp.getAxisValue();
+    const auto rank = mlir::cast<vpux::NDTypeInterface>(splitOp.getInput().getType()).getRank();
+    if (!axis.has_value() || splitOp.getNumSplits() != 2) {
+        return false;
+    }
+    return (*axis < 0 ? *axis + rank : *axis) == rank - 1;
+}
+
 mlir::Operation* getSliceOrStridedSliceOp(mlir::Operation* op, bool& isInterleaved) {
     if (mlir::isa_and_nonnull<IE::SliceOp, IE::StridedSliceOp>(op)) {
         return op;
     }
-    if (mlir::isa_and_nonnull<IE::SplitOp>(op)) {
-        isInterleaved = true;
+    if (auto splitOp = mlir::dyn_cast_or_null<IE::SplitOp>(op)) {
+        if (!isLastAxisSplitInTwo(splitOp)) {
+            return nullptr;
+        }
+        if (mlir::cast<vpux::NDTypeInterface>(splitOp.getInput().getType()).getShape().back() == 2) {
+            isInterleaved = true;
+        }
         return op;
     }
 
@@ -179,6 +198,13 @@ mlir::LogicalResult fuseRoPEPattern(IE::AddOp addOp, mlir::PatternRewriter& rewr
 
     if (!isInterleaved) {
         isInterleaved = isInterleavedStridedSlice(stridedSliceOp1, stridedSliceOp2);
+    }
+
+    // A Split into halves is rotate_half only as concat(-second half, first half).
+    if (auto splitOp = mlir::dyn_cast<IE::SplitOp>(stridedSliceOp1); splitOp && !isInterleaved) {
+        if (mulOp3.getOperand(0) != splitOp->getResult(1) || concatOp.getOperand(1) != splitOp->getResult(0)) {
+            return mlir::failure();
+        }
     }
 
     auto inputCos = mulOp1.getOperand(1);
