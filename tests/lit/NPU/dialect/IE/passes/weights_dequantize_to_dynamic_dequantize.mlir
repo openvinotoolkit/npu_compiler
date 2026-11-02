@@ -697,8 +697,7 @@ func.func @U2WeightsConstPrefillPatternToDynamicDequantize(%act : tensor<1x3x4xf
   // CHECK-DAG: [[WT_RAW:%.+]] = const.Declare tensor<4x2x2xui2> = dense_resource<weights_blob>
   // CHECK-DAG: [[ZP:%.+]] = const.Declare tensor<4x2x1xui2> = dense_resource<shift_blob>
 
-  // CHECK-NOT: vpux.weights_import_dyn_dequant
-  // CHECK: [[DDQ:%.+]] = IE.DynamicDequantize([[WT_RAW]], [[SCALE]], [[ZP]]) {dstElemType = f16} : tensor<4x2x2xui2>, tensor<4x2x1xf16>, tensor<4x2x1xui2> -> tensor<4x2x2xf16>
+  // CHECK: [[DDQ:%.+]] = IE.DynamicDequantize([[WT_RAW]], [[SCALE]], [[ZP]]) {dstElemType = f16, vpux.weights_import_dyn_dequant} : tensor<4x2x2xui2>, tensor<4x2x1xf16>, tensor<4x2x1xui2> -> tensor<4x2x2xf16>
   // CHECK: [[RESHAPE_1:%.+]] = IE.AffineReshape([[DDQ]])
   // CHECK: [[CONVERT:%.+]] = IE.Convert([[RESHAPE_1]]) {dstElemType = f32} : tensor<4x4xf16> -> tensor<4x4xf32>
   // CHECK: [[RESHAPE_2:%.+]] = IE.Reshape([[ACT]]) {shape_value = [3, 4]} : tensor<1x3x4xf32> -> tensor<3x4xf32>
@@ -712,6 +711,42 @@ func.func @U2WeightsConstPrefillPatternToDynamicDequantize(%act : tensor<1x3x4xf
     builtin: {
       weights_blob: "0x010000001AA12345",
       shift_blob: "0x010000001AA1"
+    }
+  }
+#-}
+
+// -----
+
+// CHECK-LABEL: @I2WeightsConstPrefillPatternToDynamicDequantize
+// CHECK-SAME:      [[ACT:%.+]]: tensor<1x3x4xf32>
+func.func @I2WeightsConstPrefillPatternToDynamicDequantize(%act : tensor<1x3x4xf32>) -> tensor<1x3x4xf32> {
+  %weights = const.Declare tensor<4x2x2xf16> = dense_resource<weights_blob> : tensor<16xsi2>, [#const.ConvertElemType<si8>, #const.Reshape<[4, 2, 2]>, #const.CastElemType<f16>]
+  %scale = const.Declare tensor<4x2x1xf16> = dense<[0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8]> : tensor<8xf16>, [#const.Reshape<[4, 2, 1]>]
+
+  %1 = IE.Multiply(%weights, %scale) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<4x2x2xf16>, tensor<4x2x1xf16> -> tensor<4x2x2xf16>
+  %2 = IE.AffineReshape(%1) {dim_mapping = [[0], [1], [1]], shape_value = [4, 4]} : tensor<4x2x2xf16> -> tensor<4x4xf16>
+  %3 = IE.Convert(%2) {dstElemType = f32} : tensor<4x4xf16> -> tensor<4x4xf32>
+  %4 = IE.Reshape(%act) {shape_value = [3, 4]} : tensor<1x3x4xf32> -> tensor<3x4xf32>
+  %5 = IE.FullyConnected(%4, %3) : tensor<3x4xf32>, tensor<4x4xf32> -> tensor<3x4xf32>
+  %6 = IE.Reshape(%5) {shape_value = [1, 3, 4]} : tensor<3x4xf32> -> tensor<1x3x4xf32>
+  return %6 : tensor<1x3x4xf32>
+
+  // CHECK-DAG: [[SCALE:%.+]] = const.Declare tensor<4x2x1xf16>
+  // CHECK-DAG: [[WT_RAW:%.+]] = const.Declare tensor<4x2x2xsi2> = dense_resource<weights_blob>
+
+  // CHECK: [[DDQ:%.+]] = IE.DynamicDequantize([[WT_RAW]], [[SCALE]]) {dstElemType = f16, vpux.weights_import_dyn_dequant} : tensor<4x2x2xsi2>, tensor<4x2x1xf16> -> tensor<4x2x2xf16>
+  // CHECK: [[RESHAPE_1:%.+]] = IE.AffineReshape([[DDQ]])
+  // CHECK: [[CONVERT:%.+]] = IE.Convert([[RESHAPE_1]]) {dstElemType = f32} : tensor<4x4xf16> -> tensor<4x4xf32>
+  // CHECK: [[RESHAPE_2:%.+]] = IE.Reshape([[ACT]]) {shape_value = [3, 4]} : tensor<1x3x4xf32> -> tensor<3x4xf32>
+  // CHECK: [[FC:%.+]] = IE.FullyConnected([[RESHAPE_2]], [[CONVERT]]) : tensor<3x4xf32>, tensor<4x4xf32> -> tensor<3x4xf32>
+  // CHECK: [[RESHAPE_3:%.+]] = IE.Reshape([[FC]]) {shape_value = [1, 3, 4]} : tensor<3x4xf32> -> tensor<1x3x4xf32>
+  // CHECK: return [[RESHAPE_3]]
+}
+
+{-#
+  dialect_resources: {
+    builtin: {
+      weights_blob: "0x010000001AA12345"
     }
   }
 #-}
