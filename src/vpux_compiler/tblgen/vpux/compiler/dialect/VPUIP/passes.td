@@ -1066,6 +1066,16 @@ def FeasibleAllocation : PassBase<"feasible-allocation", "vpux::FunctionPass"> {
             "Linearize all tasks on all engines"
         >,
         Option<
+            "cmxSmallBufferTopThreshold", "cmx-small-buffer-top-threshold",
+            "int64_t", "0",
+            "Allocate CMX buffers smaller than this size (bytes) from the top of CMX, 0 disables"
+        >,
+        Option<
+            "weightsPingPong", "weights-ping-pong",
+            "bool", "false",
+            "Avoid reusing CMX ranges of DMA inputs freed by the last compute op (double-buffer weight tiles)"
+        >,
+        Option<
             "enableLoopAllocation", "enable-loop-allocation",
             "bool", "false",
             "Enables loop allocation for tiling and vertical fusion regions"
