@@ -47,6 +47,13 @@ jobs:
           name: ${{ inputs.install-package-openvino }}
           path: ${{ env.OPENVINO_INSTALL_DIR }}
 
+      - name: Install LIT system dependencies
+        if: ${{ inputs.run-lit-tests }}
+        run: |
+          sudo add-apt-repository -y ppa:kobuk-team/intel-graphics
+          sudo apt update
+          sudo apt install -y libze1
+
       - name: Prepare environment
         run: |
           echo "BYTECODE_INTERPRETER_PATH=$(realpath "${OPENVINO_INSTALL_DIR}/tools/bytecode_interpreter")" >> $GITHUB_ENV
