@@ -714,7 +714,6 @@ BarrierInfoMaps barriersWithFIFOdependenciesNPU40XXconfig(mlir::MLIRContext* ctx
                 config.ExecutorResource 1 of @DPU
             }
             config.Resources 1 of @global {
-                config.ExecutorResource 1 of @M2I
                 config.ExecutorResource 2 of @DMA_NN
                 config.MemoryResource 67108864000 bytes of @DDR {config.bandwidth = 64 : i64, config.derateFactor = 6.000000e-01 : f64}
             }
@@ -846,7 +845,6 @@ BarrierInfoMaps barriersWithFIFOdependenciesNPU40XXconfig2(mlir::MLIRContext* ct
                 config.ExecutorResource 1 of @DPU
             }
             config.Resources 1 of @global {
-                config.ExecutorResource 1 of @M2I
                 config.ExecutorResource 2 of @DMA_NN
                 config.MemoryResource 67108864000 bytes of @DDR {config.bandwidth = 64 : i64, config.derateFactor = 6.000000e-01 : f64}
             }
@@ -943,7 +941,6 @@ BarrierInfoMaps barriersWithFIFOdependenciesNPU40XXconfig3(mlir::MLIRContext* ct
                 config.ExecutorResource 1 of @DPU
             }
             config.Resources 1 of @global {
-                config.ExecutorResource 1 of @M2I
                 config.ExecutorResource 2 of @DMA_NN
                 config.MemoryResource 67108864000 bytes of @DDR {config.bandwidth = 64 : i64, config.derateFactor = 6.000000e-01 : f64}
             }
@@ -1156,7 +1153,6 @@ BarrierInfoMaps barriersWithFIFOdependenciesNPU40XXconfig6(
                 config.ExecutorResource 1 of @DPU
             }
             config.Resources 1 of @global {
-                config.ExecutorResource 1 of @M2I
                 config.ExecutorResource 2 of @DMA_NN
                 config.MemoryResource 67108864000 bytes of @DDR {config.bandwidth = 64 : i64, config.derateFactor = 6.000000e-01 : f64}
             }
@@ -1269,7 +1265,6 @@ SmallVector<size_t> variableGraphSplitBlockSizeNPU40XXconfig(
                 config.ExecutorResource 1 of @DPU
             }
             config.Resources 1 of @global {
-                config.ExecutorResource 1 of @M2I
                 config.ExecutorResource 2 of @DMA_NN
                 config.MemoryResource 67108864000 bytes of @DDR {config.bandwidth = 64 : i64, config.derateFactor = 6.000000e-01 : f64}
             }
@@ -1902,7 +1897,6 @@ void parallelWaitBarriersIRconfig(mlir::MLIRContext* ctx, mlir::OwningOpRef<mlir
                 config.ExecutorResource 1 of @DPU
             }
             config.Resources 1 of @global {
-                config.ExecutorResource 1 of @M2I
                 config.ExecutorResource 2 of @DMA_NN
                 config.MemoryResource 67108864000 bytes of @DDR {config.bandwidth = 64 : i64, config.derateFactor = 6.000000e-01 : f64}
             }

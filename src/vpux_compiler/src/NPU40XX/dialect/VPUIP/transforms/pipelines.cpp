@@ -50,9 +50,6 @@ void vpux::VPUIP::arch40xx::buildDefaultHWPipeline(mlir::OpPassManager& pm,
     // so it does not really affect the Default pipeline where the cache is created in VPU dialect,
     // but it helps specifically for the WS where VPUIP pipeline can be run separately by dedicated PassManager
     pm.addPass(VPU::createCostModelAnalysisConstructPass(log));
-    if (options.enableShaveCodeGen) {
-        ShaveCodeGen::buildShaveCodeGenPipelineVPUIP(pm);
-    }
 
     pm.addPass(VPUIP::createTileActShaveKernelTaskPass(log));
 
@@ -63,9 +60,6 @@ void vpux::VPUIP::arch40xx::buildDefaultHWPipeline(mlir::OpPassManager& pm,
     if (options.enableOpsAsDMA) {
         pm.addPass(VPUIP::createWrapWithPermuteAsNNDMAPass(log));
     }
-
-    pm.addPass(VPUIP::createUngroupBoundedBuffersPass(log));
-    pm.addPass(mlir::createCanonicalizerPass(grc));
 
     pm.addPass(VPUIP::createOptimizeExpandSubviewPass(log));
     pm.addPass(VPUIP::createConvertExpandPass(options.deferExpandToExpandDMA, log));
@@ -92,6 +86,7 @@ void vpux::VPUIP::arch40xx::buildDefaultHWPipeline(mlir::OpPassManager& pm,
                                                                          options.enableExperimentalSEPtrsOperations));
     }
 
+    pm.addPass(VPUIP::createOptimizeDMACopiesPass(log));
     VPUIP::buildOptimizeCopiesPipeline(pm, VPUIP::OptimizeCopiesOptionsBase(options), log);
 
     pm.addPass(VPUIP::createConvertDynamicReshapeToInPlacePass(log));
@@ -164,6 +159,12 @@ void vpux::VPUIP::arch40xx::buildDefaultHWPipeline(mlir::OpPassManager& pm,
 
     pm.addPass(VPUIP::createUnrollDistributedOpsPass(log, options.enableSegmentedDmaFusion));
     pm.addPass(VPUIP::createBatchMatMulToMatMulPass(log));
+
+    if (options.enableShaveCodeGen) {
+        // The ShaveCodeGen VPUIP pipeline must run after UnrollDistributedOps.
+        ShaveCodeGen::buildShaveCodeGenPipelineVPUIP(pm);
+    }
+
     pm.addPass(VPUIP::createDetectDMASplitCandidatePass(log));
     pm.addPass(VPUIP::createNNDMATilingPass(log));
     pm.addPass(VPUIP::createSegmentHalosPass(log));
@@ -229,8 +230,8 @@ void vpux::VPUIP::arch40xx::buildDefaultHWPipeline(mlir::OpPassManager& pm,
         pm.addPass(VPUIP::createBarrierOptimizationPass(options.workloadManagementMode, log));
     }
 
-    pm.addPass(
-            VPURT::createSimplifySchedulePass(options.reduceParallelControlFlows, options.workloadManagementMode, log));
+    pm.addPass(VPURT::createSimplifySchedulePass(options.reduceParallelControlFlows,
+                                                 /*shareWaitAndUpdateBarriers =*/false, log));
 
     auto dpuDryRunMode = VPU::getDPUDryRunMode(options.dpuDryRun);
     if (dpuDryRunMode == VPU::DPUDryRunMode::STRIP || options.shaveDryRun) {
@@ -257,8 +258,6 @@ void vpux::VPUIP::arch40xx::buildDefaultHWPipeline(mlir::OpPassManager& pm,
         // Possible TODO for adding the barrier before legalization is to convert the pass to a Module pass.
         pm.addPass(VPURT::createAddFinalBarrierPass(options.workloadManagementMode, log));
     }
-    VPURT::buildBarrierLegalizationPipeline(pm, /* workloadManagementEnabled */ true, /* unevenVariantSplitFlag */ true,
-                                            log);
 
     if (isInliningRequired && options.enableBarrierSchedWithFunctionOutlining) {
         if (auto debatcherReorderingOptionsPtr = IE::DebatcherOpReorderingOptions::create(options, log)) {
@@ -337,10 +336,6 @@ void vpux::VPUIP::arch40xx::buildReferenceSWPipeline(mlir::OpPassManager& pm,
                                                      const VPUIP::arch40xx::DefaultHWOptions& options, Logger log) {
     const auto grc = getDefaultGreedyRewriteConfig();
 
-    if (options.enableShaveCodeGen) {
-        ShaveCodeGen::buildShaveCodeGenPipelineVPUIP(pm);
-    }
-
     pm.addPass(VPUIP::createSetMemorySpacePass(VPU::getMemKind<VPU::MemoryKind::DDR>,
                                                options.setMemorySpaceForFunctionBoundaries, log));
 
@@ -348,8 +343,6 @@ void vpux::VPUIP::arch40xx::buildReferenceSWPipeline(mlir::OpPassManager& pm,
 
     pm.addPass(VPUIP::createCopyOpTilingPass(log));
     pm.addPass(mlir::createCanonicalizerPass(grc));
-
-    pm.addPass(VPUIP::createUngroupBoundedBuffersPass(log));
 
     pm.addPass(VPUIP::createConvertTransferOpsToDMAsPass(log));
 
@@ -366,6 +359,10 @@ void vpux::VPUIP::arch40xx::buildReferenceSWPipeline(mlir::OpPassManager& pm,
 
     VPUIP::buildHardwareAdaptationPipeline(pm, log);
 
+    if (options.enableShaveCodeGen) {
+        ShaveCodeGen::buildShaveCodeGenPipelineVPUIP(pm);
+    }
+
     if (options.enableProfiling && options.enableSWProfiling) {
         pm.addPass(VPUIP::createActShaveProfilingPass(log));
     }
@@ -380,8 +377,6 @@ void vpux::VPUIP::arch40xx::buildReferenceSWPipeline(mlir::OpPassManager& pm,
     }
 
     pm.addPass(VPURT::createAddFinalBarrierPass(options.workloadManagementMode, log));
-    VPURT::buildBarrierLegalizationPipeline(pm, /* workloadManagementEnabled */ true, /* unevenVariantSplitFlag */ true,
-                                            log);
     pm.addPass(VPUIP::createAddStartBarrierPass(options.workloadManagementMode, log));
 
     // Level 1 : VPU RunTime

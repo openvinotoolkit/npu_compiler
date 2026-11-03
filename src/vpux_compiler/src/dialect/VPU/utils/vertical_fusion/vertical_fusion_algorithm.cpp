@@ -4,6 +4,9 @@
 //
 
 #include "vpux/compiler/dialect/VPU/utils/vertical_fusion/vertical_fusion_algorithm.hpp"
+#include "vpux/compiler/core/tiling.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/image.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/image_fwd.hpp"
 #include "vpux/compiler/dialect/VPU/utils/distributed_tensor_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/manual_strategy_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/multi_cluster_strategy_utils.hpp"
@@ -18,6 +21,7 @@
 #include "vpux/compiler/dialect/VPU/utils/vertical_fusion/vf_axis_increment.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
+#include "vpux/compiler/utils/infer_output_shape.hpp"
 #include "vpux/compiler/utils/loop.hpp"
 #include "vpux/utils/core/numeric.hpp"
 
@@ -103,6 +107,8 @@ std::deque<std::shared_ptr<IVFScheduling<VFCase::VFConfigType>>> getSchedulingSc
 
     if (config.isPipelined()) {
         auto pipeliningChecks = vfFactory.createVFScenario(VFScenario::VF_PIPELINING, log);
+        auto pipeliningDoubleBufferingChecks = vfFactory.createVFScenario(VFScenario::VF_DPU_SHV_DOUBLE_BUFFERING, log);
+        pipeliningChecks->addNext(std::move(pipeliningDoubleBufferingChecks));
         minimalCheck->addNext(std::move(pipeliningChecks));
     }
     auto prefetchingCheck = vfFactory.createVFScenario(VFScenario::LASTOP_PREFETCHING, log);
@@ -248,6 +254,10 @@ VPU::VF::v2::VFCase getVFCaseWithTiling(
                 return mergedCase;
             }
 
+            // if one scenario was accepted, remove other branches
+            // to stick with the accepted scenario assuming earlier branch is better
+            // than the later branches. otherwise cost comparison is needed which is compile time consuming
+            schedulingChecks.clear();
             for (const auto& check : currentCheck->nextChecks() | reversed) {
                 schedulingChecks.push_front(check);
             }
@@ -467,7 +477,7 @@ VPU::VF::v2::VFSplit getVFSplitForSCF(VF::v2::VFConfig& config, DimArrRef allowe
 }
 
 int64_t getMinTilingNumber(Dim dim, const VF::v2::VFConfig& config) {
-    const auto getDimValue = [&dim](auto* oper) -> int64_t {
+    const auto getDimValue = [dim](auto* oper) -> int64_t {
         return oper->hasAttr(tilingStrategy) ? Shape(parseIntArrayAttr<int64_t>(
                                                        mlir::cast<mlir::ArrayAttr>(oper->getAttr(tilingStrategy))))[dim]
                                              : 1;
@@ -493,8 +503,13 @@ VPU::VF::v2::VFCase computeVFSCFCase(vpux::NDTypeInterface outputType, const VPU
         return emptyVFCase;
     }
 
-    const auto getMinTiles = [&](auto dim, const VPU::VF::v2::VFSplit& split) {
+    const auto getMinTiles = [&](auto dim, const VPU::VF::v2::VFSplit& split) -> int64_t {
         if ((outputType.getShape().isDynamic() && dim == optDim.value()) || split.size() > 1) {
+            // The size of the tile of the group is limited if the dynamic dim alignment is enabled
+            if (outputType.getShape().isDynamic()) {
+                return std::max(VPU::MIN_REQUIRED_TILES,
+                                getMinNumTilesForMaxDynamicTileSize(rootOp, getBoundedShape(outputType), dim));
+            }
             return VPU::MIN_REQUIRED_TILES;
         }
 
@@ -570,8 +585,8 @@ bool hasSpillDueToIncompatibleDistributedType(mlir::Operation* parentOp, mlir::O
         return false;
     }
 
-    auto outShapeSize = getShape(producerValue).totalSize();
-    auto inShapeSize = getShape(currentOpOperand).totalSize();
+    auto outShapeSize = getBoundedShape(producerValue).totalSize();
+    auto inShapeSize = getBoundedShape(currentOpOperand).totalSize();
     if (outShapeSize != inShapeSize) {
         return false;
     }
@@ -628,7 +643,7 @@ StrategyCost extractBaselineCost(mlir::Operation* operation, ShapeRef tilingDims
     }
 
     if (hasTiling) {
-        auto tiling = fillDividedTiles(operation, ShapeRef(tilingDims), getShape(operation->getResult(0)));
+        auto tiling = fillDividedTiles(operation, ShapeRef(tilingDims), getBoundedShape(operation->getResult(0)));
         VPUX_THROW_WHEN(mlir::failed(tiling), "Incorrect tiling {0} for vf {1}", tilingDims, operation->getLoc());
         tiles = tiling.value();
     }
@@ -687,7 +702,7 @@ StrategyCost extractBaselineCost(mlir::Operation* operation, ShapeRef tilingDims
     });
     auto hasSpilledUsers =
             checkedOp->getUsers().empty() || hasOutputSpilledForDifferentDataSizeUses(checkedOp) ||
-            llvm::any_of(findUses(checkedOp), [&checkedOp](auto* use) {
+            llvm::any_of(findUses(checkedOp), [checkedOp](auto* use) {
                 return !VF::v2::isCmxOperation(use->getOwner(), true) ||
                        isPrevOperationEarlyScheduled(checkedOp, use->getOwner()) ||
                        hasSpill(checkedOp, use->getOwner(), use->getOwner()->getOperand(use->getOperandNumber()));
@@ -755,7 +770,7 @@ StrategyCost extractBaselineCost(mlir::Operation* operation, ShapeRef tilingDims
             }
             auto inTile = tilingBuilderOp.backInferTileInfo(costParameters._tiling.front(), log);
             return inTile.tiles.size() > operandIdx &&
-                   inTile.tiles[operandIdx].shape == getShape(operation->getOperand(operandIdx));
+                   inTile.tiles[operandIdx].shape == getBoundedShape(operation->getOperand(operandIdx));
         };
         for (auto operandValue : operands | indexed) {
             auto operand = operandValue.value();
@@ -885,7 +900,7 @@ StrategyCost extractBaselineCost(mlir::Operation* operation, ShapeRef tilingDims
 
                     op = vfOperations.back().getOperation();
                 }
-                const auto requiredCMX = getRequiredCMX(op, TileInfo(getShape(op->getResult(0))), log);
+                const auto requiredCMX = getRequiredCMX(op, TileInfo(getBoundedShape(op->getResult(0))), log);
                 return requiredCMX + operandSize > getTotalCMXFragmentationAwareSize(op);
             };
             if (hasLongSpilling(chain.back()) || hasLongSpilling(chain.front())) {

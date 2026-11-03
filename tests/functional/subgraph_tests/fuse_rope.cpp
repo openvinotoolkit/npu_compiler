@@ -361,7 +361,16 @@ TEST_P(FuseRoPETestCommon, NPU5020_HW) {
 const std::vector<RoPEParams> precommit_testValues = {
         {{1, 32, 32, 96}, {1, 1, 32, 96}, {1, 1, 32, 96}, RoPEModes::SPLIT_HALF},
         {{1, 40, 1, 128}, {1, 1, 1, 128}, {1, 1, 1, 128}, RoPEModes::SPLIT_HALF},
+        // Split-half shares the fused ASM in interleaved mode (negative nRows).
+        {{1, 1, 1, 64}, {1, 1, 1, 64}, {1, 1, 1, 64}, RoPEModes::SPLIT_HALF},
+        {{1, 1, 5, 64}, {1, 1, 5, 64}, {1, 1, 5, 64}, RoPEModes::SPLIT_HALF},
         {{1, 32, 2, 64}, {1, 32, 1, 32}, {1, 32, 1, 32}, RoPEModes::PAIRWISE},
+        // Pairwise fused ASM: safe small-row path (H=1..3) and terminal pair (H=4,5).
+        {{1, 1, 1, 64}, {1, 1, 1, 32}, {1, 1, 1, 32}, RoPEModes::PAIRWISE},
+        {{1, 1, 2, 64}, {1, 1, 2, 32}, {1, 1, 2, 32}, RoPEModes::PAIRWISE},
+        {{1, 1, 3, 64}, {1, 1, 3, 32}, {1, 1, 3, 32}, RoPEModes::PAIRWISE},
+        {{1, 1, 4, 64}, {1, 1, 4, 32}, {1, 1, 4, 32}, RoPEModes::PAIRWISE},
+        {{1, 1, 5, 64}, {1, 1, 5, 32}, {1, 1, 5, 32}, RoPEModes::PAIRWISE},
         {{1, 1, 256, 80}, {1, 1, 256, 80}, {1, 1, 256, 80}, RoPEModes::INTERLEAVED},
         {{1, 6, 1024, 128}, {1, 1024, 64}, {1, 1024, 64}, RoPEModes::PAIRWISE_INTERLEAVED},
         {{1, 16, 32, 128}, {1, 1, 32, 128}, {1, 1, 32, 128}, RoPEModes::INTERLEAVED_STRIDED}};

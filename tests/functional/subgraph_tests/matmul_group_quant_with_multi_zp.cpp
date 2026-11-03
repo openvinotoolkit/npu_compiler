@@ -298,4 +298,20 @@ INSTANTIATE_TEST_SUITE_P(GroupQuantDynScaleAndZp_Prefill_U2, GroupQuantWithMulti
                                             ::testing::ValuesIn(testShapesDynScaleAndZpPrefill)),
                          GroupQuantWithMultiZpTestCommon::getTestCaseName);
 
+const std::vector<GroupQuantShapes> testShapesDynScaleAndZpDecodeBigOC = {{/*_lhsShape=*/{1, 1, 256},
+                                                                           /*_weightShape=*/{4, 8224, 64},
+                                                                           /*_scaleShape=*/{4, 8224},
+                                                                           /*_zpShape=*/{4, 8224, 1},
+                                                                           /*_rhsShape=*/{8224, 256},
+                                                                           /*_transposeB=*/true,
+                                                                           /*_isScaleDynamic=*/true,
+                                                                           /*_isGroupOutermost=*/true,
+                                                                           /*_isZpDynamic=*/true}};
+
+INSTANTIATE_TEST_SUITE_P(GroupQuantDynScaleAndZp_Decode_BigOC_U2, GroupQuantWithMultiZpTestCommon,
+                         ::testing::Combine(::testing::Values(ov::element::u2),
+                                            ::testing::Values(ov::element::f16, ov::element::f32),
+                                            ::testing::ValuesIn(testShapesDynScaleAndZpDecodeBigOC)),
+                         GroupQuantWithMultiZpTestCommon::getTestCaseName);
+
 }  // namespace ov::test::subgraph

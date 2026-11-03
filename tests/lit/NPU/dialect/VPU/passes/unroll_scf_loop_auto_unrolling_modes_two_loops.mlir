@@ -3,11 +3,11 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-// RUN: vpux-opt --split-input-file --init-compiler="platform=%platform% compilation-mode=HostCompile allow-custom-values=true" --unroll-scf-loop="auto-unrolling-mode=disabled" --canonicalize %s | FileCheck %s --check-prefixes=CHECK,CHECK_DISABLED
-// RUN: vpux-opt --split-input-file --init-compiler="platform=%platform% compilation-mode=HostCompile allow-custom-values=true" --unroll-scf-loop="auto-unrolling-mode=inner" --canonicalize %s | FileCheck %s --check-prefixes=CHECK,CHECK_INNER
-// RUN: vpux-opt --split-input-file --init-compiler="platform=%platform% compilation-mode=HostCompile allow-custom-values=true" --unroll-scf-loop="auto-unrolling-mode=outer" --canonicalize %s | FileCheck %s --check-prefixes=CHECK,CHECK_OUTER
-// RUN: vpux-opt --split-input-file --init-compiler="platform=%platform% compilation-mode=HostCompile allow-custom-values=true" --unroll-scf-loop="auto-unrolling-mode=all" --canonicalize %s | FileCheck %s --check-prefixes=CHECK,CHECK_ALL
-// RUN: vpux-opt --split-input-file --init-compiler="platform=%platform% compilation-mode=HostCompile allow-custom-values=true" --unroll-scf-loop="auto-unrolling-mode=biggest" --canonicalize %s | FileCheck %s --check-prefixes=CHECK,CHECK_BIGGEST
+// RUN: vpux-opt --split-input-file --init-compiler="platform=%platform% compilation-mode=HostCompile_Interpreter allow-custom-values=true" --unroll-scf-loop="auto-unrolling-mode=disabled" --canonicalize %s | FileCheck %s --check-prefixes=CHECK,CHECK_DISABLED
+// RUN: vpux-opt --split-input-file --init-compiler="platform=%platform% compilation-mode=HostCompile_Interpreter allow-custom-values=true" --unroll-scf-loop="auto-unrolling-mode=inner" --canonicalize %s | FileCheck %s --check-prefixes=CHECK,CHECK_INNER
+// RUN: vpux-opt --split-input-file --init-compiler="platform=%platform% compilation-mode=HostCompile_Interpreter allow-custom-values=true" --unroll-scf-loop="auto-unrolling-mode=outer" --canonicalize %s | FileCheck %s --check-prefixes=CHECK,CHECK_OUTER
+// RUN: vpux-opt --split-input-file --init-compiler="platform=%platform% compilation-mode=HostCompile_Interpreter allow-custom-values=true" --unroll-scf-loop="auto-unrolling-mode=all" --canonicalize %s | FileCheck %s --check-prefixes=CHECK,CHECK_ALL
+// RUN: vpux-opt --split-input-file --init-compiler="platform=%platform% compilation-mode=HostCompile_Interpreter allow-custom-values=true" --unroll-scf-loop="auto-unrolling-mode=biggest" --canonicalize %s | FileCheck %s --check-prefixes=CHECK,CHECK_BIGGEST
 // REQUIRES: platform-NPU4000 || platform-NPU5010
 
 #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
@@ -75,61 +75,61 @@ module @DynamicAdd2DTwoLoops   {
 // in the output, so they must be matched before the common CHECK-LABEL directives.
 
 // disabled: no merged functions — loops remain unchanged.
-// CHECK_DISABLED-NOT: func.func @merged_vpu_func
+// CHECK_DISABLED-NOT: @merged_vpu_func
 
 // inner: W inner loop unrolled ×2 (2 tiles × 512 = 1024). One merged func per independent loop.
-// CHECK_INNER:     func.func @merged_vpu_func{{.+}}47x1024xf16>
-// CHECK_INNER:     func.func @merged_vpu_func{{.+}}47x1024xf16>
-// CHECK_INNER-NOT: func.func @merged_vpu_func
+// CHECK_INNER:     func.func private @merged_vpu_func{{.+}}47x1024xf16>
+// CHECK_INNER:     func.func private @merged_vpu_func{{.+}}47x1024xf16>
+// CHECK_INNER-NOT: @merged_vpu_func
 
 // outer: H outer loop unrolled ×21 via cascade (94/235/470/987 rows). Four merged funcs per loop.
 // Loop 1:
-// CHECK_OUTER: func.func @merged_vpu_func{{.+}}94x512xf16>
-// CHECK_OUTER: func.func @merged_vpu_func{{.+}}235x512xf16>
-// CHECK_OUTER: func.func @merged_vpu_func{{.+}}470x512xf16>
-// CHECK_OUTER: func.func @merged_vpu_func{{.+}}987x512xf16>
+// CHECK_OUTER: func.func private @merged_vpu_func{{.+}}94x512xf16>
+// CHECK_OUTER: func.func private @merged_vpu_func{{.+}}235x512xf16>
+// CHECK_OUTER: func.func private @merged_vpu_func{{.+}}470x512xf16>
+// CHECK_OUTER: func.func private @merged_vpu_func{{.+}}987x512xf16>
 // Loop 2:
-// CHECK_OUTER: func.func @merged_vpu_func{{.+}}94x512xf16>
-// CHECK_OUTER: func.func @merged_vpu_func{{.+}}235x512xf16>
-// CHECK_OUTER: func.func @merged_vpu_func{{.+}}470x512xf16>
-// CHECK_OUTER: func.func @merged_vpu_func{{.+}}987x512xf16>
-// CHECK_OUTER-NOT: func.func @merged_vpu_func
+// CHECK_OUTER: func.func private @merged_vpu_func{{.+}}94x512xf16>
+// CHECK_OUTER: func.func private @merged_vpu_func{{.+}}235x512xf16>
+// CHECK_OUTER: func.func private @merged_vpu_func{{.+}}470x512xf16>
+// CHECK_OUTER: func.func private @merged_vpu_func{{.+}}987x512xf16>
+// CHECK_OUTER-NOT: @merged_vpu_func
 
 // all: both H and W unrolled. Nine merged funcs per loop (4 cascade levels × 2 widths + 1 inner-only).
 // Loop 1:
-// CHECK_ALL: func.func @merged_vpu_func{{.+}}47x1024xf16>
-// CHECK_ALL: func.func @merged_vpu_func{{.+}}94x512xf16>
-// CHECK_ALL: func.func @merged_vpu_func{{.+}}94x1024xf16>
-// CHECK_ALL: func.func @merged_vpu_func{{.+}}235x512xf16>
-// CHECK_ALL: func.func @merged_vpu_func{{.+}}235x1024xf16>
-// CHECK_ALL: func.func @merged_vpu_func{{.+}}470x512xf16>
-// CHECK_ALL: func.func @merged_vpu_func{{.+}}470x1024xf16>
-// CHECK_ALL: func.func @merged_vpu_func{{.+}}987x512xf16>
-// CHECK_ALL: func.func @merged_vpu_func{{.+}}987x1024xf16>
+// CHECK_ALL: func.func private @merged_vpu_func{{.+}}47x1024xf16>
+// CHECK_ALL: func.func private @merged_vpu_func{{.+}}94x512xf16>
+// CHECK_ALL: func.func private @merged_vpu_func{{.+}}94x1024xf16>
+// CHECK_ALL: func.func private @merged_vpu_func{{.+}}235x512xf16>
+// CHECK_ALL: func.func private @merged_vpu_func{{.+}}235x1024xf16>
+// CHECK_ALL: func.func private @merged_vpu_func{{.+}}470x512xf16>
+// CHECK_ALL: func.func private @merged_vpu_func{{.+}}470x1024xf16>
+// CHECK_ALL: func.func private @merged_vpu_func{{.+}}987x512xf16>
+// CHECK_ALL: func.func private @merged_vpu_func{{.+}}987x1024xf16>
 // Loop 2:
-// CHECK_ALL: func.func @merged_vpu_func{{.+}}47x1024xf16>
-// CHECK_ALL: func.func @merged_vpu_func{{.+}}94x512xf16>
-// CHECK_ALL: func.func @merged_vpu_func{{.+}}94x1024xf16>
-// CHECK_ALL: func.func @merged_vpu_func{{.+}}235x512xf16>
-// CHECK_ALL: func.func @merged_vpu_func{{.+}}235x1024xf16>
-// CHECK_ALL: func.func @merged_vpu_func{{.+}}470x512xf16>
-// CHECK_ALL: func.func @merged_vpu_func{{.+}}470x1024xf16>
-// CHECK_ALL: func.func @merged_vpu_func{{.+}}987x512xf16>
-// CHECK_ALL: func.func @merged_vpu_func{{.+}}987x1024xf16>
-// CHECK_ALL-NOT: func.func @merged_vpu_func
+// CHECK_ALL: func.func private @merged_vpu_func{{.+}}47x1024xf16>
+// CHECK_ALL: func.func private @merged_vpu_func{{.+}}94x512xf16>
+// CHECK_ALL: func.func private @merged_vpu_func{{.+}}94x1024xf16>
+// CHECK_ALL: func.func private @merged_vpu_func{{.+}}235x512xf16>
+// CHECK_ALL: func.func private @merged_vpu_func{{.+}}235x1024xf16>
+// CHECK_ALL: func.func private @merged_vpu_func{{.+}}470x512xf16>
+// CHECK_ALL: func.func private @merged_vpu_func{{.+}}470x1024xf16>
+// CHECK_ALL: func.func private @merged_vpu_func{{.+}}987x512xf16>
+// CHECK_ALL: func.func private @merged_vpu_func{{.+}}987x1024xf16>
+// CHECK_ALL-NOT: @merged_vpu_func
 
 // biggest: only the biggest loop (H outer, factor 21 > W inner factor 2) — same cascade as outer.
 // Loop 1:
-// CHECK_BIGGEST: func.func @merged_vpu_func{{.+}}94x512xf16>
-// CHECK_BIGGEST: func.func @merged_vpu_func{{.+}}235x512xf16>
-// CHECK_BIGGEST: func.func @merged_vpu_func{{.+}}470x512xf16>
-// CHECK_BIGGEST: func.func @merged_vpu_func{{.+}}987x512xf16>
+// CHECK_BIGGEST: func.func private @merged_vpu_func{{.+}}94x512xf16>
+// CHECK_BIGGEST: func.func private @merged_vpu_func{{.+}}235x512xf16>
+// CHECK_BIGGEST: func.func private @merged_vpu_func{{.+}}470x512xf16>
+// CHECK_BIGGEST: func.func private @merged_vpu_func{{.+}}987x512xf16>
 // Loop 2:
-// CHECK_BIGGEST: func.func @merged_vpu_func{{.+}}94x512xf16>
-// CHECK_BIGGEST: func.func @merged_vpu_func{{.+}}235x512xf16>
-// CHECK_BIGGEST: func.func @merged_vpu_func{{.+}}470x512xf16>
-// CHECK_BIGGEST: func.func @merged_vpu_func{{.+}}987x512xf16>
-// CHECK_BIGGEST-NOT: func.func @merged_vpu_func
+// CHECK_BIGGEST: func.func private @merged_vpu_func{{.+}}94x512xf16>
+// CHECK_BIGGEST: func.func private @merged_vpu_func{{.+}}235x512xf16>
+// CHECK_BIGGEST: func.func private @merged_vpu_func{{.+}}470x512xf16>
+// CHECK_BIGGEST: func.func private @merged_vpu_func{{.+}}987x512xf16>
+// CHECK_BIGGEST-NOT: @merged_vpu_func
 
 // Common: static tile functions are preserved in all modes.
 // CHECK-LABEL: func.func @main_func0_static

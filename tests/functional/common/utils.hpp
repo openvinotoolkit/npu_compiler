@@ -1,5 +1,5 @@
 //
-// Copyright (C) 2021-2025 Intel Corporation
+// Copyright (C) 2021-2026 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -9,8 +9,6 @@
 #include <openvino/runtime/core.hpp>
 
 #include <filesystem>
-
-std::string getBackendName(const ov::Core& core);
 
 std::vector<std::string> getAvailableDevices(const ov::Core& core);
 

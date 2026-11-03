@@ -28,7 +28,6 @@ enum class WorkloadManagementBarrierProgrammingMode {
     ALL_BARRIER_DMAS_SCHEDULED_4K = 4,
     UNKNOWN = 255
 };
-enum class DMAFifoType { SW = 0, HW = 1 };
 
 /**
  * @brief This enum is used to specify the mode of weights table reuse.
@@ -40,6 +39,8 @@ enum class DMAFifoType { SW = 0, HW = 1 };
  */
 enum class WeightsTableReuseMode { ENABLED = 0, VF_ENABLED = 1, DISABLED = 2 };
 
+enum class UnboundedDynamismMode { DISABLED = 0, LOWER = 1, UPPER = 2, LOWER_UPPER = 3 };
+
 enum class SkipOCMode { SKIP_NONE = 0, SKIP_LARGE_SPATIAL = 1, SKIP_ALL = 2 };
 
 enum class AutoUnrollingMode { DISABLED = 0, INNER = 1, OUTER = 2, ALL = 3, BIGGEST = 4 };
@@ -49,8 +50,8 @@ enum class VFMergeCostMode { PERFORMANCE = 0, POWER = 1 };
 
 std::optional<WorkloadManagementMode> symbolizeWorkloadManagementMode(llvm::StringRef str);
 StringLiteral stringifyEnum(WorkloadManagementBarrierProgrammingMode val);
-StringLiteral stringifyEnum(DMAFifoType val);
 StringLiteral stringifyEnum(WeightsTableReuseMode val);
+StringLiteral stringifyEnum(UnboundedDynamismMode val);
 StringLiteral stringifyEnum(VFMergeConfiguration val);
 StringLiteral stringifyEnum(VFMergeCostMode val);
 std::optional<std::string> convertToOptional(const StrOption& strOption);

@@ -5,6 +5,8 @@
 
 #include "vpux/compiler/dialect/VPU/IR/ops/internal.hpp"
 #include "vpux/compiler/dialect/VPU/utils/const_utils.hpp"
+#include "vpux/compiler/dialect/VPU/utils/distributed_tensor_utils.hpp"
+#include "vpux/compiler/dialect/VPU/utils/explicit_distribution_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/scf/dialect_processors.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
 
@@ -141,6 +143,37 @@ static mlir::LogicalResult verifyTilingInfoFuncSignature(mlir::func::FuncOp info
     return mlir::success();
 }
 
+/// Verifies KernelInfo.inputSegmentationAxes against the operands of a GenericSwLayerOp.
+static mlir::LogicalResult verifySegmentationAxes(VPU::GenericSwLayerOp op, VPU::KernelInfoAttr kernelInfo) {
+    const auto segmentationAxes = kernelInfo.getInputSegmentationAxes();
+    if (segmentationAxes.empty()) {
+        // The classification has not been performed yet.
+        return mlir::success();
+    }
+
+    for (const auto& [entryIdx, entry] : llvm::enumerate(segmentationAxes)) {
+        // The element type and the entry size are already guaranteed by KernelInfoAttr::verify.
+        const auto segmentationDims = mlir::cast<mlir::DenseI64ArrayAttr>(entry).asArrayRef();
+
+        size_t operandIdx = 0;
+        for (auto operand : op->getOperands()) {
+            const auto ndType = mlir::dyn_cast<vpux::NDTypeInterface>(operand.getType());
+            if (ndType == nullptr) {
+                continue;
+            }
+            const auto segmentationDim = segmentationDims[operandIdx];
+            if (segmentationDim >= ndType.getRank()) {
+                return op.emitOpError("KernelInfo.inputSegmentationAxes entry ")
+                       << entryIdx << " has segmentation dim " << segmentationDim << " for operand " << operandIdx
+                       << ", which must be less than that operand's rank (" << ndType.getRank() << ")";
+            }
+            ++operandIdx;
+        }
+    }
+
+    return mlir::success();
+}
+
 //
 // SymbolUserOpInterface
 //
@@ -171,6 +204,12 @@ mlir::LogicalResult VPU::GenericSwLayerOp::verifySymbolUses(mlir::SymbolTableCol
 
     if (!kernelInfo.getNumSlicedInputs().getType().isSignlessInteger(64)) {
         return emitOpError("KernelInfo.numSlicedInputs must be a signless i64 integer attribute");
+    }
+    if (!kernelInfo.getNumTensorInputs().getType().isSignlessInteger(64)) {
+        return emitOpError("KernelInfo.numTensorInputs must be a signless i64 integer attribute");
+    }
+    if (!kernelInfo.getNumAuxBuffers().getType().isSignlessInteger(64)) {
+        return emitOpError("KernelInfo.numAuxBuffers must be a signless i64 integer attribute");
     }
 
     const auto tiling = getTilingProperties();
@@ -220,8 +259,28 @@ mlir::LogicalResult VPU::GenericSwLayerOp::verifySymbolUses(mlir::SymbolTableCol
     for (int64_t i = 0; i < numSlicedInputs; ++i) {
         if (!mlir::isa<vpux::NDTypeInterface>(getInputs()[i].getType())) {
             return emitOpError("expected input ")
-                   << i << " to be a ranked tensor type, but got " << getInputs()[i].getType();
+                   << i << " to be a ranked or distributed tensor type, but got " << getInputs()[i].getType();
         }
+    }
+
+    const int64_t numTensorInputs = kernelInfo.getNumTensorInputs().getInt();
+    const auto numTensorOperands = llvm::count_if(getInputs(), [](mlir::Value input) {
+        return mlir::isa<vpux::NDTypeInterface>(input.getType());
+    });
+    if (numTensorOperands != numTensorInputs) {
+        return emitOpError("KernelInfo.numTensorInputs (")
+               << numTensorInputs << ") does not match the number of tensor inputs (" << numTensorOperands << ")";
+    }
+
+    const int64_t numAuxBuffers = kernelInfo.getNumAuxBuffers().getInt();
+    if (numAuxBuffers != static_cast<int64_t>(getScratchInputs().size())) {
+        return emitOpError("KernelInfo.numAuxBuffers (")
+               << numAuxBuffers << ") does not match the number of scratch inputs (" << getScratchInputs().size()
+               << ")";
+    }
+
+    if (mlir::failed(verifySegmentationAxes(*this, kernelInfo))) {
+        return mlir::failure();
     }
 
     return verifyTilingInfoFuncSignature(infoFunc, getInputs(), getScratchInputs(), numAxes, numSlicedInputs);
@@ -622,6 +681,67 @@ void VPU::GenericSwLayerOp::build(mlir::OpBuilder& builder, mlir::OperationState
 }
 
 //
+// ClusteredOpInterface
+//
+
+bool vpux::VPU::GenericSwLayerOp::checkStrategyCompatibility(VPU::MultiClusterStrategy strategy, size_t /*numTiles*/) {
+    const auto kernelInfo = getCalleeKernelInfo(*this);
+    if (!kernelInfo) {
+        return false;
+    }
+
+    if (strategy == VPU::MultiClusterStrategy::Clustering) {
+        return true;
+    }
+
+    const auto firstResultNdType = mlir::dyn_cast<vpux::NDTypeInterface>(getResult(0).getType());
+    if (!firstResultNdType || firstResultNdType.getRank() != 4) {
+        return false;
+    }
+
+    if (kernelInfo->getInputSegmentationAxes().empty()) {
+        return false;
+    }
+
+    const auto dimsOrder = firstResultNdType.getDimsOrder();
+    // Ensure we can produce valid distributed tensors for all tensor-like operands
+    // given a segmentation of the output along an axis.
+    // Each operand needs to be classified as either segmented or distributed.
+    const auto isValidAxis = [&](Dim logicalDim) {
+        const int64_t memDimIdx = static_cast<int64_t>(dimsOrder.toMemDim(logicalDim).ind());
+        const auto axisIdx = kernelInfo->getTilingAxisIndex(memDimIdx);
+        if (!axisIdx.has_value()) {
+            return false;
+        }
+        const auto segmentationMemDims = kernelInfo->getInputSegmentationDims(*axisIdx);
+        return !llvm::is_contained(segmentationMemDims, VPU::KernelInfoAttr::kUnknownDim);
+    };
+
+    switch (strategy) {
+    case VPU::MultiClusterStrategy::SplitOverHeight:
+        return isValidAxis(Dims4D::Act::H);
+    case VPU::MultiClusterStrategy::SplitOverWidth:
+        return isValidAxis(Dims4D::Act::W);
+    case VPU::MultiClusterStrategy::SplitOverKernel:
+        return isValidAxis(Dims4D::Act::C);
+    case VPU::MultiClusterStrategy::SplitOverBatch:
+        return isValidAxis(Dims4D::Act::N);
+    default:
+        return false;
+    }
+}
+
+vpux::VPU::DistributionInfo vpux::VPU::GenericSwLayerOp::getExplicitDistributionInfoAttr(
+        vpux::ShapeRef shape, vpux::VPU::DistributionMode distributionMode, ArrayRef<int64_t> numTiles,
+        const int64_t numClusters, ArrayRef<int64_t> alignment, const bool uniformDistributedSegments,
+        const vpux::VPU::OverlapDistributionParams& overlapParams,
+        const std::optional<ArrayRef<int64_t>> /*memoryNumTiles*/) {
+    return VPU::getSWExplicitDistributionInfo(mlir::cast<VPU::SWOpInterface>(getOperation()), shape, distributionMode,
+                                              numTiles, numClusters, alignment, uniformDistributedSegments,
+                                              overlapParams);
+}
+
+//
 // SWOpInterface
 //
 
@@ -709,10 +829,10 @@ static TilingInfo getGlobalTileInfo(VPU::GenericSwLayerOp op, SmallVector<int64_
     SmallVector<TileInfo> inputTiles;
     size_t infoIdx = 0;
     for (auto operand : op->getOperands() | indexed) {
-        if (!mlir::isa<mlir::RankedTensorType>(operand.value().getType())) {
+        if (!mlir::isa<vpux::NDTypeInterface>(operand.value().getType())) {
             continue;
         }
-        auto rank = mlir::cast<mlir::RankedTensorType>(operand.value().getType()).getRank();
+        auto rank = mlir::cast<vpux::NDTypeInterface>(operand.value().getType()).getRank();
         // Broadcast inputs (between numSlicedInputs and the end of regular inputs) use the
         // full tensor shape.
         const bool isScratchInput = llvm::is_contained(auxBuffers, &op->getOpOperand(operand.index()));
@@ -726,7 +846,8 @@ static TilingInfo getGlobalTileInfo(VPU::GenericSwLayerOp op, SmallVector<int64_
         // If this is a tiled op extract the tiling information.
         SmallVector<int64_t, 4> shape;
         SmallVector<int64_t, 4> offsets;
-        SmallVector<int64_t, 4> axis;
+        // Use a placeholder for the axis value, fillInputTileAxes will compute the actual values.
+        const SmallVector<int64_t, 4> axis(static_cast<size_t>(rank), 1);
         const auto getMappedValueOrThrow = [&](mlir::Value key, llvm::StringRef kind, int64_t dimIdx) -> int64_t {
             const auto it = valueMap.find(key);
             VPUX_THROW_WHEN(it == valueMap.end(),
@@ -738,19 +859,6 @@ static TilingInfo getGlobalTileInfo(VPU::GenericSwLayerOp op, SmallVector<int64_
         for (int64_t i = 0; i < rank; ++i) {
             shape.push_back(getMappedValueOrThrow(terminator.getOperand(infoIdx + i), "shape", i));
             offsets.push_back(getMappedValueOrThrow(terminator.getOperand(infoIdx + rank + i), "offset", i));
-            // Note that all axes are hardcoded to 1.
-            //
-            // The axis concept implies a regular, non-overlapping split count, but
-            // GenericSwLayerOp's tiling can produce arbitrary, overlapping input regions
-            // (e.g. 5 tiles of a 2-D input arranged as 4 rectangles in a grid plus a 5th that
-            // overlaps all of them - unless we can prove otherwise). There is no well-defined
-            // "number of splits" for such cases, so the axis concept does not apply cleanly
-            // to GenericSwLayerOp input tiles.
-            //
-            // The hard-coded value is safe at the moment because VF is disabled for GenericSwLayerOp.
-            // We can work around this using analysis/restricting VF dimensions (same as for multiclustering).
-            // E#226133: reliably signal unknown input tiling axes.
-            axis.push_back(1);
         }
         const auto operandType = mlir::cast<vpux::NDTypeInterface>(operand.value().getType());
         const auto logicalShape = operandType.getDimsOrder().toLogicalOrder(MemShape(shape)).raw();
@@ -760,6 +868,54 @@ static TilingInfo getGlobalTileInfo(VPU::GenericSwLayerOp op, SmallVector<int64_
     }
 
     return TilingInfo(inputTiles);
+}
+
+// Fills in the axes value of input tiles according to the output axes and the
+// kernels recorded axes segmentation mapping. When this mapping is not available
+// the axes value is left as 1, however users which need to consume the axes
+// (multiclustering, vertical fusion) will avoid tiling along these unknown
+// axes.
+// E#226133: reliably signal unknown input tiling axes.
+static void fillInputTileAxes(VPU::GenericSwLayerOp op, VPU::KernelInfoAttr kernelInfo, const TileInfo& outputTile,
+                              TilingInfo& inputTiling) {
+    if (kernelInfo.getInputSegmentationAxes().empty()) {
+        return;
+    }
+
+    const auto tilingAxes = kernelInfo.getTilingAxes().asArrayRef();
+    const auto outDimsOrder = mlir::cast<vpux::NDTypeInterface>(op.getResult(0).getType()).getDimsOrder();
+
+    // tilingAxes are memory dimensions of the first result, in the same order as inputSegmentationAxes.
+    for (const auto& tilingAxis : tilingAxes | indexed) {
+        const auto numSplits = outputTile.axis[outDimsOrder.toDim(MemDim(tilingAxis.value()))];
+        if (numSplits == 1) {
+            continue;
+        }
+
+        const auto segmentationMemDims = kernelInfo.getInputSegmentationDims(tilingAxis.index());
+        VPUX_THROW_UNLESS(segmentationMemDims.size() == inputTiling.tiles.size(),
+                          "GenericSwLayerOp: inputSegmentationAxes entry {0} has {1} inputs, but {2} input tiles "
+                          "were inferred",
+                          tilingAxis.index(), segmentationMemDims.size(), inputTiling.tiles.size());
+
+        // The tiles follow the order of the tensor operands, which matches the order of the kernel
+        // arguments the segmentation axes were computed for: tensor inputs first, then aux buffers.
+        size_t tileIdx = 0;
+        for (auto operand : op->getOperands()) {
+            if (!mlir::isa<vpux::NDTypeInterface>(operand.getType())) {
+                continue;
+            }
+            const auto segmentationMemDim = segmentationMemDims[tileIdx];
+            // Ignore broadcast or unclassified cases.
+            if (segmentationMemDim != VPU::KernelInfoAttr::kBroadcastDim &&
+                segmentationMemDim != VPU::KernelInfoAttr::kUnknownDim) {
+                const auto operandType = mlir::cast<vpux::NDTypeInterface>(operand.getType());
+                inputTiling.tiles[tileIdx].axis[operandType.getDimsOrder().toDim(MemDim(segmentationMemDim))] =
+                        numSplits;
+            }
+            ++tileIdx;
+        }
+    }
 }
 
 InputTiling vpux::VPU::GenericSwLayerOp::backInferTileInfo(const vpux::TileInfo& outputTile, vpux::Logger /*log*/) {
@@ -823,6 +979,8 @@ InputTiling vpux::VPU::GenericSwLayerOp::backInferTileInfo(const vpux::TileInfo&
         }
     }
 
+    fillInputTileAxes(*this, *kernelInfo, outputTile, sliceTileInfo);
+
     return sliceTileInfo;
 }
 
@@ -882,4 +1040,216 @@ mlir::FailureOr<OutputTiling> vpux::VPU::GenericSwLayerOp::getTilingStrategy(Til
 void vpux::VPU::GenericSwLayerOp::getCanonicalizationPatterns(mlir::RewritePatternSet& patterns,
                                                               mlir::MLIRContext* ctx) {
     patterns.add<FoldSizesAndOffsets>(ctx);
+}
+
+//
+// VerticalFusionOpInterface
+//
+
+// Returns the logical dimensions of the first result the op can be fused on, as a subset of the
+// tiling axes.
+//
+// Two properties are needed to fuse on an axis:
+//  - the segmentation of the tensor inputs along it must be known, with the exception
+//    of scratch/aux buffers
+//  - if an input is segmented then the segmentation must happen on the same logical
+//    dimension the result is tiled on due to current limitation in vertical fusion.
+static DimArr getFusionAxes(VPU::GenericSwLayerOp op, VPU::KernelInfoAttr kernelInfo) {
+    const auto resultNdType = mlir::cast<vpux::NDTypeInterface>(op.getResult(0).getType());
+    const auto dimsOrder = resultNdType.getDimsOrder();
+
+    if (kernelInfo.getInputSegmentationAxes().empty()) {
+        // The input classification has not been computed, so nothing is known about any axis.
+        return {};
+    }
+
+    const auto tilingAxes = kernelInfo.getTilingAxes().asArrayRef();
+    const auto numTensorInputs = static_cast<size_t>(kernelInfo.getNumTensorInputs().getInt());
+
+    // The segmentation entries are indexed by tensor operand position, so gather those first.
+    const auto tensorInputs = to_small_vector(op.getInputs() | filtered([](mlir::Value input) {
+                                                  return mlir::isa<vpux::NDTypeInterface>(input.getType());
+                                              }));
+    VPUX_THROW_UNLESS(tensorInputs.size() == numTensorInputs,
+                      "GenericSwLayerOp: has {0} tensor inputs, but KernelInfo.numTensorInputs is {1}",
+                      tensorInputs.size(), numTensorInputs);
+
+    DimArr fusionAxes;
+    for (const auto& tilingAxis : tilingAxes | indexed) {
+        const auto axisDim = dimsOrder.toDim(MemDim(tilingAxis.value()));
+        const auto segmentationMemDims = kernelInfo.getInputSegmentationDims(tilingAxis.index());
+
+        const auto isSegmentedOnAxisDim = [&](size_t inputIdx) {
+            const int64_t segmentationMemDim = segmentationMemDims[inputIdx];
+            if (segmentationMemDim == VPU::KernelInfoAttr::kBroadcastDim) {
+                // Broadcast input: not sliced along this axis.
+                return true;
+            }
+            if (segmentationMemDim == VPU::KernelInfoAttr::kUnknownDim) {
+                // The split of this input along this axis is unknown, so the axis cannot be handed
+                // to the operand's producer.
+                return false;
+            }
+            const auto inputType = mlir::cast<vpux::NDTypeInterface>(tensorInputs[inputIdx].getType());
+            return inputType.getDimsOrder().toDim(MemDim(segmentationMemDim)) == axisDim;
+        };
+
+        if (llvm::all_of(irange(tensorInputs.size()), isSegmentedOnAxisDim)) {
+            fusionAxes.push_back(axisDim);
+        }
+    }
+    return fusionAxes;
+}
+
+bool vpux::VPU::GenericSwLayerOp::isVFSupported() {
+    const auto kernelInfo = getCalleeKernelInfo(*this);
+    return kernelInfo.has_value() && !getFusionAxes(*this, *kernelInfo).empty();
+}
+
+DimArr vpux::VPU::GenericSwLayerOp::restrictedFusionAxes() {
+    const auto resultNdType = mlir::cast<vpux::NDTypeInterface>(getResult(0).getType());
+    const auto rank = static_cast<size_t>(resultNdType.getShape().size());
+
+    const auto kernelInfo = getCalleeKernelInfo(*this);
+    VPUX_THROW_UNLESS(kernelInfo, "GenericSwLayerOp: restrictedFusionAxes called but isVFSupported() returned false");
+    const auto fusionAxes = getFusionAxes(*this, *kernelInfo);
+    DimArr restricted;
+    for (size_t i = 0; i < rank; ++i) {
+        if (!llvm::is_contained(fusionAxes, Dim(i))) {
+            restricted.push_back(Dim(i));
+        }
+    }
+    return restricted;
+}
+
+//
+// Distribution methods/helpers
+//
+
+// Returns the position of `operand` within an inputSegmentationAxes entry, or std::nullopt when the
+// operand is neither a tensor input nor an auxiliary buffer. Tensor inputs are identified by
+// NDTypeInterface, so that the count also holds once the operands have been made distributed, and
+// the op verifier keeps it equal to KernelInfo.numTensorInputs.
+static std::optional<int64_t> getSegmentationEntryIndex(VPU::GenericSwLayerOp op, mlir::OpOperand& operand) {
+    VPUX_THROW_UNLESS(operand.getOwner() == op.getOperation(), "Operand {0} does not belong to GenericSwLayerOp '{1}'",
+                      operand.getOperandNumber(), op.getCallee());
+
+    const auto isTensor = [](const mlir::OpOperand& use) {
+        return mlir::isa<vpux::NDTypeInterface>(use.get().getType());
+    };
+
+    if (!isTensor(operand)) {
+        return std::nullopt;
+    }
+    return llvm::count_if(op->getOpOperands().take_front(operand.getOperandNumber()), isTensor);
+}
+
+// Returns the logical dimension of `operand` that is segmented when tiling `op` under `strategy`,
+// KernelInfoAttr::kBroadcastDim when that input is broadcasted, or std::nullopt for a Clustering
+// strategy or when the operand is neither a tensor input nor an auxiliary buffer.
+static std::optional<int64_t> getGenericSwLayerInputSegmentationDim(VPU::GenericSwLayerOp op,
+                                                                    VPU::MultiClusterStrategy strategy,
+                                                                    mlir::OpOperand& operand,
+                                                                    vpux::NDTypeInterface inputType) {
+    if (strategy == VPU::MultiClusterStrategy::Clustering) {
+        return std::nullopt;
+    }
+
+    const auto moduleOp = op->getParentOfType<mlir::ModuleOp>();
+    VPUX_THROW_UNLESS(moduleOp, "GenericSwLayerOp '{0}' has no parent ModuleOp", op.getCallee());
+    const auto calleeFunc =
+            mlir::dyn_cast_or_null<mlir::func::FuncOp>(mlir::SymbolTable::lookupSymbolIn(moduleOp, op.getCallee()));
+    VPUX_THROW_UNLESS(calleeFunc, "Could not find callee function '{0}' for GenericSwLayerOp", op.getCallee());
+    const auto kernelInfo = calleeFunc->getAttrOfType<VPU::KernelInfoAttr>(VPU::KernelInfoAttr::kFuncAttrName);
+    VPUX_THROW_UNLESS(kernelInfo, "Callee '{0}' has no KernelInfoAttr but a non-Clustering strategy was assigned",
+                      op.getCallee());
+
+    const auto entryIdx = getSegmentationEntryIndex(op, operand);
+    if (!entryIdx.has_value()) {
+        return std::nullopt;
+    }
+
+    VPUX_THROW_WHEN(kernelInfo.getInputSegmentationAxes().empty(),
+                    "Strategy '{0}' assigned to GenericSwLayerOp '{1}' but its inputs have not been classified",
+                    strategy, op.getCallee());
+
+    const auto firstResultNdType = mlir::dyn_cast<vpux::NDTypeInterface>(op.getResult(0).getType());
+    VPUX_THROW_UNLESS(firstResultNdType, "GenericSwLayerOp '{0}' result(0) has no NDTypeInterface", op.getCallee());
+    const auto dimsOrder = firstResultNdType.getDimsOrder();
+
+    Dim logicalDim;
+    switch (strategy) {
+    case VPU::MultiClusterStrategy::SplitOverHeight:
+        logicalDim = Dims4D::Act::H;
+        break;
+    case VPU::MultiClusterStrategy::SplitOverWidth:
+        logicalDim = Dims4D::Act::W;
+        break;
+    case VPU::MultiClusterStrategy::SplitOverKernel:
+        logicalDim = Dims4D::Act::C;
+        break;
+    case VPU::MultiClusterStrategy::SplitOverBatch:
+        logicalDim = Dims4D::Act::N;
+        break;
+    default:
+        VPUX_THROW("Strategy '{0}' assigned to a GenericSwLayerOp in unsupported' ", strategy);
+    }
+    const int64_t activeMemDim = static_cast<int64_t>(dimsOrder.toMemDim(logicalDim).ind());
+
+    const auto axisIdx = kernelInfo.getTilingAxisIndex(activeMemDim);
+    VPUX_THROW_UNLESS(axisIdx.has_value(),
+                      "Strategy '{0}' maps to mem dim '{1}' which is not a tiling axis of GenericSwLayerOp '{2}'",
+                      strategy, activeMemDim, op.getCallee());
+
+    const auto segmentationMemDims = kernelInfo.getInputSegmentationDims(*axisIdx);
+    VPUX_THROW_UNLESS(*entryIdx < static_cast<int64_t>(segmentationMemDims.size()),
+                      "Input index {0} out of range for inputSegmentationAxes (size {1}) on GenericSwLayerOp '{2}'",
+                      *entryIdx, segmentationMemDims.size(), op.getCallee());
+    const int64_t segmentationMemDim = segmentationMemDims[*entryIdx];
+
+    // checkStrategyCompatibility only accepts an axis along which every input is classified, so an
+    // unknown one here means a strategy was assigned that should have been rejected.
+    VPUX_THROW_WHEN(segmentationMemDim == VPU::KernelInfoAttr::kUnknownDim,
+                    "Strategy '{0}' assigned to GenericSwLayerOp '{1}' but the segmentation of input {2} along mem "
+                    "dim {3} is unknown",
+                    strategy, op.getCallee(), *entryIdx, activeMemDim);
+
+    // Broadcast signals that the input is not sliced; return as-is so callers can detect it.
+    if (segmentationMemDim == VPU::KernelInfoAttr::kBroadcastDim) {
+        return segmentationMemDim;
+    }
+
+    // Convert memory dim to logical dim using the input tensor's layout.
+    const auto segmentationLogicalDim = inputType.getDimsOrder().dimAt(static_cast<size_t>(segmentationMemDim));
+    return static_cast<int64_t>(segmentationLogicalDim.ind());
+}
+
+vpux::VPU::DistributionMode vpux::VPU::GenericSwLayerOp::getSWInputTensorDistributionMode(
+        VPU::MultiClusterStrategy strategy, mlir::OpOperand& operand, vpux::NDTypeInterface /*inputType*/) {
+    if (strategy == VPU::MultiClusterStrategy::Clustering) {
+        return DistributionMode::DUPLICATED;
+    }
+
+    const auto inputNdType = mlir::cast<vpux::NDTypeInterface>(operand.get().getType());
+    const auto segmentationDimOpt = getGenericSwLayerInputSegmentationDim(*this, strategy, operand, inputNdType);
+    if (!segmentationDimOpt.has_value() || *segmentationDimOpt < 0) {
+        return DistributionMode::DUPLICATED;
+    }
+
+    return DistributionMode::SEGMENTED;
+}
+
+SmallVector<int64_t> vpux::VPU::GenericSwLayerOp::getSWInputTensorNumTiles(int64_t numClusters,
+                                                                           VPU::MultiClusterStrategy strategy,
+                                                                           mlir::OpOperand& operand,
+                                                                           vpux::NDTypeInterface inputType) {
+    SmallVector<int64_t> noTile(inputType.getRank(), 1);
+
+    const auto segmentationDimOpt = getGenericSwLayerInputSegmentationDim(*this, strategy, operand, inputType);
+    if (!segmentationDimOpt.has_value() || *segmentationDimOpt < 0) {
+        return noTile;
+    }
+
+    noTile[*segmentationDimOpt] = numClusters;
+    return noTile;
 }

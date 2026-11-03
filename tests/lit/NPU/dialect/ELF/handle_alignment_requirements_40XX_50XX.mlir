@@ -186,7 +186,7 @@ module @mainModule attributes {config.platform = #config.platform<NPU4000>} {
       }
       ELF.CreateSection @program.mapped_inference aligned(64) secType(SHT_PROGBITS) secFlags("SHF_ALLOC|SHF_EXECINSTR") secLocation(<DDR>) {
         //CHECK:  ELF.CreateSection @program.mapped_inference aligned(64)
-        VPUASM.MappedInference @MappedInference : dmas([[@task.dma.0.0::@NNDMA_0_0_0, @task.dma.0.1::@NNDMA_0_1_0]]) actKernelRanges([@task.shave.range.0.0::@ActKernelRange0]) actKernelInvocations([@task.shave.invocation.0.0::@ActKernelInvocation0]) barriers(@program.barrier::@ConfigureBarrier0) dmaCount([[1, 7], [0, 0]]) invariantCount([0, 0]) variantCount([0, 0]) actKernelRangesCount([6, 0]) actKernelInvocationsCount([6, 0]) mediaCount(0) barrierCount(13) mappedInferenceVersion(@note.MappedInferenceVersion::@MappedInferenceVersion_0_0)
+        VPUASM.MappedInference @MappedInference : dmas([[@task.dma.0.0::@NNDMA_0_0_0, @task.dma.0.1::@NNDMA_0_1_0]]) actKernelRanges([@task.shave.range.0.0::@ActKernelRange0]) actKernelInvocations([@task.shave.invocation.0.0::@ActKernelInvocation0]) barriers(@program.barrier::@ConfigureBarrier0) dmaCount([[1, 7], [0, 0]]) invariantCount([0, 0]) variantCount([0, 0]) actKernelRangesCount([6, 0]) actKernelInvocationsCount([6, 0]) barrierCount(13) mappedInferenceVersion(@note.MappedInferenceVersion::@MappedInferenceVersion_0_0)
       }
       ELF.CreateSymbolTableSection @symtab secFlags("SHF_NONE") {
         ELF.Symbol @elfsym.program.DMA.cmx.0.0 of(@program.DMA.cmx.0.0) type(<STT_SECTION>) size(0) value(0)

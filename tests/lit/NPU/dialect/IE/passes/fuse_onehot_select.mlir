@@ -131,3 +131,161 @@ func.func @NonSelectReduceSumUntouched(%arg0: tensor<2x1x3xf32>, %arg1: tensor<2
     // CHECK:       [[OUT:%.+]] = IE.ReduceSum([[MUL]]) {axes_value = [0]} : tensor<2x1x3xf32> -> tensor<1x3xf32>
     // CHECK:       return [[OUT]] : tensor<1x3xf32>
 }
+
+// -----
+
+// CHECK-LABEL: @FuseFullyConnectedConstantWeight
+// CHECK-SAME:    ([[INDICES:%[^:]+]]: tensor<1x2x1xsi32>, [[MASK:%[^:]+]]: tensor<1x2x1xi8>)
+func.func @FuseFullyConnectedConstantWeight(%indices: tensor<1x2x1xsi32>, %mask: tensor<1x2x1xi8>)
+        -> tensor<2x3xf32> {
+    %nan = const.Declare tensor<1xf32> = dense<0x7FC00000> : tensor<1xf32>
+    %depth = const.Declare tensor<si32> = dense<4> : tensor<si32>
+    %on = const.Declare tensor<f32> = dense<1.0> : tensor<f32>
+    %off = const.Declare tensor<f32> = dense<0.0> : tensor<f32>
+    %weights = const.Declare tensor<3x4xf32> = dense<1.0> : tensor<3x4xf32>
+    %onehot = IE.OneHot(%indices, %depth, %on, %off) {
+        axis_attr = 2 : i64,
+        mode = #IE.one_hot_mode<IGNORE_NEGATIVE>,
+        operandSegmentSizes = array<i32: 1, 1, 1, 1>,
+        outputType = f32,
+        rank_expanded = true
+    } : tensor<1x2x1xsi32>, tensor<si32>, tensor<f32>, tensor<f32> -> tensor<1x2x4xf32>
+    %select = IE.Select(%mask, %nan, %onehot) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} :
+        tensor<1x2x1xi8>, tensor<1xf32>, tensor<1x2x4xf32> -> tensor<1x2x4xf32>
+    %input = IE.AffineReshape(%select) {dim_mapping = [[0], [0], [1]], shape_value = [2, 4]} :
+        tensor<1x2x4xf32> -> tensor<2x4xf32>
+    %fc = IE.FullyConnected(%input, %weights) :
+        tensor<2x4xf32>, tensor<3x4xf32> -> tensor<2x3xf32>
+    return %fc : tensor<2x3xf32>
+
+    // CHECK-NOT:   IE.OneHot
+    // CHECK-NOT:   IE.FullyConnected
+    // CHECK:       [[NAN:%.+]] = const.Declare tensor<1xf32> = dense<0x7FC00000>
+    // CHECK:       [[TABLE_CONST:%.+]] = const.Declare tensor<4x3xf32>
+    // CHECK:       [[INDEX_CONST:%.+]] = IE.Reshape([[INDICES]]) {shape_value = [1, 2]} : tensor<1x2x1xsi32> -> tensor<1x2xsi32>
+    // CHECK:       [[ZERO_INDEX_CONST:%.+]] = const.Declare tensor<1xsi32>
+    // CHECK:       [[DEPTH_CONST:%.+]] = const.Declare tensor<1xsi32>
+    // CHECK:       [[NEGATIVE_CONST:%.+]] = IE.Less([[INDEX_CONST]], [[ZERO_INDEX_CONST]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x2xsi32>, tensor<1xsi32> -> tensor<1x2xi8>
+    // CHECK:       [[OUT_OF_RANGE_CONST:%.+]] = IE.GreaterEqual([[INDEX_CONST]], [[DEPTH_CONST]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x2xsi32>, tensor<1xsi32> -> tensor<1x2xi8>
+    // CHECK:       [[INVALID_INDEX_CONST:%.+]] = IE.LogicalOr([[NEGATIVE_CONST]], [[OUT_OF_RANGE_CONST]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x2xi8>, tensor<1x2xi8> -> tensor<1x2xi8>
+    // CHECK:       [[INVALID_INDEX_3D_CONST:%.+]] = IE.Reshape([[INVALID_INDEX_CONST]]) {shape_value = [1, 2, 1]} : tensor<1x2xi8> -> tensor<1x2x1xi8>
+    // CHECK:       [[INVALID_2D_CONST:%.+]] = IE.Reshape([[MASK]]) {shape_value = [1, 2]} : tensor<1x2x1xi8> -> tensor<1x2xi8>
+    // CHECK:       [[SAFE_INVALID_CONST:%.+]] = IE.Select([[INVALID_INDEX_CONST]], [[ZERO_INDEX_CONST]], [[INDEX_CONST]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x2xi8>, tensor<1xsi32>, tensor<1x2xsi32> -> tensor<1x2xsi32>
+    // CHECK:       [[SAFE_INDEX_CONST:%.+]] = IE.Select([[INVALID_2D_CONST]], [[ZERO_INDEX_CONST]], [[SAFE_INVALID_CONST]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x2xi8>, tensor<1xsi32>, tensor<1x2xsi32> -> tensor<1x2xsi32>
+    // CHECK:       [[GATHER_CONST:%.+]] = IE.Gather([[TABLE_CONST]], [[SAFE_INDEX_CONST]]) {axis_value = 0 : i64, batch_dims = 0 : i64} : tensor<4x3xf32>, tensor<1x2xsi32> -> tensor<1x2x3xf32>
+    // CHECK:       [[ZERO_VECTOR_CONST:%.+]] = const.Declare tensor<1x1x3xf32>
+    // CHECK:       [[ZERO_INVALID_CONST:%.+]] = IE.Select([[INVALID_INDEX_3D_CONST]], [[ZERO_VECTOR_CONST]], [[GATHER_CONST]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x2x1xi8>, tensor<1x1x3xf32>, tensor<1x2x3xf32> -> tensor<1x2x3xf32>
+    // CHECK:       [[MASK_RESULT_CONST:%.+]] = IE.Select([[MASK]], [[NAN]], [[ZERO_INVALID_CONST]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x2x1xi8>, tensor<1xf32>, tensor<1x2x3xf32> -> tensor<1x2x3xf32>
+    // CHECK:       [[RESHAPED_RESULT_CONST:%.+]] = IE.Reshape([[MASK_RESULT_CONST]]) {shape_value = [2, 3]} : tensor<1x2x3xf32> -> tensor<2x3xf32>
+    // CHECK:       return [[RESHAPED_RESULT_CONST]] : tensor<2x3xf32>
+}
+
+// -----
+
+// CHECK-LABEL: @FuseFullyConnectedConstantFP16Weight
+func.func @FuseFullyConnectedConstantFP16Weight(%indices: tensor<1x2x1xsi32>, %mask: tensor<1x2x1xi8>)
+        -> tensor<2x3xf16> {
+    %nan = const.Declare tensor<1xf16> = dense<0x7E00> : tensor<1xf16>
+    %depth = const.Declare tensor<si32> = dense<4> : tensor<si32>
+    %on = const.Declare tensor<f16> = dense<1.0> : tensor<f16>
+    %off = const.Declare tensor<f16> = dense<0.0> : tensor<f16>
+    %weights = const.Declare tensor<3x4xf16> = dense<1.0> : tensor<3x4xf16>
+    %onehot = IE.OneHot(%indices, %depth, %on, %off) {
+        axis_attr = 2 : i64,
+        mode = #IE.one_hot_mode<IGNORE_NEGATIVE>,
+        operandSegmentSizes = array<i32: 1, 1, 1, 1>,
+        outputType = f16,
+        rank_expanded = true
+    } : tensor<1x2x1xsi32>, tensor<si32>, tensor<f16>, tensor<f16> -> tensor<1x2x4xf16>
+    %select = IE.Select(%mask, %nan, %onehot) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} :
+        tensor<1x2x1xi8>, tensor<1xf16>, tensor<1x2x4xf16> -> tensor<1x2x4xf16>
+    %input = IE.AffineReshape(%select) {dim_mapping = [[0], [0], [1]], shape_value = [2, 4]} :
+        tensor<1x2x4xf16> -> tensor<2x4xf16>
+    %fc = IE.FullyConnected(%input, %weights) :
+        tensor<2x4xf16>, tensor<3x4xf16> -> tensor<2x3xf16>
+    return %fc : tensor<2x3xf16>
+
+    // CHECK-NOT:   IE.OneHot
+    // CHECK-NOT:   IE.FullyConnected
+    // CHECK:       [[TABLE_FP16:%.+]] = const.Declare tensor<4x3xf16>
+    // CHECK:       [[INDEX_FP16:%.+]] = IE.Reshape([[INDICES_FP16:%.+]]) {shape_value = [1, 2]} : tensor<1x2x1xsi32> -> tensor<1x2xsi32>
+    // CHECK:       [[ZERO_INDEX_FP16:%.+]] = const.Declare tensor<1xsi32>
+    // CHECK:       [[DEPTH_FP16:%.+]] = const.Declare tensor<1xsi32>
+    // CHECK:       [[NEGATIVE_FP16:%.+]] = IE.Less([[INDEX_FP16]], [[ZERO_INDEX_FP16]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x2xsi32>, tensor<1xsi32> -> tensor<1x2xi8>
+    // CHECK:       [[OUT_OF_RANGE_FP16:%.+]] = IE.GreaterEqual([[INDEX_FP16]], [[DEPTH_FP16]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x2xsi32>, tensor<1xsi32> -> tensor<1x2xi8>
+    // CHECK:       [[INVALID_INDEX_FP16:%.+]] = IE.LogicalOr([[NEGATIVE_FP16]], [[OUT_OF_RANGE_FP16]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x2xi8>, tensor<1x2xi8> -> tensor<1x2xi8>
+    // CHECK:       [[INVALID_INDEX_3D_FP16:%.+]] = IE.Reshape([[INVALID_INDEX_FP16]]) {shape_value = [1, 2, 1]} : tensor<1x2xi8> -> tensor<1x2x1xi8>
+    // CHECK:       [[INVALID_2D_FP16:%.+]] = IE.Reshape([[MASK_FP16:%.+]]) {shape_value = [1, 2]} : tensor<1x2x1xi8> -> tensor<1x2xi8>
+    // CHECK:       [[SAFE_INVALID_FP16:%.+]] = IE.Select([[INVALID_INDEX_FP16]], [[ZERO_INDEX_FP16]], [[INDEX_FP16]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x2xi8>, tensor<1xsi32>, tensor<1x2xsi32> -> tensor<1x2xsi32>
+    // CHECK:       [[SAFE_INDEX_FP16:%.+]] = IE.Select([[INVALID_2D_FP16]], [[ZERO_INDEX_FP16]], [[SAFE_INVALID_FP16]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x2xi8>, tensor<1xsi32>, tensor<1x2xsi32> -> tensor<1x2xsi32>
+    // CHECK:       [[GATHER_FP16:%.+]] = IE.Gather([[TABLE_FP16]], [[SAFE_INDEX_FP16]]) {axis_value = 0 : i64, batch_dims = 0 : i64} : tensor<4x3xf16>, tensor<1x2xsi32> -> tensor<1x2x3xf16>
+    // CHECK:       [[ZERO_VECTOR_FP16:%.+]] = const.Declare tensor<1x1x3xf16>
+    // CHECK:       [[ZERO_INVALID_FP16:%.+]] = IE.Select([[INVALID_INDEX_3D_FP16]], [[ZERO_VECTOR_FP16]], [[GATHER_FP16]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x2x1xi8>, tensor<1x1x3xf16>, tensor<1x2x3xf16> -> tensor<1x2x3xf16>
+    // CHECK:       IE.Select([[MASK_FP16]], {{%.+}}, [[ZERO_INVALID_FP16]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x2x1xi8>, tensor<1xf16>, tensor<1x2x3xf16> -> tensor<1x2x3xf16>
+}
+
+// -----
+
+// CHECK-LABEL: @DoNotFuseFullyConnectedNonFlattenAffineReshape
+func.func @DoNotFuseFullyConnectedNonFlattenAffineReshape(%indices: tensor<2x1x1xsi32>, %mask: tensor<2x1x1xi8>)
+        -> tensor<2x3xf32> {
+    %nan = const.Declare tensor<1xf32> = dense<0x7FC00000> : tensor<1xf32>
+    %depth = const.Declare tensor<si32> = dense<4> : tensor<si32>
+    %on = const.Declare tensor<f32> = dense<1.0> : tensor<f32>
+    %off = const.Declare tensor<f32> = dense<0.0> : tensor<f32>
+    %weights = const.Declare tensor<3x4xf32> = dense<1.0> : tensor<3x4xf32>
+    %onehot = IE.OneHot(%indices, %depth, %on, %off) {
+        axis_attr = 2 : i64,
+        mode = #IE.one_hot_mode<IGNORE_NEGATIVE>,
+        operandSegmentSizes = array<i32: 1, 1, 1, 1>,
+        outputType = f32,
+        rank_expanded = true
+    } : tensor<2x1x1xsi32>, tensor<si32>, tensor<f32>, tensor<f32> -> tensor<2x1x4xf32>
+    %select = IE.Select(%mask, %nan, %onehot) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} :
+        tensor<2x1x1xi8>, tensor<1xf32>, tensor<2x1x4xf32> -> tensor<2x1x4xf32>
+    %input = IE.AffineReshape(%select) {dim_mapping = [[0], [1], [1]], shape_value = [2, 4]} :
+        tensor<2x1x4xf32> -> tensor<2x4xf32>
+    %fc = IE.FullyConnected(%input, %weights) :
+        tensor<2x4xf32>, tensor<3x4xf32> -> tensor<2x3xf32>
+    return %fc : tensor<2x3xf32>
+
+    // CHECK:       [[ONEHOT_NF:%.+]] = IE.OneHot([[INDICES_NF:%.+]], {{%.+}}, {{%.+}}, {{%.+}}) {{.*}} : tensor<2x1x1xsi32>, tensor<si32>, tensor<f32>, tensor<f32> -> tensor<2x1x4xf32>
+    // CHECK:       [[SELECT_NF:%.+]] = IE.Select([[MASK_NF:%.+]], {{%.+}}, [[ONEHOT_NF]]) {{.*}} : tensor<2x1x1xi8>, tensor<1xf32>, tensor<2x1x4xf32> -> tensor<2x1x4xf32>
+    // CHECK:       [[INPUT_NF:%.+]] = IE.AffineReshape([[SELECT_NF]]) {{.*}} : tensor<2x1x4xf32> -> tensor<2x4xf32>
+    // CHECK:       [[FC_NF:%.+]] = IE.FullyConnected([[INPUT_NF]], {{%.+}}) : tensor<2x4xf32>, tensor<3x4xf32> -> tensor<2x3xf32>
+    // CHECK-NOT:   IE.Gather
+    // CHECK:       return [[FC_NF]] : tensor<2x3xf32>
+}
+
+// -----
+
+// CHECK-LABEL: @DoNotFuseFullyConnectedMultiplyWeight
+func.func @DoNotFuseFullyConnectedMultiplyWeight(%indices: tensor<1x2x1xsi32>, %mask: tensor<1x2x1xi8>)
+        -> tensor<2x3xf32> {
+    %nan = const.Declare tensor<1xf32> = dense<0x7FC00000> : tensor<1xf32>
+    %depth = const.Declare tensor<si32> = dense<4> : tensor<si32>
+    %on = const.Declare tensor<f32> = dense<1.0> : tensor<f32>
+    %off = const.Declare tensor<f32> = dense<0.0> : tensor<f32>
+    %base_weights = const.Declare tensor<3x4xf32> = dense<1.0> : tensor<3x4xf32>
+    %scale = const.Declare tensor<3x1xf32> = dense<1.0> : tensor<3x1xf32>
+    %weights = IE.Multiply(%base_weights, %scale) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} :
+        tensor<3x4xf32>, tensor<3x1xf32> -> tensor<3x4xf32>
+    %onehot = IE.OneHot(%indices, %depth, %on, %off) {
+        axis_attr = 2 : i64,
+        mode = #IE.one_hot_mode<IGNORE_NEGATIVE>,
+        operandSegmentSizes = array<i32: 1, 1, 1, 1>,
+        outputType = f32,
+        rank_expanded = true
+    } : tensor<1x2x1xsi32>, tensor<si32>, tensor<f32>, tensor<f32> -> tensor<1x2x4xf32>
+    %select = IE.Select(%mask, %nan, %onehot) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} :
+        tensor<1x2x1xi8>, tensor<1xf32>, tensor<1x2x4xf32> -> tensor<1x2x4xf32>
+    %input = IE.AffineReshape(%select) {dim_mapping = [[0], [0], [1]], shape_value = [2, 4]} :
+        tensor<1x2x4xf32> -> tensor<2x4xf32>
+    %fc = IE.FullyConnected(%input, %weights) :
+        tensor<2x4xf32>, tensor<3x4xf32> -> tensor<2x3xf32>
+    return %fc : tensor<2x3xf32>
+
+    // CHECK:       IE.Multiply
+    // CHECK:       IE.FullyConnected
+    // CHECK-NOT:   IE.Gather
+}

@@ -26,6 +26,16 @@ namespace vpux {
 // Default mask threshold = std::numeric_limits<vpux::type::float16>::lowest() + this margin.
 constexpr double SOFTMAX_MASK_DISABLED_NOISE_MARGIN = 500.0;
 
+// Ongoing dynamic-shape NMS work (E#223694). Internal/debug switch, not part of the public API.
+// Used by:
+//   - the enableConvertNMSToStatic pipeline option,
+//   - IE::ImportNetworkConfig::enableConvertNMSToStatic (frontend/IE.hpp),
+//   - options_mapper.cpp's getEnableConvertNMSToStatic() fallback (via compiler.cpp),
+//   - the vpux-translate CLI flag (tools/vpux-translate/vpux-translate.cpp).
+// Must stay true (current/legacy behaviour: NMS-9 is converted to a static version - NMSIEInternal) until the
+// downstream (VPU dialect / lowering) passes are able to consume a truly dynamic NMS output.
+constexpr bool kDefaultConvertNMSToStatic = true;
+
 //
 // BatchCompileOptionsAdapter
 //
@@ -87,6 +97,13 @@ public:
                                    llvm::cl::desc("Enable ngraph passes decomposing SDPA like ops"),
                                    llvm::cl::init(true)};
 
+    // Internal option for the dynamic-shape NMS effort (E#223694),
+    // used by NPU_COMPILATION_MODE_PARAMS mechanism.
+    BoolOption enableConvertNMSToStatic{
+            *this, "convert-nms-to-static",
+            llvm::cl::desc("[Internal, E#223694] Convert NMS-9 to static-shape NMSIEInternal during IE import"),
+            llvm::cl::init(kDefaultConvertNMSToStatic)};
+
     BoolOption enableDummyOpReplacement{*this, "dummy-op-replacement",
                                         llvm::cl::desc("Replace unsupported SW Kernel ops with Dummy ones"),
                                         llvm::cl::init(false)};
@@ -144,6 +161,12 @@ public:
             *this, "concat-repeating-block-outlining-min-seq-length",
             llvm::cl::desc("Threshold for length of concat input sequence for repeating blocks outlining"),
             llvm::cl::init(5)};
+
+    IntOption concatRepeatingBlockOutliningSdpaMinSeqLength{
+            *this, "concat-repeating-block-outlining-sdpa-min-seq-length",
+            llvm::cl::desc("Threshold for length of an SDPA concat input sequence for repeating blocks "
+                           "outlining on newer platforms"),
+            llvm::cl::init(4)};
 
     IntOption concatRepeatingBlockOutliningSdpaHeadThreshold{
             *this, "concat-repeating-block-outlining-sdpa-head-threshold",
@@ -270,14 +293,6 @@ public:
                                              ::llvm::cl::desc("Enable compress-activation-spill feature"),
                                              ::llvm::cl::init(false)};
 
-    // TODO: Ideally, some of the passes in the HostCompile pipeline should not operate on the main function.
-    // The following option will skip processing of the main function in these passes. This will be refactored in the
-    // future. Track: E#168311
-    BoolOption disablePassOnEntryFunctionForHostCompile{
-            *this, "disable-pass-on-entry-function",
-            llvm::cl::desc("Disable certain passes for entry function operations for HostCompile pipeline"),
-            llvm::cl::init(false)};
-
     BoolOption enableShaveCodeGen{*this, "enable-shave-code-gen",
                                   llvm::cl::desc("Enable Shave Code Generation - JIT kernels compilation"),
                                   llvm::cl::init(false)};
@@ -321,6 +336,16 @@ public:
                              clEnumValN(AutoUnrollingMode::BIGGEST, "biggest",
                                         "Unroll only the loop with the largest auto-assigned factor"))};
 
+    mlir::detail::PassOptions::Option<UnboundedDynamismMode> unboundedDynamismMode{
+            *this, "unbounded-dynamism-mode",
+            ::llvm::cl::desc("Option for enabling unbounded dynamism for different modes."),
+            ::llvm::cl::values(clEnumValN(UnboundedDynamismMode::DISABLED, "DISABLED", "Disable unbounded dynamism"),
+                               clEnumValN(UnboundedDynamismMode::LOWER, "LOWER", "Enable Lower unbounded dynamism"),
+                               clEnumValN(UnboundedDynamismMode::UPPER, "UPPER", "Enable Upper unbounded dynamism"),
+                               clEnumValN(UnboundedDynamismMode::LOWER_UPPER, "LOWER_UPPER",
+                                          "Enable Lower and Upper unbounded dynamism")),
+            ::llvm::cl::init(UnboundedDynamismMode::DISABLED)};
+
     BoolOption enableBacktrackingBeyondResidualKernel{
             *this, "enable-backtracking-beyond-residual-kernel",
             llvm::cl::desc("Enable tail-overlap backtracking for cascaded loop unrolling (runtime-selected stage)"),
@@ -348,13 +373,6 @@ public:
                                "Merge based on cost comparison between merged and non-merged cases"),
                     clEnumValN(VFMergeConfiguration::GREEDY, "GREEDY", "Merge greedily without considering cost"))};
 
-    mlir::detail::PassOptions::Option<VFMergeCostMode> vfMergeCostMode{
-            *this, "vf-merge-cost-mode", ::llvm::cl::desc("Objective used by v2/FWLM VF merging"),
-            ::llvm::cl::init(VFMergeCostMode::PERFORMANCE),
-            ::llvm::cl::values(clEnumValN(VFMergeCostMode::PERFORMANCE, "performance",
-                                          "Select the existing VPUNN performance objective"),
-                               clEnumValN(VFMergeCostMode::POWER, "power", "Select the DMA-byte power proxy"))};
-
     mlir::detail::PassOptions::Option<AllocateDDRStackFrames> allocateDDRStackFrames{
             *this, "allocate-ddr-stack-frames",
             ::llvm::cl::desc("Enable the computation and allocation of a new section which "
@@ -378,13 +396,6 @@ struct MCAndTilingOptionsBase : mlir::PassPipelineOptions<MCAndTilingOptionsBase
 
     BoolOption enableVerticalFusion{*this, "vertical-fusion", llvm::cl::desc("Enable vertical fusion feature"),
                                     llvm::cl::init(false)};
-
-    mlir::detail::PassOptions::Option<VFMergeCostMode> vfMergeCostMode{
-            *this, "vf-merge-cost-mode", llvm::cl::desc("Objective used by v2/FWLM VF merging"),
-            llvm::cl::init(VFMergeCostMode::PERFORMANCE),
-            llvm::cl::values(clEnumValN(VFMergeCostMode::PERFORMANCE, "performance",
-                                        "Select the existing VPUNN performance objective"),
-                             clEnumValN(VFMergeCostMode::POWER, "power", "Select the DMA-byte power proxy"))};
 
     BoolOption enablePipelining{*this, "pipelining", llvm::cl::desc("Enable vertical fusion pipelining"),
                                 llvm::cl::init(false)};
@@ -490,6 +501,8 @@ struct MCAndTilingOptionsBase : mlir::PassPipelineOptions<MCAndTilingOptionsBase
                              "experiments."),
             ::llvm::cl::init(WorkloadManagementMode::PWLM_V0_1_PAGES),
             ::llvm::cl::values(
+                    clEnumValN(WorkloadManagementMode::FWLM_V1_PAGES, "FWLM_V1_PAGES",
+                               "Full WLM with split into pages"),
                     clEnumValN(WorkloadManagementMode::PWLM_V0_1_PAGES, "PWLM_V0_1_PAGES",
                                "PWLM with split into subgraphs (pages)"),
                     clEnumValN(WorkloadManagementMode::PWLM_V0_1_PAGES, "PWLM_V0_LCA",
@@ -549,8 +562,6 @@ template <typename T>
 struct BackendCompilationOptionsBase : mlir::PassPipelineOptions<T> {
     BoolOption enableMemorySideCache{*this, "enable-memory-side-cache", llvm::cl::desc("Enable memory side cache"),
                                      llvm::cl::init(false)};
-    BoolOption workloadManagementEnable{*this, "workload-management-enable",
-                                        llvm::cl::desc("Enable partial workload management"), llvm::cl::init(true)};
     StrOption enableDMAProfiling{*this, "dma-profiling",
                                  llvm::cl::desc("Enable DMA task profiling (true|static|false)"),
                                  llvm::cl::init("false")};
@@ -569,13 +580,6 @@ struct BackendCompilationOptionsBase : mlir::PassPipelineOptions<T> {
                                "This is a deprecated WLM mode which is no longer supported. The option is kept for "
                                "backwards compatibility only and the mode redirects to PWLM_V0_1_PAGES mode, which has "
                                "the same vpu-fw compatibility but offers numerous stability improvements."))};
-
-    mlir::detail::PassOptions::Option<DMAFifoType> workloadManagementDmaFifoType{
-            *this, "workload-management-dma-fifo-type",
-            ::llvm::cl::desc("Option to switch behaviour between software and hardware DMA FIFO types"),
-            ::llvm::cl::init(DMAFifoType::SW),
-            ::llvm::cl::values(clEnumValN(DMAFifoType::SW, "SW", "Enable SW DMA FIFO upfront HW DMA FIFO type"),
-                               clEnumValN(DMAFifoType::HW, "HW", "Use HW DMA FIFO directly"))};
 
     StrOption enableShaveDDRAccessOptimization{
             *this, "enable-shave-ddr-access-optimization",

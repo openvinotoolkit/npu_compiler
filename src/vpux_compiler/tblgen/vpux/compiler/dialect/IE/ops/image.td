@@ -201,6 +201,45 @@ def IE_YuvToRgbOp :
         > {
     let summary = "InferenceEngine NV12/I420 to RGB/BGR layer";
 
+    let description = [{
+        Converts an NV12 or I420 YUV image to RGB/BGR. Per NV12/I420 semantics, luma
+        (`Y`) is a `[N, H, W, 1]` plane; chroma is either one interleaved
+        `[N, H/2, W/2, 2]` `UV` plane (NV12) or two separate `[N, H/2, W/2, 1]` `U`
+        and `V` planes (I420); the output is `[N, H, W, 3]`.
+
+        Per OpenVINO's `NV12toRGB`/`I420toRGB` semantics, the input image can be
+        represented in two ways:
+        - Single plane, as it is stored in a file: only `input1` is set (`input2`/
+          `input3` unset), and its height dimension is 1.5x the real image height
+          (`C` = 1), for both NV12 and I420. E.g. for an image of `w=640, h=480`,
+          `input1` has NHWC shape `[1, 720, 640, 1]`. `ConvertToMultiInputs`
+          canonicalizes this into the split form below: 2-way (`Y`+`UV`) for NV12,
+          3-way (`Y`+`U`+`V`) for I420.
+        - Multiple planes (as commonly produced by physical video sources), each
+          with real per-plane spatial dimensions: NV12 sets `input1`(`Y`)+`input2`
+          (`UV`), `input3` unset; I420 sets all three, `input1`(`Y`)+`input2`(`U`)+
+          `input3`(`V`). E.g. NV12 `input1`/`Y` has shape `[1, 480, 640, 1]`,
+          `input2`/`UV` has shape `[1, 240, 320, 2]`.
+
+            In this compiler, YuvToRgb is represented in one canonical semantic form:
+            tensors carry `DimsOrder::NHWC`, while the shape array follows the compiler's
+            internal logical `[N, C, H, W]` convention. This compiler-specific convention
+            keeps semantic channel access stable at `Dims4D::Act::C` and semantic height at
+            `Dims4D::Act::H` across importer, shape inference, and transformation passes.
+
+            `input3` is only used for I420 (its dedicated 3-way split); NV12 never uses
+            `input3`.
+
+            Example (already-split 2-plane input, NV12, `input3` unset):
+            `input1 : tensor<1x1x180x1280xf16, {order = #NHWC}>` (luma, `Y`),
+            `input2 : tensor<1x2x90x640xf16, {order = #NHWC}>` (chroma, `UV`) ->
+            `output : tensor<1x3x180x1280xf16, {order = #NHWC}>`.
+
+        For a single-plane input (`input2`/`input3` unset), luma and chroma are
+        stacked along the semantic height axis, so that axis is multiplied by 2/3
+        to recover the real luma height.
+    }];
+
     let arguments = (ins
                  4DTensorOf<[UI8, F16, F32, F64]> :$input1,
         Optional<4DTensorOf<[UI8, F16, F32, F64]>>:$input2,

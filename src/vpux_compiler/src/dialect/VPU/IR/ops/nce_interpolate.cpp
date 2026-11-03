@@ -237,8 +237,9 @@ bool VPU::NCEInterpolateOp::doesLayerFitIntoCMX(VPU::MultiClusterStrategy strate
 
     SmallVector<Byte> buffers = {
             VPU::getTotalAllocSizeWithDistribution(
-                    getInput().getType(), getActivationDistributionAttrFromOp(nceOp, getInput(), getInput().getType(),
-                                                                              numClusters, strategy, siblingsAnalysis)),
+                    getInput().getType(),
+                    getActivationDistributionAttrFromOp(nceOp, getInputMutable(), getInput().getType(), numClusters,
+                                                        strategy, siblingsAnalysis)),
             VPU::getTotalAllocSizeWithDistribution(
                     getOutput().getType(), getOutputDistributionAttrFromOp(nceOp, getOutput().getType(), numClusters,
                                                                            strategy, siblingsAnalysis)),
@@ -271,8 +272,8 @@ bool VPU::NCEInterpolateOp::doesLayerChangeOutputAlignmentFitIntoCMX(
     auto nceOpInterface = mlir::cast<VPU::NCEOpInterface>(getOperation());
     auto numClusters = VPU::getOptimalNumClusters(
             nceOp, mlir::cast<vpux::NDTypeInterface>(nceOp.getOutput().getType()).getShape(), strategy);
-    auto distributedInputType = getDistributedActivationTypeFromOp(nceOp, nceOp.getInput(), nceOp.getInput().getType(),
-                                                                   numClusters, strategy);
+    auto distributedInputType = getDistributedActivationTypeFromOp(nceOp, nceOp.getInputMutable(),
+                                                                   nceOp.getInput().getType(), numClusters, strategy);
     auto distributedFilterType = (nceOp.getWeights() != nullptr)
                                          ? getDistributedFilterTypeFromOp(nceOpInterface, nceOp.getWeights().getType(),
                                                                           numClusters, strategy)
@@ -287,8 +288,8 @@ vpux::NDTypeInterface vpux::VPU::NCEInterpolateOp::getDistributedTypeForOpOperan
     const auto strategy = clusteredOp.getMultiClusterStrategy().value();
 
     if (operand.get() == origOp.getInput()) {
-        return VPU::getDistributedActivationTypeForOpOperand(clusteredOp, origOp.getInput(), strategy,
-                                                             hasExplicitDistributedAttr, siblingsAnalysis);
+        return VPU::getDistributedActivationTypeForOpOperand(clusteredOp, operand, strategy, hasExplicitDistributedAttr,
+                                                             siblingsAnalysis);
     } else if (operand.get() == origOp.getWeights()) {
         return VPU::getDistributedWeightsTypeForOpOperand(clusteredOp, origOp.getWeights(), strategy,
                                                           hasExplicitDistributedAttr, siblingsAnalysis);

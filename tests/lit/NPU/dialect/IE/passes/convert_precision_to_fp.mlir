@@ -42,6 +42,49 @@ func.func @main(%arg0: tensor<1x1000xf32>) -> tensor<1x1000xf32> {
 
 // -----
 
+// IE.GreaterEqual feeds two f32 converts and an existing f16 convert.
+// The f32 branches share a result after deduplication. Subsequent canonicalization
+// collapses their conversion chain, leaving it separate from the existing f16 convert.
+
+// CHECK-LABEL: @MergeDuplicateConverts
+module @MergeDuplicateConverts {
+
+net.NetworkInfo
+    entryPoint : @main
+    inputsInfo : {
+        // CHECK: DataInfo "data1" : tensor<1xf32>
+        DataInfo "data1" : tensor<1xf32>
+        // CHECK: DataInfo "data2" : tensor<1xf32>
+        DataInfo "data2" : tensor<1xf32>
+    }
+    outputsInfo : {
+        // CHECK: DataInfo "out1" : tensor<1xf32>
+        DataInfo "out1" : tensor<1xf32>
+        // CHECK: DataInfo "out2" : tensor<1xf16>
+        DataInfo "out2" : tensor<1xf16>
+        // CHECK: DataInfo "out3" : tensor<1xf32>
+        DataInfo "out3" : tensor<1xf32>
+    }
+
+    // CHECK: @main([[ARG0:[^:]+]]: tensor<1xf16>, [[ARG1:[^:]+]]: tensor<1xf16>) -> (tensor<1xf16>, tensor<1xf16>, tensor<1xf16>)
+func.func @main(%arg0: tensor<1xf32>, %arg1: tensor<1xf32>) -> (tensor<1xf32>, tensor<1xf16>, tensor<1xf32>) {
+    %0 = IE.GreaterEqual(%arg0, %arg1) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1xf32>, tensor<1xf32> -> tensor<1xi8>
+    %1 = IE.Convert(%0) {dstElemType = f32} : tensor<1xi8> -> tensor<1xf32>
+    %2 = IE.Convert(%0) {dstElemType = f16} : tensor<1xi8> -> tensor<1xf16>
+    %3 = IE.Convert(%0) {dstElemType = f32} : tensor<1xi8> -> tensor<1xf32>
+    return %1, %2, %3 : tensor<1xf32>, tensor<1xf16>, tensor<1xf32>
+
+    // CHECK:     [[CMP:%.+]] = IE.GreaterEqual([[ARG0]], [[ARG1]])
+    // CHECK-SAME:      tensor<1xf16>, tensor<1xf16> -> tensor<1xi8>
+    // CHECK-NEXT: [[MERGED:%.+]] = IE.Convert([[CMP]]) {dstElemType = f16} : tensor<1xi8> -> tensor<1xf16>
+    // CHECK-NEXT: [[EXISTING:%.+]] = IE.Convert([[CMP]]) {dstElemType = f16} : tensor<1xi8> -> tensor<1xf16>
+    // CHECK-NEXT: return [[MERGED]], [[EXISTING]], [[MERGED]] : tensor<1xf16>, tensor<1xf16>, tensor<1xf16>
+}
+
+}
+
+// -----
+
 // CHECK-LABEL: @ConstantLayer
 module @ConstantLayer {
 
@@ -96,6 +139,8 @@ net.NetworkInfo
 // -----
 
 // CHECK-LABEL: @ArrayConstantsWithOverflow
+// Non-splat FP32 constant with overflowing values but no SelectOp/GatherElementsOp
+// data-input consumer: intentionally left unclamped
 module @ArrayConstantsWithOverflow {
 net.NetworkInfo
     entryPoint : @main
@@ -111,12 +156,115 @@ net.NetworkInfo
         %array = const.Declare tensor<1x1x1x2xf32> = dense<[[[[-100000.0, 100000.0]]]]> : tensor<1x1x1x2xf32>
         return %array : tensor<1x1x1x2xf32>
 
-        // E#160872: float16 non-splats behave *differently* from splats...
-
         // CHECK: [[ARR:%.+]] = const.Declare
         // CHECK-SAME{LITERAL}: dense<[[[[-1.000000e+05, 1.000000e+05]]]]> : tensor<1x1x1x2xf32>, [#const.CastElemType<f16>]
         // CHECK: return [[ARR]]
     }
+}
+
+// -----
+
+// CHECK-LABEL: @GatherElementsDataInputWithOverflowClamped
+// E#236826: a non-splat constant feeding GatherElementsOp as the data operand must be
+// clamped, e.g. an anchor/lookup table with dummy ±inf rows picked out via indices
+// Covers both polarities, with +inf as the last element of a longer, non-trivial tensor.
+module @GatherElementsDataInputWithOverflowClamped {
+
+net.NetworkInfo
+    entryPoint : @main
+    inputsInfo : {
+        // CHECK: DataInfo "indices" : tensor<1x6xsi32>
+        DataInfo "indices" : tensor<1x6xsi32>
+    }
+    outputsInfo : {
+        // CHECK: DataInfo "out" : tensor<1x6xf32>
+        DataInfo "out" : tensor<1x6xf32>
+    }
+
+// CHECK: @main([[ARG0:[^:]+]]: tensor<1x6xsi32>) -> tensor<1x6xf16>
+func.func @main(%arg0: tensor<1x6xsi32>) -> tensor<1x6xf32> {
+    %cst = const.Declare tensor<1x6xf32> = dense<[[1.0, 0xFF800000, 2.0, 3.0, 4.0, 0x7F800000]]> : tensor<1x6xf32>
+    %0 = IE.GatherElements(%cst, %arg0) {axis = 1 : i64} : tensor<1x6xf32>, tensor<1x6xsi32> -> tensor<1x6xf32>
+    return %0 : tensor<1x6xf32>
+
+    // CHECK: [[CST:%.+]] = const.Declare
+    // CHECK-SAME{LITERAL}: dense<[[1.000000e+00, 0xFF800000, 2.000000e+00, 3.000000e+00, 4.000000e+00, 0x7F800000]]> : tensor<1x6xf32>, [#const.Clamp<-6.550400e+04 : f64, 6.550400e+04 : f64>, #const.CastElemType<f16>]
+    // CHECK: [[GATHER:%.+]] = IE.GatherElements([[CST]], [[ARG0]]) {axis = 1 : i64} : tensor<1x6xf16>, tensor<1x6xsi32> -> tensor<1x6xf16>
+    // CHECK: return [[GATHER]] : tensor<1x6xf16>
+}
+
+}
+
+// -----
+
+// CHECK-LABEL: @GatherElementsIndicesInputNotClamped
+// E#236826: a constant feeding GatherElementsOp as the indices operand (not data) must
+// not be clamped, mirroring the SelectOp condition-input exclusion.
+module @GatherElementsIndicesInputNotClamped {
+
+net.NetworkInfo
+    entryPoint : @main
+    inputsInfo : {
+        // CHECK: DataInfo "data" : tensor<1x2xf32>
+        DataInfo "data" : tensor<1x2xf32>
+    }
+    outputsInfo : {
+        // CHECK: DataInfo "out" : tensor<1x2xf32>
+        DataInfo "out" : tensor<1x2xf32>
+    }
+
+// CHECK: @main([[ARG0:[^:]+]]: tensor<1x2xf16>) -> tensor<1x2xf16>
+func.func @main(%arg0: tensor<1x2xf32>) -> tensor<1x2xf32> {
+    %indices = const.Declare tensor<1x2xsi32> = dense<[[0, 1]]> : tensor<1x2xsi32>
+    %0 = IE.GatherElements(%arg0, %indices) {axis = 1 : i64} : tensor<1x2xf32>, tensor<1x2xsi32> -> tensor<1x2xf32>
+    return %0 : tensor<1x2xf32>
+
+    // CHECK: [[IDX:%.+]] = const.Declare tensor<1x2xsi32> = dense<{{\[\[}}0, 1]]> : tensor<1x2xsi32>
+    // CHECK: [[GATHER:%.+]] = IE.GatherElements([[ARG0]], [[IDX]]) {axis = 1 : i64} : tensor<1x2xf16>, tensor<1x2xsi32> -> tensor<1x2xf16>
+    // CHECK: return [[GATHER]] : tensor<1x2xf16>
+}
+
+}
+
+// -----
+
+// CHECK-LABEL: @ConstantWithMixedSelectConditionAndGatherElementsDataUses
+// E#236826: a constant can have multiple uses; a non-triggering SelectOp-condition use
+// must not stop the scan from finding a later, triggering GatherElementsOp data use.
+module @ConstantWithMixedSelectConditionAndGatherElementsDataUses {
+
+net.NetworkInfo
+    entryPoint : @main
+    inputsInfo : {
+        // CHECK: DataInfo "data1" : tensor<1x2xf32>
+        DataInfo "data1" : tensor<1x2xf32>
+        // CHECK: DataInfo "data2" : tensor<1x2xf32>
+        DataInfo "data2" : tensor<1x2xf32>
+        // CHECK: DataInfo "indices" : tensor<1x2xsi32>
+        DataInfo "indices" : tensor<1x2xsi32>
+    }
+    outputsInfo : {
+        // CHECK: DataInfo "out1" : tensor<1x2xf32>
+        DataInfo "out1" : tensor<1x2xf32>
+        // CHECK: DataInfo "out2" : tensor<1x2xf32>
+        DataInfo "out2" : tensor<1x2xf32>
+    }
+
+// CHECK: @main([[ARG0:[^:]+]]: tensor<1x2xf16>, [[ARG1:[^:]+]]: tensor<1x2xf16>, [[ARG2:[^:]+]]: tensor<1x2xsi32>) -> (tensor<1x2xf16>, tensor<1x2xf16>)
+func.func @main(%arg0: tensor<1x2xf32>, %arg1: tensor<1x2xf32>, %arg2: tensor<1x2xsi32>) -> (tensor<1x2xf32>, tensor<1x2xf32>) {
+    %cst = const.Declare tensor<1x2xf32> = dense<[[0.0, 0x7F800000]]> : tensor<1x2xf32>
+    %select = IE.Select(%cst, %arg0, %arg1) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x2xf32>, tensor<1x2xf32>, tensor<1x2xf32> -> tensor<1x2xf32>
+    %gather = IE.GatherElements(%cst, %arg2) {axis = 1 : i64} : tensor<1x2xf32>, tensor<1x2xsi32> -> tensor<1x2xf32>
+    return %select, %gather : tensor<1x2xf32>, tensor<1x2xf32>
+
+    // CHECK-DAG: [[CST:%.+]] = const.Declare
+    // CHECK-SAME{LITERAL}: dense<[[0.000000e+00, 0x7F800000]]> : tensor<1x2xf32>, [#const.Clamp<-6.550400e+04 : f64, 6.550400e+04 : f64>, #const.CastElemType<f16>]
+    // CHECK:     [[SELECT:%.+]] = IE.Select([[CST]], [[ARG0]], [[ARG1]])
+    // CHECK-SAME:      tensor<1x2xf16>, tensor<1x2xf16>, tensor<1x2xf16> -> tensor<1x2xf16>
+    // CHECK:     [[GATHER:%.+]] = IE.GatherElements([[CST]], [[ARG2]]) {axis = 1 : i64} : tensor<1x2xf16>, tensor<1x2xsi32> -> tensor<1x2xf16>
+    // CHECK:     return [[SELECT]], [[GATHER]]
+}
+
 }
 
 // -----

@@ -26,3 +26,5 @@ add_npu_library(npu_compiler_dialect_ie_interfaces
         npu_compiler_dialect_const
         npu_compiler_dialect_ie_transforms
 )
+enable_lto_if_possible(npu_compiler_dialect_ie_interfaces)
+

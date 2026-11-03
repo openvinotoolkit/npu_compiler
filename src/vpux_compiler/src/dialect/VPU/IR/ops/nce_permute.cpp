@@ -363,8 +363,8 @@ vpux::NDTypeInterface vpux::VPU::NCEPermuteOp::getDistributedTypeForOpOperand(ml
     const auto strategy = clusteredOp.getMultiClusterStrategy().value();
 
     if (operand.get() == getInput()) {
-        return VPU::getDistributedActivationTypeForOpOperand(clusteredOp, getInput(), strategy,
-                                                             hasExplicitDistributedAttr, siblingsAnalysis);
+        return VPU::getDistributedActivationTypeForOpOperand(clusteredOp, operand, strategy, hasExplicitDistributedAttr,
+                                                             siblingsAnalysis);
     }
     VPUX_THROW("Failed to compute distributed type for op {0}", clusteredOp);
     return nullptr;

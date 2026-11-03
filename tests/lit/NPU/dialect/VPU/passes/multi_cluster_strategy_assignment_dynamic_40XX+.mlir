@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-// RUN: vpux-opt --split-input-file --init-compiler="platform=%platform% compilation-mode=HostCompile allow-custom-values=true" --multi-cluster-strategy-assignment %s | FileCheck %s
+// RUN: vpux-opt --split-input-file --init-compiler="platform=%platform% compilation-mode=HostCompile_Interpreter allow-custom-values=true" --multi-cluster-strategy-assignment %s | FileCheck %s
 // REQUIRES: platform-NPU4000 || platform-NPU5010
 
 #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
@@ -277,7 +277,7 @@ func.func @CompressConvolutionSameStrategyStaticAndDynamic(%arg0: !inputStaticTy
 
     // CHECK:       [[COMPRESS_CONV1:%.+]] = VPU.NCE.CompressConvolution([[ARG1]], [[CST_WEIGHTS]], [[CST_WEIGHTS_TABLE]]) rawFilterShape [32, 3, 3, 3] {
     // CHECK-SAME:  cm_sp_pattern = 7 : i64
-    // CHECK-SAME:  multiClusterStrategy = #VPU.multi_cluster_strategy<Clustering>
+    // CHECK-SAME:  multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeightOverlapped>
 
     return %0, %1 : !outputStaticType, !outputDynamicType
 
@@ -297,4 +297,60 @@ func.func @AvgPoolStrategy(%arg0: tensor<1x16x?x?xf16, {bounds = #const.OpaqueI6
     // CHECK:       [[AVG_POOL:%.+]] = VPU.NCE.AveragePool([[ARG0]])
     // CHECK-SAME:  multiClusterStrategy = #VPU.multi_cluster_strategy<[[SplitOverHeight:[^>]+]]>
     // CHECK:       return [[AVG_POOL]] : tensor<1x16x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 1440, 2560]> : tensor<4xsi64>, order = #NHWC}>
+}
+
+// -----
+
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+// CHECK-LABEL: @YuvToRgbNV12AssignedSOH
+// CHECK-SAME: [[ARG_0:%[^:]+]]: tensor<1x1x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 1, 368, 432]> : tensor<4xsi64>, order = #NHWC}>
+// CHECK-SAME: [[ARG_1:%[^:]+]]: tensor<1x2x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 2, 184, 216]> : tensor<4xsi64>, order = #NHWC}>
+func.func @YuvToRgbNV12AssignedSOH(%arg0: tensor<1x1x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 1, 368, 432]> : tensor<4xsi64>, order = #NHWC}>, %arg1: tensor<1x2x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 2, 184, 216]> : tensor<4xsi64>, order = #NHWC}>) -> tensor<1x3x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 3, 368, 432]> : tensor<4xsi64>, order = #NHWC}> {
+    %0 = VPU.YuvToRgb(%arg0, %arg1) {inFmt = #IE.color_fmt<NV12>, operandSegmentSizes = array<i32: 1, 1, 0>, outFmt = #IE.color_fmt<RGB>} : tensor<1x1x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 1, 368, 432]> : tensor<4xsi64>, order = #NHWC}>, tensor<1x2x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 2, 184, 216]> : tensor<4xsi64>, order = #NHWC}> -> tensor<1x3x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 3, 368, 432]> : tensor<4xsi64>, order = #NHWC}>
+    return %0 : tensor<1x3x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 3, 368, 432]> : tensor<4xsi64>, order = #NHWC}>
+
+    // CHECK:       [[YUVTORGB:%.+]] = VPU.YuvToRgb([[ARG_0]], [[ARG_1]])
+    // CHECK-SAME:      {inFmt = #IE.color_fmt<NV12>, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, operandSegmentSizes = array<i32: 1, 1, 0>, outFmt = #IE.color_fmt<RGB>}
+    // CHECK-SAME:      : tensor<1x1x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 1, 368, 432]> : tensor<4xsi64>, order = #NHWC}>, tensor<1x2x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 2, 184, 216]> : tensor<4xsi64>, order = #NHWC}> -> tensor<1x3x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 3, 368, 432]> : tensor<4xsi64>, order = #NHWC}>
+    // CHECK:       return [[YUVTORGB]] : tensor<1x3x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 3, 368, 432]> : tensor<4xsi64>, order = #NHWC}>
+}
+
+// -----
+
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+// CHECK-LABEL: @YuvToRgbI420AssignedSOH
+// CHECK-SAME: [[ARG_0:%[^:]+]]: tensor<1x1x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 1, 368, 432]> : tensor<4xsi64>, order = #NHWC}>
+// CHECK-SAME: [[ARG_1:%[^:]+]]: tensor<1x1x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 1, 184, 216]> : tensor<4xsi64>, order = #NHWC}>
+// CHECK-SAME: [[ARG_2:%[^:]+]]: tensor<1x1x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 1, 184, 216]> : tensor<4xsi64>, order = #NHWC}>
+func.func @YuvToRgbI420AssignedSOH(%arg0: tensor<1x1x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 1, 368, 432]> : tensor<4xsi64>, order = #NHWC}>, %arg1: tensor<1x1x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 1, 184, 216]> : tensor<4xsi64>, order = #NHWC}>, %arg2: tensor<1x1x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 1, 184, 216]> : tensor<4xsi64>, order = #NHWC}>) -> tensor<1x3x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 3, 368, 432]> : tensor<4xsi64>, order = #NHWC}> {
+    %0 = VPU.YuvToRgb(%arg0, %arg1, %arg2) {inFmt = #IE.color_fmt<I420>, operandSegmentSizes = array<i32: 1, 1, 1>, outFmt = #IE.color_fmt<RGB>} : tensor<1x1x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 1, 368, 432]> : tensor<4xsi64>, order = #NHWC}>, tensor<1x1x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 1, 184, 216]> : tensor<4xsi64>, order = #NHWC}>, tensor<1x1x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 1, 184, 216]> : tensor<4xsi64>, order = #NHWC}> -> tensor<1x3x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 3, 368, 432]> : tensor<4xsi64>, order = #NHWC}>
+    return %0 : tensor<1x3x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 3, 368, 432]> : tensor<4xsi64>, order = #NHWC}>
+
+    // CHECK:       [[YUVTORGB:%.+]] = VPU.YuvToRgb([[ARG_0]], [[ARG_1]], [[ARG_2]])
+    // CHECK-SAME:      {inFmt = #IE.color_fmt<I420>, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, operandSegmentSizes = array<i32: 1, 1, 1>, outFmt = #IE.color_fmt<RGB>}
+    // CHECK-SAME:      : tensor<1x1x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 1, 368, 432]> : tensor<4xsi64>, order = #NHWC}>, tensor<1x1x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 1, 184, 216]> : tensor<4xsi64>, order = #NHWC}>, tensor<1x1x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 1, 184, 216]> : tensor<4xsi64>, order = #NHWC}> -> tensor<1x3x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 3, 368, 432]> : tensor<4xsi64>, order = #NHWC}>
+    // CHECK:       return [[YUVTORGB]] : tensor<1x3x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 3, 368, 432]> : tensor<4xsi64>, order = #NHWC}>
+}
+
+// -----
+
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+
+// The bound of 64 is small enough that the layer fits CMX, so LayerCostModel::getDPUandDMATimeCost keeps
+// its untiled tile instead of replacing it with a tiling strategy. The tile must be built from the
+// upper bound, otherwise backInferTileInfo throws "Wrong output tile 'DimRange [0, -9223372036854775808)'".
+// Only completion of the pass and the presence of a strategy are checked; the chosen strategy is a VPUNN
+// cost comparison and not the behaviour under test.
+
+// CHECK-LABEL: @ConvolutionSmallBoundThatFitsCmx
+func.func @ConvolutionSmallBoundThatFitsCmx(%input: tensor<1x16x48x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 48, 64]> : tensor<4xsi64>, order = #NHWC}>)
+    -> tensor<1x16x48x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 48, 64]> : tensor<4xsi64>, order = #NHWC}> {
+    // CHECK-SAME:  [[INPUT:%.+]]: tensor<1x16x48x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 48, 64]> : tensor<4xsi64>, order = #NHWC}>
+    %filter = const.Declare tensor<16x16x3x3xf16, {order = #NHWC}> = dense<1.000000e+00> : tensor<16x16x3x3xf16, {order = #NHWC}>
+    // CHECK:       [[FILTER:%.+]] = const.Declare tensor<16x16x3x3xf16, {order = #NHWC}> = dense<1.000000e+00> : tensor<16x16x3x3xf16, {order = #NHWC}>
+    %conv = VPU.NCE.Convolution(%input, %filter) rawFilterShape [16, 16, 3, 3] {resultSegmentSizes = array<i32: 1, 0, 0, 0>, pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>, ppe = #VPU.PPEInt<mode = <LRELU>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64, lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 1.000000e+00 : f64>,  strides = [1, 1]} : tensor<1x16x48x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 48, 64]> : tensor<4xsi64>, order = #NHWC}>, tensor<16x16x3x3xf16, {order = #NHWC}> -> tensor<1x16x48x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 48, 64]> : tensor<4xsi64>, order = #NHWC}>
+    return %conv : tensor<1x16x48x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 48, 64]> : tensor<4xsi64>, order = #NHWC}>
+    // CHECK:       [[CONV:%.+]] = VPU.NCE.Convolution([[INPUT]], [[FILTER]])
+    // CHECK-SAME:  multiClusterStrategy = #VPU.multi_cluster_strategy<{{[^>]+}}>
+    // CHECK:       return [[CONV]] : tensor<1x16x48x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 48, 64]> : tensor<4xsi64>, order = #NHWC}>
 }

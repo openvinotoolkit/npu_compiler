@@ -5,6 +5,7 @@
 
 #include <vpux/compiler/utils/func_dialect.hpp>
 #include "vpux/compiler/core/aliases_info.hpp"
+#include "vpux/compiler/core/attributes/shape.hpp"
 #include "vpux/compiler/dialect/VPUIP/transforms/passes.hpp"
 #include "vpux/compiler/dialect/VPUIP/utils/dynamic_strides_utils.hpp"
 #include "vpux/compiler/dialect/VPUIP/utils/utils.hpp"
@@ -379,6 +380,7 @@ void LegalizeStridedDmasPass::safeRunOnModule() {
     auto func = module.lookupSymbol<mlir::func::FuncOp>(netInfo.getEntryPoint());
     auto funcArguments = func.getBlocks().front().getArguments();
     bool hasStridedIO = false;
+    bool hasStridedSubByteIO = false;
 
     for (auto it : funcArguments | indexed) {
         auto argument = it.value();
@@ -388,18 +390,27 @@ void LegalizeStridedDmasPass::safeRunOnModule() {
             continue;
         }
 
-        auto argumentElementSize = mlir::cast<vpux::NDTypeInterface>(argument.getType()).getElemTypeSize();
-        if (argumentElementSize < vpux::Bit(8)) {
-            continue;
-        }
+        // Only SwIoDma kernels access an unbounded IO, and they derive compact strides from the runtime extents.
+        VPUX_THROW_WHEN(hasUnboundedDynamicShape(argument),
+                        "Network IO {0} of type '{1}' cannot have dynamic strides: a dimension has no upper bound",
+                        index, argument.getType());
 
+        auto argumentElementSize = mlir::cast<vpux::NDTypeInterface>(argument.getType()).getElemTypeSize();
         hasStridedIO = true;
-        visitDmasForArgument(func, index);
+        if (argumentElementSize < vpux::Bit(8)) {
+            hasStridedSubByteIO = true;
+            legalizeIncompatibleReadersAndWriters(argument);
+        } else {
+            visitDmasForArgument(func, index);
+        }
     }
 
     if (hasStridedIO) {
         const auto currentElfVersion = config::getElfAbiVersion(module);
-        const auto minimumElfVersion = config::getNPUConstraints(module.getContext()).dynamicStridesMinElfAbiVersion;
+        const auto minimumElfVersion =
+                hasStridedSubByteIO
+                        ? config::getNPUConstraints(module.getContext()).dynamicStridesSubByteMinElfAbiVersion
+                        : config::getNPUConstraints(module.getContext()).dynamicStridesMinElfAbiVersion;
         if (currentElfVersion.has_value() && minimumElfVersion.has_value() &&
             minimumElfVersion.value() > currentElfVersion.value()) {
             config::setElfAbiVersion(module, minimumElfVersion.value());

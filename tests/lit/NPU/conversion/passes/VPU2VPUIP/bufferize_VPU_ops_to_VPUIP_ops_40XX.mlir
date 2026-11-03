@@ -53,7 +53,7 @@ func.func @GatherDMA(%arg0: tensor<1x1x8404x512xf16>, %arg1:  tensor<1x1000x1x1x
     // CHECK-SAME:                                   outputs([[CONVERT_CMX_ALLOC]] : memref<1x1x1000x1xi64, [@CMX_NN, 0]>)
 
     // CHECK:       [[GATHER_OUT_ALLOC:%.+]] = memref.alloc() : memref<1x1x1000x512xf16, [@CMX_NN, 0]>
-    // CHECK:       [[GATHER_DMA:%.+]] = VPUIP.GatherDMA <{addressingMode = 1 : i64, elementSize = 0 : i64, padding = 0 : i64, port = 0 : i64}>
+    // CHECK:       [[GATHER_DMA:%.+]] = VPUIP.GatherDMA <{addressingMode = #VPUIP.gather_addressing_mode<INDEXED>, elementSize = 0 : i64, padding = 0 : i64, port = 0 : i64}>
     // CHECK-SAME:                          inputs([[INPUT_0]] : memref<1x1x8404x512xf16>
     // CHECK-SAME:                          indices([[CONVERT_OUT_COPY]] : memref<1x1x1000x1xi64, [@CMX_NN, 0]>
     // CHECK-SAME:                          outputs([[GATHER_OUT_ALLOC]] : memref<1x1x1000x512xf16, [@CMX_NN, 0]>

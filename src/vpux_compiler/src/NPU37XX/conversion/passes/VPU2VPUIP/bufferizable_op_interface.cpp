@@ -19,6 +19,7 @@ using namespace vpux;
 //
 
 void vpux::arch37xx::registerBufferizableOpInterfaces(mlir::DialectRegistry& registry) {
+    vpux::registerTensorSliceBufferizableOpInterfaces(registry);
     vpux::registerConstDeclareBufferizableOpInterfaces(registry);
     vpux::registerCoreBufferizableOpInterfaces(registry);
     vpux::registerSoftwareLayerBufferizableOpInterfaces(registry);

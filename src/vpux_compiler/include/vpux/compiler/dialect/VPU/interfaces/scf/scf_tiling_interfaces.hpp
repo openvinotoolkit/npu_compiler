@@ -1333,14 +1333,12 @@ public:
 
     SCFTilingInfo backInferSCFTileInfo(mlir::Operation* operation, mlir::OpBuilder& builder,
                                        const SCFTileInfo& outputTile) const {
+        using namespace Dims4D::Act;
+
         auto loc = operation->getLoc();
         auto ctx = builder.getContext();
         const auto operands = operation->getOperands();
         const auto numInputs = static_cast<int64_t>(operands.size());
-
-        const auto dimN = Dims4D::Act::N.ind();
-        const auto dimC = Dims4D::Act::C.ind();
-        const auto dimH = Dims4D::Act::H.ind();
 
         auto inputTiles = SmallVector<SCFTileInfo>();
 
@@ -1351,23 +1349,23 @@ public:
 
         if (numInputs == 1) {
             // Single-plane NV12 (1 input)
-            // Physical: [N, C*3/2, H, 1]
-            // Luma and chroma rows stacked vertically — C is NOT tileable.
-            // Tile N and H from output; C and W keep original.
+            // Physical: [N, 1, H*3/2, W]
+            // Luma and chroma rows stacked vertically — H is NOT tileable.
+            // Tile N and W from output; C and H keep original.
             const auto origShape = mlir::tensor::getMixedSizes(builder, loc, operands[0]);
             auto inputTile = SCFTileInfo(origShape, builder);
 
-            inputTile.offsets[dimN] = outputTile.offsets[dimN];
-            inputTile.shape[dimN] = outputTile.shape[dimN];
+            inputTile.offsets[N.ind()] = outputTile.offsets[N.ind()];
+            inputTile.shape[N.ind()] = outputTile.shape[N.ind()];
 
-            inputTile.offsets[dimH] = outputTile.offsets[dimH];
-            inputTile.shape[dimH] = outputTile.shape[dimH];
+            inputTile.offsets[W.ind()] = outputTile.offsets[W.ind()];
+            inputTile.shape[W.ind()] = outputTile.shape[W.ind()];
 
             if (!outputTile.bounds.raw().empty()) {
                 auto inputBoundedShape = getBoundedShape(operands[0]);
                 inputTile.bounds = Bounds(inputBoundedShape.raw());
-                inputTile.bounds[Dims4D::Act::N] = outputTile.bounds[Dims4D::Act::N];
-                inputTile.bounds[Dims4D::Act::H] = outputTile.bounds[Dims4D::Act::H];
+                inputTile.bounds[N] = outputTile.bounds[N];
+                inputTile.bounds[W] = outputTile.bounds[W];
             }
 
             return SCFTilingInfo(std::move(inputTile));
@@ -1375,60 +1373,69 @@ public:
 
         // Multi-plane (2 inputs = NV12, 3 inputs = I420)
 
-        // Input 0 (Y plane): [N, C, H, 1]
-        // Tile N, C, H from output; W stays original (1 vs 3)
+        // Input 0 (Y plane): preserve channel axis from the original input (must remain 1),
+        // tile only batch/spatial axes from output.
         {
             const auto origShape = mlir::tensor::getMixedSizes(builder, loc, operands[0]);
             auto yTile = SCFTileInfo(origShape, builder);
 
-            yTile.offsets[dimN] = outputTile.offsets[dimN];
-            yTile.shape[dimN] = outputTile.shape[dimN];
+            yTile.offsets[N.ind()] = outputTile.offsets[N.ind()];
+            yTile.shape[N.ind()] = outputTile.shape[N.ind()];
 
-            yTile.offsets[dimC] = outputTile.offsets[dimC];
-            yTile.shape[dimC] = outputTile.shape[dimC];
+            yTile.offsets[C.ind()] = builder.getIndexAttr(0);
+            yTile.shape[C.ind()] = origShape[C.ind()];
 
-            yTile.offsets[dimH] = outputTile.offsets[dimH];
-            yTile.shape[dimH] = outputTile.shape[dimH];
+            yTile.offsets[H.ind()] = outputTile.offsets[H.ind()];
+            yTile.shape[H.ind()] = outputTile.shape[H.ind()];
+
+            yTile.offsets[W.ind()] = outputTile.offsets[W.ind()];
+            yTile.shape[W.ind()] = outputTile.shape[W.ind()];
 
             if (!outputTile.bounds.raw().empty()) {
                 auto yBoundedShape = getBoundedShape(operands[0]);
                 yTile.bounds = Bounds(yBoundedShape.raw());
-                yTile.bounds[Dims4D::Act::N] = outputTile.bounds[Dims4D::Act::N];
-                yTile.bounds[Dims4D::Act::C] = outputTile.bounds[Dims4D::Act::C];
-                yTile.bounds[Dims4D::Act::H] = outputTile.bounds[Dims4D::Act::H];
+                yTile.bounds[N] = outputTile.bounds[N];
+                yTile.bounds[C] = yBoundedShape[C];
+                yTile.bounds[H] = outputTile.bounds[H];
+                yTile.bounds[W] = outputTile.bounds[W];
             }
 
             inputTiles.push_back(std::move(yTile));
         }
 
-        // Inputs 1+ (chroma planes): [N, C/2, H/2, W_chroma]
+        // Inputs 1+ (chroma planes): keep channel axis from original input,
+        // and halve only spatial axes compared to output tile.
         //   NV12 input 1 (UV): W_chroma = 2
         //   I420 input 1 (U):  W_chroma = 1
         //   I420 input 2 (V):  W_chroma = 1
-        // Tile N from output; C and H halved from output; W stays original
+        // Tile N from output; H/W halved from output; C stays original.
         for (auto idx : irange<int64_t>(1, numInputs)) {
             const auto origShape = mlir::tensor::getMixedSizes(builder, loc, operands[idx]);
             auto chromaTile = SCFTileInfo(origShape, builder);
 
-            chromaTile.offsets[dimN] = outputTile.offsets[dimN];
-            chromaTile.shape[dimN] = outputTile.shape[dimN];
+            chromaTile.offsets[N.ind()] = outputTile.offsets[N.ind()];
+            chromaTile.shape[N.ind()] = outputTile.shape[N.ind()];
 
-            chromaTile.offsets[dimC] = mlir::affine::makeComposedFoldedAffineApply(
-                    builder, appendLoc(loc, "chromaOffsetC"), halfMap, {outputTile.offsets[dimC]});
-            chromaTile.shape[dimC] = mlir::affine::makeComposedFoldedAffineApply(builder, appendLoc(loc, "chromaSizeC"),
-                                                                                 halfMap, {outputTile.shape[dimC]});
+            chromaTile.offsets[C.ind()] = builder.getIndexAttr(0);
+            chromaTile.shape[C.ind()] = origShape[C.ind()];
 
-            chromaTile.offsets[dimH] = mlir::affine::makeComposedFoldedAffineApply(
-                    builder, appendLoc(loc, "chromaOffsetH"), halfMap, {outputTile.offsets[dimH]});
-            chromaTile.shape[dimH] = mlir::affine::makeComposedFoldedAffineApply(builder, appendLoc(loc, "chromaSizeH"),
-                                                                                 halfMap, {outputTile.shape[dimH]});
+            chromaTile.offsets[H.ind()] = mlir::affine::makeComposedFoldedAffineApply(
+                    builder, appendLoc(loc, "chromaOffsetH"), halfMap, {outputTile.offsets[H.ind()]});
+            chromaTile.shape[H.ind()] = mlir::affine::makeComposedFoldedAffineApply(
+                    builder, appendLoc(loc, "chromaSizeH"), halfMap, {outputTile.shape[H.ind()]});
+
+            chromaTile.offsets[W.ind()] = mlir::affine::makeComposedFoldedAffineApply(
+                    builder, appendLoc(loc, "chromaOffsetW"), halfMap, {outputTile.offsets[W.ind()]});
+            chromaTile.shape[W.ind()] = mlir::affine::makeComposedFoldedAffineApply(
+                    builder, appendLoc(loc, "chromaSizeW"), halfMap, {outputTile.shape[W.ind()]});
 
             if (!outputTile.bounds.raw().empty()) {
                 auto chromaBoundedShape = getBoundedShape(operands[idx]);
                 chromaTile.bounds = Bounds(chromaBoundedShape.raw());
-                chromaTile.bounds[Dims4D::Act::N] = outputTile.bounds[Dims4D::Act::N];
-                chromaTile.bounds[Dims4D::Act::C] = outputTile.bounds[Dims4D::Act::C] / 2;
-                chromaTile.bounds[Dims4D::Act::H] = outputTile.bounds[Dims4D::Act::H] / 2;
+                chromaTile.bounds[N] = outputTile.bounds[N];
+                chromaTile.bounds[C] = chromaBoundedShape[C];
+                chromaTile.bounds[H] = outputTile.bounds[H] / 2;
+                chromaTile.bounds[W] = outputTile.bounds[W] / 2;
             }
 
             inputTiles.push_back(std::move(chromaTile));

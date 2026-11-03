@@ -42,8 +42,7 @@ public:
         return VPU::NCEInvariant::getAlignment(inputType.getElementType());
     }
     int64_t getOutputChannelAlignment(mlir::Operation* op) const {
-        if (VPU::outputCompatibleWithAutoPad(op->getResult(0).getType()) &&
-            config::hasAutoPaddingODU(getModuleOp(op))) {
+        if (VPU::canAutopadOutput(op)) {
             return 1;
         }
 
@@ -69,8 +68,7 @@ public:
         return vpux::VPU::NCEInvariant::VPU_COMPRESSED_INPUT_CHANNEL_NUM;
     }
     int64_t getOutputChannelAlignment(mlir::Operation* op) const {
-        if (VPU::outputCompatibleWithAutoPad(op->getResult(0).getType()) &&
-            config::hasAutoPaddingODU(getModuleOp(op))) {
+        if (VPU::canAutopadOutput(op)) {
             return 1;
         }
 
@@ -109,8 +107,7 @@ public:
         return VPU::NCEInvariant::getAlignment(inputType.getElementType());
     }
     int64_t getOutputChannelAlignment(mlir::Operation* op) const {
-        if (VPU::outputCompatibleWithAutoPad(op->getResult(0).getType()) &&
-            config::hasAutoPaddingODU(getModuleOp(op))) {
+        if (VPU::canAutopadOutput(op)) {
             return 1;
         }
 
@@ -137,8 +134,7 @@ public:
         return VPU::NCEInvariant::getAlignment(inputType.getElementType());
     }
     int64_t getOutputChannelAlignment(mlir::Operation* op) const {
-        if (VPU::outputCompatibleWithAutoPad(op->getResult(0).getType()) &&
-            config::hasAutoPaddingODU(getModuleOp(op))) {
+        if (VPU::canAutopadOutput(op)) {
             return 1;
         }
 

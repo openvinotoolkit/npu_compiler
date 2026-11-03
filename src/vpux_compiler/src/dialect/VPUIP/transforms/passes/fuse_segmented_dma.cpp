@@ -125,7 +125,7 @@ void FuseSegmentedDma::safeRunOnFunc() {
 
     auto dmaPortCount = config::getNumOfDMAPorts(funcOp);
 
-    const auto getPort = [=](SmallVector<VPURT::TaskOp> tasks) {
+    const auto getPort = [dmaPortCount](SmallVector<VPURT::TaskOp> tasks) {
         auto maybeClusterId = getClusterId(tasks.front());
         if (maybeClusterId.has_value()) {
             return (maybeClusterId.value() / 2) % dmaPortCount;

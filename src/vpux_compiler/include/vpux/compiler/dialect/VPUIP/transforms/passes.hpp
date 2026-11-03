@@ -57,6 +57,7 @@ std::unique_ptr<mlir::Pass> createComputeTaskStrippingPass(
 std::unique_ptr<mlir::Pass> createDMAOutOfOrderOptimizationPass(
         std::optional<WorkloadManagementMode> workloadManagementMode = std::nullopt, Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createOptimizeConvertDMAOpPass(Logger log = Logger::global());
+std::unique_ptr<mlir::Pass> createOptimizeDMACopiesPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createCompressSpillDmaPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createDMATaskProfilingHwDdrPass(const std::string& enableDMAProfiling = "true",
                                                             Logger log = Logger::global());
@@ -128,6 +129,7 @@ std::unique_ptr<mlir::Pass> createDispatchedInlinerPass(Logger log = Logger::glo
 std::unique_ptr<mlir::Pass> createAddSwKernelInstructionPrefetchPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createUnrollShaveCacheOpsPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createSplitLargeInvariantsPass(Logger log = Logger::global());
+std::unique_ptr<mlir::Pass> createDetectIDUOOBAccessesPass(Logger log = Logger::global());
 
 //
 // Asynchronous Scheduling pipeline
@@ -202,7 +204,6 @@ std::unique_ptr<mlir::Pass> createUnrollGatherDMAPass(Logger log = Logger::globa
 void buildOptimizeCopiesPipeline(mlir::OpPassManager& pm, const OptimizeCopiesOptionsBase& options,
                                  Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createOptimizeCopiesPass(Logger log = Logger::global());
-std::unique_ptr<mlir::Pass> createUniquifyWeightsTableCopiesPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createOptimizeConcatViewCopiesPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createFuseDDRCopiesIntoConcats(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createOptimizeParallelCopiesPass(bool enableOptimizeConstCopy = true,

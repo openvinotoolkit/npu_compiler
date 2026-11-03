@@ -47,6 +47,12 @@ tests/integration/report.xml
 tests/integration/assets/
 tests/integration/__pycache__/
 
+# Python environment files
+venv/
+env/
+.venv/
+.env/
+
 # Visual Studio 2015 cache/options directory
 .vs/
 # Uncomment if you have tasks that create the project's static files in wwwroot
@@ -321,6 +327,7 @@ build.*
 .ycm_extra_conf.py
 tags
 results/
+.tmp/oss_results/
 tmp.*
 *report.txt
 output/

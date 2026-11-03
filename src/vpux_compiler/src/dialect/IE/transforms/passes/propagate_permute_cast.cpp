@@ -114,7 +114,7 @@ public:
         mlir::SmallVector<mlir::Value> newConcatInputs;
         for (auto [index, input] : concatOp.getInputs() | indexed) {
             auto newPermuteCast = rewriter.createOrFold<IE::PermuteCastOp>(
-                    appendLoc(origOp->getLoc(), "input_{}", index), input, origOp.getDstOrder(), origOp.getMemPerm());
+                    takeOpLoc(origOp, "permute_in_{0}", index), input, origOp.getDstOrder(), origOp.getMemPerm());
             newConcatInputs.push_back(newPermuteCast);
         }
 
@@ -126,7 +126,7 @@ public:
             offsets = remapDimsThroughPermuteCast(offsets, inType, outType, origOp.getMemPerm());
         }
 
-        auto newConcat = IE::ConcatOp::create(rewriter, concatOp.getLoc(), newConcatInputs, nullptr,
+        auto newConcat = IE::ConcatOp::create(rewriter, takeOpLoc(concatOp, "concat_in"), newConcatInputs, nullptr,
                                               getIntArrayOfArray(rewriter.getContext(), staticOffsetsAttr));
         rewriter.replaceOp(origOp, newConcat.getResult());
         _log.nest().trace("Propagated PermuteCast through ConcatOp at '{0}'", concatOp->getLoc());
@@ -201,9 +201,9 @@ public:
         const auto oldSizes = parseIntArrayAttr<int64_t>(sliceOp.getStaticSizesAttr());
         const auto newSizes = remapDimsThroughPermuteCast(oldSizes, inType, outType, memPerm);
 
-        auto newPermuteCast = rewriter.createOrFold<IE::PermuteCastOp>(origOp.getLoc(), sliceOp.getInput(),
-                                                                       origOp.getDstOrder(), memPerm);
-        auto newSlice = IE::SliceOp::create(rewriter, sliceOp->getLoc(), newPermuteCast,
+        auto newPermuteCast = rewriter.createOrFold<IE::PermuteCastOp>(
+                takeOpLoc(origOp, "permute_in"), sliceOp.getInput(), origOp.getDstOrder(), memPerm);
+        auto newSlice = IE::SliceOp::create(rewriter, takeOpLoc(sliceOp, "slice_out"), newPermuteCast,
                                             getIntArrayAttr(rewriter.getContext(), newOffsets),
                                             getIntArrayAttr(rewriter.getContext(), newSizes));
         rewriter.replaceOp(origOp, newSlice.getResult());
@@ -312,6 +312,7 @@ mlir::LogicalResult PropagateThroughSwish::matchAndRewrite(IE::PermuteCastOp ori
         mlir::IRMapping arMapper;
         arMapper.map(arOp.getInput(), newPermuteCast);
         auto* newArRaw = rewriter.clone(*arOp.getOperation(), arMapper);
+        extendOpLoc(newArRaw, "permute_in");
         swishInput = newArRaw->getResult(0);
         swishOutType = arOp.getResult().getType();
     }
@@ -319,6 +320,7 @@ mlir::LogicalResult PropagateThroughSwish::matchAndRewrite(IE::PermuteCastOp ori
     mlir::IRMapping mapper;
     mapper.map(swishOp.getInput(), swishInput);
     auto* newSwishRaw = rewriter.clone(*swishOp.getOperation(), mapper);
+    extendOpLoc(newSwishRaw, "permute_in");
     // Swish is element-wise: output type == input type (including layout)
     newSwishRaw->getResult(0).setType(swishOutType);
 

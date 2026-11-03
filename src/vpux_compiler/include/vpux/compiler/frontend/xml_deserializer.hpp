@@ -14,8 +14,8 @@
 #include <openvino/xml_util/weights_provider.hpp>
 #include <openvino/xml_util/xml_deserialize_util.hpp>
 
-#include <npu_driver_compiler.h>
-#include <intel_npu/weights_pointer_attribute.hpp>
+#include "compatibility/npu_driver_compiler.h"
+#include "compatibility/weights_pointer_attribute.hpp"
 
 namespace vpux {
 

@@ -40,18 +40,23 @@ namespace {
 // MatMulOpConverter
 //
 
-class MatMulOpConverter final : public mlir::OpRewritePattern<IE::MatMulOp> {
+class MatMulOpConverter final : public mlir::OpRewritePattern<IE::MatMulOp>, public IInitializableRewriter {
 public:
     MatMulOpConverter(mlir::MLIRContext* ctx, mlir::PatternBenefit benefit, Logger log, bool enableGroupedMatMul)
             : mlir::OpRewritePattern<IE::MatMulOp>(ctx, benefit), _log(log), _enableGroupedMatMul(enableGroupedMatMul) {
     }
 
 public:
+    void initialize(mlir::func::FuncOp funcOp) final {
+        _loopIndexAllocator = std::make_unique<LoopIndexAllocator>(funcOp);
+    }
+
     mlir::LogicalResult matchAndRewrite(IE::MatMulOp matmulOp, mlir::PatternRewriter& rewriter) const final;
 
 private:
     Logger _log;
     bool _enableGroupedMatMul;
+    std::unique_ptr<LoopIndexAllocator> _loopIndexAllocator;
 };
 
 static SmallVector<mlir::Value> sliceTensor(const mlir::Value tensorToSplit, const mlir::Location location,
@@ -308,6 +313,11 @@ SmallVector<mlir::Value> sliceDequantizeGatherChain(DequantizeGatherChainInfo& c
                                   chainInfo.dequantizeOp->getAttr(IE::SYNTHETIC_DYN_DEQUANT_ATTR));
         }
 
+        if (chainInfo.dequantizeOp->hasAttr(IE::WEIGHTS_IMPORT_DYN_DEQUANT_ATTR)) {
+            dequantSlice->setAttr(IE::WEIGHTS_IMPORT_DYN_DEQUANT_ATTR,
+                                  chainInfo.dequantizeOp->getAttr(IE::WEIGHTS_IMPORT_DYN_DEQUANT_ATTR));
+        }
+
         currentValue = dequantSlice.getOutput();
 
         // Apply Convert if present in original chain
@@ -523,8 +533,7 @@ mlir::LogicalResult MatMulOpConverter::matchAndRewrite(IE::MatMulOp matmulOp, ml
 
     SmallVector<mlir::Value> matmulSlices;
     const auto hasGatherDynamicDequantize = dequantChain.has_value();
-    const auto module = matmulOp->getParentOfType<mlir::ModuleOp>();
-    const auto tilingLoopIndex = (hasGatherDynamicDequantize && module != nullptr) ? getNextTilingLoopIndex(module) : 0;
+    const auto tilingLoopIndex = hasGatherDynamicDequantize ? _loopIndexAllocator->getNextTilingLoopIndex() : 0;
     for (size_t sliceIdx = 0; sliceIdx < activationSlices.size(); sliceIdx++) {
         auto lhs2d = activationSlices[sliceIdx];
         auto rhs2d = weightSlices[weightSlices.size() == 1 ? 0 : sliceIdx];
@@ -532,6 +541,9 @@ mlir::LogicalResult MatMulOpConverter::matchAndRewrite(IE::MatMulOp matmulOp, ml
         op->setLoc(takeOpLoc(matmulOp, "slice_{0}", sliceIdx));
         if (hasGatherDynamicDequantize) {
             op->setAttr(TILING_LOOP_INDEX_ATTR_NAME, TilingLoopIndexAttr::get(getContext(), tilingLoopIndex));
+            TileCoordinate tileCoordinate;
+            tileCoordinate.values.emplace_back(Dim(0), checked_cast<int64_t>(sliceIdx));
+            op->setAttr(LOOP_TILE_COORD, getTileCoordinateAttr(getContext(), tileCoordinate));
         }
 
         matmulSlices.push_back(op->getResult(0));

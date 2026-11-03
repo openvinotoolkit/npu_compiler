@@ -71,10 +71,11 @@ void vpux::VPU::buildInitCompilerPipeline(mlir::OpPassManager& pm, const VPU::In
              " compilation mode = {3}\n"
              " adaptive stripping = {4}\n"
              " aggressive QDQ = {5}\n"
-             " weights dynamic dequantization = {6}\n",
+             " weights dynamic dequantization = {6}\n"
+             " WLM mode = {7}\n",
              options.platform, options.numberOfDPUGroups, options.numberOfDMAPorts, options.compilationMode,
              options.enableAdaptiveStripping, options.enableQDQOptimizationAggressive,
-             options.enableWeightsDynamicDequantization);
+             options.enableWeightsDynamicDequantization, options.workloadManagementMode);
 
     pm.addPass(VPU::createInitResourcesPass(options, log));
 #ifdef VPUX_DEVELOPER_BUILD
@@ -195,7 +196,7 @@ void vpux::VPU::buildTilingPipeline(mlir::OpPassManager& pm, const VPU::TilingOp
             VPU::buildVFPipeline(pm, options, log);
         } else {
             pm.addPass(VPU::createSCFVerticalFusionPass(options.vfMergeConfiguration, options.enableDynamicDimAlignment,
-                                                        options.vfMergeCostMode, log));
+                                                        log));
             // cleaning up after SCFVerticalFusionPass
             pm.addPass(mlir::memref::createResolveShapedTypeResultDimsPass());
             pm.addPass(mlir::createCSEPass());
@@ -240,13 +241,19 @@ void vpux::VPU::buildScfComputeOpsOutliningPipeline(
     pm.addPass(VPU::createRestorePadAttrAfterSCFTilingPass(log));
     pm.addPass(mlir::createCanonicalizerPass(grc));
 
+    // Run this before SCF outlining: once the next pass outlines separate functions, any VPU op
+    // that is still outside scf.for is a valid target here and will remain dynamic in the kernel
+    pm.addPass(VPU::createPrepareDynamicKernelAllocationSizesPass(log));
+
     pm.addPass(VPU::createScfComputeOpsOutliningPass(log));
-    pm.addPass(VPU::createAdjustBlockSizeForScfTilingPass(log));
+    // Sub-tile fallback stays disabled until the dedicated dynamic kernels can be lowered (E#233593).
+    pm.addPass(VPU::createAdjustBlockSizeForScfTilingPass(/*enableSubTileFallback=*/false, log));
     if (enableWeightsExtraction) {
         pm.addPass(VPU::createExtractWeightsPass(log));
         pm.addPass(VPU::createConcatHostConstsPass(log));
     }
     pm.addPass(VPU::createConvertDynamicToStaticKernelsPass(log));
+    pm.addPass(VPU::createFoldAvgPoolChannelExpandPass(log));
 
     const bool hasManualFactor = loopUnrollFactor.hasValue() && !loopUnrollFactor.getValue().empty();
     const auto unrollingModeValue =
@@ -257,6 +264,8 @@ void vpux::VPU::buildScfComputeOpsOutliningPipeline(
                                                 enableBacktrackingBeyondResidualKernel.getValue(),
                                                 tailOverlapBacktrackMarginPercent.getValue(), unrollingModeValue, log));
     }
+    // After the optional unrolling: only loops with the original step can run a low resolution tile
+    pm.addPass(VPU::createAddKernelsForOverlappingEdgeTilesPass(log));
     pm.addPass(mlir::createLoopInvariantCodeMotionPass());
     pm.addPass(VPU::createFinalizeComputeFunctionBoundariesPass(log));
 
@@ -267,8 +276,14 @@ void vpux::VPU::buildScfComputeOpsOutliningPipeline(
     // to walk through unsimplified op chains.
     pm.addPass(mlir::createCanonicalizerPass(grc));
     pm.addPass(mlir::createCSEPass());
+    // Canonicalization can eliminate cascade stages after their merged helper functions were created.
+    pm.addPass(mlir::createSymbolDCEPass());
 
     pm.addPass(Core::createPackNestedModulesPass(log, Core::NestingMode::Default, enableProfiling));
+
+    // Each compute function now has its own module and resources, so a kernel module can get its own tile count.
+    // This must happen before the multi-cluster types of the kernel modules are materialized.
+    pm.addNestedPass<mlir::ModuleOp>(VPU::createAssignTilesForSwIoDmaModulesPass(log));
 }
 
 //
@@ -283,10 +298,10 @@ void vpux::VPU::buildVFPipeline(mlir::OpPassManager& pm, const VPU::TilingOption
 
     pm.addPass(VPU::createMoveViewOpsToVerticalFusionPass(options.workloadManagementMode, log));
     if (options.workloadManagementMode > WorkloadManagementMode::PWLM_V0_1_PAGES) {
-        pm.addPass(VPU::createPatternBasedVFPass(options.workloadManagementMode, options.vfMergeCostMode, log));
+        pm.addPass(VPU::createPatternBasedVFPass(options.workloadManagementMode, log));
     }
     pm.addPass(VPU::createMergeVfSubgraphsPass(options.enableVerticalFusionPipelining, options.enablePrefetchTiling,
-                                               options.workloadManagementMode, options.vfMergeCostMode, log));
+                                               options.workloadManagementMode, log));
     if (options.enablePrintStatistics) {
         pm.addPass(VPU::createPrintNNCacheStatisticsPass(log, "merge-vertical-fusion-subgraphs"));
     }
@@ -301,7 +316,7 @@ void vpux::VPU::buildVFPipeline(mlir::OpPassManager& pm, const VPU::TilingOption
         pm.addPass(mlir::createCanonicalizerPass(grc));
     }
     pm.addPass(VPU::createVfTilingPass(options.enableVerticalFusionPipelining, options.enableVFScheduleTrace,
-                                       options.workloadManagementMode, options.vfMergeCostMode, log));
+                                       options.workloadManagementMode, log));
     pm.addPass(mlir::createCanonicalizerPass(grc));
 }
 

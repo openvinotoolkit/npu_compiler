@@ -42,19 +42,6 @@ struct DefaultHWOptionsDeviceBase : public virtual vpux::DefaultHWOptionsBase {
             ::llvm::cl::init(static_cast<double>(std::numeric_limits<vpux::type::float16>::lowest()) +
                              SOFTMAX_MASK_DISABLED_NOISE_MARGIN)};
 
-    BoolOption workloadManagementEnable{*this, "workload-management-enable",
-                                        llvm::cl::desc("Enable partial workload management"), llvm::cl::init(true)};
-
-    mlir::detail::PassOptions::Option<DMAFifoType> workloadManagementDmaFifoType{
-            *this, "workload-management-dma-fifo-type",
-            ::llvm::cl::desc("Option to switch behaviour between software and hardware DMA FIFO types"),
-            ::llvm::cl::init(DMAFifoType::HW),
-            ::llvm::cl::values(clEnumValN(DMAFifoType::SW, "SW", "Enable SW DMA FIFO upfront HW DMA FIFO type"),
-                               clEnumValN(DMAFifoType::HW, "HW", "Use HW DMA FIFO directly"))};
-
-    BoolOption enableSwKernelFifoPerShaveEngine{*this, "enable-sw-kernel-fifo-per-shave-engine",
-                                                llvm::cl::desc("Enable dedicated FIFO for each ActShave engine"),
-                                                llvm::cl::init(true)};
     mlir::detail::PassOptions::Option<VPURegMapped::NPU5PPEBackwardsCompatibilityMode>
             npu5PPEBackwardsCompatibilityMode{
                     *this, "npu5-ppe-backwards-compatibility-mode",

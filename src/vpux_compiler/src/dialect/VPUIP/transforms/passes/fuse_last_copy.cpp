@@ -61,7 +61,7 @@ void fuseLastCopy(VPUIP::CopyOp copyOp, const AliasesInfo& aliasesInfo, Logger l
         return;
     }
 
-    const auto sourceRoots = aliasesInfo.getRoots(copyOp.getInput());
+    const auto& sourceRoots = aliasesInfo.getRoots(copyOp.getInput());
     if (sourceRoots.size() != 1) {
         nestedLogger.trace("Cannot match: expected single source root for {0} but got {1}", copyOp.getInput(),
                            sourceRoots.size());
@@ -79,16 +79,43 @@ void fuseLastCopy(VPUIP::CopyOp copyOp, const AliasesInfo& aliasesInfo, Logger l
         return;
     }
 
+    bool isMultiOutput = false;
     auto allRootAliases = aliasesInfo.getAllAliases(sourceRoot);
     for (auto alias : allRootAliases) {
         for (auto userOp : alias.getUsers()) {
             if (auto copyUserOp = mlir::dyn_cast<VPUIP::CopyOp>(userOp)) {
                 if (copyUserOp != copyOp && mlir::isa<mlir::BlockArgument>(copyUserOp.getOutputBuff())) {
-                    nestedLogger.trace("Cannot fuse when there are multiple output copy operations");
-                    return;
+                    isMultiOutput = true;
+                    break;
                 }
             }
         }
+        if (isMultiOutput) {
+            break;
+        }
+    }
+
+    // Multi-output path: when the producer is a plain VPUIP.Copy writing into the scratch and its type already
+    // matches the block-argument buffer, clone it into a fresh CMX->DDR copy for this output.
+    if (isMultiOutput && sourceRoot.getType() == copyOp.getOutputBuff().getType()) {
+        auto producerCopy = mlir::dyn_cast_if_present<VPUIP::CopyOp>(copyOp.getInput().getDefiningOp());
+        if (producerCopy != nullptr) {
+            const auto& producerRoots = aliasesInfo.getRoots(producerCopy.getOutputBuff());
+            if (producerRoots.size() == 1 && *producerRoots.begin() == sourceRoot &&
+                producerCopy.getOutputBuff().getType() == copyOp.getOutputBuff().getType() &&
+                producerCopy.getResult().getType() == copyOp.getOutputBuff().getType()) {
+                mlir::OpBuilder builder(copyOp);
+                auto clonedCopy = mlir::cast<VPUIP::CopyOp>(builder.clone(*producerCopy.getOperation()));
+                clonedCopy.getOutputBuffMutable().assign(copyOp.getOutputBuff());
+                copyOp.replaceAllUsesWith(clonedCopy.getResult());
+                copyOp->erase();
+                return;
+            }
+        }
+    }
+    if (isMultiOutput) {
+        nestedLogger.trace("Cannot fuse: multi-output case with type-cast chain not supported");
+        return;
     }
 
     // A last copy can only be fused away if it is a plain compact buffer copy, so that redirecting the
@@ -106,11 +133,7 @@ void fuseLastCopy(VPUIP::CopyOp copyOp, const AliasesInfo& aliasesInfo, Logger l
             return false;
         }
         const auto layout = memref.getLayout();
-        if (layout.isIdentity() || mlir::isa<mlir::StridedLayoutAttr>(layout)) {
-            return true;
-        }
-
-        return false;
+        return layout.isIdentity() || mlir::isa<mlir::StridedLayoutAttr>(layout);
     };
     if (!isFusableType(copyOp.getInput().getType()) || !isFusableType(copyOp.getOutput().getType())) {
         nestedLogger.trace("Cannot fuse: Copy has input or output strides");
@@ -167,7 +190,11 @@ void fuseLastCopy(VPUIP::CopyOp copyOp, const AliasesInfo& aliasesInfo, Logger l
                 // TODO: #-141102
                 // clang-format on
                 mlir::OpBuilder builder(permuteCastOp);
-                builder.setInsertionPoint(sourceRoot.getDefiningOp());
+                if (mlir::isa<mlir::BlockArgument>(newBuffer)) {
+                    builder.setInsertionPoint(sourceRoot.getDefiningOp());
+                } else {
+                    builder.setInsertionPointAfter(newBuffer.getDefiningOp());
+                }
 
                 auto newPermuteCast = VPUIP::PermuteCastOp::create(
                         builder, permuteCastOp.getLoc(), permuteCastOp->getOperand(0).getType(), newBuffer,
@@ -187,7 +214,11 @@ void fuseLastCopy(VPUIP::CopyOp copyOp, const AliasesInfo& aliasesInfo, Logger l
 
                 // do the shape cast in output
                 mlir::OpBuilder builder(shapeCastOp);
-                builder.setInsertionPoint(sourceRoot.getDefiningOp());
+                if (mlir::isa<mlir::BlockArgument>(newBuffer)) {
+                    builder.setInsertionPoint(sourceRoot.getDefiningOp());
+                } else {
+                    builder.setInsertionPointAfter(newBuffer.getDefiningOp());
+                }
                 auto newShapeCast = VPUIP::ShapeCastOp::create(builder, shapeCastOp.getLoc(), newOutType, newBuffer,
                                                                getIntArrayAttr(shapeCastOp.getContext(), newOutShape),
                                                                shapeCastOp.getExplicitOutputShapesAttr(),

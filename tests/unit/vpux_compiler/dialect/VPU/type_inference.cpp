@@ -154,6 +154,7 @@ class MLIR_VPUTypeInferenceUtilsTest : public MLIR_VPUTypeInferenceTest {};
 class MLIR_VPUTypeInferenceEltwiseOpTest : public MLIR_VPUTypeInferenceTest {};
 class MLIR_VPUTypeInferenceGatherOpTest : public MLIR_VPUTypeInferenceTest {};
 class MLIR_VPUTypeInferenceEyeOpTest : public MLIR_VPUTypeInferenceTest {};
+class MLIR_VPUTypeInferenceTopKOpTest : public MLIR_VPUTypeInferenceTest {};
 
 }  // namespace
 
@@ -371,3 +372,57 @@ INSTANTIATE_TEST_SUITE_P(Eye, MLIR_VPUTypeInferenceEyeOpTest,
                                  /*inputs=*/{TypeInfo{{1}, ElemType::SI32, DimsOrder::C}},
                                  /*outElemType=*/ElemType::F16,
                                  /*expectedResult=*/TypeInfo{{128, 128}, ElemType::F16, DimsOrder::NC}}));
+
+//
+// TopK
+//
+
+TEST_F(MLIR_VPUTypeInferenceTopKOpTest, StaticKOnBoundedAxisGivesStaticOutputWithoutBounds) {
+    // Only the TopK axis (dim 3) is dynamic, so a constant K makes the output fully static
+    mlir::OpBuilder moduleBuilder = mlir::OpBuilder::atBlockEnd(module->getBody());
+    auto dynDim = mlir::arith::ConstantOp::create(moduleBuilder, moduleBuilder.getUnknownLoc(),
+                                                  moduleBuilder.getIndexType(), moduleBuilder.getIndexAttr(3));
+    const SmallVector<int64_t> bounds = {1, 2, 3, 10};
+    const Bounds inputBounds(bounds);
+    auto input = mlir::tensor::EmptyOp::create(moduleBuilder, moduleBuilder.getUnknownLoc(),
+                                               SmallVector<int64_t>{1, 2, 3, mlir::ShapedType::kDynamic},
+                                               mlir::Float16Type::get(&ctx), mlir::ValueRange{dynDim.getResult()},
+                                               getTensorAttr(&ctx, DimsOrder::NCHW, nullptr, inputBounds));
+    auto lineBuffer = createOperand(TypeInfo{{1, 1, 1, 8}, ElemType::F16, DimsOrder::NCHW});
+
+    VPU::TopKOp::Properties properties{};
+    properties.axis = getIntAttr(&ctx, 3);
+    properties.k_value = getIntAttr(&ctx, 5);
+    properties.mode = IE::TopKModeAttr::get(&ctx, IE::TopKMode::MAX);
+    properties.sort = IE::TopKSortTypeAttr::get(&ctx, IE::TopKSortType::SORT_VALUES);
+    properties.element_type = mlir::TypeAttr::get(getSInt32Type(&ctx));
+
+    SmallVector<mlir::Type> inferredReturnTypes;
+    ASSERT_TRUE(mlir::succeeded(VPU::TopKOp::inferReturnTypes(
+            &ctx, mlir::UnknownLoc::get(&ctx), {input.getResult(), lineBuffer->getResult()},
+            /*attrs=*/nullptr, &properties, /*regions=*/{}, inferredReturnTypes)));
+    ASSERT_EQ(inferredReturnTypes.size(), 2);
+    for (const auto& resultType : inferredReturnTypes) {
+        auto type = mlir::dyn_cast<mlir::RankedTensorType>(resultType);
+        ASSERT_TRUE(type != nullptr);
+        EXPECT_EQ(type.getShape().vec(), (std::vector<int64_t>{1, 2, 3, 5}));
+        auto tensorAttr = mlir::dyn_cast_or_null<TensorAttr>(type.getEncoding());
+        EXPECT_TRUE(tensorAttr == nullptr || tensorAttr.getBounds().empty());
+    }
+}
+
+TEST_F(MLIR_VPUTypeInferenceTopKOpTest, MissingKFails) {
+    auto input = createOperand(TypeInfo{{1, 2, 3, 4}, ElemType::F16, DimsOrder::NCHW});
+    auto lineBuffer = createOperand(TypeInfo{{1, 1, 1, 8}, ElemType::F16, DimsOrder::NCHW});
+
+    VPU::TopKOp::Properties properties{};
+    properties.axis = getIntAttr(&ctx, 3);
+    properties.mode = IE::TopKModeAttr::get(&ctx, IE::TopKMode::MAX);
+    properties.sort = IE::TopKSortTypeAttr::get(&ctx, IE::TopKSortType::SORT_VALUES);
+    properties.element_type = mlir::TypeAttr::get(getSInt32Type(&ctx));
+
+    SmallVector<mlir::Type> inferredReturnTypes;
+    EXPECT_TRUE(mlir::failed(VPU::TopKOp::inferReturnTypes(
+            &ctx, mlir::UnknownLoc::get(&ctx), {input->getResult(), lineBuffer->getResult()},
+            /*attrs=*/nullptr, &properties, /*regions=*/{}, inferredReturnTypes)));
+}

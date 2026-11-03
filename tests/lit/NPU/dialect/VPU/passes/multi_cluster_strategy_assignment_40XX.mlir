@@ -3011,48 +3011,51 @@ func.func @LSTMSequenceBidirectionalSplitOverBatch(%arg0:
 
 // -----
 
-// CHECK-LABEL: @YuvToRgbNV12AssignedSOK
-// CHECK-SAME: [[ARG_0:%[^:]+]]: tensor<1x368x432x1xf16>
-// CHECK-SAME: [[ARG_1:%[^:]+]]: tensor<1x184x216x2xf16>
-func.func @YuvToRgbNV12AssignedSOK(%arg0: tensor<1x368x432x1xf16>, %arg1: tensor<1x184x216x2xf16>) -> tensor<1x368x432x3xf16> {
-    %0 = VPU.YuvToRgb(%arg0, %arg1) {inFmt = #IE.color_fmt<NV12>, operandSegmentSizes = array<i32: 1, 1, 0>, outFmt = #IE.color_fmt<RGB>} : tensor<1x368x432x1xf16>, tensor<1x184x216x2xf16> -> tensor<1x368x432x3xf16>
-    return %0 : tensor<1x368x432x3xf16>
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+// CHECK-LABEL: @YuvToRgbNV12AssignedSOH
+// CHECK-SAME: [[ARG_0:%[^:]+]]: tensor<1x1x368x432xf16, {order = #NHWC}>
+// CHECK-SAME: [[ARG_1:%[^:]+]]: tensor<1x2x184x216xf16, {order = #NHWC}>
+func.func @YuvToRgbNV12AssignedSOH(%arg0: tensor<1x1x368x432xf16, {order = #NHWC}>, %arg1: tensor<1x2x184x216xf16, {order = #NHWC}>) -> tensor<1x3x368x432xf16, {order = #NHWC}> {
+    %0 = VPU.YuvToRgb(%arg0, %arg1) {inFmt = #IE.color_fmt<NV12>, operandSegmentSizes = array<i32: 1, 1, 0>, outFmt = #IE.color_fmt<RGB>} : tensor<1x1x368x432xf16, {order = #NHWC}>, tensor<1x2x184x216xf16, {order = #NHWC}> -> tensor<1x3x368x432xf16, {order = #NHWC}>
+    return %0 : tensor<1x3x368x432xf16, {order = #NHWC}>
 
     // CHECK:       [[YUVTORGB:%.+]] = VPU.YuvToRgb([[ARG_0]], [[ARG_1]])
-    // CHECK-SAME:      {inFmt = #IE.color_fmt<NV12>, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>, operandSegmentSizes = array<i32: 1, 1, 0>, outFmt = #IE.color_fmt<RGB>}
-    // CHECK-SAME:      : tensor<1x368x432x1xf16>, tensor<1x184x216x2xf16> -> tensor<1x368x432x3xf16>
-    // CHECK:       return [[YUVTORGB]] : tensor<1x368x432x3xf16>
+    // CHECK-SAME:      {inFmt = #IE.color_fmt<NV12>, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, operandSegmentSizes = array<i32: 1, 1, 0>, outFmt = #IE.color_fmt<RGB>}
+    // CHECK-SAME:      : tensor<1x1x368x432xf16, {order = #NHWC}>, tensor<1x2x184x216xf16, {order = #NHWC}> -> tensor<1x3x368x432xf16, {order = #NHWC}>
+    // CHECK:       return [[YUVTORGB]] : tensor<1x3x368x432xf16, {order = #NHWC}>
 }
 
 // -----
 
-// CHECK-LABEL: @YuvToRgbI420AssignedSOK
-// CHECK-SAME: [[ARG_0:%[^:]+]]: tensor<1x368x432x1xf16>
-// CHECK-SAME: [[ARG_1:%[^:]+]]: tensor<1x184x216x1xf16>
-// CHECK-SAME: [[ARG_2:%[^:]+]]: tensor<1x184x216x1xf16>
-func.func @YuvToRgbI420AssignedSOK(%arg0: tensor<1x368x432x1xf16>, %arg1: tensor<1x184x216x1xf16>, %arg2: tensor<1x184x216x1xf16>) -> tensor<1x368x432x3xf16> {
-    %0 = VPU.YuvToRgb(%arg0, %arg1, %arg2) {inFmt = #IE.color_fmt<I420>, operandSegmentSizes = array<i32: 1, 1, 1>, outFmt = #IE.color_fmt<RGB>} : tensor<1x368x432x1xf16>, tensor<1x184x216x1xf16>, tensor<1x184x216x1xf16> -> tensor<1x368x432x3xf16>
-    return %0 : tensor<1x368x432x3xf16>
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+// CHECK-LABEL: @YuvToRgbI420AssignedSOH
+// CHECK-SAME: [[ARG_0:%[^:]+]]: tensor<1x1x368x432xf16, {order = #NHWC}>
+// CHECK-SAME: [[ARG_1:%[^:]+]]: tensor<1x1x184x216xf16, {order = #NHWC}>
+// CHECK-SAME: [[ARG_2:%[^:]+]]: tensor<1x1x184x216xf16, {order = #NHWC}>
+func.func @YuvToRgbI420AssignedSOH(%arg0: tensor<1x1x368x432xf16, {order = #NHWC}>, %arg1: tensor<1x1x184x216xf16, {order = #NHWC}>, %arg2: tensor<1x1x184x216xf16, {order = #NHWC}>) -> tensor<1x3x368x432xf16, {order = #NHWC}> {
+    %0 = VPU.YuvToRgb(%arg0, %arg1, %arg2) {inFmt = #IE.color_fmt<I420>, operandSegmentSizes = array<i32: 1, 1, 1>, outFmt = #IE.color_fmt<RGB>} : tensor<1x1x368x432xf16, {order = #NHWC}>, tensor<1x1x184x216xf16, {order = #NHWC}>, tensor<1x1x184x216xf16, {order = #NHWC}> -> tensor<1x3x368x432xf16, {order = #NHWC}>
+    return %0 : tensor<1x3x368x432xf16, {order = #NHWC}>
 
     // CHECK:       [[YUVTORGB:%.+]] = VPU.YuvToRgb([[ARG_0]], [[ARG_1]], [[ARG_2]])
-    // CHECK-SAME:      {inFmt = #IE.color_fmt<I420>, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>, operandSegmentSizes = array<i32: 1, 1, 1>, outFmt = #IE.color_fmt<RGB>}
-    // CHECK-SAME:      : tensor<1x368x432x1xf16>, tensor<1x184x216x1xf16>, tensor<1x184x216x1xf16> -> tensor<1x368x432x3xf16>
-    // CHECK:       return [[YUVTORGB]] : tensor<1x368x432x3xf16>
+    // CHECK-SAME:      {inFmt = #IE.color_fmt<I420>, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, operandSegmentSizes = array<i32: 1, 1, 1>, outFmt = #IE.color_fmt<RGB>}
+    // CHECK-SAME:      : tensor<1x1x368x432xf16, {order = #NHWC}>, tensor<1x1x184x216xf16, {order = #NHWC}>, tensor<1x1x184x216xf16, {order = #NHWC}> -> tensor<1x3x368x432xf16, {order = #NHWC}>
+    // CHECK:       return [[YUVTORGB]] : tensor<1x3x368x432xf16, {order = #NHWC}>
 }
 
 // -----
 
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 // CHECK-LABEL: @YuvToRgbNV12SinglePlaneNoStrategy
-// CHECK-SAME: [[ARG_0:%[^:]+]]: tensor<1x552x432x1xf16>
-func.func @YuvToRgbNV12SinglePlaneNoStrategy(%arg0: tensor<1x552x432x1xf16>) -> tensor<1x368x432x3xf16> {
-    %0 = VPU.YuvToRgb(%arg0) {inFmt = #IE.color_fmt<NV12>, operandSegmentSizes = array<i32: 1, 0, 0>, outFmt = #IE.color_fmt<RGB>} : tensor<1x552x432x1xf16> -> tensor<1x368x432x3xf16>
-    return %0 : tensor<1x368x432x3xf16>
+// CHECK-SAME: [[ARG_0:%[^:]+]]: tensor<1x1x552x432xf16, {order = #NHWC}>
+func.func @YuvToRgbNV12SinglePlaneNoStrategy(%arg0: tensor<1x1x552x432xf16, {order = #NHWC}>) -> tensor<1x3x368x432xf16, {order = #NHWC}> {
+    %0 = VPU.YuvToRgb(%arg0) {inFmt = #IE.color_fmt<NV12>, operandSegmentSizes = array<i32: 1, 0, 0>, outFmt = #IE.color_fmt<RGB>} : tensor<1x1x552x432xf16, {order = #NHWC}> -> tensor<1x3x368x432xf16, {order = #NHWC}>
+    return %0 : tensor<1x3x368x432xf16, {order = #NHWC}>
 
     // CHECK:       [[YUVTORGB:%.+]] = VPU.YuvToRgb([[ARG_0]])
     // CHECK-SAME:      {inFmt = #IE.color_fmt<NV12>, operandSegmentSizes = array<i32: 1, 0, 0>, outFmt = #IE.color_fmt<RGB>}
     // CHECK-NOT:       multiClusterStrategy
-    // CHECK-SAME:      : tensor<1x552x432x1xf16> -> tensor<1x368x432x3xf16>
-    // CHECK:       return [[YUVTORGB]] : tensor<1x368x432x3xf16>
+    // CHECK-SAME:      : tensor<1x1x552x432xf16, {order = #NHWC}> -> tensor<1x3x368x432xf16, {order = #NHWC}>
+    // CHECK:       return [[YUVTORGB]] : tensor<1x3x368x432xf16, {order = #NHWC}>
 }
 
 

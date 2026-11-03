@@ -156,7 +156,6 @@ mlir::SymbolRefAttr moveOpToSection(mlir::Operation* op, SectionMapper& sectionM
 mlir::SymbolRefAttr cloneSectionSymbol(mlir::SymbolRefAttr from, mlir::SymbolRefAttr to);
 
 void insertELFMain(mlir::func::FuncOp netFunc);
-size_t getOpBinarySize(vpux::NDTypeInterface type);
 size_t getBufferBinarySize(vpux::NDTypeInterface type, mlir::Operation* contextOp, VPURT::BufferSection section,
                            int64_t sectionIndex);
 

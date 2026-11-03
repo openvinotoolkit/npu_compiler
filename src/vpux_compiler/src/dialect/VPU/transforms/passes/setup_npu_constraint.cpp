@@ -40,9 +40,7 @@ public:
         Base::initLogger(log, Base::getArgumentName());
         Base::copyOptionValuesFrom(initCompilerOptions);
 
-        if (initCompilerOptions.workloadManagementMode.hasValue()) {
-            _workloadManagementMode = initCompilerOptions.workloadManagementMode;
-        }
+        _workloadManagementMode = initCompilerOptions.workloadManagementMode;
         initializeFromOptions();
     }
 
@@ -117,7 +115,7 @@ mlir::LogicalResult SetupNpuConstraintPass::initializeOptions(
 }
 
 void SetupNpuConstraintPass::initializeFromOptions() {
-    _enableSwFifoPerShave = enableSwKernelFifoPerShaveEngine;
+    _enableSwFifoPerShave = _workloadManagementMode == WorkloadManagementMode::FWLM_V1_PAGES;
 
     if (allowCustomValues.hasValue()) {
         _allowCustomValues = allowCustomValues.getValue();
@@ -205,10 +203,8 @@ void SetupNpuConstraintPass::safeRunOnModule() {
                   _allowCustomValues);
     addConstraint(optionsBuilder, pipelineOptionsOp, config::METADATA_MAX_DMA_COUNT, maxDMAs, _allowCustomValues);
 
-    if (!vpux::config::isArchVPUX3XXX(arch)) {
-        auto maxMediaCount = vpux::VPU::getDefaultTaskListCount(VPU::TaskType::M2I, arch);
-        addConstraint(optionsBuilder, pipelineOptionsOp, config::METADATA_MAX_MEDIA_COUNT, maxMediaCount,
-                      _allowCustomValues);
+    if (const auto minTiles = config::getDefaultMinTiles(config::getPlatform(moduleOp)); minTiles.has_value()) {
+        addConstraint(optionsBuilder, pipelineOptionsOp, config::MIN_TILES, minTiles.value(), _allowCustomValues);
     }
 }
 

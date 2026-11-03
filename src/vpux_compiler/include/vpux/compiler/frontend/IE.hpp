@@ -5,6 +5,7 @@
 
 #pragma once
 
+#include "vpux/compiler/core/pipelines_options.hpp"
 #include "vpux/compiler/dialect/IE/IR/attributes.hpp"
 #include "vpux/compiler/dialect/net/IR/ops.hpp"
 #include "vpux/compiler/init/dialects_registry.hpp"
@@ -42,6 +43,7 @@
 #include <ov_ops/rotary_positional_embeddings.hpp>
 
 #include <openvino/op/gated_delta_net.hpp>
+#include <openvino/op/group_query_attention.hpp>
 
 #include <intel_npu/ops/flash_attention_tile.hpp>
 
@@ -55,8 +57,13 @@ struct ImportNetworkConfig {
     bool dynamicShapeToStatic = false;
     bool enableWeightsSeparationPath = false;
     bool enableDecomposeSDPA = false;
+    // Internal/debug switch for the dynamic-shape NMS work, see kDefaultConvertNMSToStatic (E#223694).
+    bool enableConvertNMSToStatic = kDefaultConvertNMSToStatic;
     bool executionModeAccuracy = false;
     std::set<std::string> ioWithDynamicStrides;
+    // Compile's optimization level (see PublicOptions::optimizationLevel)
+    int optimizationLevel = 1;
+    config::ArchKind arch = config::ArchKind::UNKNOWN;
 };
 
 // TODO Get rid of this function (importNetwork), move logic to compiler.cpp
@@ -97,7 +104,6 @@ public:
 
     // Bounds related logic
     void saveBoundsInfoForInput(::mlir::BlockArgument& funcInputVal, const ov::PartialShape& partialShape);
-    bool isUpperBoundsMissing(const OrigNodePtr& origNode);
     static bool hasValidBounds(const ov::PartialShape& partialShape);
 
 private:
@@ -328,6 +334,8 @@ private:
                                const std::shared_ptr<ov::opset13::ScaledDotProductAttention>& origNode);
     mlir::Operation* parseNode(mlir::OpBuilder& builder,
                                const std::shared_ptr<ov::intel_npu::op::FlashAttentionTile>& origNode);
+    mlir::Operation* parseNode(mlir::OpBuilder& builder,
+                               const std::shared_ptr<ov::op::internal::GroupQueryAttention>& origNode);
     mlir::Operation* parseNode(mlir::OpBuilder& builder, const std::shared_ptr<ov::op::v16::Identity>& origNode);
     mlir::Operation* parseNode(mlir::OpBuilder& builder, const std::shared_ptr<ov::op::Op>& origNode);
     mlir::Operation* parseNode(mlir::OpBuilder& builder, const std::shared_ptr<ov::opset10::IsNaN>& origNode);

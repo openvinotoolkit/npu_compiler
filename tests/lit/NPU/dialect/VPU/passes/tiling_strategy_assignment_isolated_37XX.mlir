@@ -501,20 +501,16 @@ func.func @NotSplitGather4DForLargeIORatioUseDDRAccess(%arg0: tensor<1x1x51865x5
 
 // -----
 
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 // CHECK-LABEL: func.func @Yuv2RGBSplit
-// CHECK-SAME:        [[ARG_0:%[^:]+]]: tensor<1x993x982x1xf16>
-func.func @Yuv2RGBSplit(%arg0: tensor<1x993x982x1xf16>) -> tensor<1x662x982x3xf16> {
-    %0 = VPU.Slice %arg0 [0, 0, 0, 0] [1, 662, 982, 1] : tensor<1x993x982x1xf16> to tensor<1x662x982x1xf16>
-    %1 = VPU.Slice %arg0 [0, 662, 0, 0] [1, 331, 982, 1] : tensor<1x993x982x1xf16> to tensor<1x331x982x1xf16>
-    %2 = VPU.Reshape(%1) {shape_value = [1, 331, 491, 2]} : tensor<1x331x982x1xf16> -> tensor<1x331x491x2xf16>
-    %3 = VPU.YuvToRgb(%0, %2) {inFmt = #IE.color_fmt<NV12>, operandSegmentSizes = array<i32: 1, 1, 0>, outFmt = #IE.color_fmt<RGB>} : tensor<1x662x982x1xf16>, tensor<1x331x491x2xf16> -> tensor<1x662x982x3xf16>
-    return %3 : tensor<1x662x982x3xf16>
+// CHECK-SAME:        [[ARG_0:%[^:]+]]: tensor<1x1x662x982xf16, {order = #NHWC}>
+// CHECK-SAME:        [[ARG_1:%[^:]+]]: tensor<1x2x331x491xf16, {order = #NHWC}>
+func.func @Yuv2RGBSplit(%arg0: tensor<1x1x662x982xf16, {order = #NHWC}>, %arg1: tensor<1x2x331x491xf16, {order = #NHWC}>) -> tensor<1x3x662x982xf16, {order = #NHWC}> {
+    %3 = VPU.YuvToRgb(%arg0, %arg1) {inFmt = #IE.color_fmt<NV12>, operandSegmentSizes = array<i32: 1, 1, 0>, outFmt = #IE.color_fmt<RGB>} : tensor<1x1x662x982xf16, {order = #NHWC}>, tensor<1x2x331x491xf16, {order = #NHWC}> -> tensor<1x3x662x982xf16, {order = #NHWC}>
+    return %3 : tensor<1x3x662x982xf16, {order = #NHWC}>
 
-    // CHECK:    [[SLICE0:%.+]] = VPU.Slice [[ARG_0]] [0, 0, 0, 0] [1, 662, 982, 1] : tensor<1x993x982x1xf16> to tensor<1x662x982x1xf16>
-    // CHECK:    [[SLICE1:%.+]] = VPU.Slice [[ARG_0]] [0, 662, 0, 0] [1, 331, 982, 1] : tensor<1x993x982x1xf16> to tensor<1x331x982x1xf16>
-    // CHECK:    [[RESHAPE:%.+]] = VPU.Reshape([[SLICE1]]) {shape_value = [1, 331, 491, 2]} : tensor<1x331x982x1xf16> -> tensor<1x331x491x2xf16>
-    // CHECK:    [[YUV2RGB:%.+]] = VPU.YuvToRgb([[SLICE0]], [[RESHAPE]]) {inFmt = #IE.color_fmt<NV12>, operandSegmentSizes = array<i32: 1, 1, 0>, outFmt = #IE.color_fmt<RGB>, tilingStrategy = [1, 3, 1, 1]} : tensor<1x662x982x1xf16>, tensor<1x331x491x2xf16> -> tensor<1x662x982x3xf16>
-    // CHECK:    return [[YUV2RGB]] : tensor<1x662x982x3xf16>
+    // CHECK:    [[YUV2RGB:%.+]] = VPU.YuvToRgb([[ARG_0]], [[ARG_1]]) {inFmt = #IE.color_fmt<NV12>, operandSegmentSizes = array<i32: 1, 1, 0>, outFmt = #IE.color_fmt<RGB>, tilingStrategy = [1, 1, 3, 1]} : tensor<1x1x662x982xf16, {order = #NHWC}>, tensor<1x2x331x491xf16, {order = #NHWC}> -> tensor<1x3x662x982xf16, {order = #NHWC}>
+    // CHECK:    return [[YUV2RGB]] : tensor<1x3x662x982xf16, {order = #NHWC}>
 }
 
 // -----

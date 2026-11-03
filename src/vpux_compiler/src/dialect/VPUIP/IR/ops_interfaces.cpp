@@ -4,6 +4,7 @@
 //
 
 #include "vpux/compiler/dialect/VPUIP/IR/ops_interfaces.hpp"
+#include "vpux/compiler/core/attributes/shape.hpp"
 #include "vpux/compiler/dialect/VPU/utils/tile_utils.hpp"
 #include "vpux/compiler/dialect/VPUIP/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPUIP/IR/types.hpp"
@@ -519,6 +520,16 @@ mlir::LogicalResult vpux::VPUIP::verifySameOperandsAndResultElementType(mlir::Op
 //
 // DMATypeOpInterface
 //
+
+mlir::LogicalResult vpux::VPUIP::verifyDMAType(mlir::Operation* op) {
+    // A buffer without an upper bound is only accessed by SwIoDma kernels, which move the data from SHAVE.
+    for (auto value : llvm::concat<mlir::Value>(op->getOperands(), op->getResults())) {
+        if (hasUnboundedDynamicShape(value)) {
+            return errorAt(op, "DMA cannot access '{0}': a dimension has no upper bound", value.getType());
+        }
+    }
+    return mlir::success();
+}
 
 std::optional<VPUIP::DmaChannelType> vpux::VPUIP::getChannelType(mlir::Operation* op) {
     // Configure DMA channel only for VPU4 for now

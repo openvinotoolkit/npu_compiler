@@ -32,21 +32,20 @@ module @EltwiseFlatten {
 // CHECK-SAME:      : memref<16x16xf32> into memref<256xf32>
 // CHECK-DAG:   [[CRET:%.+]] = memref.collapse_shape [[RET]]
 // CHECK-SAME:      : memref<16x16xf32> into memref<256xf32>
-// CHECK:       [[LOOP_OUT:%.+]] = scf.for [[COUNTER:%.+]] = [[C0]] to [[C256]] step [[C1]] iter_args([[OUT:%.+]] = [[CRET]]) -> (memref<256xf32>) {
+// CHECK:       scf.for [[COUNTER:%.+]] = [[C0]] to [[C256]] step [[C1]] {
 // CHECK-NEXT:    [[ELEM_LHS:%.+]] = memref.subview [[CARG0]][[[COUNTER]]] [1] [1]
 // CHECK-SAME:        : memref<256xf32> to memref<1xf32, strided<[1], offset: ?>>
-// CHECK-NEXT:    [[ELEM_OUT:%.+]] = memref.subview [[OUT]][[[COUNTER]]] [1] [1]
+// CHECK-NEXT:    [[ELEM_OUT:%.+]] = memref.subview [[CRET]][[[COUNTER]]] [1] [1]
 // CHECK-SAME:        : memref<256xf32> to memref<1xf32, strided<[1], offset: ?>>
 // CHECK-NEXT:    linalg.generic
 // CHECK-SAME:         ins([[ELEM_LHS]], [[ARG1]] :
 // CHECK-SAME:         outs([[ELEM_OUT]] :
-// CHECK:         [[COPY_DST:%.+]] = memref.subview [[OUT]][[[COUNTER]]] [1] [1]
-// CHECK-SAME:        : memref<256xf32> to memref<1xf32, strided<[1], offset: ?>>
-// CHECK-NEXT:    memref.copy [[ELEM_OUT]], [[COPY_DST]]
-// CHECK-NEXT:    scf.yield [[OUT]] : memref<256xf32>
+// CHECK-NEXT:    ^bb0([[IN:%.+]]: f32, [[SCALAR:%.+]]: f32, {{%.*}}: f32):
+// CHECK-NEXT:      [[MUL:%.+]] = arith.mulf [[IN]], [[SCALAR]] : f32
+// CHECK-NEXT:      linalg.yield [[MUL]] : f32
+// CHECK-NEXT:    }
 // CHECK-NEXT:  }
-// CHECK-NEXT:  [[EXPAND:%.+]] = memref.expand_shape [[LOOP_OUT]]
-// CHECK-SAME       : memref<256xf32> into memref<16x16xf32>
-// CHECK-NEXT:  memref.copy [[EXPAND]], [[RET]]
-// CHECK-NEXT:  return
+// CHECK-NOT:   memref.copy
+// CHECK-NOT:   memref.expand_shape
+// CHECK:       return
 }

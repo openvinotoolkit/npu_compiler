@@ -74,7 +74,7 @@ module @setDynMi {
             taskReferenceCount_MMI_nnrt_config = UINT 0,
             MMI_actshv_used = UINT 0,
             MMI_dpu_used = UINT 0,
-            MMI_media_used = UINT 0,
+            MMI_media_deprecated = UINT 0,
             MMI_dma_from_ddr_used = UINT 0,
             MMI_dma_from_cmx_used = UINT 0,
             MMI_pad0_ = UINT 0,

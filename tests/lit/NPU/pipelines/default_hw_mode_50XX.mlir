@@ -38,13 +38,13 @@ module @TestConvolution {
     %cst_1 = const.Declare tensor<1x1x1x1xf32> = dense<2.0362618> : tensor<1x1x1x1xf32>
     %cst_2 = const.Declare tensor<1x1x1x1xf32> = dense<-2.05229545> : tensor<1x1x1x1xf32>
     %cst_3 = const.Declare tensor<1x1x1x1xf32> = dense<2.0362618> : tensor<1x1x1x1xf32>
-    %1 = IE.FakeQuantize(%arg0, %cst_0, %cst_1, %cst_2, %cst_3) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i64} : tensor<1x64x28x28xf16>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32> -> tensor<1x64x28x28xf16>
+    %1 = IE.FakeQuantize(%arg0, %cst_0, %cst_1, %cst_2, %cst_3) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256 : i64} : tensor<1x64x28x28xf16>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32> -> tensor<1x64x28x28xf16>
     %2 = IE.ReduceMean(%1) { axes_value = [1], keep_dims } :
         tensor<1x64x28x28xf16>
         -> tensor<1x1x28x28xf16>
     %3 = IE.Swish(%2) : tensor<1x1x28x28xf16> -> tensor<1x1x28x28xf16>
 
-    %5 = IE.FakeQuantize(%3, %cst_0, %cst_1, %cst_2, %cst_3) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i64} : tensor<1x1x28x28xf16>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32> -> tensor<1x1x28x28xf16>
+    %5 = IE.FakeQuantize(%3, %cst_0, %cst_1, %cst_2, %cst_3) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256 : i64} : tensor<1x1x28x28xf16>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32> -> tensor<1x1x28x28xf16>
     %6 = IE.Expand(%5) {pads_begin = [0, 0, 0, 0], pads_end = [0, 15, 0, 0]} : tensor<1x1x28x28xf16> -> tensor<1x16x28x28xf16>
     return %6 : tensor<1x16x28x28xf16>
 

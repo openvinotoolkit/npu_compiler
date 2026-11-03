@@ -52,8 +52,21 @@ void ShaveKernelSimplifyPass::safeRunOnFunc() {
     mlir::linalg::populateSwapExtractSliceWithFillPatterns(patterns);
     mlir::tensor::populateFoldTensorEmptyPatterns(patterns);
 
+    // Rewrite extract_slice(tensor.pad(x)) into tensor.pad(extract_slice(x)).
+    // Note that we don't need the zero slice guard.
+    patterns.insert<mlir::linalg::ExtractSliceOfPadTensorSwapPattern>(
+            &ctx, [](mlir::tensor::ExtractSliceOp sliceOp) -> std::optional<bool> {
+                // Bail out on rank-reducing slices to prevent this pattern
+                // from applying again.
+                if (sliceOp.getType().getRank() != sliceOp.getSourceType().getRank()) {
+                    return std::nullopt;
+                }
+                return false;
+            });
+
     mlir::tensor::ExtractSliceOp::getCanonicalizationPatterns(patterns, &ctx);
     mlir::tensor::InsertSliceOp::getCanonicalizationPatterns(patterns, &ctx);
+    mlir::tensor::PadOp::getCanonicalizationPatterns(patterns, &ctx);
     mlir::tensor::ExpandShapeOp::getCanonicalizationPatterns(patterns, &ctx);
     mlir::tensor::CollapseShapeOp::getCanonicalizationPatterns(patterns, &ctx);
     mlir::tensor::EmptyOp::getCanonicalizationPatterns(patterns, &ctx);
@@ -64,8 +77,9 @@ void ShaveKernelSimplifyPass::safeRunOnFunc() {
 
     getOperation()->walk<mlir::WalkOrder::PreOrder>([&](IE::CodeGenCapsuleOp capsuleOp) -> mlir::WalkResult {
         if (failed(mlir::applyPatternsGreedily(capsuleOp, frozenPatterns, getDefaultGreedyRewriteConfig()))) {
-            signalPassFailure();
-            return mlir::WalkResult::interrupt();
+            // We optimize as much as possible, however non-convergence here is not an error.
+            // If non-convergence occurs, just log it and continue.
+            _log.warning("Simplification did not converge for capsule at '{0}'", capsuleOp->getLoc());
         }
         // Avoid walking the capsule contents.
         return mlir::WalkResult::skip();

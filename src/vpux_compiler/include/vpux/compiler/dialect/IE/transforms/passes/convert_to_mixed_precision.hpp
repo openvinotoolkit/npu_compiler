@@ -10,6 +10,7 @@
 #include "vpux/compiler/dialect/IE/IR/ops/pooling.hpp"
 #include "vpux/compiler/dialect/IE/utils/quantization.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
+#include "vpux/compiler/dialect/config/constraints.hpp"
 #include "vpux/compiler/dialect/config/utils/config_option_utils.hpp"
 #include "vpux/compiler/utils/analysis.hpp"
 
@@ -192,8 +193,10 @@ mlir::LogicalResult MixedFloatInQuantWeightsRewriter<ConcreteOp>::matchAndRewrit
     const auto perTensorQuantType = mlir::dyn_cast<mlir::quant::UniformQuantizedType>(quantFilterDequantizeType);
     const auto isSymmetricQuant = IE::isSymmetricQuantType(quantFilterDequantizeType);
     auto moduleOp = getModuleOp(convOp.getOperation());
+    const auto context = moduleOp->getContext();
+    const auto& constraints = config::getNPUConstraints(context);
     const auto isAsymmetricPerChannelSupported = config::asymmetricPerChannelZeroPointSupported(moduleOp);
-    const auto isAsymmetricPerTensorSupported = config::asymmetricPerTensorZeroPointSupported(moduleOp);
+    const auto isAsymmetricPerTensorSupported = constraints.asymmetricPerTensorZP;
 
     // Only signed quant is supported for input + wt mixed precision
     if (!isSignedQuantizedType(quantFilterDequantizeType) ||

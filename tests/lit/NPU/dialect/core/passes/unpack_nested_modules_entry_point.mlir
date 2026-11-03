@@ -16,7 +16,6 @@ module @mainModuleWithNestedModule {
   }
   config.Resources 1 of @global {
     config.MemoryResource 67108864000 bytes of @DDR {config.bandwidth = 64 : i64, config.derateFactor = 6.000000e-01 : f64}
-    config.ExecutorResource 1 of @M2I
     config.ExecutorResource 2 of @DMA_NN
   }
   func.func @func0(%arg0: tensor<1x3x60x60xf16>) -> tensor<1x3x60x60xf16> {
@@ -30,7 +29,6 @@ module @mainModuleWithNestedModule {
     }
     config.Resources 1 of @global {
       config.MemoryResource 67108864000 bytes of @DDR {config.bandwidth = 64 : i64, config.derateFactor = 6.000000e-01 : f64}
-      config.ExecutorResource 1 of @M2I
       config.ExecutorResource 2 of @DMA_NN
     }
     net.NetworkInfo entryPoint : @main inputsInfo : {
@@ -71,7 +69,6 @@ module @mainModuleWithOtherFunc {
   }
   config.Resources 1 of @global {
     config.MemoryResource 67108864000 bytes of @DDR {config.bandwidth = 64 : i64, config.derateFactor = 6.000000e-01 : f64}
-    config.ExecutorResource 1 of @M2I
     config.ExecutorResource 2 of @DMA_NN
   }
   func.func @func0(%arg0: tensor<1x3x60x60xf16>) -> tensor<1x3x60x60xf16> {
@@ -85,7 +82,6 @@ module @mainModuleWithOtherFunc {
     }
     config.Resources 1 of @global {
       config.MemoryResource 67108864000 bytes of @DDR {config.bandwidth = 64 : i64, config.derateFactor = 6.000000e-01 : f64}
-      config.ExecutorResource 1 of @M2I
       config.ExecutorResource 2 of @DMA_NN
     }
     net.NetworkInfo entryPoint : @main inputsInfo : {
@@ -122,7 +118,6 @@ module @mainModuleDoubleNesting {
   }
   config.Resources 1 of @global {
     config.MemoryResource 67108864000 bytes of @DDR {config.bandwidth = 64 : i64, config.derateFactor = 6.000000e-01 : f64}
-    config.ExecutorResource 1 of @M2I
     config.ExecutorResource 2 of @DMA_NN
   }
   func.func @func0(%arg0: tensor<1x3x60x60xf16>) -> tensor<1x3x60x60xf16> {
@@ -136,7 +131,6 @@ module @mainModuleDoubleNesting {
     }
     config.Resources 1 of @global {
       config.MemoryResource 67108864000 bytes of @DDR {config.bandwidth = 64 : i64, config.derateFactor = 6.000000e-01 : f64}
-      config.ExecutorResource 1 of @M2I
       config.ExecutorResource 2 of @DMA_NN
     }
     net.NetworkInfo entryPoint : @main inputsInfo : {

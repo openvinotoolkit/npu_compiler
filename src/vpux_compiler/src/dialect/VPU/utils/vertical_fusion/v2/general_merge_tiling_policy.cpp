@@ -34,51 +34,19 @@ mlir::FailureOr<VPU::MultiClusterStrategy> GeneralMergeTilingPolicy::alignMCStra
         return mlir::failure();
     }
     auto parentStrategy = parentOp.getMultiClusterStrategy().value();
-    auto userStrategy = details::getMultiClusterStrategy(userOp, rollbackStrategy);
-    auto userInType = getDistributedInputType(userOp, userOp->getOperand(parentOpInfo.operandIdx), userStrategy);
-    if (userInType == nullptr) {
-        return mlir::failure();
-    }
-    auto userInDataType = mlir::cast<VPU::DistributedTensorType>(userInType.getDistributedTypes().front());
-
     SmallVector<VPU::MultiClusterStrategy> potentialStrategies = {VPU::MultiClusterStrategy::HKSwitch,
                                                                   VPU::MultiClusterStrategy::SplitOverHeight,
                                                                   VPU::MultiClusterStrategy::SplitOverKernel};
-    auto outType = mlir::cast<vpux::NDTypeInterface>(parentOp->getResult(0).getType());
-    for (const auto& strategy : potentialStrategies) {
-        if (parentStrategy == strategy) {
-            continue;
-        }
-
-        const auto numClusters = getOptimalNumClusters(parentOp, outType.getShape(), strategy);
-        if (!parentOp.checkStrategyCompatibility(strategy, checked_cast<size_t>(numClusters))) {
-            continue;
-        }
-
-        if ((strategy == VPU::MultiClusterStrategy::SplitOverHeight ||
-             strategy == VPU::MultiClusterStrategy::HKSwitch) &&
-            !parentOp.isOperationSplitOverHeightCompatible(TileInfo(ShapeRef()))) {
-            continue;
-        } else if (strategy == VPU::MultiClusterStrategy::SplitOverKernel &&
-                   !parentOp.isOperationSplitOverKernelCompatible(ShapeRef(), ShapeRef(), ShapeRef())) {
-            continue;
-        }
-
-        auto newOutType = getDistributedOutputTypeFromOp(parentOp, outType, numClusters, strategy);
-        if (newOutType == nullptr) {
-            continue;
-        }
-        auto newOutDataType = mlir::cast<VPU::DistributedTensorType>(newOutType.getDistributedTypes().front());
-        auto inferredOutType = inferDistributedTypeThroughViewOps(newOutDataType, parentOpInfo.viewOps);
-        if (inferredOutType == nullptr) {
-            continue;
-        }
-        if (areDistributionAttrsCompatible(inferredOutType, userInDataType, true).failed()) {
-            continue;
-        }
-        return strategy;
+    if (auto currentStrategy = llvm::find(potentialStrategies, parentStrategy);
+        currentStrategy != potentialStrategies.end()) {
+        potentialStrategies.erase(currentStrategy);
     }
-    return mlir::failure();
+
+    MultiClusterStrategyMap strategies(rollbackStrategy.begin(), rollbackStrategy.end());
+    if (!tryAdjustStrategy(parentOp, parentOpInfo, userOp, strategies, potentialStrategies)) {
+        return mlir::failure();
+    }
+    return strategies.at(parentOp);
 }
 
 SmallVector<VFSplit> GeneralMergeTilingPolicy::getSplits(DimArrRef dimsToCheck, DimArrRef allowedDims,

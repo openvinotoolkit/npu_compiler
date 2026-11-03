@@ -151,7 +151,7 @@ TEST_F(MLIR_TaskRangeTest, Empty) {
             DataInfo "output_0" : tensor<1x2x3x4xf16>
         }
         func.func @main(%arg0: memref<1x2x3x4xf16, @DDR>, %arg1: memref<1x2x3x4xf16, @DDR>) -> memref<1x2x3x4xf16, @DDR> {
-            %0 = VPUMI40XX.MappedInference dmaCount([[0, 0], [0, 0]]) invariantCount([0, 0, 0, 0, 0, 0]) variantCount([0, 0, 0, 0, 0, 0]) actKernelRangesCount([[0, 0], [0, 0], [0, 0], [0, 0], [0, 0], [0, 0]]) actKernelInvocationsCount([[0, 0], [0, 0], [0, 0], [0, 0], [0, 0], [0, 0]]) mediaCount(0) barrierCount(0) -> !VPURegMapped.Index<0:0:0>
+            %0 = VPUMI40XX.MappedInference dmaCount([[0, 0], [0, 0]]) invariantCount([0, 0, 0, 0, 0, 0]) variantCount([0, 0, 0, 0, 0, 0]) actKernelRangesCount([[0, 0], [0, 0], [0, 0], [0, 0], [0, 0], [0, 0]]) actKernelInvocationsCount([[0, 0], [0, 0], [0, 0], [0, 0], [0, 0], [0, 0]]) barrierCount(0) -> !VPURegMapped.Index<0:0:0>
             VPUMI40XX.OpRanges
         }
         }

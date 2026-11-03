@@ -7,9 +7,11 @@
 #include "vpux/compiler/dialect/IE/IR/ops/eltwise.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
 #include "vpux/compiler/dialect/IE/utils/shape_infer.hpp"
+#include "vpux/compiler/dialect/const/ops.hpp"
 #include "vpux/compiler/utils/error.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 #include "vpux/compiler/utils/walk_utils.hpp"
+#include "vpux/utils/core/type/float16.hpp"
 
 namespace vpux::IE {
 #define GEN_PASS_DECL_REASSOCIATEMULTIPLY
@@ -26,6 +28,19 @@ namespace {
 //                Multiply       1x1x1x1   =>   1x32x1024x1024       Multiply
 //                      \         /                          \       /
 //                        Multiply                            Multiply
+
+// Returns the splat value of a constant input, or nullopt when the input is not a splat constant.
+std::optional<double> getSplatConstValue(mlir::Value input) {
+    auto cstOp = input.getDefiningOp<Const::DeclareOp>();
+    if (cstOp == nullptr) {
+        return std::nullopt;
+    }
+    const auto content = cstOp.getContentAttr().fold();
+    if (!content.isSplat()) {
+        return std::nullopt;
+    }
+    return content.getSplatValue<double>();
+}
 
 class MultiplyRewriter final : public mlir::OpRewritePattern<IE::MultiplyOp> {
 public:
@@ -89,6 +104,21 @@ mlir::LogicalResult MultiplyRewriter::matchAndRewrite(IE::MultiplyOp origOp, mli
     auto producerOutput = producerMultiplyOp.getOutput();
     if (newMultiplyOutShape.totalSize() >= getBoundedShape(producerOutput).totalSize()) {
         return matchFailed(_log, rewriter, origOp, "new multiply output is too big");
+    }
+
+    // Reassociation fuses the two smaller-size inputs into a single Multiply (multiply1). When both are
+    // constants whose product exceeds the FP16 range, that fused scale overflows once materialized as f16
+    // (clamped to FP16 max), corrupting the result. HandleU16FakeQuantize deliberately splits such large
+    // scales into two Multiplies to keep each factor within FP16; do not undo that split here.
+    const auto middleConstVal = getSplatConstValue(middleSizeInput);
+    const auto smallestConstVal = getSplatConstValue(smallestSizeInput);
+    if (middleConstVal.has_value() && smallestConstVal.has_value()) {
+        const auto fusedScale = std::abs(middleConstVal.value() * smallestConstVal.value());
+        const double fp16Max = checked_cast<float>(std::numeric_limits<vpux::type::float16>::max());
+        if (fusedScale > fp16Max) {
+            return matchFailed(_log, rewriter, origOp,
+                               "reassociation would fuse two constants into a scale exceeding FP16 range");
+        }
     }
 
     auto multiply1Result = rewriter.createOrFold<IE::MultiplyOp>(

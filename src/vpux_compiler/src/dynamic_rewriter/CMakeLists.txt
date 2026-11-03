@@ -15,3 +15,5 @@ add_npu_library(npu_compiler_dynamic_rewriter
       PRIVATE
         npu_compiler_dialect_vpuip
 )
+enable_lto_if_possible(npu_compiler_dynamic_rewriter)
+

@@ -307,7 +307,7 @@ def SetupTaskDescriptorConstraints : PassBase<"setup-task-descriptor-constraints
 
     let description = [{
         Stores per-architecture task-descriptor binary sizes (DPU invariant/variant,
-        ActKernel invocation/range, DMA, M2I) as config::OptionOp entries in
+        ActKernel invocation/range, DMA) as config::OptionOp entries in
         PipelineOptionsOp. Called from each arch's VPUIP-to-VPUMI40XX conversion
         pipeline with arch-specific sizes computed from the platform register-descriptor
         layouts.
@@ -325,9 +325,7 @@ def SetupTaskDescriptorConstraints : PassBase<"setup-task-descriptor-constraints
         Option<"actKernelRangeSize", "act-kernel-range-size", "int64_t", "0",
                "Binary size of ActKernel range descriptor (bytes)">,
         Option<"dmaSize", "dma-size", "int64_t", "0",
-               "Binary size of DMA descriptor (bytes)">,
-        Option<"m2iSize", "m2i-size", "int64_t", "0",
-               "Binary size of M2I descriptor (bytes)">
+               "Binary size of DMA descriptor (bytes)">
     ];
 
 }

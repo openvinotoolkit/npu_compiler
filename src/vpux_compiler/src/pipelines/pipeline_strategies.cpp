@@ -75,7 +75,7 @@ void ReferenceSWStrategy::buildPipeline(mlir::OpPassManager& pm) {
 //
 
 void HostPipelineStrategy::buildPipeline(mlir::OpPassManager& pm) {
-    auto strategy = _createPipelineStrategy(config::CompilationMode::HostCompile);
+    auto strategy = _createPipelineStrategy(config::CompilationMode::HostCompile_Interpreter);
 
     strategy->initializePipeline(pm, _log);
 
@@ -144,8 +144,6 @@ std::unique_ptr<IFrontendPipelineStrategy> createPipelineFactory(config::Compila
         return std::make_unique<DefaultHwStrategy>(createPipelineStrategy, log);
     case config::CompilationMode::ReferenceSW:
         return std::make_unique<ReferenceSWStrategy>(createPipelineStrategy, log);
-    case config::CompilationMode::HostCompile:
-    case config::CompilationMode::HostCompile_JIT:
     case config::CompilationMode::HostCompile_Interpreter:
         return std::make_unique<HostPipelineStrategy>(createPipelineStrategy, log);
     default:

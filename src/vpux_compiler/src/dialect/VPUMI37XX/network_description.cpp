@@ -5,7 +5,7 @@
 
 #include <openvino/core/partial_shape.hpp>
 
-#include <intel_npu/prefix.hpp>
+#include "compatibility/prefix.hpp"
 
 #include <vpux_elf/accessor.hpp>
 #include <vpux_elf/reader.hpp>
@@ -132,27 +132,42 @@ std::vector<IODescriptor> convertIODescriptors(const std::vector<elf::TensorRef>
         convertedIODescriptor.nameFromCompiler = descriptorFromCompiler.name;
 
         // Flags will be used instead of indices for informing the type of the current entry
-        if (areInputs && intel_npu::isStateInputName(convertedIODescriptor.nameFromCompiler)) {
+        // Identify and strip the ReadValue state-input prefix.
+        if (areInputs && !convertedIODescriptor.nameFromCompiler.compare(0, intel_npu::READVALUE_PREFIX.length(),
+                                                                         intel_npu::READVALUE_PREFIX)) {
             convertedIODescriptor.nameFromCompiler =
                     convertedIODescriptor.nameFromCompiler.substr(intel_npu::READVALUE_PREFIX.length());
             convertedIODescriptor.isStateInput = true;
-        } else if (!areInputs && intel_npu::isStateOutputName(convertedIODescriptor.nameFromCompiler)) {
+            // Identify and strip the Assign state-output prefix.
+        } else if (!areInputs && !convertedIODescriptor.nameFromCompiler.compare(0, intel_npu::ASSIGN_PREFIX.length(),
+                                                                                 intel_npu::ASSIGN_PREFIX)) {
             convertedIODescriptor.nameFromCompiler =
                     convertedIODescriptor.nameFromCompiler.substr(intel_npu::ASSIGN_PREFIX.length());
             convertedIODescriptor.isStateOutput = true;
-        } else if (intel_npu::isShapeTensorName(convertedIODescriptor.nameFromCompiler)) {
+            // Identify and strip the shape-tensor prefix.
+        } else if (!convertedIODescriptor.nameFromCompiler.compare(0, intel_npu::SHAPE_TENSOR_PREFIX.length(),
+                                                                   intel_npu::SHAPE_TENSOR_PREFIX)) {
             convertedIODescriptor.nameFromCompiler =
                     convertedIODescriptor.nameFromCompiler.substr(intel_npu::SHAPE_TENSOR_PREFIX.length());
             convertedIODescriptor.isShapeTensor = true;
-        } else if (areInputs && intel_npu::isInitInputWeightsName(convertedIODescriptor.nameFromCompiler)) {
+            // Identify and strip the initialized input-weights prefix.
+        } else if (areInputs &&
+                   !convertedIODescriptor.nameFromCompiler.compare(0, intel_npu::INIT_INPUT_WEIGHTS_PREFIX.length(),
+                                                                   intel_npu::INIT_INPUT_WEIGHTS_PREFIX)) {
             convertedIODescriptor.nameFromCompiler =
                     convertedIODescriptor.nameFromCompiler.substr(intel_npu::INIT_INPUT_WEIGHTS_PREFIX.length());
             convertedIODescriptor.isInitInputWeights = true;
-        } else if (!areInputs && intel_npu::isInitOutputWeightsName(convertedIODescriptor.nameFromCompiler)) {
+            // Identify and strip the initialized output-weights prefix.
+        } else if (!areInputs &&
+                   !convertedIODescriptor.nameFromCompiler.compare(0, intel_npu::INIT_OUTPUT_WEIGHTS_PREFIX.length(),
+                                                                   intel_npu::INIT_OUTPUT_WEIGHTS_PREFIX)) {
             convertedIODescriptor.nameFromCompiler =
                     convertedIODescriptor.nameFromCompiler.substr(intel_npu::INIT_OUTPUT_WEIGHTS_PREFIX.length());
             convertedIODescriptor.isInitOutputWeights = true;
-        } else if (areInputs && intel_npu::isMainInputWeightsName(convertedIODescriptor.nameFromCompiler)) {
+            // Identify and strip the main input-weights prefix.
+        } else if (areInputs &&
+                   !convertedIODescriptor.nameFromCompiler.compare(0, intel_npu::MAIN_INPUT_WEIGHTS_PREFIX.length(),
+                                                                   intel_npu::MAIN_INPUT_WEIGHTS_PREFIX)) {
             convertedIODescriptor.nameFromCompiler =
                     convertedIODescriptor.nameFromCompiler.substr(intel_npu::MAIN_INPUT_WEIGHTS_PREFIX.length());
             convertedIODescriptor.isMainInputWeights = true;
@@ -290,25 +305,7 @@ NetworkMetadata vpux::VPUMI37XX::getHostCompileNetworkMetadata(mlir::ModuleOp mo
             VPUX_THROW("NetworkInfoOp is not found in the module");
         }
     } else {
-        auto name = mlir::StringRef(vpux::HostExec::HOST_EXEC_NETWORK_METADATA_NAME);
-        auto serializedMetadataGlobalOp = module.lookupSymbol<mlir::LLVM::GlobalOp>(name);
-        VPUX_THROW_UNLESS(serializedMetadataGlobalOp, "metadata is not found in blob");
-
-        mlir::Type globalType = serializedMetadataGlobalOp.getType();
-        auto arrayType = mlir::dyn_cast<mlir::LLVM::LLVMArrayType>(globalType);
-        VPUX_THROW_UNLESS(arrayType, "Invalid metadata type");
-        uint64_t metadataSize = arrayType.getNumElements();
-        auto valueAttr = serializedMetadataGlobalOp.getValueAttr();
-
-        if (auto stringAttr = mlir::dyn_cast_or_null<mlir::StringAttr>(valueAttr)) {
-            llvm::StringRef stringRef = stringAttr.getValue();
-            const char* dataPtr = stringRef.data();
-            metadata = elf::MetadataSerialization::deserialize(reinterpret_cast<const uint8_t*>(dataPtr), metadataSize);
-        }
-
-        VPUX_THROW_UNLESS(metadata, "metadata is not found in blob");
-
-        ::getNetworkMetadata(metadata, network);
+        VPUX_THROW("Unknown host compilation mode");
     }
 
     return network;

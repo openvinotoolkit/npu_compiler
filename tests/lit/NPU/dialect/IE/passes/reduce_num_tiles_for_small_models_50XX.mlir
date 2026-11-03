@@ -35,3 +35,4 @@ module @MatMulMultiplySoftMaxNumClustersReduced {
 
 // CHECK: config.Resources 1 of @NCE
 // CHECK: config.ExecutorResource 2 of @DMA_NN
+

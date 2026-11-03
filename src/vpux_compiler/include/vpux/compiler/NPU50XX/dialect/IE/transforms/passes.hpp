@@ -81,6 +81,8 @@ void buildLowPrecisionPipeline(mlir::OpPassManager& pm, const LowPrecisionOption
 void buildInitialLowPrecisionTransformationsPipeline(mlir::OpPassManager& pm,
                                                      const IE::LowPrecisionTransformOptions& options,
                                                      Logger log = Logger::global());
+void buildOperationConversionPipeline(mlir::OpPassManager& pm, const IE::OperationConversionOptions& options,
+                                      Logger log = Logger::global());
 void buildAttentionProcessingPipeline(mlir::OpPassManager& pm, const IE::AttentionProcessingOptions& options,
                                       Logger log = Logger::global());
 void buildConvertToEfficientOpsPipeline(mlir::OpPassManager& pm, const ConvertToEfficientOpsOptions& options,

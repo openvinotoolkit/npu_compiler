@@ -1040,7 +1040,7 @@ func.func @ReifyFqConvFqShape(%IN: tensor<1x16x32x?xf16, {bounds = #const.Opaque
     // CHECK-DAG: [[CST1:%.+]] = const.Declare tensor<1x1x1x1xf16> = dense<5.000000e+00>
 
     %FQ = IE.FakeQuantize(%IN, %CST0, %CST1, %CST0, %CST1)
-         {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i64}
+         {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256 : i64}
        : tensor<1x16x32x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 32, 64]> : tensor<4xsi64>, order = #NCHW}>,
          tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>
        -> tensor<1x16x32x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 32, 64]> : tensor<4xsi64>, order = #NCHW}>
@@ -1050,7 +1050,7 @@ func.func @ReifyFqConvFqShape(%IN: tensor<1x16x32x?xf16, {bounds = #const.Opaque
                 tensor<32x16x3x3xf16, {order = #NCHW}> -> tensor<1x32x32x?xf16, {bounds = #const.OpaqueI64Elements<[1, 32, 32, 64]> : tensor<4xsi64>, order = #NCHW}>
 
     %FQ1 = IE.FakeQuantize(%CONV, %CST0, %CST1, %CST0, %CST1)
-         {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i64}
+         {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256 : i64}
        : tensor<1x32x32x?xf16, {bounds = #const.OpaqueI64Elements<[1, 32, 32, 64]> : tensor<4xsi64>, order = #NCHW}>,
          tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>
        -> tensor<1x32x32x?xf16, {bounds = #const.OpaqueI64Elements<[1, 32, 32, 64]> : tensor<4xsi64>, order = #NCHW}>
@@ -1192,6 +1192,7 @@ func.func @ReifyInterpolateDynamicScalesShape(%IN: !InterpInType, %SCALES: tenso
     %IDX_3 = arith.constant 3 : index
     // CHECK: [[CST_W:%.+]] = arith.constant 6.000000e+00 : f64
     // CHECK: [[C1:%.+]] = arith.constant 1 : index
+    // CHECK: [[EPSILON:%.+]] = arith.constant 9.9999999999999995E-7 : f64
     // CHECK: [[CST_H:%.+]] = arith.constant 4.000000e+00 : f64
     // CHECK: [[C0:%.+]] = arith.constant 0 : index
 
@@ -1207,12 +1208,14 @@ func.func @ReifyInterpolateDynamicScalesShape(%IN: !InterpInType, %SCALES: tenso
     %DIM_2 = tensor.dim %INTERP, %IDX_2 : !InterpOutType
     %DIM_3 = tensor.dim %INTERP, %IDX_3 : !InterpOutType
     // CHECK: [[SCALE_H:%.+]] = tensor.extract [[ARG1]]{{\[}}[[C0]]{{\]}} : tensor<2xf32>
-    // CHECK: [[SCALE_H_F64:%.+]] = arith.extf [[SCALE_H]] : f32 to f64
+    // CHECK: [[SCALE_H_TMP:%.+]] = arith.extf [[SCALE_H]] : f32 to f64
+    // CHECK: [[SCALE_H_F64:%.+]] = arith.addf [[SCALE_H_TMP]], [[EPSILON]] : f64
     // CHECK: [[H_MUL:%.+]] = arith.mulf [[SCALE_H_F64]], [[CST_H]] : f64
     // CHECK: [[H_I64:%.+]] = arith.fptosi [[H_MUL]] : f64 to i64
     // CHECK: [[DIM_2_REIFIED:%.+]] = arith.index_cast [[H_I64]] : i64 to index
     // CHECK: [[SCALE_W:%.+]] = tensor.extract [[ARG1]]{{\[}}[[C1]]{{\]}} : tensor<2xf32>
-    // CHECK: [[SCALE_W_F64:%.+]] = arith.extf [[SCALE_W]] : f32 to f64
+    // CHECK: [[SCALE_W_TMP:%.+]] = arith.extf [[SCALE_W]] : f32 to f64
+    // CHECK: [[SCALE_W_F64:%.+]] = arith.addf [[SCALE_W_TMP]], [[EPSILON]] : f64
     // CHECK: [[W_MUL:%.+]] = arith.mulf [[SCALE_W_F64]], [[CST_W]] : f64
     // CHECK: [[W_I64:%.+]] = arith.fptosi [[W_MUL]] : f64 to i64
     // CHECK: [[DIM_3_REIFIED:%.+]] = arith.index_cast [[W_I64]] : i64 to index
@@ -1239,6 +1242,7 @@ func.func @ReifyInterpolateScalesWrappedInConvert(%IN: !InterpInConvType, %SCALE
     %IDX_3 = arith.constant 3 : index
     // CHECK: [[CST_W:%.+]] = arith.constant 6.000000e+00 : f64
     // CHECK: [[C1:%.+]] = arith.constant 1 : index
+    // CHECK: [[EPSILON:%.+]] = arith.constant 9.9999999999999995E-7 : f64
     // CHECK: [[CST_H:%.+]] = arith.constant 4.000000e+00 : f64
     // CHECK: [[C0:%.+]] = arith.constant 0 : index
 
@@ -1258,12 +1262,14 @@ func.func @ReifyInterpolateScalesWrappedInConvert(%IN: !InterpInConvType, %SCALE
     %DIM_3 = tensor.dim %INTERP, %IDX_3 : !InterpOutConvType
     // Scales must be extracted from the original f16 arg, not from the IE.Convert output.
     // CHECK: [[SCALE_H:%.+]] = tensor.extract [[ARG1]]{{\[}}[[C0]]{{\]}} : tensor<2xf16>
-    // CHECK: [[SCALE_H_F64:%.+]] = arith.extf [[SCALE_H]] : f16 to f64
+    // CHECK: [[SCALE_H_TMP:%.+]] = arith.extf [[SCALE_H]] : f16 to f64
+    // CHECK: [[SCALE_H_F64:%.+]] = arith.addf [[SCALE_H_TMP]], [[EPSILON]] : f64
     // CHECK: [[H_MUL:%.+]] = arith.mulf [[SCALE_H_F64]], [[CST_H]] : f64
     // CHECK: [[H_I64:%.+]] = arith.fptosi [[H_MUL]] : f64 to i64
     // CHECK: [[DIM_2_REIFIED:%.+]] = arith.index_cast [[H_I64]] : i64 to index
     // CHECK: [[SCALE_W:%.+]] = tensor.extract [[ARG1]]{{\[}}[[C1]]{{\]}} : tensor<2xf16>
-    // CHECK: [[SCALE_W_F64:%.+]] = arith.extf [[SCALE_W]] : f16 to f64
+    // CHECK: [[SCALE_W_TMP:%.+]] = arith.extf [[SCALE_W]] : f16 to f64
+    // CHECK: [[SCALE_W_F64:%.+]] = arith.addf [[SCALE_W_TMP]], [[EPSILON]] : f64
     // CHECK: [[W_MUL:%.+]] = arith.mulf [[SCALE_W_F64]], [[CST_W]] : f64
     // CHECK: [[W_I64:%.+]] = arith.fptosi [[W_MUL]] : f64 to i64
     // CHECK: [[DIM_3_REIFIED:%.+]] = arith.index_cast [[W_I64]] : i64 to index
@@ -1289,6 +1295,7 @@ func.func @ReifyInterpolateScalesNoAxesAttr(%IN: !InterpInNoAxesType, %SCALES: t
     %IDX_3 = arith.constant 3 : index
     // CHECK: [[CST_W:%.+]] = arith.constant 6.000000e+00 : f64
     // CHECK: [[C3:%.+]] = arith.constant 3 : index
+    // CHECK: [[EPSILON:%.+]] = arith.constant 9.9999999999999995E-7 : f64
     // CHECK: [[CST_H:%.+]] = arith.constant 4.000000e+00 : f64
     // CHECK: [[C2:%.+]] = arith.constant 2 : index
 
@@ -1303,12 +1310,14 @@ func.func @ReifyInterpolateScalesNoAxesAttr(%IN: !InterpInNoAxesType, %SCALES: t
     %DIM_2 = tensor.dim %INTERP, %IDX_2 : !InterpOutNoAxesType
     %DIM_3 = tensor.dim %INTERP, %IDX_3 : !InterpOutNoAxesType
     // CHECK: [[SCALE_H:%.+]] = tensor.extract [[ARG1]]{{\[}}[[C2]]{{\]}} : tensor<4xf32>
-    // CHECK: [[SCALE_H_F64:%.+]] = arith.extf [[SCALE_H]] : f32 to f64
+    // CHECK: [[SCALE_H_TMP:%.+]] = arith.extf [[SCALE_H]] : f32 to f64
+    // CHECK: [[SCALE_H_F64:%.+]] = arith.addf [[SCALE_H_TMP]], [[EPSILON]] : f64
     // CHECK: [[H_MUL:%.+]] = arith.mulf [[SCALE_H_F64]], [[CST_H]] : f64
     // CHECK: [[H_I64:%.+]] = arith.fptosi [[H_MUL]] : f64 to i64
     // CHECK: [[DIM_2_REIFIED:%.+]] = arith.index_cast [[H_I64]] : i64 to index
     // CHECK: [[SCALE_W:%.+]] = tensor.extract [[ARG1]]{{\[}}[[C3]]{{\]}} : tensor<4xf32>
-    // CHECK: [[SCALE_W_F64:%.+]] = arith.extf [[SCALE_W]] : f32 to f64
+    // CHECK: [[SCALE_W_TMP:%.+]] = arith.extf [[SCALE_W]] : f32 to f64
+    // CHECK: [[SCALE_W_F64:%.+]] = arith.addf [[SCALE_W_TMP]], [[EPSILON]] : f64
     // CHECK: [[W_MUL:%.+]] = arith.mulf [[SCALE_W_F64]], [[CST_W]] : f64
     // CHECK: [[W_I64:%.+]] = arith.fptosi [[W_MUL]] : f64 to i64
     // CHECK: [[DIM_3_REIFIED:%.+]] = arith.index_cast [[W_I64]] : i64 to index
@@ -1321,13 +1330,13 @@ func.func @ReifyInterpolateScalesNoAxesAttr(%IN: !InterpInNoAxesType, %SCALES: t
 
 #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
 
-!In0Type = tensor<1x?x?x1xf16, {bounds = #const.OpaqueI64Elements<[1, 512, 512, 1]> : tensor<4xsi64>, order = #NCHW}>
-!In1Type = tensor<1x?x?x2xf16, {bounds = #const.OpaqueI64Elements<[1, 256, 256, 2]> : tensor<4xsi64>, order = #NCHW}>
-!OutType = tensor<1x?x?x3xf16, {bounds = #const.OpaqueI64Elements<[1, 512, 512, 3]> : tensor<4xsi64>, order = #NCHW}>
+!In0Type = tensor<1x1x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 1, 512, 512]> : tensor<4xsi64>, order = #NCHW}>
+!In1Type = tensor<1x2x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 2, 256, 256]> : tensor<4xsi64>, order = #NCHW}>
+!OutType = tensor<1x3x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 3, 512, 512]> : tensor<4xsi64>, order = #NCHW}>
 
 // CHECK-LABEL: @ReifyYuvToRgbShape
-// CHECK-SAME:  [[ARG_0:%[^:]+]]: tensor<1x?x?x1xf16, {bounds = #const.OpaqueI64Elements<[1, 512, 512, 1]> : tensor<4xsi64>, order = #NCHW}>,
-// CHECK-SAME:  [[ARG_1:%[^:]+]]: tensor<1x?x?x2xf16, {bounds = #const.OpaqueI64Elements<[1, 256, 256, 2]> : tensor<4xsi64>, order = #NCHW}>
+// CHECK-SAME:  [[ARG_0:%[^:]+]]: tensor<1x1x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 1, 512, 512]> : tensor<4xsi64>, order = #NCHW}>,
+// CHECK-SAME:  [[ARG_1:%[^:]+]]: tensor<1x2x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 2, 256, 256]> : tensor<4xsi64>, order = #NCHW}>
 func.func @ReifyYuvToRgbShape(%arg0: !In0Type, %arg1: !In1Type) -> (!OutType, tensor<4xi64>) {
     %0 = IE.YuvToRgb(%arg0, %arg1) {inFmt = #IE.color_fmt<NV12>, operandSegmentSizes = array<i32: 1, 1, 0>, outFmt = #IE.color_fmt<RGB>} : !In0Type, !In1Type -> !OutType
     // CHECK-DAG:       [[RESULT:%.+]] = IE.YuvToRgb([[ARG_0]], [[ARG_1]]) {inFmt = #IE.color_fmt<NV12>, operandSegmentSizes = array<i32: 1, 1, 0>, outFmt = #IE.color_fmt<RGB>}
@@ -1340,21 +1349,21 @@ func.func @ReifyYuvToRgbShape(%arg0: !In0Type, %arg1: !In1Type) -> (!OutType, te
     %c1 = arith.constant 1 : index
     %dim_0 = tensor.dim %0, %c1 : !OutType
     %2 = arith.index_cast %dim_0 : index to i64
-    // CHECK-DAG:       [[INDEX_1:%.+]] = arith.constant 1 : index
-    // CHECK-DAG:       [[DIM_VALUE_1:%.+]] = tensor.dim [[ARG_0]], [[INDEX_1]] : tensor<1x?x?x1xf16, {bounds = #const.OpaqueI64Elements<[1, 512, 512, 1]> : tensor<4xsi64>, order = #NCHW}>
-    // CHECK-DAG:       [[DIM_1:%.+]] = arith.index_cast [[DIM_VALUE_1]] : index to i64
+    // CHECK-DAG:       [[DIM_1:%.+]] = arith.constant 3 : i64
 
     %c2 = arith.constant 2 : index
     %dim_1 = tensor.dim %0, %c2 : !OutType
     %3 = arith.index_cast %dim_1 : index to i64
     // CHECK-DAG:       [[INDEX_2:%.+]] = arith.constant 2 : index
-    // CHECK-DAG:       [[DIM_VALUE_2:%.+]] = tensor.dim [[ARG_0]], [[INDEX_2]] : tensor<1x?x?x1xf16, {bounds = #const.OpaqueI64Elements<[1, 512, 512, 1]> : tensor<4xsi64>, order = #NCHW}>
+    // CHECK-DAG:       [[DIM_VALUE_2:%.+]] = tensor.dim [[ARG_0]], [[INDEX_2]] : tensor<1x1x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 1, 512, 512]> : tensor<4xsi64>, order = #NCHW}>
     // CHECK-DAG:       [[DIM_2:%.+]] = arith.index_cast [[DIM_VALUE_2]] : index to i64
 
     %c3 = arith.constant 3 : index
     %dim_2 = tensor.dim %0, %c3 : !OutType
     %4 = arith.index_cast %dim_2 : index to i64
-    // CHECK-DAG:       [[DIM_3:%.+]] = arith.constant 3 : i64
+    // CHECK-DAG:       [[INDEX_3:%.+]] = arith.constant 3 : index
+    // CHECK-DAG:       [[DIM_VALUE_3:%.+]] = tensor.dim [[ARG_0]], [[INDEX_3]] : tensor<1x1x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 1, 512, 512]> : tensor<4xsi64>, order = #NCHW}>
+    // CHECK-DAG:       [[DIM_3:%.+]] = arith.index_cast [[DIM_VALUE_3]] : index to i64
 
     %from_elements = tensor.from_elements %1, %2, %3, %4 : tensor<4xi64>
     // CHECK-DAG:       [[OUT_SHAPE:%.+]] = tensor.from_elements [[DIM_0]], [[DIM_1]], [[DIM_2]], [[DIM_3]] : tensor<4xi64>
@@ -1378,7 +1387,7 @@ func.func @ReifyAttentionDMADynSSL(%Q: !QType, %K: !KType, %V: !VType) -> (!OutT
     %IDX_2 = arith.constant 2 : index
     // CHECK: [[IDX_2:%.+]] = arith.constant 2 : index
 
-    %ATTN = IE.AttentionDMA(%Q, %K, %V) {operandSegmentSizes = array<i32: 1, 1, 1, 0, 0, 0, 0, 0, 0, 0>} : !QType, !KType, !VType -> !OutType_Attn
+    %ATTN = IE.AttentionDMA(%Q, %K, %V) {operandSegmentSizes = array<i32: 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0>} : !QType, !KType, !VType -> !OutType_Attn
     // CHECK: [[ATTN:%.+]] = IE.AttentionDMA
 
     %DIM_2 = tensor.dim %ATTN, %IDX_2 : !OutType_Attn
@@ -1428,4 +1437,117 @@ func.func @ReifyShapeOfShape(%arg0: !BoundedType) -> (tensor<4xsi32>, index) {
     %dim = tensor.dim %shapeof, %c0 : tensor<4xsi32>
     return %shapeof, %dim : tensor<4xsi32>, index
     // CHECK: return [[SHAPE]], [[DIM]]
+}
+
+// -----
+
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+
+!BoundedType = tensor<1x16x32x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 32, 64]> : tensor<4xsi64>, order = #NCHW}>
+
+// CHECK-LABEL: @ReifyGeluShape
+func.func @ReifyGeluShape(%IN: !BoundedType) -> (!BoundedType, index) {
+    // CHECK: [[IN:%.+]]: tensor<1x16x32x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 32, 64]> : tensor<4xsi64>, order = #NCHW}>
+    %IDX_3 = arith.constant 3 : index
+    // CHECK: [[IDX_3:%.+]] = arith.constant 3 : index
+
+    %GELU = IE.Gelu(%IN) : !BoundedType -> !BoundedType
+    // CHECK: [[GELU:%.+]] = IE.Gelu([[IN]])
+
+    %DIM_3 = tensor.dim %GELU, %IDX_3 : !BoundedType
+    // CHECK: [[DIM_3:%.+]] = tensor.dim [[IN]], [[IDX_3]]
+
+    return %GELU, %DIM_3 : !BoundedType, index
+    // CHECK: return [[GELU]], [[DIM_3]]
+}
+
+// -----
+
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+
+!BoundedType = tensor<1x16x32x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 32, 64]> : tensor<4xsi64>, order = #NCHW}>
+
+// CHECK-LABEL: @ReifySigmoidShape
+func.func @ReifySigmoidShape(%IN: !BoundedType) -> (!BoundedType, index) {
+    // CHECK: [[IN:%.+]]: tensor<1x16x32x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 32, 64]> : tensor<4xsi64>, order = #NCHW}>
+    %IDX_3 = arith.constant 3 : index
+    // CHECK: [[IDX_3:%.+]] = arith.constant 3 : index
+
+    %SIGMOID = IE.Sigmoid(%IN) : !BoundedType -> !BoundedType
+    // CHECK: [[SIGMOID:%.+]] = IE.Sigmoid([[IN]])
+
+    %DIM_3 = tensor.dim %SIGMOID, %IDX_3 : !BoundedType
+    // CHECK: [[DIM_3:%.+]] = tensor.dim [[IN]], [[IDX_3]]
+
+    return %SIGMOID, %DIM_3 : !BoundedType, index
+    // CHECK: return [[SIGMOID]], [[DIM_3]]
+}
+
+// -----
+
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+
+!BoundedType = tensor<1x16x32x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 32, 64]> : tensor<4xsi64>, order = #NCHW}>
+
+// CHECK-LABEL: @ReifyHardSigmoidShape
+func.func @ReifyHardSigmoidShape(%IN: !BoundedType) -> (!BoundedType, index) {
+    // CHECK: [[IN:%.+]]: tensor<1x16x32x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 32, 64]> : tensor<4xsi64>, order = #NCHW}>
+    %IDX_3 = arith.constant 3 : index
+    // CHECK: [[IDX_3:%.+]] = arith.constant 3 : index
+
+    %HSIG = IE.HardSigmoid(%IN) {alpha_value = 2.000000e-01 : f64, beta_value = 5.000000e-01 : f64, operandSegmentSizes = array<i32: 1, 0, 0>} :
+        !BoundedType -> !BoundedType
+    // CHECK: [[HSIG:%.+]] = IE.HardSigmoid([[IN]])
+
+    %DIM_3 = tensor.dim %HSIG, %IDX_3 : !BoundedType
+    // CHECK: [[DIM_3:%.+]] = tensor.dim [[IN]], [[IDX_3]]
+
+    return %HSIG, %DIM_3 : !BoundedType, index
+    // CHECK: return [[HSIG]], [[DIM_3]]
+}
+
+// -----
+
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+
+!InType = tensor<1x160x?xf32, {bounds = #const.OpaqueI64Elements<[1, 160, 64]> : tensor<3xsi64>, order = affine_map<(d0, d1, d2) -> (d0, d1, d2)>}>
+!OutType = tensor<1x160x1x?xf32, {bounds = #const.OpaqueI64Elements<[1, 160, 1, 64]> : tensor<4xsi64>, order = #NCHW}>
+
+// CHECK-LABEL: @ReifyUnsqueezeShape
+func.func @ReifyUnsqueezeShape(%IN: !InType) -> (!OutType, index) {
+    // CHECK: [[IN:%.+]]: tensor<1x160x?xf32
+    %IDX_3 = arith.constant 3 : index
+
+    // Insert a trivial dim at output axis 2. Output rank is 4, input rank is 3.
+    // Dynamic output dim 3 must reify to `tensor.dim %IN, 2` on the input.
+    %UNSQ = IE.Unsqueeze(%IN) {axes_value = [2]} : !InType -> !OutType
+    // CHECK-DAG: [[IDX_IN:%.+]] = arith.constant 2 : index
+    // CHECK-DAG: [[UNSQ:%.+]] = IE.Unsqueeze([[IN]])
+
+    %DIM_3 = tensor.dim %UNSQ, %IDX_3 : !OutType
+    // CHECK: [[DIM_3:%.+]] = tensor.dim [[IN]], [[IDX_IN]]
+
+    return %UNSQ, %DIM_3 : !OutType, index
+    // CHECK: return [[UNSQ]], [[DIM_3]]
+}
+
+// -----
+
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+!InType = tensor<1x160x?xf32, {bounds = #const.OpaqueI64Elements<[1, 160, 64]> : tensor<3xsi64>, order = affine_map<(d0, d1, d2) -> (d0, d1, d2)>}>
+!OutType = tensor<1x160x?x1xf32, {bounds = #const.OpaqueI64Elements<[1, 160, 64, 1]> : tensor<4xsi64>, order = #NCHW}>
+
+// CHECK-LABEL: @ReifyUnsqueezeNegativeAxis
+func.func @ReifyUnsqueezeNegativeAxis(%IN: !InType) -> (!OutType, index) {
+    %IDX_2 = arith.constant 2 : index
+    %UNSQ = IE.Unsqueeze(%IN) {axes_value = [-1]} : !InType -> !OutType
+    %DIM_2 = tensor.dim %UNSQ, %IDX_2 : !OutType
+
+    return %UNSQ, %DIM_2 : !OutType, index
+
+    // CHECK: [[IN:%.+]]: tensor<1x160x?xf32
+    // CHECK: [[IDX_2:%.+]] = arith.constant 2 : index
+    // CHECK: [[UNSQ:%.+]] = IE.Unsqueeze([[IN]]) {axes_value = [-1]}
+    // CHECK: [[DIM_2:%.+]] = tensor.dim [[IN]], [[IDX_2]]
+    // CHECK: return [[UNSQ]], [[DIM_2]]
 }

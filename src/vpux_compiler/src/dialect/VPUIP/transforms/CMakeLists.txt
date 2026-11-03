@@ -23,7 +23,6 @@ add_npu_library(${TARGET_NAME}
         npu_compiler_utils
         npu_profiling_utils
         npu_elf
-        openvino::npu_al
         npu_compiler_dialect_elf_utils
         npu_compiler_dialect_config
         npu_compiler_dialect_core
@@ -40,5 +39,7 @@ add_npu_library(${TARGET_NAME}
         npu_compiler_dialect_vpurt_utils
         npu_core_utils
 )
+enable_lto_if_possible(${TARGET_NAME})
+
 
 ov_add_version_defines(${VPUX_COMPILER_VERSION_FILE} ${TARGET_NAME})

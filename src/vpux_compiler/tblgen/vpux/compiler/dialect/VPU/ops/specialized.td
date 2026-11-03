@@ -6,6 +6,7 @@
 #ifndef VPUX_COMPILER_DIALECT_VPU_OPS_SPECIALIZED
 #define VPUX_COMPILER_DIALECT_VPU_OPS_SPECIALIZED
 
+include "vpux/compiler/dialect/core/ops_interfaces.td"
 include "vpux/compiler/dialect/core/types.td"
 include "vpux/compiler/dialect/VPU/ops/base.td"
 include "vpux/compiler/dialect/VPU/attributes.td"
@@ -569,15 +570,25 @@ def VPU_AttentionDMAOp :
             "AttentionDMA",
             [
                 AttrSizedOperandSegments,
+                SameVariadicResultSize,
                 DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface, ["reifyResultShapes"]>
             ]
         > {
     let summary = "Attention VPU layer with DMA support";
 
+    let description = [{
+        `pastK`/`pastV` carry the sliding-window KV cache the kernel updates in place. When they are
+        provided, the updated caches are returned as the extra `presentK`/`presentV` results, which
+        keep the shape and element type of the corresponding `pastK`/`pastV` operand. Both cache
+        operands and both cache results are always present or absent together.
+    }];
+
     let arguments = (ins
         RankedTensorOf<[F16, F32]>:$inputQ,
         RankedTensorOf<[F16, F32, SI8]>:$inputK,
         RankedTensorOf<[F16, F32, SI8]>:$inputV,
+        Optional<RankedTensorOf<[F16, F32, SI8]>>:$pastK,
+        Optional<RankedTensorOf<[F16, F32, SI8]>>:$pastV,
         Optional<RankedTensorOf<[F16, F32, Bool8]>>:$inputMask,
         Optional<RankedTensorOf<[F16, F32]>>:$inputScale,
         Optional<RankedTensorOf<[F16, F32]>>:$inputSink,
@@ -589,15 +600,19 @@ def VPU_AttentionDMAOp :
         OptionalAttr<IntAttr>:$padSizeS,
         OptionalAttr<IntAttr>:$localWindowSize,
         UnitAttr:$smoothSoftmax,
+        UnitAttr:$slidingWindowCache,
+        UnitAttr:$vTransposed,
         OptionalAttr<VPU_MultiClusterStrategyAttr>:$multiClusterStrategy
     );
 
     let results = (outs
-        RankedTensorOf<[F16, F32]>:$output
+        RankedTensorOf<[F16, F32]>:$output,
+        Optional<RankedTensorOf<[F16, F32, SI8]>>:$presentK,
+        Optional<RankedTensorOf<[F16, F32, SI8]>>:$presentV
     );
 
     let extraClassDeclaration = [{
-        static bool fitsForNonFlashKernel(vpux::VPU::AttentionDMAOp origOp);
+        static bool fitsAndLegalForNonFlashKernel(vpux::VPU::AttentionDMAOp origOp);
         bool fitIntoCMX(::llvm::ArrayRef<vpux::NDTypeInterface> buffers, Byte reservedMem);
         bool fitIntoCMX(::llvm::ArrayRef<vpux::NDTypeInterface> buffers);
     }] # baseExtraClassDeclaration;
@@ -607,6 +622,8 @@ def VPU_AttentionDMAOp :
             "::mlir::Value":$inputQ,
             "::mlir::Value":$inputK,
             "::mlir::Value":$inputV,
+            "::mlir::Value":$pastK,
+            "::mlir::Value":$pastV,
             "::mlir::Value":$inputMask,
             "::mlir::Value":$inputScale,
             "::mlir::Value":$inputSink,
@@ -616,7 +633,9 @@ def VPU_AttentionDMAOp :
             "::mlir::Value":$v_scale,
             "::mlir::IntegerAttr":$padSizeS,
             "::mlir::IntegerAttr":$localWindowSize,
-            "::mlir::UnitAttr":$smoothSoftmax
+            "::mlir::UnitAttr":$smoothSoftmax,
+            "::mlir::UnitAttr":$slidingWindowCache,
+            "::mlir::UnitAttr":$vTransposed
         )>
     ];
 }
@@ -752,12 +771,17 @@ def VPU_NonZeroOp :
 
 def VPU_OneHotOp :
         VPU_LayerOp<
-            "OneHot"
+            "OneHot",
+            [
+                DeclareOpInterfaceMethods<VPU_TilingBuilderOpInterface, ["getMaxNumTiles"]>,
+                DeclareOpInterfaceMethods<VPU_SWOpInterface>,
+                DeclareOpInterfaceMethods<VPU_ClusteredOpInterface>
+            ]
         > {
     let summary = "InferenceEngine OneHot layer";
 
     let arguments = (ins
-        RankedTensorOf<[SI32, SI64]> :$input,
+        AnyTypeOf<[RankedTensorOf<[SI32, SI64]>, VPU_DistributedTensor]> :$input,
 
         IntAttr:$depth,
         F64Attr:$on_value,
@@ -766,12 +790,31 @@ def VPU_OneHotOp :
         IE_OneHotModeAttr:$mode,
         OptionalAttr<BoolAttr>:$rank_expanded,
 
-        TypeAttr:$outputType
+        TypeAttr:$outputType,
+        OptionalAttr<VPU_MultiClusterStrategyAttr>:$multiClusterStrategy
     );
 
     let results = (outs
-        AnyRankedTensor:$output
+        AnyTypeOf<[AnyRankedTensor, VPU_DistributedTensor]>:$output
     );
+
+    let builders = [
+        OpBuilder<(ins
+            "mlir::Value":$input,
+            "mlir::IntegerAttr":$depth,
+            "mlir::FloatAttr":$onValue,
+            "mlir::FloatAttr":$offValue,
+            "mlir::IntegerAttr":$axis,
+            "IE::OneHotModeAttr":$mode,
+            "mlir::BoolAttr":$rankExpanded,
+            "mlir::TypeAttr":$outputType
+        )>
+    ];
+
+    let extraClassDeclaration = [{
+        bool fitIntoCMX(::llvm::ArrayRef<vpux::NDTypeInterface> buffers, Byte reservedMem);
+        bool fitIntoCMX(::llvm::ArrayRef<vpux::NDTypeInterface> buffers);
+    }];
 }
 
 
@@ -1112,7 +1155,8 @@ def VPU_PermuteCastOp :
                 VPU_ViewLikeOpInterface,
                 DeclareOpInterfaceMethods<VPU_DistributedCastOpInterface>,
                 DeclareOpInterfaceMethods<VPU_TilingViewLikeOpInterface>,
-                DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface, ["reifyResultShapes"]>
+                DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface, ["reifyResultShapes"]>,
+                DeclareOpInterfaceMethods<StaticShapeOpInterface>
             ]
         > {
     let summary = "PermuteCast VPU layer";
@@ -1129,6 +1173,7 @@ def VPU_PermuteCastOp :
         mlir::FailureOr<mlir::SmallVector<int64_t>> inferTilingStrategy(mlir::ArrayRef<int64_t> inputTilingStrategy);
         SmallVector<int64_t> backInferTilingStrategy(mlir::ArrayRef<int64_t> outputTilingStrategy);
         vpux::Dim backInferTilingDim(vpux::Dim outputDim);
+        mlir::SmallVector<vpux::Dim> inferTilingDim(vpux::Dim inputDim);
     }] # baseExtraClassDeclaration;
 
     let arguments = (ins

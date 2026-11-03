@@ -71,6 +71,36 @@ func.func @UseGroupQuantCorrectionWithF32Scale(%activation: tensor<1x1x512xf32>,
 
 // -----
 
+#transposeWeights = affine_map<(d0, d1, d2) -> (d1, d0, d2)>
+
+// CHECK-LABEL: @DoNotUseGroupQuantCorrectionForPrefill
+func.func @DoNotUseGroupQuantCorrectionForPrefill(%activation: tensor<1x16x512xf16>,
+                                                  %weights: tensor<8x96x64xui2>,
+                                                  %scale: tensor<8x96xf16>,
+                                                  %zeroPoint: tensor<8x96x1xui2>) -> tensor<1x16x96xf16> {
+    %weightsF16 = IE.Convert(%weights) {dstElemType = f16} : tensor<8x96x64xui2> -> tensor<8x96x64xf16>
+    %zeroPointF16 = IE.Convert(%zeroPoint) {dstElemType = f16} : tensor<8x96x1xui2> -> tensor<8x96x1xf16>
+    %weightsSub = IE.Subtract(%weightsF16, %zeroPointF16) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>}
+        : tensor<8x96x64xf16>, tensor<8x96x1xf16> -> tensor<8x96x64xf16>
+    %scaleReshape = IE.AffineReshape(%scale) {dim_mapping = [[0], [1, 2]], shape_value = [8, 96, 1]}
+        : tensor<8x96xf16> -> tensor<8x96x1xf16>
+    %weightsDequant = IE.Multiply(%weightsSub, %scaleReshape) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>}
+        : tensor<8x96x64xf16>, tensor<8x96x1xf16> -> tensor<8x96x64xf16>
+    %weightsTranspose = IE.Transpose(%weightsDequant) {order_value = #transposeWeights}
+        : tensor<8x96x64xf16> -> tensor<96x8x64xf16>
+    %weightsReshape = IE.AffineReshape(%weightsTranspose) {
+        dim_mapping = [[0], [1], [1]], shape_value = [96, 512]
+    } : tensor<96x8x64xf16> -> tensor<96x512xf16>
+    %matmul = IE.MatMul(%activation, %weightsReshape) {transpose_b}
+        : tensor<1x16x512xf16>, tensor<96x512xf16> -> tensor<1x16x96xf16>
+    return %matmul : tensor<1x16x96xf16>
+
+    // CHECK-NOT: IE.GroupQuantCorrection
+    // CHECK:     return
+}
+
+// -----
+
 #transposeWeights = affine_map<(d0, d1, d2) -> (d0, d2, d1)>
 
 // CHECK-LABEL: @DoNotUseGroupQuantCorrectionForUnsupportedGroupSize

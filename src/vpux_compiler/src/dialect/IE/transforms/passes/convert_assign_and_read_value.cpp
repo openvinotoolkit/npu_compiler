@@ -14,7 +14,7 @@
 
 #include <mlir/Transforms/DialectConversion.h>
 
-#include <intel_npu/prefix.hpp>
+#include "compatibility/prefix.hpp"
 
 namespace vpux::IE {
 #define GEN_PASS_DECL_CONVERTASSIGNREADVALUETORETURNSANDINPUTS

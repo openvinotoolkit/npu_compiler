@@ -10,7 +10,7 @@
 #include <cstdlib>
 #include <stdexcept>
 
-using intel_npu::envVarStrToBool;
+using vpux::OV::envVarStrToBool;
 
 namespace test_utils {
 // Default set to 'NPU' Plugin, but can be overwritten via CLI argument. Example: -d IMD
@@ -29,16 +29,8 @@ VpuTestEnvConfig::VpuTestEnvConfig() {
         IE_NPU_TESTS_DUMP_PATH = var;
     }
 
-    if (auto var = std::getenv("IE_KMB_TESTS_RUN_COMPILER")) {
-        IE_NPU_TESTS_RUN_COMPILER = envVarStrToBool("IE_KMB_TESTS_RUN_COMPILER", var);
-    }
-
     if (auto var = std::getenv("IE_KMB_TESTS_RUN_EXPORT")) {
         IE_NPU_TESTS_RUN_EXPORT = envVarStrToBool("IE_KMB_TESTS_RUN_EXPORT", var);
-    }
-
-    if (auto var = std::getenv("IE_KMB_TESTS_RUN_INFER")) {
-        IE_NPU_TESTS_RUN_INFER = envVarStrToBool("IE_KMB_TESTS_RUN_INFER", var);
     }
 
     if (auto var = std::getenv("IE_KMB_TESTS_EXPORT_INPUT")) {
@@ -78,16 +70,16 @@ VpuTestEnvConfig::VpuTestEnvConfig() {
         IE_NPU_TESTS_DUMP_PATH = var;
     }
 
-    if (auto var = std::getenv("IE_NPU_TESTS_RUN_COMPILER")) {
-        IE_NPU_TESTS_RUN_COMPILER = envVarStrToBool("IE_NPU_TESTS_RUN_COMPILER", var);
-    }
-
     if (auto var = std::getenv("IE_NPU_TESTS_RUN_EXPORT")) {
         IE_NPU_TESTS_RUN_EXPORT = envVarStrToBool("IE_NPU_TESTS_RUN_EXPORT", var);
     }
 
-    if (auto var = std::getenv("IE_NPU_TESTS_RUN_INFER")) {
-        IE_NPU_TESTS_RUN_INFER = envVarStrToBool("IE_NPU_TESTS_RUN_INFER", var);
+    if (auto var = std::getenv("IE_NPU_COMPILE_ONLY")) {
+        IE_NPU_COMPILE_ONLY = envVarStrToBool("IE_NPU_COMPILE_ONLY", var);
+    }
+
+    if (auto var = std::getenv("IE_NPU_FORCE_COMPILER")) {
+        IE_NPU_FORCE_COMPILER = var;
     }
 
     if (auto var = std::getenv("IE_NPU_TESTS_EXPORT_INPUT")) {

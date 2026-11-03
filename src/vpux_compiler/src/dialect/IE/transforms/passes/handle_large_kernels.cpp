@@ -18,6 +18,7 @@
 #include "vpux/compiler/dialect/const/ops.hpp"
 #include "vpux/compiler/dialect/const/utils/utils.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
+#include "vpux/compiler/utils/dma_limits.hpp"
 #include "vpux/compiler/utils/factors.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 #include "vpux/utils/core/numeric.hpp"
@@ -1868,6 +1869,180 @@ mlir::LogicalResult ReshapeGlobalConvRewriter::matchAndRewrite(IE::ConvolutionOp
 }
 
 //
+// LargeKernelConvToSpaceToDepthRewriter
+//
+
+/* Generalization of ReshapeGlobalConvRewriter from a single patch to an OHxOW grid of patches -
+the "patch embedding" of vision transformers.
+
+When kernel size equals stride size and there is no padding, every output position reads a
+disjoint KYxKX patch of the input, so the convolution is a per-patch inner product.
+
+DEPTH_FIRST gathers each patch into the channel dimension in [c][ky][kx] order, which matches the
+memory order of the filter's trailing dimensions, so the filter needs only a reshape. BLOCKS_FIRST
+would interleave as [ky][kx][c] and would require a permute of the weights.
+
+                                Convert convolution from
+                                    input           filter
+                              [1, IC, H, W]   [OC, IC, KY, KX]        strides = [KY, KX]
+                                     \             /
+                                       convolution
+                                            |
+                                    [1, OC, H/KY, W/KX]
+=>
+                        input                                filter
+                          |                                     |
+              SpaceToDepth(DEPTH_FIRST, KY)                 Reshape
+              [1, IC*KY*KX, H/KY, W/KX]              [OC, IC*KY*KX, 1, 1]
+                                    \                  /
+                                        convolution         strides = [1, 1]
+                                             |
+                                     [1, OC, H/KY, W/KX]
+
+This transformation avoids decomposing an unsupported patch-embedding kernel into multiple
+convolutions. Folding each spatial patch into the channel dimension allows the computation to run
+as a single 1x1 convolution. Kernels already supported by the DPU remain unchanged because the
+additional data movement can cost more than the resulting convolution.
+*/
+class LargeKernelConvToSpaceToDepthRewriter final : public mlir::OpRewritePattern<IE::ConvolutionOp> {
+public:
+    LargeKernelConvToSpaceToDepthRewriter(mlir::MLIRContext* ctx, mlir::PatternBenefit benefit, Logger log)
+            : mlir::OpRewritePattern<IE::ConvolutionOp>(ctx, benefit), _log(log) {
+        setDebugName("LargeKernelConvToSpaceToDepthRewriter");
+    }
+
+    mlir::LogicalResult matchAndRewrite(IE::ConvolutionOp origOp, mlir::PatternRewriter& rewriter) const final;
+
+    bool isLegalOpToConvert(IE::ConvolutionOp origOp) const;
+
+private:
+    bool representsDisjointPatches(IE::ConvolutionOp origOp, ShapeRef inputShape, ShapeRef filterShape,
+                                   int64_t blockSize) const;
+    bool isSpaceToDepthSupported(IE::ConvolutionOp origOp, int64_t blockSize) const;
+
+    Logger _log;
+};
+
+bool LargeKernelConvToSpaceToDepthRewriter::representsDisjointPatches(IE::ConvolutionOp origOp, ShapeRef inputShape,
+                                                                      ShapeRef filterShape, int64_t blockSize) const {
+    const auto strides = parseIntArrayAttr<int64_t>(origOp.getStrides());
+    if (strides[Dims4D::Strides::Y.ind()] != blockSize || strides[Dims4D::Strides::X.ind()] != blockSize) {
+        return false;
+    }
+
+    const auto padBegin = parseIntArrayAttr<int64_t>(origOp.getPadsBegin());
+    const auto padEnd = parseIntArrayAttr<int64_t>(origOp.getPadsEnd());
+    if (padBegin[Dims4D::PadsBegin::Left.ind()] != 0 || padBegin[Dims4D::PadsBegin::Top.ind()] != 0 ||
+        padEnd[Dims4D::PadsEnd::Right.ind()] != 0 || padEnd[Dims4D::PadsEnd::Bottom.ind()] != 0) {
+        return false;
+    }
+
+    const auto dilations = parseIntArrayAttr<int64_t>(origOp.getDilations());
+    if (dilations[Dims4D::Dilation::X.ind()] != 1 || dilations[Dims4D::Dilation::Y.ind()] != 1) {
+        return false;
+    }
+
+    if (origOp.getInputPaddingAttr() != nullptr || origOp.getOutputPaddingAttr() != nullptr) {
+        return false;
+    }
+
+    if (inputShape[Dims4D::Act::H] % blockSize != 0 || inputShape[Dims4D::Act::W] % blockSize != 0) {
+        return false;
+    }
+
+    if (filterShape[Dims4D::Filter::IC] != inputShape[Dims4D::Act::C]) {
+        return false;
+    }
+
+    return inputShape[Dims4D::Act::H] != blockSize;
+}
+
+bool LargeKernelConvToSpaceToDepthRewriter::isSpaceToDepthSupported(IE::ConvolutionOp origOp, int64_t blockSize) const {
+    const auto inputElementType = mlir::cast<vpux::NDTypeInterface>(origOp.getInput().getType()).getElementType();
+    if (!(inputElementType.isF16() || inputElementType.isF32() || inputElementType.isUnsignedInteger(8) ||
+          mlir::isa<mlir::quant::UniformQuantizedType>(inputElementType))) {
+        return false;
+    }
+
+    const auto& dmaEngineLimits = VPUIP::DMA::getEngineLimits(config::getArch(origOp));
+    const auto maxNumPlanes = checked_cast<int64_t>(dmaEngineLimits.getMaxNumPlanes());
+
+    // The DMA descriptor uses numPlanes = blockSize for NCHW->NHWC but numPlanes = IC for NHWC->NHWC.
+    // The layout is not final at this point, so both values must fit into the DMA limit.
+    const auto inputChannels = getShape(origOp.getInput())[Dims4D::Act::C];
+    return blockSize <= maxNumPlanes && inputChannels <= maxNumPlanes;
+}
+
+bool LargeKernelConvToSpaceToDepthRewriter::isLegalOpToConvert(IE::ConvolutionOp origOp) const {
+    const auto inputShape = getShape(origOp.getInput());
+    const auto filterShape = getShape(origOp.getFilter());
+    if (inputShape.size() != 4 || filterShape.size() != 4) {
+        return false;
+    }
+
+    // The NPU37XX depth-first NCHW-to-NHWC DMA unroller does not advance offsets per batch.
+    if (config::getArch(origOp) == config::ArchKind::NPU37XX && inputShape[Dims4D::Act::N] != 1) {
+        return false;
+    }
+
+    if (DimsOrder::fromValue(origOp.getFilter()) != DimsOrder::OIYX) {
+        return false;
+    }
+
+    const auto filterElementType = mlir::cast<vpux::NDTypeInterface>(origOp.getFilter().getType()).getElementType();
+    if (const auto perAxisType = mlir::dyn_cast<mlir::quant::UniformQuantizedPerAxisType>(filterElementType)) {
+        if (perAxisType.getQuantizedDimension() != Dims4D::Filter::OC.ind()) {
+            return false;
+        }
+    }
+
+    const auto blockSize = filterShape[Dims4D::Filter::KY];
+    if (filterShape[Dims4D::Filter::KX] != blockSize) {
+        return false;
+    }
+
+    const auto maxKernelSize = config::getNPUConstraints(origOp->getContext()).maxKernelSize;
+    return blockSize > maxKernelSize && representsDisjointPatches(origOp, inputShape, filterShape, blockSize) &&
+           isSpaceToDepthSupported(origOp, blockSize);
+}
+
+mlir::LogicalResult LargeKernelConvToSpaceToDepthRewriter::matchAndRewrite(IE::ConvolutionOp origOp,
+                                                                           mlir::PatternRewriter& rewriter) const {
+    _log.trace("[{0}] Got Convolution layer at '{1}'", getDebugName(), origOp->getLoc());
+
+    if (!isLegalOpToConvert(origOp)) {
+        return mlir::failure();
+    }
+
+    auto* ctx = rewriter.getContext();
+    const auto filterShape = getShape(origOp.getFilter());
+    const auto blockSize = filterShape[Dims4D::Filter::KY];
+
+    _log.nest().trace("[{0}] Folding a {1}x{1} patch grid into IC", getDebugName(), blockSize);
+
+    auto spaceToDepth = IE::SpaceToDepthOp::create(
+            rewriter, appendLoc(origOp->getLoc(), "patch_to_depth"), origOp.getInput(), getIntAttr(ctx, blockSize),
+            IE::SpaceToDepthModeAttr::get(ctx, IE::SpaceToDepthMode::DEPTH_FIRST));
+
+    // DEPTH_FIRST channel order matches the filter's trailing dimensions, so this is a pure reshape.
+    const auto newFilterShape = SmallVector<int64_t>{filterShape[Dims4D::Filter::OC],
+                                                     filterShape[Dims4D::Filter::IC] * blockSize * blockSize, 1, 1};
+    auto filterReshape = IE::ReshapeOp::create(rewriter, appendLoc(origOp->getLoc(), "reshape_filter"),
+                                               origOp.getFilter(), getIntArrayAttr(ctx, newFilterShape));
+
+    const SmallVector<int64_t> newStrides = {1, 1};
+    // Pass the original output type explicitly: inferReturnTypes would reuse the input element type, which breaks
+    // mixed-precision convolutions (e.g. quantized input with FP16 output).
+    auto newConvOp = IE::cloneConvolutionOp(
+            rewriter, origOp, origOp.getType(), spaceToDepth.getOutput(), filterReshape.getOutput(), origOp.getBias(),
+            origOp.getScale(), origOp.getZeroPoints(), getIntArrayAttr(ctx, newStrides), origOp.getPadsBeginAttr(),
+            origOp.getPadsEndAttr(), origOp.getDilationsAttr());
+    rewriter.replaceOp(origOp, newConvOp.getOutput());
+
+    return mlir::success();
+}
+
+//
 // HandleLargeKernelsPass
 //
 
@@ -1888,6 +2063,7 @@ void HandleLargeKernelsPass::safeRunOnFunc() {
     mlir::RewritePatternSet convPatterns(&ctx);
     convPatterns.add<PadLargeKernelRewriter>(&ctx, benefitLevels[0], _log);
     convPatterns.add<ReshapeGlobalConvRewriter>(&ctx, benefitLevels[0], _log);
+    convPatterns.add<LargeKernelConvToSpaceToDepthRewriter>(&ctx, benefitLevels[0], _log);
     convPatterns.add<SliceLargePrimeKernelRewriter>(&ctx, benefitLevels[1], _log);
     convPatterns.add<ReshapeLargeConvRewriter>(&ctx, benefitLevels[2], _log);
     convPatterns.add<SliceLargeConvRewriter>(&ctx, benefitLevels[3], _log);

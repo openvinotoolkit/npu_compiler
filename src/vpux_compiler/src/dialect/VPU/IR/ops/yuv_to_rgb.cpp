@@ -6,6 +6,7 @@
 #include <mlir/Dialect/Affine/IR/AffineOps.h>
 #include <mlir/Dialect/Tensor/IR/Tensor.h>
 #include <mlir/IR/BuiltinTypeInterfaces.h>
+#include "vpux/compiler/core/layers.hpp"
 #include "vpux/compiler/core/tiling.hpp"
 #include "vpux/compiler/dialect/IE/utils/dynamic_shape_utils.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/image.hpp"
@@ -18,6 +19,7 @@
 #include "vpux/utils/core/numeric.hpp"
 
 using namespace vpux;
+using namespace Dims4D::Act;
 
 mlir::LogicalResult vpux::VPU::YuvToRgbOp::inferReturnTypes(mlir::MLIRContext* ctx,
                                                             std::optional<mlir::Location> optLoc,
@@ -34,16 +36,28 @@ mlir::LogicalResult vpux::VPU::YuvToRgbOp::inferReturnTypes(mlir::MLIRContext* c
     const auto input = colorConv.getInput1();
     const auto inType = mlir::cast<NDTypeInterface>(input.getType());
     const auto shape = inType.getShape();
-    if (shape[Dims4D::Act::W] != 1) {
-        return errorAt(loc, "Incorrect input shape format. Expected Y input to have Width '1', got '{0}'", shape);
+
+    // YuvToRgb follows NV12 docs semantics for 2-plane input:
+    //   Y  must be [N, H,   W,   1]
+    //   UV must be [N, H/2, W/2, 2]
+    // with output [N, H, W, 3].
+    //
+    // In this compiler, YuvToRgb follows the common internal convention: tensor shapes
+    // are interpreted in logical NCHW form. External NV12/I420 docs often describe these
+    // tensors in NHWC terms, but inside the compiler semantic channel is always C and
+    // semantic height is always H. For a combined single-plane input (Y and UV stacked
+    // along semantic height), that stacked height shrinks by 2/3 to recover luma height.
+
+    if (shape[C] != 1) {
+        return errorAt(loc, "Incorrect input shape format. Expected Y input to have channels == '1', got '{0}'", shape);
     }
 
     auto [outStaticShape, outBounds, outDimMask] = callOnShapeOf(inType, [&](const auto& inShape) {
         auto outShape = copyShape(inShape);
-        outShape[Dims4D::Act::W] = 3;
+        outShape[C] = 3;
 
         if (colorConv.getInput2() == nullptr) {
-            outShape[Dims4D::Act::C] = outShape[Dims4D::Act::C] * 2 / 3;
+            outShape[H] = inShape[H] * 2 / 3;
         }
 
         return splitShapeAndRepresentation(outShape);
@@ -62,10 +76,8 @@ mlir::LogicalResult vpux::VPU::YuvToRgbOp::inferReturnTypes(mlir::MLIRContext* c
 //
 
 vpux::InputTiling vpux::VPU::YuvToRgbOp::backInferTileInfo(const vpux::TileInfo& outputTile, vpux::Logger) {
-    auto H = Dim(1), W = Dim(2), C = Dim(3);  // N = Dim(0)
-
     VPUX_THROW_UNLESS(outputTile.shape[H] % 2 == 0 && outputTile.shape[W] % 2 == 0,
-                      "Invalid YuvToRgbOp outputTile, output C,H channels are not even");
+                      "Invalid YuvToRgbOp outputTile, output H, W dimensions are not even");
     auto singlePlane = (getInput2() == nullptr);
     if (!singlePlane) {
         if (getInFmt() == IE::ColorFmt::NV12) {
@@ -137,10 +149,8 @@ mlir::FailureOr<OutputTiling> vpux::VPU::YuvToRgbOp::getTilingStrategy(TilingMod
     if (mlir::isa<Core::BoundedTensorType>(outputType)) {
         auto tilingDims = getTileDimOrder(op, tilingMode, log.nest());
         auto alignment = Shape(getAlignment(op, {}, {}));
-        auto ndims = outputType.getRank();
 
         auto tile = Shape(outputBoundedShape);
-        auto strategy = SmallVector<int64_t>(ndims, 1);
 
         // HACK: force scf.for tiling by strarting with "divide by 2" on all dynamic dimensions
         // The problem is that if initially upper bounds are so small that the operation fits the CMX,
@@ -156,16 +166,23 @@ mlir::FailureOr<OutputTiling> vpux::VPU::YuvToRgbOp::getTilingStrategy(TilingMod
             VPUX_THROW_UNLESS(dimBound >= (2 * alignment[Dim(i)]),
                               "Output upper bound for YuvToRgb layer is too small for tiling strategy algorithm at {0}",
                               op->getLoc());
-
-            strategy[i] = 2;
         }
 
         while (!isSupportedTileSize(tilingStrategy, tilingMode)) {
-            auto maxTileDimIndex = std::distance(tile.begin(), std::max_element(tile.begin(), tile.end()));
-            auto maxTileDim = Dim(maxTileDimIndex);
+            auto maxTileDim = Dim(0);
+            auto canSplitTile = false;
+            for (auto dimIndex : irange(tile.size())) {
+                const auto dim = Dim(dimIndex);
+                if (tile[dim] <= alignment[dim]) {
+                    continue;
+                }
+                if (!canSplitTile || tile[dim] > tile[maxTileDim]) {
+                    maxTileDim = dim;
+                    canSplitTile = true;
+                }
+            }
 
-            VPUX_THROW_UNLESS(tile[maxTileDim] > alignment[maxTileDim], "Not enough CMX to tile '{0}' at {1}",
-                              op->getName(), op->getLoc());
+            VPUX_THROW_UNLESS(canSplitTile, "Not enough CMX to tile '{0}' at {1}", op->getName(), op->getLoc());
 
             tilingStrategy[maxTileDim]++;
             auto newTileDimSize = divUp(outputBoundedShape[maxTileDim], tilingStrategy[maxTileDim]);
@@ -173,13 +190,13 @@ mlir::FailureOr<OutputTiling> vpux::VPU::YuvToRgbOp::getTilingStrategy(TilingMod
         }
     } else {
         while (!isSupportedTileSize(tilingStrategy, tilingMode)) {
-            if (2 * tilingStrategy[Dims4D::Act::C] < outputBoundedShape[Dims4D::Act::C]) {
-                tilingStrategy[Dims4D::Act::C]++;
+            if (2 * tilingStrategy[H] < outputBoundedShape[H]) {
+                tilingStrategy[H]++;
                 continue;
             }
 
-            if (2 * tilingStrategy[Dims4D::Act::H] < outputBoundedShape[Dims4D::Act::H]) {
-                tilingStrategy[Dims4D::Act::H]++;
+            if (2 * tilingStrategy[W] < outputBoundedShape[W]) {
+                tilingStrategy[W]++;
                 continue;
             }
 
@@ -198,7 +215,8 @@ mlir::FailureOr<OutputTiling> vpux::VPU::YuvToRgbOp::getTilingStrategy(TilingMod
 // since the input planes are half the size the output dimensions.
 // This helps us tile even small tensors and keep things parallel.
 bool vpux::VPU::YuvToRgbOp::checkStrategyCompatibility(VPU::MultiClusterStrategy strategy, size_t numTiles) {
-    const auto outputShape = getShape(getOutput());
+    const auto outputShape = getBoundedShape(getOutput());
+
     // singlePlane MC disabled
     if (getInput2() == nullptr) {
         return false;
@@ -209,11 +227,11 @@ bool vpux::VPU::YuvToRgbOp::checkStrategyCompatibility(VPU::MultiClusterStrategy
     }
 
     if (strategy == VPU::MultiClusterStrategy::SplitOverKernel) {
-        return outputShape[Dims4D::Act::C] / 2 >= checked_cast<int64_t>(numTiles) * 2;
+        return outputShape[C] / 2 >= checked_cast<int64_t>(numTiles) * 2;
     }
 
     if (strategy == VPU::MultiClusterStrategy::SplitOverHeight) {
-        return outputShape[Dims4D::Act::H] / 2 >= checked_cast<int64_t>(numTiles) * 2;
+        return outputShape[H] / 2 >= checked_cast<int64_t>(numTiles) * 2;
     }
 
     return false;

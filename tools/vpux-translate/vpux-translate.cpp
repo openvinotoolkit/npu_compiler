@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
+#include "vpux/compiler/core/pipelines_options.hpp"
 #include "vpux/compiler/dialect/ELF/IR/export.hpp"
 #include "vpux/compiler/dialect/ELFNPU37XX/export.hpp"
 #include "vpux/compiler/dialect/bytecode/IR/serialize.hpp"
@@ -14,6 +15,7 @@
 #include "vpux/compiler/init/interfaces_registry.hpp"
 #include "vpux/compiler/tools/options.hpp"
 #include "vpux/utils/core/range.hpp"
+#include "vpux/utils/ov/npu_op_extensions.hpp"
 
 #include "vpux/utils/core/format.hpp"
 
@@ -42,8 +44,6 @@
 
 #include <openvino/runtime/core.hpp>
 #include <openvino/runtime/runtime.hpp>
-
-#include <openvino/op/group_query_attention.hpp>
 
 #include <cstdlib>
 #include <iostream>
@@ -86,6 +86,10 @@ llvm::cl::opt<bool> enableDecomposeSDPA{"enable-decompose-sdpa",
                                         llvm::cl::desc("Enable Attention operators decomposition during IE import"),
                                         llvm::cl::init(true)};
 
+llvm::cl::opt<bool> enableConvertNMSToStatic{
+        "convert-nms-to-static", llvm::cl::desc("Convert NMS-9 to static-shape NMSIEInternal during IE import"),
+        llvm::cl::init(kDefaultConvertNMSToStatic)};
+
 enum class NetworkIOType { INPUT, OUTPUT };
 
 //
@@ -109,8 +113,7 @@ mlir::OwningOpRef<mlir::ModuleOp> importIE(llvm::SourceMgr& sourceMgr, mlir::MLI
 
     ov::Core core;
     std::shared_ptr<ov::Model> model;
-    core.add_extension(std::vector<ov::Extension::Ptr>(
-            {std::make_shared<ov::OpExtension<ov::op::internal::GroupQueryAttention>>()}));
+    core.add_extension(vpux::getNpuOpExtensions());
 
     try {
         model = core.read_model(netFileName.str());
@@ -159,6 +162,7 @@ mlir::OwningOpRef<mlir::ModuleOp> importIE(llvm::SourceMgr& sourceMgr, mlir::MLI
         importCfg.dynamicShapeToStatic = dynamicShapeToStatic;
         importCfg.enableWeightsSeparationPath = enableWeightsSeparationPath;
         importCfg.enableDecomposeSDPA = enableDecomposeSDPA;
+        importCfg.enableConvertNMSToStatic = enableConvertNMSToStatic;
 
         module = IE::importNetwork(ctx, model, IE::buildOVParams(model), IE::buildOVResults(model), rootTiming,
                                    importCfg);

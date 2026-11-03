@@ -7,6 +7,7 @@
 #include "vpux/compiler/NPU40XX/dialect/IE/transforms/passes.hpp"
 #include "vpux/compiler/conversion.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
+#include "vpux/compiler/dialect/Shave/transforms/passes.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
 #include "vpux/compiler/dialect/core/transforms/passes.hpp"
 #include "vpux/compiler/locverif/passes.hpp"
@@ -87,7 +88,6 @@ void vpux::IE::arch40xx::buildLowPrecisionPipeline(mlir::OpPassManager& pm, cons
         if (!options.functionOutlining.hasValue()) {
             pm.addPass(IE::createFuseOutstandingDequant(log));
         }
-
         // This is a short term solution to call ConvertToMixedPrecision when we have
         //     Original subgraph
         //         Conv -> FQ1 -> FQ2 -> Conv (FQ1 and FQ2 have different params)
@@ -98,7 +98,6 @@ void vpux::IE::arch40xx::buildLowPrecisionPipeline(mlir::OpPassManager& pm, cons
     // Note: this ConvertToMixedPrecision call serves both FuseQuantizedOps and
     // FuseOutstandingDequant
     pm.addPass(IE::createConvertToMixedPrecision(isOptionEnabled(options.enableFloatInQuantWeightsMixedMode), log));
-
     if (options.enableFuseOutstandingQuant) {
         pm.addPass(IE::createFuseOutstandingQuantPass(log));
     }
@@ -148,13 +147,15 @@ void vpux::IE::arch40xx::buildAttentionProcessingPipeline(mlir::OpPassManager& p
                                                           const IE::AttentionProcessingOptions& options, Logger log) {
     const auto grc = getDefaultGreedyRewriteConfig();
 
+    pm.addPass(IE::createConvertGQAToAttentionDMAPass(log));
     pm.addPass(IE::createOptimizeQuantizationForAttentionPass(log));
     if (options.enableFlashSDPAConversion) {
         pm.addPass(IE::createConvertSDPAToFlashSDPAPass(log));
     }
     pm.addPass(IE::createResolveStridedSlicePass(log));
     if (options.enableConvertToAttention) {
-        pm.addPass(IE::createFuseAttentionPass(log));
+        pm.addPass(
+                IE::createFuseAttentionPass(/*fuseOnlyAttentionDMAPatterns=*/options.forceAttentionDecomposition, log));
         pm.addPass(IE::createFuseSDPAPass(log));
         pm.addPass(mlir::createCanonicalizerPass(grc));
     }
@@ -262,8 +263,6 @@ void vpux::IE::arch40xx::buildDefaultHWPipeline(mlir::OpPassManager& pm, const I
     IE::buildOptimizeMemPermuteAndActivationChannelsExpandPipeline(pm, IE::ExpandActivationChannelsOptions(options),
                                                                    log);
 
-    pm.addPass(locverif::createStopLocationVerifierPass(log));
-
     IE::buildOptimizeViewLikeOpsPipeline(pm, log);
 
     IE::buildOptimizeSliceOpPipeline(pm, options.disableSliceToConvMinHWThreshold, log);
@@ -272,7 +271,9 @@ void vpux::IE::arch40xx::buildDefaultHWPipeline(mlir::OpPassManager& pm, const I
 
     IE::arch40xx::buildFinalTransformationPipeline(pm, options, log);
 
-    // Shave related optimization
+    // Shave custom kernel configuration pass, which applies the external kernel configurations to the model.
+    pm.addPass(Shave::createApplyExternalKernelConfigsPass(log));
+
     if (options.enableShaveCodeGen) {
         ShaveCodeGen::buildShaveCodeGenPipelineIE(pm, log, options.enableShaveCodeGenTiling);
     }
@@ -283,6 +284,8 @@ void vpux::IE::arch40xx::buildDefaultHWPipeline(mlir::OpPassManager& pm, const I
     }
 
     pm.addPass(IE::createDumpStatisticsOfIeOpsPass("End of IE pipeline statistics", log));
+
+    pm.addPass(locverif::createStopLocationVerifierPass(log));
 }
 
 void vpux::IE::arch40xx::buildReferenceSWPipeline(mlir::OpPassManager& pm,
@@ -312,11 +315,11 @@ void vpux::IE::arch40xx::buildReferenceSWPipeline(mlir::OpPassManager& pm,
     pm.addPass(mlir::createCSEPass());
     pm.addPass(IE::createUniquifySimilarOpsPass(log));
     pm.addPass(IE::createMergeParallelFullyConnectedPass(log));
-    pm.addPass(IE::createConvertDynamicDequantizeToFakeQuantizePass(log));
     pm.addPass(IE::createUnrollGroupQuantizePass(log));
     pm.addPass(IE::createUnrollFullyConnectedPass(log));
     pm.addPass(IE::createMergeFullyConnectedPass(isOptionEnabled(options.mergeUnrolledMatmulForLargeOC), log));
     pm.addPass(IE::createConvertMatMulToConvPass(log));
+    pm.addPass(IE::createConvertDynamicDequantizeToFakeQuantizePass(log));
     if (options.enableConvertFCToConv) {
         pm.addPass(IE::createConvertFCToConvPass(log));
     }
@@ -326,7 +329,7 @@ void vpux::IE::arch40xx::buildReferenceSWPipeline(mlir::OpPassManager& pm,
     pm.addPass(IE::createConvertNceOpsTo4DPass(log));
     pm.addPass(IE::createConvertShapeTo4DPass(isOptionEnabled(options.forceConvertGatherTo4D), log));
     pm.addPass(mlir::createCanonicalizerPass(grc));
-    pm.addPass(IE::createConvertToSpatialOpPass(false, log));
+    pm.addPass(IE::createConvertToSpatialOpPass(log));
     pm.addPass(IE::createConvertGRNToNormalizeL2Pass(log));
     pm.addPass(IE::createResolveScatterUpdateByTransposePass(log));
     IE::buildAdjustForVPUPipeline(pm, log);
@@ -376,6 +379,15 @@ void vpux::IE::arch40xx::registerIEPipelines() {
             "attention decomposition strategies",
             [](mlir::OpPassManager& pm, const IE::AttentionProcessingOptions& options) {
                 IE::arch40xx::buildAttentionProcessingPipeline(pm, options);
+            });
+
+    mlir::PassPipelineRegistration<OperationConversionOptions>(
+            "operation-conversion",
+            "[OPTIMIZATION] Operation Conversion pipeline is responsible for changing type of existing operations."
+            "Main purpose is reducing subset of ops"
+            "which using in our graph for improve pattern matching of next passes ",
+            [](mlir::OpPassManager& pm, const OperationConversionOptions& options) {
+                IE::buildOperationConversionPipeline(pm, options);
             });
 
     mlir::PassPipelineRegistration<LowPrecisionOptions>(

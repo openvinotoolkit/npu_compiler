@@ -1596,3 +1596,101 @@ func.func @DoNotAdjustBatchedAddShapeForBroadcast(%arg0: tensor<4x3x4x12xf16, {o
     // CHECK:       [[ADD:%.+]] = IE.Add([[IN1]], [[IN2]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<4x3x4x12xf16, {order = #NHWC}>, tensor<1x3x4x12xf16, {order = #NHWC}> -> tensor<4x3x4x12xf16, {order = #NHWC}>
     // CHECK:       return [[ADD]] : tensor<4x3x4x12xf16, {order = #NHWC}>
 }
+
+// -----
+
+!qElemType = !quant.uniform<u8:f16, 0.5>
+!qElemType1 = !quant.uniform<u8:f16, 0.25>
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+
+// CHECK-LABEL: @ExpandAvgPoolToShapeCastAvgPoolWithQuantizeCast
+// CHECK-SAME:        [[INPUT:%[^:]+]]: tensor<1x12x256x1x!qElemType, {order = #NHWC}>
+func.func @ExpandAvgPoolToShapeCastAvgPoolWithQuantizeCast(%arg0: tensor<1x12x256x1x!qElemType, {order = #NHWC}>) -> tensor<1x12x256x1xf16, {order = #NHWC}> {
+    %0 = IE.Expand(%arg0) {pads_begin = [0, 0, 0, 0], pads_end = [0, 4, 0, 0]} : tensor<1x12x256x1x!qElemType, {order = #NHWC}> -> tensor<1x16x256x1x!qElemType, {order = #NHWC}>
+    %1 = IE.QuantizeCast(%0) {dstElemType = !qElemType1} : tensor<1x16x256x1x!qElemType, {order = #NHWC}> -> tensor<1x16x256x1x!qElemType1, {order = #NHWC}>
+    %2 = IE.AvgPool(%1) {exclude_pads, kernel_size = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], rounding_type = #IE.rounding_type<FLOOR>, strides = [1, 1]} : tensor<1x16x256x1x!qElemType1, {order = #NHWC}> -> tensor<1x16x256x1xf16, {order = #NHWC}>
+    %3 = IE.Slice %2 [0, 0, 0, 0] [1, 12, 256, 1] : tensor<1x16x256x1xf16, {order = #NHWC}> to tensor<1x12x256x1xf16, {order = #NHWC}>
+    return %3 : tensor<1x12x256x1xf16, {order = #NHWC}>
+
+    // CHECK:   [[SHAPECAST_INPUT:%.+]] = IE.ShapeCast {shape = [1, 16, 16, 12]} inputs([[INPUT]] : tensor<1x12x256x1x!qElemType, {order = #NHWC}>) -> tensor<1x16x16x12x!qElemType, {order = #NHWC}>
+    // CHECK:   [[QUANTIZE:%.+]] = IE.QuantizeCast([[SHAPECAST_INPUT]]) {dstElemType = !qElemType1} : tensor<1x16x16x12x!qElemType, {order = #NHWC}> -> tensor<1x16x16x12x!qElemType1, {order = #NHWC}>
+    // CHECK:   [[POOLING:%.+]] = IE.AvgPool([[QUANTIZE]]) {exclude_pads, kernel_size = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], rounding_type = #IE.rounding_type<FLOOR>, strides = [1, 1]} : tensor<1x16x16x12x!qElemType1, {order = #NHWC}> -> tensor<1x16x16x12xf16, {order = #NHWC}>
+    // CHECK:   [[SHAPECAST_OUTPUT:%.+]] = IE.ShapeCast {shape = [1, 12, 256, 1]} inputs([[POOLING]] : tensor<1x16x16x12xf16, {order = #NHWC}>) -> tensor<1x12x256x1xf16, {order = #NHWC}>
+    // CHECK:   [[EXPAND_OUTPUT:%.+]] = IE.Expand([[SHAPECAST_OUTPUT]]) {pads_begin = [0, 0, 0, 0], pads_end = [0, 4, 0, 0]} : tensor<1x12x256x1xf16, {order = #NHWC}> -> tensor<1x16x256x1xf16, {order = #NHWC}>
+    // CHECK:   [[SLICE:%.+]] = IE.Slice [[EXPAND_OUTPUT]] [0, 0, 0, 0] [1, 12, 256, 1] : tensor<1x16x256x1xf16, {order = #NHWC}> to tensor<1x12x256x1xf16, {order = #NHWC}>
+    // CHECK:       return [[SLICE]] : tensor<1x12x256x1xf16, {order = #NHWC}>
+}
+
+// -----
+
+!qElemType = !quant.uniform<u8:f16, 0.093773741815604411:36>
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+#NWCH = affine_map<(d0, d1, d2, d3) -> (d0, d3, d1, d2)>
+
+// CHECK-LABEL: @NotAdjustAvgPoolWhenSliceFeedsFusableMemPermute
+// CHECK-SAME:        [[INPUT:%[^:]+]]: tensor<1x8x240x32x!qElemType, {order = #NHWC}>
+func.func @NotAdjustAvgPoolWhenSliceFeedsFusableMemPermute(%arg0: tensor<1x8x240x32x!qElemType, {order = #NHWC}>) -> tensor<1x32x8x240x!qElemType, {order = #NHWC}> {
+    %0 = IE.Expand(%arg0) {pads_begin = [0, 0, 0, 0], pads_end = [0, 8, 0, 0]} : tensor<1x8x240x32x!qElemType, {order = #NHWC}> -> tensor<1x16x240x32x!qElemType, {order = #NHWC}>
+    %1 = IE.AvgPool(%0) {exclude_pads, kernel_size = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], rounding_type = #IE.rounding_type<FLOOR>, strides = [1, 1]} : tensor<1x16x240x32x!qElemType, {order = #NHWC}> -> tensor<1x16x240x32x!qElemType, {order = #NHWC}>
+    %2 = IE.Slice %1 [0, 0, 0, 0] [1, 8, 240, 32] : tensor<1x16x240x32x!qElemType, {order = #NHWC}> to tensor<1x8x240x32x!qElemType, {order = #NHWC}>
+    %3 = IE.MemPermute(%2) {dst_order = #NHWC, mem_perm = #NWCH} : tensor<1x8x240x32x!qElemType, {order = #NHWC}> -> tensor<1x32x8x240x!qElemType, {order = #NHWC}>
+    return %3 : tensor<1x32x8x240x!qElemType, {order = #NHWC}>
+
+    // Nothing should be changed: the Slice feeds a MemPermute that the later ConvertMemPermuteToOp
+    // pass can fuse directly into this AvgPool via the "permute via pooling" trick
+    // CHECK-NOT:   IE.ShapeCast
+    // CHECK:       [[EXPAND:%.+]] = IE.Expand([[INPUT]]) {pads_begin = [0, 0, 0, 0], pads_end = [0, 8, 0, 0]} : tensor<1x8x240x32x!qElemType, {order = #NHWC}> -> tensor<1x16x240x32x!qElemType, {order = #NHWC}>
+    // CHECK:       [[POOL:%.+]] = IE.AvgPool([[EXPAND]]) {exclude_pads, kernel_size = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], rounding_type = #IE.rounding_type<FLOOR>, strides = [1, 1]} : tensor<1x16x240x32x!qElemType, {order = #NHWC}> -> tensor<1x16x240x32x!qElemType, {order = #NHWC}>
+    // CHECK:       [[SLICE:%.+]] = IE.Slice [[POOL]] [0, 0, 0, 0] [1, 8, 240, 32] : tensor<1x16x240x32x!qElemType, {order = #NHWC}> to tensor<1x8x240x32x!qElemType, {order = #NHWC}>
+    // CHECK:       [[MEMPERMUTE:%.+]] = IE.MemPermute([[SLICE]]) {dst_order = #NHWC, mem_perm = #NWCH} : tensor<1x8x240x32x!qElemType, {order = #NHWC}> -> tensor<1x32x8x240x!qElemType, {order = #NHWC}>
+    // CHECK:       return [[MEMPERMUTE]] : tensor<1x32x8x240x!qElemType, {order = #NHWC}>
+}
+
+// -----
+
+!qElemType = !quant.uniform<u8:f16, 0.093773741815604411:36>
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+#NWCH = affine_map<(d0, d1, d2, d3) -> (d0, d3, d1, d2)>
+
+// CHECK-LABEL: @NotAdjustAvgPoolWhenPoolFeedsFusableMemPermute
+// CHECK-SAME:        [[INPUT:%[^:]+]]: tensor<1x8x240x32x!qElemType, {order = #NHWC}>
+func.func @NotAdjustAvgPoolWhenPoolFeedsFusableMemPermute(%arg0: tensor<1x8x240x32x!qElemType, {order = #NHWC}>) -> tensor<1x32x16x240x!qElemType, {order = #NHWC}> {
+    %0 = IE.Expand(%arg0) {pads_begin = [0, 0, 0, 0], pads_end = [0, 8, 0, 0]} : tensor<1x8x240x32x!qElemType, {order = #NHWC}> -> tensor<1x16x240x32x!qElemType, {order = #NHWC}>
+    %1 = IE.AvgPool(%0) {exclude_pads, kernel_size = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], rounding_type = #IE.rounding_type<FLOOR>, strides = [1, 1]} : tensor<1x16x240x32x!qElemType, {order = #NHWC}> -> tensor<1x16x240x32x!qElemType, {order = #NHWC}>
+    %2 = IE.MemPermute(%1) {dst_order = #NHWC, mem_perm = #NWCH} : tensor<1x16x240x32x!qElemType, {order = #NHWC}> -> tensor<1x32x16x240x!qElemType, {order = #NHWC}>
+    return %2 : tensor<1x32x16x240x!qElemType, {order = #NHWC}>
+
+    // Nothing should be changed: with no Slice in between, the AvgPool output directly feeds a
+    // MemPermute that MemPermuteRewriter can fuse into this AvgPool's ODU
+    // CHECK-NOT:   IE.ShapeCast
+    // CHECK:       [[EXPAND:%.+]] = IE.Expand([[INPUT]]) {pads_begin = [0, 0, 0, 0], pads_end = [0, 8, 0, 0]} : tensor<1x8x240x32x!qElemType, {order = #NHWC}> -> tensor<1x16x240x32x!qElemType, {order = #NHWC}>
+    // CHECK:       [[POOL:%.+]] = IE.AvgPool([[EXPAND]]) {exclude_pads, kernel_size = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], rounding_type = #IE.rounding_type<FLOOR>, strides = [1, 1]} : tensor<1x16x240x32x!qElemType, {order = #NHWC}> -> tensor<1x16x240x32x!qElemType, {order = #NHWC}>
+    // CHECK:       [[MEMPERMUTE:%.+]] = IE.MemPermute([[POOL]]) {dst_order = #NHWC, mem_perm = #NWCH} : tensor<1x16x240x32x!qElemType, {order = #NHWC}> -> tensor<1x32x16x240x!qElemType, {order = #NHWC}>
+    // CHECK:       return [[MEMPERMUTE]] : tensor<1x32x16x240x!qElemType, {order = #NHWC}>
+}
+
+// -----
+
+!qElemType = !quant.uniform<u8:f16, 0.093773741815604411:36>
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+#NWCH = affine_map<(d0, d1, d2, d3) -> (d0, d3, d1, d2)>
+
+// CHECK-LABEL: @AdjustAvgPoolWhenSliceFeedsTrivialMemPermute
+// CHECK-SAME:        [[INPUT:%[^:]+]]: tensor<1x1x240x32x!qElemType, {order = #NHWC}>
+func.func @AdjustAvgPoolWhenSliceFeedsTrivialMemPermute(%arg0: tensor<1x1x240x32x!qElemType, {order = #NHWC}>) -> tensor<1x32x1x240x!qElemType, {order = #NHWC}> {
+    %0 = IE.Expand(%arg0) {pads_begin = [0, 0, 0, 0], pads_end = [0, 15, 0, 0]} : tensor<1x1x240x32x!qElemType, {order = #NHWC}> -> tensor<1x16x240x32x!qElemType, {order = #NHWC}>
+    %1 = IE.AvgPool(%0) {exclude_pads, kernel_size = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], rounding_type = #IE.rounding_type<FLOOR>, strides = [1, 1]} : tensor<1x16x240x32x!qElemType, {order = #NHWC}> -> tensor<1x16x240x32x!qElemType, {order = #NHWC}>
+    %2 = IE.Slice %1 [0, 0, 0, 0] [1, 1, 240, 32] : tensor<1x16x240x32x!qElemType, {order = #NHWC}> to tensor<1x1x240x32x!qElemType, {order = #NHWC}>
+    %3 = IE.MemPermute(%2) {dst_order = #NHWC, mem_perm = #NWCH} : tensor<1x1x240x32x!qElemType, {order = #NHWC}> -> tensor<1x32x1x240x!qElemType, {order = #NHWC}>
+    return %3 : tensor<1x32x1x240x!qElemType, {order = #NHWC}>
+
+    // With a single channel, the MemPermute is trivial (no data movement), so it is not a
+    // candidate for the "permute via pooling" fusion and the AvgPool should still be adjusted
+    // CHECK:       [[SHAPECAST_IN:%.+]] = IE.ShapeCast {shape = [1, 16, 24, 20]} inputs([[INPUT]] : tensor<1x1x240x32x!qElemType, {order = #NHWC}>) -> tensor<1x16x24x20x!qElemType, {order = #NHWC}>
+    // CHECK:       [[POOL:%.+]] = IE.AvgPool([[SHAPECAST_IN]]) {exclude_pads, kernel_size = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], rounding_type = #IE.rounding_type<FLOOR>, strides = [1, 1]} : tensor<1x16x24x20x!qElemType, {order = #NHWC}> -> tensor<1x16x24x20x!qElemType, {order = #NHWC}>
+    // CHECK:       [[SHAPECAST_OUT:%.+]] = IE.ShapeCast {shape = [1, 1, 240, 32]} inputs([[POOL]] : tensor<1x16x24x20x!qElemType, {order = #NHWC}>) -> tensor<1x1x240x32x!qElemType, {order = #NHWC}>
+    // CHECK:       [[EXPAND:%.+]] = IE.Expand([[SHAPECAST_OUT]]) {pads_begin = [0, 0, 0, 0], pads_end = [0, 15, 0, 0]} : tensor<1x1x240x32x!qElemType, {order = #NHWC}> -> tensor<1x16x240x32x!qElemType, {order = #NHWC}>
+    // CHECK:       [[SLICE:%.+]] = IE.Slice [[EXPAND]] [0, 0, 0, 0] [1, 1, 240, 32] : tensor<1x16x240x32x!qElemType, {order = #NHWC}> to tensor<1x1x240x32x!qElemType, {order = #NHWC}>
+    // CHECK:       [[PERMUTECAST:%.+]] = IE.PermuteCast([[SLICE]]) {dst_order = #NHWC, mem_perm = #NWCH} : tensor<1x1x240x32x!qElemType, {order = #NHWC}> -> tensor<1x32x1x240x!qElemType, {order = #NHWC}>
+    // CHECK:       return [[PERMUTECAST]] : tensor<1x32x1x240x!qElemType, {order = #NHWC}>
+}

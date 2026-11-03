@@ -30,7 +30,7 @@ protected:
         mlir::MLIRContext* ctx = this->getContext();
         llvm::SmallVector<mlir::Attribute> barrierVec(barrierRange.size());
 
-        auto u16Attr = [&ctx](uint16_t value) -> mlir::IntegerAttr {
+        auto u16Attr = [ctx](uint16_t value) -> mlir::IntegerAttr {
             auto u16Type = mlir::IntegerType::get(ctx, 16, mlir::IntegerType::Unsigned);
             return mlir::IntegerAttr::get(u16Type, value);
         };

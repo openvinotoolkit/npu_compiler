@@ -42,9 +42,9 @@ func.func @ApplyTilingNCEReduce(%arg0 : tensor<1x32x175x512xf16, {order = #NHWC}
   // CHECK:         [[OFFSET:%.+]] = affine.min #[[$OUT_OFFSET_AND_SIZE_MAP]]([[ITER]])
   // CHECK:         [[TILE_INDEX_CAP:%.+]] = affine.min #[[$TILE_INDEX_CAP_AND_REMAINDER_MAP]]([[ITER]])
   // CHECK:         [[SIZE:%.+]] = affine.min #[[$SIZE_BY_CAPPED_TILE_INDEX_MAP]]([[TILE_INDEX_CAP]])
-   // CHECK:         [[SLICE:%.+]] = tensor.extract_slice [[ARG0]][0, 0, 0, [[OFFSET]]] [1, 32, 175, [[SIZE]]] [1, 1, 1, 1] : tensor<1x32x175x512xf16, {order = #NHWC}> to tensor<1x32x175x?xf16, {bounds = #const.OpaqueI64Elements<[1, 32, 175, 512]> : tensor<4xsi64>, order = #NHWC}>
+   // CHECK:         [[SLICE:%.+]] = tensor.extract_slice [[ARG0]][0, 0, 0, [[OFFSET]]] [1, 32, 175, [[SIZE]]] [1, 1, 1, 1] : tensor<1x32x175x512xf16, {order = #NHWC}> to tensor<1x32x175x?xf16, {bounds = #const.OpaqueI64Elements<[1, 32, 175, 103]> : tensor<4xsi64>, order = #NHWC}>
    // CHECK:         [[REDUCED_SLICE:%.+]] = VPU.NCE.Reduce([[SLICE]])
-   // CHECK:         [[INSERT_SLICE:%.+]] = tensor.insert_slice [[REDUCED_SLICE]] into [[ARG2]][0, 0, 0, [[OFFSET]]] [1, 1, 175, [[SIZE]]] [1, 1, 1, 1] : tensor<1x1x175x?xf16, {bounds = #const.OpaqueI64Elements<[1, 1, 175, 512]> : tensor<4xsi64>, order = #NHWC}> into tensor<1x1x175x512xf16, {order = #NHWC}>
+   // CHECK:         [[INSERT_SLICE:%.+]] = tensor.insert_slice [[REDUCED_SLICE]] into [[ARG2]][0, 0, 0, [[OFFSET]]] [1, 1, 175, [[SIZE]]] [1, 1, 1, 1] : tensor<1x1x175x?xf16, {bounds = #const.OpaqueI64Elements<[1, 1, 175, 103]> : tensor<4xsi64>, order = #NHWC}> into tensor<1x1x175x512xf16, {order = #NHWC}>
    // CHECK:         scf.yield [[INSERT_SLICE]] : tensor<1x1x175x512xf16, {order = #NHWC}>
    // CHECK-NEXT: }
    // CHECK:      return [[REDUCED]] : tensor<1x1x175x512xf16, {order = #NHWC}>
@@ -96,63 +96,63 @@ func.func @ApplyTilingDynamicNCEReduce(%arg0 : tensor<1x32x175x?xf16, {bounds = 
 
 // -----
 
-#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
 // CHECK-DAG: #[[$MAP_TILE_H:.*]] = affine_map<(d0)[s0] -> (-d0 + s0, 360)>
-// CHECK-DAG: #[[$MAP_TILE_W:.*]] = affine_map<(d0)[s0] -> (-d0 + s0, 428)>
+// CHECK-DAG: #[[$MAP_TILE_W:.*]] = affine_map<(d0)[s0] -> (-d0 + s0, 640)>
 // CHECK-DAG: #[[$MAP_DIV2:.*]] = affine_map<(d0) -> (d0 floordiv 2)>
 
 // CHECK-LABEL: @ApplyTilingDynamicYuvToRgbI420
-// CHECK-SAME:  [[ARG0:%arg[0-9]]]: tensor<1x?x?x1xf16, {bounds = #const.OpaqueI64Elements<[1, 1440, 2560, 1]> : tensor<4xsi64>, order = #NCHW}>
-// CHECK-SAME:  [[ARG1:%arg[0-9]]]: tensor<1x?x?x1xf16, {bounds = #const.OpaqueI64Elements<[1, 720, 1280, 1]> : tensor<4xsi64>, order = #NCHW}>
-// CHECK-SAME:  [[ARG2:%arg[0-9]]]: tensor<1x?x?x1xf16, {bounds = #const.OpaqueI64Elements<[1, 720, 1280, 1]> : tensor<4xsi64>, order = #NCHW}>
+// CHECK-SAME:  [[ARG0:%arg[0-9]]]: tensor<1x1x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 1, 1440, 2560]> : tensor<4xsi64>, order = #NHWC}>
+// CHECK-SAME:  [[ARG1:%arg[0-9]]]: tensor<1x1x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 1, 720, 1280]> : tensor<4xsi64>, order = #NHWC}>
+// CHECK-SAME:  [[ARG2:%arg[0-9]]]: tensor<1x1x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 1, 720, 1280]> : tensor<4xsi64>, order = #NHWC}>
 func.func @ApplyTilingDynamicYuvToRgbI420(
-    %arg0: tensor<1x?x?x1xf16, {bounds = #const.OpaqueI64Elements<[1, 1440, 2560, 1]> : tensor<4xsi64>, order = #NCHW}>,
-    %arg1: tensor<1x?x?x1xf16, {bounds = #const.OpaqueI64Elements<[1, 720, 1280, 1]> : tensor<4xsi64>, order = #NCHW}>,
-    %arg2: tensor<1x?x?x1xf16, {bounds = #const.OpaqueI64Elements<[1, 720, 1280, 1]> : tensor<4xsi64>, order = #NCHW}>)
-        -> tensor<1x?x?x3xf16, {bounds = #const.OpaqueI64Elements<[1, 1440, 2560, 3]> : tensor<4xsi64>, order = #NCHW}> {
+    %arg0: tensor<1x1x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 1, 1440, 2560]> : tensor<4xsi64>, order = #NHWC}>,
+    %arg1: tensor<1x1x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 1, 720, 1280]> : tensor<4xsi64>, order = #NHWC}>,
+    %arg2: tensor<1x1x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 1, 720, 1280]> : tensor<4xsi64>, order = #NHWC}>)
+        -> tensor<1x3x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 3, 1440, 2560]> : tensor<4xsi64>, order = #NHWC}> {
     %0 = VPU.YuvToRgb(%arg0, %arg1, %arg2) {
         inFmt = #IE.color_fmt<I420>,
         multiClusterStrategy = #VPU.multi_cluster_strategy<Clustering>,
         operandSegmentSizes = array<i32: 1, 1, 1>,
         outFmt = #IE.color_fmt<BGR>,
-        tilingStrategy = [1, 4, 6, 1]
-    } : tensor<1x?x?x1xf16, {bounds = #const.OpaqueI64Elements<[1, 1440, 2560, 1]> : tensor<4xsi64>, order = #NCHW}>,
-        tensor<1x?x?x1xf16, {bounds = #const.OpaqueI64Elements<[1, 720, 1280, 1]> : tensor<4xsi64>, order = #NCHW}>,
-        tensor<1x?x?x1xf16, {bounds = #const.OpaqueI64Elements<[1, 720, 1280, 1]> : tensor<4xsi64>, order = #NCHW}>
-        -> tensor<1x?x?x3xf16, {bounds = #const.OpaqueI64Elements<[1, 1440, 2560, 3]> : tensor<4xsi64>, order = #NCHW}>
-    return %0 : tensor<1x?x?x3xf16, {bounds = #const.OpaqueI64Elements<[1, 1440, 2560, 3]> : tensor<4xsi64>, order = #NCHW}>
+        tilingStrategy = [1, 1, 4, 4]
+    } : tensor<1x1x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 1, 1440, 2560]> : tensor<4xsi64>, order = #NHWC}>,
+        tensor<1x1x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 1, 720, 1280]> : tensor<4xsi64>, order = #NHWC}>,
+        tensor<1x1x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 1, 720, 1280]> : tensor<4xsi64>, order = #NHWC}>
+        -> tensor<1x3x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 3, 1440, 2560]> : tensor<4xsi64>, order = #NHWC}>
+    return %0 : tensor<1x3x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 3, 1440, 2560]> : tensor<4xsi64>, order = #NHWC}>
 
 // CHECK-DAG:    [[C360:%.+]] = arith.constant 360 : index
-// CHECK-DAG:    [[C428:%.+]] = arith.constant 428 : index
+// CHECK-DAG:    [[C640:%.+]] = arith.constant 640 : index
 // CHECK-DAG:    [[C0:%.+]] = arith.constant 0 : index
-// CHECK-DAG:    [[C1:%.+]] = arith.constant 1 : index
 // CHECK-DAG:    [[C2:%.+]] = arith.constant 2 : index
-// CHECK-DAG:    [[DIM_H:%.+]] = tensor.dim [[ARG0]], [[C1]]
-// CHECK-DAG:    [[DIM_W:%.+]] = tensor.dim [[ARG0]], [[C2]]
-// CHECK-DAG:    [[EMPTY:%.+]] = tensor.empty([[DIM_H]], [[DIM_W]]) : tensor<1x?x?x3xf16, {bounds = #const.OpaqueI64Elements<[1, 1440, 2560, 3]> : tensor<4xsi64>, order = #NCHW}>
+// CHECK-DAG:    [[C3:%.+]] = arith.constant 3 : index
+// CHECK-DAG:    [[DIM_H:%.+]] = tensor.dim [[ARG0]], [[C2]]
+// CHECK-DAG:    [[DIM_W:%.+]] = tensor.dim [[ARG0]], [[C3]]
+// CHECK-DAG:    [[EMPTY:%.+]] = tensor.empty([[DIM_H]], [[DIM_W]]) : tensor<1x3x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 3, 1440, 2560]> : tensor<4xsi64>, order = #NHWC}>
 // CHECK:        [[OUTER:%.+]] = scf.for [[IDX_H:%.+]] = [[C0]] to [[DIM_H]] step [[C360]] iter_args([[OUT_H:%.+]] = [[EMPTY]])
-// CHECK-SAME:          -> (tensor<1x?x?x3xf16, {bounds = #const.OpaqueI64Elements<[1, 1440, 2560, 3]> : tensor<4xsi64>, order = #NCHW}>) {
-// CHECK:            [[INNER:%.+]] = scf.for [[IDX_W:%.+]] = [[C0]] to [[DIM_W]] step [[C428]] iter_args([[OUT_W:%.+]] = [[OUT_H]])
-// CHECK-SAME:              -> (tensor<1x?x?x3xf16, {bounds = #const.OpaqueI64Elements<[1, 1440, 2560, 3]> : tensor<4xsi64>, order = #NCHW}>) {
+// CHECK-SAME:          -> (tensor<1x3x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 3, 1440, 2560]> : tensor<4xsi64>, order = #NHWC}>) {
+// CHECK:            [[INNER:%.+]] = scf.for [[IDX_W:%.+]] = [[C0]] to [[DIM_W]] step [[C640]] iter_args([[OUT_W:%.+]] = [[OUT_H]])
+// CHECK-SAME:              -> (tensor<1x3x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 3, 1440, 2560]> : tensor<4xsi64>, order = #NHWC}>) {
 // CHECK:                [[TILE_H:%.+]] = affine.min #[[$MAP_TILE_H]]([[IDX_H]])[[[DIM_H]]]
 // CHECK:                [[TILE_W:%.+]] = affine.min #[[$MAP_TILE_W]]([[IDX_W]])[[[DIM_W]]]
 // CHECK:                [[UV_OFF_H:%.+]] = affine.apply #[[$MAP_DIV2]]([[IDX_H]])
 // CHECK:                [[UV_SIZE_H:%.+]] = affine.apply #[[$MAP_DIV2]]([[TILE_H]])
 // CHECK:                [[UV_OFF_W:%.+]] = affine.apply #[[$MAP_DIV2]]([[IDX_W]])
 // CHECK:                [[UV_SIZE_W:%.+]] = affine.apply #[[$MAP_DIV2]]([[TILE_W]])
-// CHECK:                [[SLICE_Y:%.+]] = tensor.extract_slice [[ARG0]][0, [[IDX_H]], [[IDX_W]], 0] [1, [[TILE_H]], [[TILE_W]], 1] [1, 1, 1, 1]
-// CHECK-SAME:              to tensor<1x?x?x1xf16, {bounds = #const.OpaqueI64Elements<[1, 360, 428, 1]> : tensor<4xsi64>, order = #NCHW}>
-// CHECK:                [[SLICE_U:%.+]] = tensor.extract_slice [[ARG1]][0, [[UV_OFF_H]], [[UV_OFF_W]], 0] [1, [[UV_SIZE_H]], [[UV_SIZE_W]], 1] [1, 1, 1, 1]
-// CHECK-SAME:              to tensor<1x?x?x1xf16, {bounds = #const.OpaqueI64Elements<[1, 180, 214, 1]> : tensor<4xsi64>, order = #NCHW}>
-// CHECK:                [[SLICE_V:%.+]] = tensor.extract_slice [[ARG2]][0, [[UV_OFF_H]], [[UV_OFF_W]], 0] [1, [[UV_SIZE_H]], [[UV_SIZE_W]], 1] [1, 1, 1, 1]
-// CHECK-SAME:              to tensor<1x?x?x1xf16, {bounds = #const.OpaqueI64Elements<[1, 180, 214, 1]> : tensor<4xsi64>, order = #NCHW}>
+// CHECK:                [[SLICE_Y:%.+]] = tensor.extract_slice [[ARG0]][0, 0, [[IDX_H]], [[IDX_W]]] [1, 1, [[TILE_H]], [[TILE_W]]] [1, 1, 1, 1]
+// CHECK-SAME:              to tensor<1x1x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 1, 360, 640]> : tensor<4xsi64>, order = #NHWC}>
+// CHECK:                [[SLICE_U:%.+]] = tensor.extract_slice [[ARG1]][0, 0, [[UV_OFF_H]], [[UV_OFF_W]]] [1, 1, [[UV_SIZE_H]], [[UV_SIZE_W]]] [1, 1, 1, 1]
+// CHECK-SAME:              to tensor<1x1x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 1, 180, 320]> : tensor<4xsi64>, order = #NHWC}>
+// CHECK:                [[SLICE_V:%.+]] = tensor.extract_slice [[ARG2]][0, 0, [[UV_OFF_H]], [[UV_OFF_W]]] [1, 1, [[UV_SIZE_H]], [[UV_SIZE_W]]] [1, 1, 1, 1]
+// CHECK-SAME:              to tensor<1x1x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 1, 180, 320]> : tensor<4xsi64>, order = #NHWC}>
 // CHECK:                [[YUV:%.+]] = VPU.YuvToRgb([[SLICE_Y]], [[SLICE_U]], [[SLICE_V]])
 // CHECK-SAME:              {inFmt = #IE.color_fmt<I420>
 // CHECK-SAME:              outFmt = #IE.color_fmt<BGR>
-// CHECK-SAME:              -> tensor<1x?x?x3xf16, {bounds = #const.OpaqueI64Elements<[1, 360, 428, 3]> : tensor<4xsi64>, order = #NCHW}>
-// CHECK:                [[INSERT:%.+]] = tensor.insert_slice [[YUV]] into [[OUT_W]][0, [[IDX_H]], [[IDX_W]], 0] [1, [[TILE_H]], [[TILE_W]], 3] [1, 1, 1, 1]
-// CHECK-SAME:              : tensor<1x?x?x3xf16, {bounds = #const.OpaqueI64Elements<[1, 360, 428, 3]> : tensor<4xsi64>, order = #NCHW}> into tensor<1x?x?x3xf16, {bounds = #const.OpaqueI64Elements<[1, 1440, 2560, 3]> : tensor<4xsi64>, order = #NCHW}>
+// CHECK-SAME:              -> tensor<1x3x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 3, 360, 640]> : tensor<4xsi64>, order = #NHWC}>
+// CHECK:                [[INSERT:%.+]] = tensor.insert_slice [[YUV]] into [[OUT_W]][0, 0, [[IDX_H]], [[IDX_W]]] [1, 3, [[TILE_H]], [[TILE_W]]] [1, 1, 1, 1]
+// CHECK-SAME:              : tensor<1x3x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 3, 360, 640]> : tensor<4xsi64>, order = #NHWC}> into tensor<1x3x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 3, 1440, 2560]> : tensor<4xsi64>, order = #NHWC}>
 // CHECK:                scf.yield [[INSERT]]
 // CHECK:            scf.yield [[INNER]]
 // CHECK:        return [[OUTER]]
@@ -160,58 +160,58 @@ func.func @ApplyTilingDynamicYuvToRgbI420(
 
 // -----
 
-#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
-// CHECK-DAG: #[[$MAP_TILE_H:.*]] = affine_map<(d0)[s0] -> (-d0 + s0, 360)>
-// CHECK-DAG: #[[$MAP_TILE_W:.*]] = affine_map<(d0)[s0] -> (-d0 + s0, 428)>
+// CHECK-DAG: #[[$MAP_TILE_H:.*]] = affine_map<(d0)[s0] -> (-d0 + s0, 180)>
+// CHECK-DAG: #[[$MAP_TILE_W:.*]] = affine_map<(d0)[s0] -> (-d0 + s0, 320)>
 // CHECK-DAG: #[[$MAP_DIV2:.*]] = affine_map<(d0) -> (d0 floordiv 2)>
 
 // CHECK-LABEL: @ApplyTilingDynamicYuvToRgbNV12
-// CHECK-SAME:  [[ARG0:%arg[0-9]]]: tensor<1x?x?x1xf16, {bounds = #const.OpaqueI64Elements<[1, 1440, 2560, 1]> : tensor<4xsi64>, order = #NCHW}>
-// CHECK-SAME:  [[ARG1:%arg[0-9]]]: tensor<1x?x?x2xf16, {bounds = #const.OpaqueI64Elements<[1, 720, 1280, 2]> : tensor<4xsi64>, order = #NCHW}>
+// CHECK-SAME:  [[ARG0:%arg[0-9]]]: tensor<1x1x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 1, 1440, 2560]> : tensor<4xsi64>, order = #NHWC}>
+// CHECK-SAME:  [[ARG1:%arg[0-9]]]: tensor<1x2x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 2, 720, 1280]> : tensor<4xsi64>, order = #NHWC}>
 func.func @ApplyTilingDynamicYuvToRgbNV12(
-    %arg0: tensor<1x?x?x1xf16, {bounds = #const.OpaqueI64Elements<[1, 1440, 2560, 1]> : tensor<4xsi64>, order = #NCHW}>,
-    %arg1: tensor<1x?x?x2xf16, {bounds = #const.OpaqueI64Elements<[1, 720, 1280, 2]> : tensor<4xsi64>, order = #NCHW}>)
-        -> tensor<1x?x?x3xf16, {bounds = #const.OpaqueI64Elements<[1, 1440, 2560, 3]> : tensor<4xsi64>, order = #NCHW}> {
+    %arg0: tensor<1x1x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 1, 1440, 2560]> : tensor<4xsi64>, order = #NHWC}>,
+    %arg1: tensor<1x2x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 2, 720, 1280]> : tensor<4xsi64>, order = #NHWC}>)
+        -> tensor<1x3x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 3, 1440, 2560]> : tensor<4xsi64>, order = #NHWC}> {
     %0 = VPU.YuvToRgb(%arg0, %arg1) {
         inFmt = #IE.color_fmt<NV12>,
         multiClusterStrategy = #VPU.multi_cluster_strategy<Clustering>,
         operandSegmentSizes = array<i32: 1, 1, 0>,
         outFmt = #IE.color_fmt<RGB>,
-        tilingStrategy = [1, 4, 6, 1]
-    } : tensor<1x?x?x1xf16, {bounds = #const.OpaqueI64Elements<[1, 1440, 2560, 1]> : tensor<4xsi64>, order = #NCHW}>,
-        tensor<1x?x?x2xf16, {bounds = #const.OpaqueI64Elements<[1, 720, 1280, 2]> : tensor<4xsi64>, order = #NCHW}>
-        -> tensor<1x?x?x3xf16, {bounds = #const.OpaqueI64Elements<[1, 1440, 2560, 3]> : tensor<4xsi64>, order = #NCHW}>
-    return %0 : tensor<1x?x?x3xf16, {bounds = #const.OpaqueI64Elements<[1, 1440, 2560, 3]> : tensor<4xsi64>, order = #NCHW}>
+        tilingStrategy = [1, 1, 8, 8]
+    } : tensor<1x1x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 1, 1440, 2560]> : tensor<4xsi64>, order = #NHWC}>,
+        tensor<1x2x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 2, 720, 1280]> : tensor<4xsi64>, order = #NHWC}>
+        -> tensor<1x3x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 3, 1440, 2560]> : tensor<4xsi64>, order = #NHWC}>
+    return %0 : tensor<1x3x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 3, 1440, 2560]> : tensor<4xsi64>, order = #NHWC}>
 
-// CHECK-DAG:    [[C360:%.+]] = arith.constant 360 : index
-// CHECK-DAG:    [[C428:%.+]] = arith.constant 428 : index
+// CHECK-DAG:    [[C320:%.+]] = arith.constant 320 : index
+// CHECK-DAG:    [[C180:%.+]] = arith.constant 180 : index
 // CHECK-DAG:    [[C0:%.+]] = arith.constant 0 : index
-// CHECK-DAG:    [[C1:%.+]] = arith.constant 1 : index
 // CHECK-DAG:    [[C2:%.+]] = arith.constant 2 : index
-// CHECK-DAG:    [[DIM_H:%.+]] = tensor.dim [[ARG0]], [[C1]]
-// CHECK-DAG:    [[DIM_W:%.+]] = tensor.dim [[ARG0]], [[C2]]
-// CHECK-DAG:    [[EMPTY:%.+]] = tensor.empty([[DIM_H]], [[DIM_W]]) : tensor<1x?x?x3xf16, {bounds = #const.OpaqueI64Elements<[1, 1440, 2560, 3]> : tensor<4xsi64>, order = #NCHW}>
-// CHECK:        [[OUTER:%.+]] = scf.for [[IDX_H:%.+]] = [[C0]] to [[DIM_H]] step [[C360]] iter_args([[OUT_H:%.+]] = [[EMPTY]])
-// CHECK-SAME:          -> (tensor<1x?x?x3xf16, {bounds = #const.OpaqueI64Elements<[1, 1440, 2560, 3]> : tensor<4xsi64>, order = #NCHW}>) {
-// CHECK:            [[INNER:%.+]] = scf.for [[IDX_W:%.+]] = [[C0]] to [[DIM_W]] step [[C428]] iter_args([[OUT_W:%.+]] = [[OUT_H]])
-// CHECK-SAME:              -> (tensor<1x?x?x3xf16, {bounds = #const.OpaqueI64Elements<[1, 1440, 2560, 3]> : tensor<4xsi64>, order = #NCHW}>) {
+// CHECK-DAG:    [[C3:%.+]] = arith.constant 3 : index
+// CHECK-DAG:    [[DIM_H:%.+]] = tensor.dim [[ARG0]], [[C2]]
+// CHECK-DAG:    [[DIM_W:%.+]] = tensor.dim [[ARG0]], [[C3]]
+// CHECK-DAG:    [[EMPTY:%.+]] = tensor.empty([[DIM_H]], [[DIM_W]]) : tensor<1x3x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 3, 1440, 2560]> : tensor<4xsi64>, order = #NHWC}>
+// CHECK:        [[OUTER:%.+]] = scf.for [[IDX_H:%.+]] = [[C0]] to [[DIM_H]] step [[C180]] iter_args([[OUT_H:%.+]] = [[EMPTY]])
+// CHECK-SAME:          -> (tensor<1x3x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 3, 1440, 2560]> : tensor<4xsi64>, order = #NHWC}>) {
+// CHECK:            [[INNER:%.+]] = scf.for [[IDX_W:%.+]] = [[C0]] to [[DIM_W]] step [[C320]] iter_args([[OUT_W:%.+]] = [[OUT_H]])
+// CHECK-SAME:              -> (tensor<1x3x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 3, 1440, 2560]> : tensor<4xsi64>, order = #NHWC}>) {
 // CHECK:                [[TILE_H:%.+]] = affine.min #[[$MAP_TILE_H]]([[IDX_H]])[[[DIM_H]]]
 // CHECK:                [[TILE_W:%.+]] = affine.min #[[$MAP_TILE_W]]([[IDX_W]])[[[DIM_W]]]
 // CHECK:                [[UV_OFF_H:%.+]] = affine.apply #[[$MAP_DIV2]]([[IDX_H]])
 // CHECK:                [[UV_SIZE_H:%.+]] = affine.apply #[[$MAP_DIV2]]([[TILE_H]])
 // CHECK:                [[UV_OFF_W:%.+]] = affine.apply #[[$MAP_DIV2]]([[IDX_W]])
 // CHECK:                [[UV_SIZE_W:%.+]] = affine.apply #[[$MAP_DIV2]]([[TILE_W]])
-// CHECK:                [[SLICE_Y:%.+]] = tensor.extract_slice [[ARG0]][0, [[IDX_H]], [[IDX_W]], 0] [1, [[TILE_H]], [[TILE_W]], 1] [1, 1, 1, 1]
-// CHECK-SAME:              to tensor<1x?x?x1xf16, {bounds = #const.OpaqueI64Elements<[1, 360, 428, 1]> : tensor<4xsi64>, order = #NCHW}>
-// CHECK:                [[SLICE_UV:%.+]] = tensor.extract_slice [[ARG1]][0, [[UV_OFF_H]], [[UV_OFF_W]], 0] [1, [[UV_SIZE_H]], [[UV_SIZE_W]], 2] [1, 1, 1, 1]
-// CHECK-SAME:              to tensor<1x?x?x2xf16, {bounds = #const.OpaqueI64Elements<[1, 180, 214, 2]> : tensor<4xsi64>, order = #NCHW}>
+// CHECK:                [[SLICE_Y:%.+]] = tensor.extract_slice [[ARG0]][0, 0, [[IDX_H]], [[IDX_W]]] [1, 1, [[TILE_H]], [[TILE_W]]] [1, 1, 1, 1]
+// CHECK-SAME:              to tensor<1x1x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 1, 180, 320]> : tensor<4xsi64>, order = #NHWC}>
+// CHECK:                [[SLICE_UV:%.+]] = tensor.extract_slice [[ARG1]][0, 0, [[UV_OFF_H]], [[UV_OFF_W]]] [1, 2, [[UV_SIZE_H]], [[UV_SIZE_W]]] [1, 1, 1, 1]
+// CHECK-SAME:              to tensor<1x2x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 2, 90, 160]> : tensor<4xsi64>, order = #NHWC}>
 // CHECK:                [[YUV:%.+]] = VPU.YuvToRgb([[SLICE_Y]], [[SLICE_UV]])
 // CHECK-SAME:              {inFmt = #IE.color_fmt<NV12>
 // CHECK-SAME:              outFmt = #IE.color_fmt<RGB>
-// CHECK-SAME:              -> tensor<1x?x?x3xf16, {bounds = #const.OpaqueI64Elements<[1, 360, 428, 3]> : tensor<4xsi64>, order = #NCHW}>
-// CHECK:                [[INSERT:%.+]] = tensor.insert_slice [[YUV]] into [[OUT_W]][0, [[IDX_H]], [[IDX_W]], 0] [1, [[TILE_H]], [[TILE_W]], 3] [1, 1, 1, 1]
-// CHECK-SAME:              : tensor<1x?x?x3xf16, {bounds = #const.OpaqueI64Elements<[1, 360, 428, 3]> : tensor<4xsi64>, order = #NCHW}> into tensor<1x?x?x3xf16, {bounds = #const.OpaqueI64Elements<[1, 1440, 2560, 3]> : tensor<4xsi64>, order = #NCHW}>
+// CHECK-SAME:              -> tensor<1x3x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 3, 180, 320]> : tensor<4xsi64>, order = #NHWC}>
+// CHECK:                [[INSERT:%.+]] = tensor.insert_slice [[YUV]] into [[OUT_W]][0, 0, [[IDX_H]], [[IDX_W]]] [1, 3, [[TILE_H]], [[TILE_W]]] [1, 1, 1, 1]
+// CHECK-SAME:              : tensor<1x3x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 3, 180, 320]> : tensor<4xsi64>, order = #NHWC}> into tensor<1x3x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 3, 1440, 2560]> : tensor<4xsi64>, order = #NHWC}>
 // CHECK:                scf.yield [[INSERT]]
 // CHECK:            scf.yield [[INNER]]
 // CHECK:        return [[OUTER]]

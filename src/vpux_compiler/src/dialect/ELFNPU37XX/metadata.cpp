@@ -17,7 +17,7 @@
 #include "vpux/utils/core/error.hpp"
 #include "vpux_headers/metadata_primitives.hpp"
 
-#include <intel_npu/prefix.hpp>
+#include "compatibility/prefix.hpp"
 
 #include <llvm/Support/Format.h>
 #include <mlir/IR/BuiltinTypeInterfaces.h>
@@ -258,9 +258,19 @@ void createOVNodes(std::vector<elf::OVNode>& nodes, ArrayRef<net::DataInfoOp> da
     for (auto dataInfo : dataInfoVector) {
         // Serialize metadata only for model primary parameters and results, skip state and shape nodes
         const auto name = dataInfo.getName().str();
-        if (intel_npu::isStateInputName(name) || intel_npu::isStateOutputName(name) ||
-            intel_npu::isShapeTensorName(name) || intel_npu::isInitInputWeightsName(name) ||
-            intel_npu::isInitOutputWeightsName(name) || intel_npu::isMainInputWeightsName(name)) {
+        if (  // Skip ReadValue state inputs.
+                !name.compare(0, intel_npu::READVALUE_PREFIX.length(), intel_npu::READVALUE_PREFIX) ||
+                // Skip Assign state outputs.
+                !name.compare(0, intel_npu::ASSIGN_PREFIX.length(), intel_npu::ASSIGN_PREFIX) ||
+                // Skip shape tensor inputs.
+                !name.compare(0, intel_npu::SHAPE_TENSOR_PREFIX.length(), intel_npu::SHAPE_TENSOR_PREFIX) ||
+                // Skip initialized input weights.
+                !name.compare(0, intel_npu::INIT_INPUT_WEIGHTS_PREFIX.length(), intel_npu::INIT_INPUT_WEIGHTS_PREFIX) ||
+                // Skip initialized output weights.
+                !name.compare(0, intel_npu::INIT_OUTPUT_WEIGHTS_PREFIX.length(),
+                              intel_npu::INIT_OUTPUT_WEIGHTS_PREFIX) ||
+                // Skip main input weights.
+                !name.compare(0, intel_npu::MAIN_INPUT_WEIGHTS_PREFIX.length(), intel_npu::MAIN_INPUT_WEIGHTS_PREFIX)) {
             continue;
         }
 

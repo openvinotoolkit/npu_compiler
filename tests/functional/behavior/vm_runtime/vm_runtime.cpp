@@ -1207,10 +1207,10 @@ const std::vector<std::string> interpreterModels = {
 
 const std::vector<std::string> interpreterLibNames = {"openvino_intel_npu_vm_runtime"};
 
-const std::vector<ov::AnyMap> configsHostCompileInterpreter = {
+const std::vector<ov::AnyMap> configsHostCompile = {
         {{"NPU_COMPILER_TYPE", "PLUGIN"}, {"NPU_COMPILATION_MODE", "HostCompile_Interpreter"}}};
 INSTANTIATE_TEST_SUITE_P(smoke_BehaviorTest_interpreter_runtime, NPUVMRuntimeCAPITest,
                          ::testing::Combine(::testing::ValuesIn(devices), ::testing::ValuesIn(interpreterModels),
                                             ::testing::ValuesIn(interpreterLibNames),
-                                            ::testing::ValuesIn(configsHostCompileInterpreter)),
+                                            ::testing::ValuesIn(configsHostCompile)),
                          NPUVMRuntimeCAPITest::getTestCaseName);

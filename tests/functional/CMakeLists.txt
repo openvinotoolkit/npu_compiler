@@ -3,10 +3,6 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 
-if(ENABLE_LTO)
-    set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RELEASE ON)
-endif()
-
 set(TARGET_NAME npuFuncTests)
 set(EXCLUDED_FUNC_TESTS_DIR "")
 set(OPTIONAL_FUNC_TESTS_INCLUDES "")
@@ -73,6 +69,12 @@ target_sources(${TARGET_NAME} PRIVATE
     ${PROJECT_SOURCE_DIR}/src/vpux_driver_compiler/test/functional/vcl_tests_common.cpp
 )
 
+# npuFuncTests is intentionally left out of MSVC LTO: /LTCG reorders the
+# .CRT$XCU dynamic-initializer thunks it links, so the gtest test
+# registration code runs before ov::test::utils::rangeByType (header-scope
+# static map in common_test_utils/type_ranges.hpp) is constructed, crashing
+# at startup with 0xC0000005. Non-LTO static-init order is fine.
+
 ov_build_target_faster(${TARGET_NAME} PCH PUBLIC "precomp.hpp")
 
 set_target_properties(${TARGET_NAME} PROPERTIES
@@ -86,7 +88,7 @@ if(MSVC)
             /Zc:preprocessor
     )
 endif()
-enable_warnings_as_errors(${TARGET_NAME} SKIP_SYSTEM)
+enable_warnings_as_errors(${TARGET_NAME})
 
 if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
     # Suppress -Winaccessible-base caused by mixed virtual/non-virtual inheritance paths

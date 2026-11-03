@@ -5,6 +5,7 @@
 
 #include "vpux/compiler/dialect/VPU/utils/sw_utils.hpp"
 #include "vpux/compiler/core/tiling.hpp"
+#include "vpux/compiler/dialect/Shave/IR/ops/meta-ops.hpp"
 #include "vpux/compiler/dialect/VPU/IR/attributes.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/activation.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/arithmetic.hpp"
@@ -580,17 +581,27 @@ DistributionMode vpux::VPU::getSWInputTensorDistributionMode(VPU::RoPEOp op, VPU
 // Segmented over kernel is legal for Inputs: Q, K, V, 3D Mask, 3D Bias and DataStorage
 // Segmented over height is legal for Inputs: Q, 2D Mask, 2D Bias and DataStorage
 DistributionMode vpux::VPU::getSWInputTensorDistributionMode(VPU::SDPAOp op, VPU::MultiClusterStrategy strategy,
-                                                             mlir::Value operand) {
-    const auto isInputQTensor = operand == op.getInputQ();
-    const auto isInputKTensor = operand == op.getInputK();
-    const auto isInputVTensor = operand == op.getInputV();
-    const auto isDataStorageTensor = operand == op.getDataStorage();
+                                                             mlir::OpOperand& operandUse) {
+    const auto operandNo = operandUse.getOperandNumber();
+    const auto matchOperand = [operandNo](mlir::OpOperand& other) {
+        return operandNo == other.getOperandNumber();
+    };
+    const auto matchOptionalOperand = [operandNo](mlir::MutableOperandRange other) {
+        return !other.empty() && operandNo == other[0].getOperandNumber();
+    };
+
+    const auto isInputQTensor = matchOperand(op.getInputQMutable());
+    const auto isInputKTensor = matchOperand(op.getInputKMutable());
+    const auto isInputVTensor = matchOperand(op.getInputVMutable());
+    const auto isDataStorageTensor = matchOperand(op.getDataStorageMutable());
 
     // Optional inputs distribution mode
-    auto is2DMaskTensor = operand == op.getInputMask() && getShape(op.getInputMask())[Dims4D::Act::H] != 1;
-    auto is3DMaskTensor = operand == op.getInputMask() && getShape(op.getInputMask())[Dims4D::Act::C] != 1;
-    auto is2DBiasTensor = operand == op.getInputBias() && getShape(op.getInputBias())[Dims4D::Act::H] != 1;
-    auto is3DBiasTensor = operand == op.getInputBias() && getShape(op.getInputBias())[Dims4D::Act::C] != 1;
+    const auto isMaskTensor = matchOptionalOperand(op.getInputMaskMutable());
+    const auto isBiasTensor = matchOptionalOperand(op.getInputBiasMutable());
+    auto is2DMaskTensor = isMaskTensor && getShape(op.getInputMask())[Dims4D::Act::H] != 1;
+    auto is3DMaskTensor = isMaskTensor && getShape(op.getInputMask())[Dims4D::Act::C] != 1;
+    auto is2DBiasTensor = isBiasTensor && getShape(op.getInputBias())[Dims4D::Act::H] != 1;
+    auto is3DBiasTensor = isBiasTensor && getShape(op.getInputBias())[Dims4D::Act::C] != 1;
 
     switch (strategy) {
     case VPU::MultiClusterStrategy::Clustering:
@@ -812,8 +823,10 @@ DistributionMode vpux::VPU::getSWInputTensorDistributionMode(VPU::ScatterElement
 }
 
 DistributionMode vpux::VPU::getSWInputTensorDistributionMode(VPU::ClusteredOpInterface clusteredOp,
-                                                             VPU::MultiClusterStrategy strategy, mlir::Value operand,
+                                                             VPU::MultiClusterStrategy strategy,
+                                                             mlir::OpOperand& operandUse,
                                                              vpux::NDTypeInterface inputType) {
+    const mlir::Value operand = operandUse.get();
     return llvm::TypeSwitch<mlir::Operation*, VPU::DistributionMode>(clusteredOp.getOperation())
             .Case<VPU::InterpolateOp>([&](VPU::InterpolateOp interpolateOp) {
                 return getSWInputTensorDistributionMode(interpolateOp, strategy, operand);
@@ -907,7 +920,7 @@ DistributionMode vpux::VPU::getSWInputTensorDistributionMode(VPU::ClusteredOpInt
                 return getSWInputTensorDistributionMode(op, strategy, operand);
             })
             .Case<VPU::SDPAOp>([&](VPU::SDPAOp op) {
-                return getSWInputTensorDistributionMode(op, strategy, operand);
+                return getSWInputTensorDistributionMode(op, strategy, operandUse);
             })
             .Case<VPU::FlashSDPAOp>([&](VPU::FlashSDPAOp op) {
                 return getSWInputTensorDistributionMode(op, strategy, operand);
@@ -930,10 +943,14 @@ DistributionMode vpux::VPU::getSWInputTensorDistributionMode(VPU::ClusteredOpInt
             .Case<VPU::GroupQuantCorrectionOp>([&](VPU::GroupQuantCorrectionOp op) {
                 return getSWInputTensorDistributionMode(op, strategy, operand);
             })
-            .Default([&](mlir::Operation*) {
-                VPUX_THROW_UNLESS(clusteredOp->getOperands().size() == 1,
-                                  "General method only support SW layer with one operand but got '{0}'",
-                                  clusteredOp->getOperands().size());
+            .Case<VPU::GenericSwLayerOp>([&](VPU::GenericSwLayerOp op) {
+                return op.getSWInputTensorDistributionMode(strategy, operandUse, inputType);
+            })
+            .Default([&](mlir::Operation* op) {
+                VPUX_THROW_UNLESS(
+                        clusteredOp->getOperands().size() == 1 || mlir::isa<Shave::RepeatedExternalKernelOp>(op),
+                        "General method only support SW layer with one operand but got '{0}'",
+                        clusteredOp->getOperands().size());
                 return getSWInputTensorDistributionMode(strategy);
             });
 }
@@ -1599,9 +1616,9 @@ SmallVector<int64_t> vpux::VPU::getSWInputTensorNumTiles(VPU::RoPEOp op, int64_t
 }
 
 SmallVector<int64_t> vpux::VPU::getSWInputTensorNumTiles(VPU::SDPAOp op, int64_t numClustersAvailableForCompilation,
-                                                         VPU::MultiClusterStrategy strategy, mlir::Value operand,
-                                                         vpux::NDTypeInterface inputType) {
-    const auto distributionMode = VPU::getSWInputTensorDistributionMode(op, strategy, operand);
+                                                         VPU::MultiClusterStrategy strategy,
+                                                         mlir::OpOperand& operandUse, vpux::NDTypeInterface inputType) {
+    const auto distributionMode = VPU::getSWInputTensorDistributionMode(op, strategy, operandUse);
     if (distributionMode == VPU::DistributionMode::DUPLICATED) {
         return SmallVector<int64_t>{1, 1, 1, 1};
     }
@@ -1814,7 +1831,7 @@ SmallVector<int64_t> vpux::VPU::getSWInputTensorNumTiles(VPU::YuvToRgbOp op, int
     // We are always tiling based on the second input (UV plane in NV12 or U in i420)
     auto getTiledDimension = [&](Dim dimension) -> int64_t {
         auto input2Type = mlir::cast<vpux::NDTypeInterface>(op.getInput2().getType());
-        return input2Type.getShape()[dimension];
+        return getBoundedShape(input2Type)[dimension];
     };
 
     switch (strategy) {
@@ -1840,8 +1857,9 @@ SmallVector<int64_t> vpux::VPU::getSWInputTensorNumTiles(VPU::YuvToRgbOp op, int
 
 SmallVector<int64_t> vpux::VPU::getSWInputTensorNumTiles(VPU::ClusteredOpInterface clusteredOp,
                                                          int64_t numClustersAvailableForCompilation,
-                                                         VPU::MultiClusterStrategy strategy, mlir::Value operand,
-                                                         vpux::NDTypeInterface inputType) {
+                                                         VPU::MultiClusterStrategy strategy,
+                                                         mlir::OpOperand& operandUse, vpux::NDTypeInterface inputType) {
+    const mlir::Value operand = operandUse.get();
     return llvm::TypeSwitch<mlir::Operation*, SmallVector<int64_t>>(clusteredOp.getOperation())
             .Case<VPU::InterpolateOp>([&](VPU::InterpolateOp interpolateOp) {
                 return getSWInputTensorNumTiles(interpolateOp, numClustersAvailableForCompilation, strategy, operand);
@@ -1963,7 +1981,8 @@ SmallVector<int64_t> vpux::VPU::getSWInputTensorNumTiles(VPU::ClusteredOpInterfa
                 return getSWInputTensorNumTiles(clusteredOp, numClustersAvailableForCompilation, strategy);
             })
             .Case<VPU::SDPAOp>([&](VPU::SDPAOp op) {
-                return getSWInputTensorNumTiles(op, numClustersAvailableForCompilation, strategy, operand, inputType);
+                return getSWInputTensorNumTiles(op, numClustersAvailableForCompilation, strategy, operandUse,
+                                                inputType);
             })
             .Case<VPU::AttentionOp>([&](VPU::AttentionOp op) {
                 return getSWInputTensorNumTiles(op, numClustersAvailableForCompilation, strategy, operand, inputType);
@@ -1986,11 +2005,15 @@ SmallVector<int64_t> vpux::VPU::getSWInputTensorNumTiles(VPU::ClusteredOpInterfa
             .Case<VPU::GroupQuantCorrectionOp>([&](VPU::GroupQuantCorrectionOp op) {
                 return getSWInputTensorNumTiles(op, numClustersAvailableForCompilation, strategy, operand);
             })
-            .Default([&](mlir::Operation*) {
-                VPUX_THROW_UNLESS(clusteredOp->getOperands().size() == 1,
-                                  "General method only support SW layer "
-                                  "with one operand but got '{0}'",
-                                  clusteredOp->getOperands().size());
+            .Case<VPU::GenericSwLayerOp>([&](VPU::GenericSwLayerOp op) {
+                return op.getSWInputTensorNumTiles(numClustersAvailableForCompilation, strategy, operandUse, inputType);
+            })
+            .Default([&](mlir::Operation* op) {
+                VPUX_THROW_UNLESS(
+                        clusteredOp->getOperands().size() == 1 || mlir::isa<Shave::RepeatedExternalKernelOp>(op),
+                        "General method only support SW layer "
+                        "with one operand but got '{0}'",
+                        clusteredOp->getOperands().size());
                 return getSWInputTensorNumTiles(clusteredOp, numClustersAvailableForCompilation, strategy);
             });
 }
@@ -2244,7 +2267,7 @@ std::optional<SmallVector<int64_t>> vpux::VPU::getSWAlignment(mlir::Operation* o
             return optionalAlignment;
         }
     } else if (VPU::isWeightsDequant(op)) {
-        optionalAlignment = VPU::DISTRIBUTED_N_ALIGNMENT;
+        optionalAlignment = SmallVector<int64_t>{VPU::DISTRIBUTED_N_ALIGNMENT, 1, 1, 1};
     } else if (auto d2sOp = mlir::dyn_cast<VPU::DepthToSpaceOp>(op)) {
         if (VPU::satisfiesOptimizedDepthToSpace(d2sOp, config::getArch(op))) {
             SmallVector<int64_t> divSpatialDims;
@@ -2262,15 +2285,15 @@ std::optional<SmallVector<int64_t>> vpux::VPU::getSWAlignment(mlir::Operation* o
     if (enableOptimizationAlignment) {
         auto isTiledOverC = divisors.size() == 4 ? divisors[Dims4D::Act::C] > 1 : false;
         if (isTiledOverC) {
-            if (shape[Dims4D::Act::C] / divisors[Dims4D::Act::C] > VPU::DISTRIBUTED_C_ALIGNMENT[Dims4D::Act::C.ind()]) {
-                return VPU::DISTRIBUTED_C_ALIGNMENT;
+            if (shape[Dims4D::Act::C] / divisors[Dims4D::Act::C] > VPU::DISTRIBUTED_C_ALIGNMENT) {
+                return SmallVector<int64_t>{1, VPU::DISTRIBUTED_C_ALIGNMENT, 1, 1};
             }
         }
     }
     return optionalAlignment;
 }
 
-bool vpux::VPU::opHasAccurateCost(mlir::Operation* op) {
+bool vpux::VPU::isViewOpSupportedForVF(mlir::Operation* op, std::optional<unsigned> operandNumber) {
     auto vfOp = mlir::dyn_cast_or_null<VPU::VerticalFusionOp>(op);
     auto getFirstInnerComputeOpFromVF = [](VPU::VerticalFusionOp vfOp) -> mlir::Operation* {
         auto iter = llvm::find_if(vfOp.getBody()->without_terminator(), [](mlir::Operation& nestedOp) {
@@ -2286,13 +2309,14 @@ bool vpux::VPU::opHasAccurateCost(mlir::Operation* op) {
             .Case<VPU::InterpolateOp, VPU::MultiplyOp>([](auto) {
                 return false;
             })
-            .Case<VPU::DynamicDequantizeOp>([](auto dequantOp) {
-                auto inType = mlir::cast<vpux::NDTypeInterface>(dequantOp.getInput().getType());
-                auto outType = mlir::cast<vpux::NDTypeInterface>(dequantOp.getResult().getType());
-                auto dimOrder = inType.getDimsOrder();
-                // E#210776 Inccurate cost when input is int4 and output is int16 in NCHW layout
-                return dimOrder != DimsOrder::NCHW || inType.getElemTypeSize() != Bit(4) ||
-                       outType.getElemTypeSize() != Bit(16);
+            .Case<VPU::DynamicDequantizeOp>([&](auto) {
+                // E#227196 Lacking VF loop scheduling support for pattern like below:
+                // DynamicDequantizeOp  MaxPool
+                //          \            /
+                //      DynamicDequantizeOp
+                //               |
+                //         Convolution
+                return !operandNumber.has_value() || operandNumber.value() == 0;
             })
             .Default([](mlir::Operation*) {
                 return true;

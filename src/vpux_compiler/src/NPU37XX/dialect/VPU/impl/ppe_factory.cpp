@@ -61,7 +61,7 @@ void PpeFactory::applyStaticScale(mlir::Operation* op, AttrBuilder& builder) con
     }
 
     auto newScale = SmallVector<double>();
-    llvm::transform(*builder.quantScale, std::back_inserter(newScale), [&staticScale](const auto s) {
+    llvm::transform(*builder.quantScale, std::back_inserter(newScale), [staticScale](const auto s) {
         return s * staticScale;
     });
     builder.quantScale = std::move(newScale);

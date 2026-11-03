@@ -124,7 +124,7 @@ void collectBuffers(const vpux::SchedulingLoop& loop, ClassifierVFResult& result
         BufferRecord bufferRecord;
         bufferRecord.rootValue = buf;
         bufferRecord.size = getRawBufferSize(buf);
-        bufferRecord.alignment = vpux::getAlignment(buf);
+        bufferRecord.offsetAlignment = vpux::getAlignment(buf);
         bufferRecord.firstUseOp = std::numeric_limits<size_t>::max();
         bufferRecord.lastUseOp = 0;
         result.buffers.push_back(std::move(bufferRecord));
@@ -170,7 +170,7 @@ void collectBuffers(const vpux::SchedulingLoop& loop, ClassifierVFResult& result
         }
         auto& bufferRecord = result.buffers[recIt->second];
         bufferRecord.size = std::max(bufferRecord.size, getRawBufferSize(bodyVal));
-        bufferRecord.alignment = std::max(bufferRecord.alignment, vpux::getAlignment(bodyVal));
+        bufferRecord.offsetAlignment = std::max(bufferRecord.offsetAlignment, vpux::getAlignment(bodyVal));
     };
     for (size_t iteration = 1; iteration < loop.loopBodies.size(); ++iteration) {
         const auto& bodyIteration = loop.loopBodies[iteration];
@@ -603,7 +603,7 @@ SmallVector<vpux::AddressType> computeMemoryStats(const LoopBody& templateBody, 
     SmallVector<vpux::AddressType> alignedBufferSizes(result.buffers.size());
     for (size_t idx = 0; idx < result.buffers.size(); ++idx) {
         const auto& bufferRecord = result.buffers[idx];
-        alignedBufferSizes[idx] = vpux::alignValUp(bufferRecord.size, bufferRecord.alignment);
+        alignedBufferSizes[idx] = vpux::alignValUp(bufferRecord.size, bufferRecord.offsetAlignment);
     }
 
     for (size_t idx = 0; idx < result.buffers.size(); ++idx) {
@@ -660,7 +660,7 @@ void addPersistentCandidatesInFittingOrder(const LoopBody& templateBody, vpux::A
     result.persistentFitBudgetBytes = saturatingSub(memoryLimit, result.temporaryPeakBytes);
     SmallVector<PersistentFitBufferInfo> persistentFitBufferInfo(result.buffers.size());
     for (size_t idx = 0; idx < result.buffers.size(); ++idx) {
-        persistentFitBufferInfo[idx] = {result.buffers[idx].size, result.buffers[idx].alignment};
+        persistentFitBufferInfo[idx] = {result.buffers[idx].size, result.buffers[idx].offsetAlignment};
     }
     const auto usePersistentFitSearch =
             shouldUsePersistentFitSearch(result.persistentFitOrder, persistentFitBufferInfo);
@@ -679,10 +679,10 @@ void addPersistentCandidatesInFittingOrder(const LoopBody& templateBody, vpux::A
               usePersistentFitSearch ? "worst-case-search" : "greedy");
     for (size_t idx : result.persistentFitOrder) {
         const auto& bufferRecord = result.buffers[idx];
-        const auto candidateEnd =
-                usePersistentFitSearch ? vpux::alignValUp(result.persistentFitReservedBytes, bufferRecord.alignment) +
-                                                 bufferRecord.size
-                                       : result.persistentFitReservedBytes + alignedBufferSizes[idx];
+        const auto candidateEnd = usePersistentFitSearch ? vpux::alignValUp(result.persistentFitReservedBytes,
+                                                                            bufferRecord.offsetAlignment) +
+                                                                   bufferRecord.size
+                                                         : result.persistentFitReservedBytes + alignedBufferSizes[idx];
         if (candidateEnd <= result.persistentFitBudgetBytes) {
             result.persistentFitInitial.push_back(idx);
             result.persistentFitReservedBytes = candidateEnd;
@@ -851,7 +851,7 @@ void ClassifierVFResult::print(llvm::raw_ostream& os) const {
     for (size_t i = 0; i < buffers.size(); ++i) {
         const auto& b = buffers[i];
         os << "    [" << i << "] category=" << stringifyBufferCategory(b.category) << " size=" << b.size
-           << " align=" << b.alignment << " firstUse=" << b.firstUseOp << " lastUse=" << b.lastUseOp
+           << " align=" << b.offsetAlignment << " firstUse=" << b.firstUseOp << " lastUse=" << b.lastUseOp
            << " prefetchableWeight=" << (b.isPrefetchableWeight ? "true" : "false")
            << " inPlace=" << (b.isInPlaceAlias ? "true" : "false") << "\n";
     }

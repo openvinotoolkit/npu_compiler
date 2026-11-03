@@ -35,7 +35,7 @@ mlir::LogicalResult vpux::VPU::DistributedCastOp::verify() {
     if (inDistributedTypes.size() == 0 || inDistributedTypes.size() != outDistributedTypes.size()) {
         return mlir::failure();
     }
-    auto isCompatible = [&logCb](mlir::Type type1, mlir::Type type2) -> bool {
+    auto isCompatible = [logCb](mlir::Type type1, mlir::Type type2) -> bool {
         return isDistributedCastCompatible(mlir::cast<vpux::VPU::DistributedTensorType>(type1),
                                            mlir::cast<vpux::VPU::DistributedTensorType>(type2), logCb)
                 .succeeded();

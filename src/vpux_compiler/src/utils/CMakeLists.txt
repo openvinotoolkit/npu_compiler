@@ -48,6 +48,8 @@ add_npu_library(${TARGET_NAME}
         npu_compiler_act_kernels
         npu_compiler_dialect_shave
 )
+enable_lto_if_possible(${TARGET_NAME})
+
 
 set(LINKER_SCRIPT_INPUT "${PROJECT_SOURCE_DIR}/sw_runtime_kernels/kernels/prebuild/shave_kernel.ld")
 set(PREP_SCRIPT "${PROJECT_SOURCE_DIR}/cmake/prep_ldscript.py")

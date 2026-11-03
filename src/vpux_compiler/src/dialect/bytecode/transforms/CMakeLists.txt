@@ -21,3 +21,5 @@ add_npu_library(${TARGET_NAME}
         npu_compiler_dialect_net
         npu_compiler_dialect_bytecode_utils
 )
+enable_lto_if_possible(${TARGET_NAME})
+

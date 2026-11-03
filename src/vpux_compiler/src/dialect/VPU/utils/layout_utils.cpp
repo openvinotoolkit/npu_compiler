@@ -216,6 +216,49 @@ void vpux::VPU::inferLayoutInfoSameAnyDimsOrder(IE::LayerLayoutInfo& info) {
 }
 
 //
+// YuvToRgbDimsOrderOpModel_NHWC
+//
+
+void vpux::VPU::YuvToRgbDimsOrderOpModel_NHWC::inferLayoutInfo(mlir::Operation* /*op*/, IE::LayerLayoutInfo& info) {
+    for (auto i : irange(info.getNumInputs())) {
+        info.setInput(i, DimsOrder::NHWC);
+    }
+
+    for (auto i : irange(info.getNumOutputs())) {
+        info.setOutput(i, DimsOrder::NHWC);
+    }
+}
+
+mlir::LogicalResult vpux::VPU::YuvToRgbDimsOrderOpModel_NHWC::verifyLayout(mlir::Operation* op) const {
+    auto layer = mlir::dyn_cast<VPU::LayerOpInterface>(op);
+    if (layer == nullptr) {
+        return errorAt(op, "Operation '{0}' doesn't implement Layer interface", op->getName());
+    }
+
+    for (const auto& operand : layer->getOpOperands() | indexed) {
+        const auto inOrder = DimsOrder::fromValue(operand.value().get());
+        if (inOrder != DimsOrder::NHWC) {
+            return errorAt(op->getLoc(), "Operation input {0} order is not as expected. inL={1}, expectedInL=NHWC",
+                           operand.index(), inOrder);
+        }
+    }
+
+    for (const auto& result : layer->getResults() | indexed) {
+        const auto outOrder = DimsOrder::fromValue(result.value());
+        if (outOrder != DimsOrder::NHWC) {
+            return errorAt(op->getLoc(), "Operation output {0} order is not as expected. outL={1}, expectedOutL=NHWC",
+                           result.index(), outOrder);
+        }
+    }
+
+    return mlir::success();
+}
+
+IE::LayerLayoutInfo vpux::VPU::YuvToRgbDimsOrderOpModel_NHWC::getLayoutInfo(mlir::Operation* origOp) const {
+    return IE::getLayoutInfo(origOp);
+}
+
+//
 // SameInOutSpecificDimsOrder
 //
 
@@ -472,8 +515,8 @@ void vpux::VPU::inferLSTMSequenceLayoutInfo(mlir::Operation* op, IE::LayerLayout
     auto lstmSequenceOp = mlir::dyn_cast<IE::LSTMSequenceOp>(op);
     VPUX_THROW_UNLESS(lstmSequenceOp, "Expected an IE::LSTMSequenceOp, got {0}", op);
 
-    const size_t firstOptionalInputInd = 3;
-    const auto inputFilter = [=](size_t ind) {
+    constexpr size_t firstOptionalInputInd = 3;
+    const auto inputFilter = [](size_t ind) {
         return ind < firstOptionalInputInd;
     };
     const auto outputFilter = [](size_t) {

@@ -8,6 +8,7 @@
 #include "vpux/compiler/conversion.hpp"
 #include "vpux/compiler/dialect/core/transforms/passes.hpp"
 
+#include "vpux/compiler/dialect/Shave/transforms/passes.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
 #include "vpux/compiler/dialect/config/IR/attributes.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
@@ -37,8 +38,7 @@ void vpux::VPU::arch40xx::buildIncrementalPipeline(mlir::OpPassManager& pm, cons
                                                            /*skipConvOC=*/SkipOCMode::SKIP_NONE,
                                                            /*skipEltwiseOC=*/SkipOCMode::SKIP_NONE,
                                                            /*enableSplitChannelForDynamicDequantize=*/false, log));
-    pm.addPass(VPU::createOptimizeConcatPass(/*optimizeOnlyOuterConcat*/ false,
-                                             /*disablePassOnEntryFunctionForHostCompile=*/false, log));
+    pm.addPass(VPU::createOptimizeConcatPass(/*optimizeOnlyOuterConcat*/ false, log));
 
     VPU::buildTilingPipeline(pm, VPU::TilingOptions(options), log);
 
@@ -101,10 +101,14 @@ void vpux::VPU::arch40xx::buildDefaultHWPipeline(mlir::OpPassManager& pm,
                                                  const VPU::arch40xx::DefaultHWOptions& options, Logger log) {
     const auto grc = getDefaultGreedyRewriteConfig();
 
+    // Custom Kernel scratch and replication handling
+    pm.addPass(Shave::createMaterializeScratchBuffersPass(log));
+    pm.addPass(Shave::createHandleExternalKernelTilingRequirementsPass(log));
+
     if (options.enableConcatRepeatingBlockOutlining) {
-        pm.addPass(VPU::createConcatRepeatingBlocksOutliningPass(options.concatRepeatingBlockOutliningSeqLength,
-                                                                 options.concatRepeatingBlockOutliningSdpaHeadThreshold,
-                                                                 log));
+        pm.addPass(VPU::createConcatRepeatingBlocksOutliningPass(
+                options.concatRepeatingBlockOutliningSeqLength, options.concatRepeatingBlockOutliningSdpaMinSeqLength,
+                options.concatRepeatingBlockOutliningSdpaHeadThreshold, log));
         pm.addPass(mlir::createCanonicalizerPass(grc));
     }
 
@@ -128,8 +132,7 @@ void vpux::VPU::arch40xx::buildDefaultHWPipeline(mlir::OpPassManager& pm,
                                                            /*skipConvOC=*/SkipOCMode::SKIP_NONE,
                                                            /*skipEltwiseOC=*/SkipOCMode::SKIP_NONE,
                                                            /*enableSplitChannelForDynamicDequantize=*/false, log));
-    pm.addPass(VPU::createOptimizeConcatPass(/*optimizeOnlyOuterConcat*/ false,
-                                             /*disablePassOnEntryFunctionForHostCompile=*/false, log));
+    pm.addPass(VPU::createOptimizeConcatPass(/*optimizeOnlyOuterConcat*/ false, log));
     if (options.enableWeightsSparsity) {
         VPU::buildWeightsSparsityPipeline(pm, VPU::WeightsSparsityOptions(options), log);
     }
@@ -157,8 +160,7 @@ void vpux::VPU::arch40xx::buildDefaultHWPipeline(mlir::OpPassManager& pm,
 
     nestedPm.addPass(VPU::createAdjustMemorySpacePass(log));
     nestedPm.addPass(VPU::createOptimizeSharedInputCopyForConcatPass(log));
-    nestedPm.addPass(VPU::createOptimizeConcatPass(/*optimizeOnlyOuterConcat*/ false,
-                                                   options.disablePassOnEntryFunctionForHostCompile, log));
+    nestedPm.addPass(VPU::createOptimizeConcatPass(/*optimizeOnlyOuterConcat*/ false, log));
     nestedPm.addPass(mlir::createCanonicalizerPass(grc));
 
     nestedPm.addPass(VPU::createCMXConcatPass(log));
@@ -169,8 +171,14 @@ void vpux::VPU::arch40xx::buildDefaultHWPipeline(mlir::OpPassManager& pm,
     VPU::arch40xx::buildNCEWorkloadsPipeline(nestedPm, VPU::NCEWorkloadsOptions(options), log);
 
     nestedPm.addPass(mlir::createCanonicalizerPass(grc));
+    if (options.enableSCFTiling) {
+        // Must run after the tensor.pad readers (MoveTensorOpsToCMX, WorkloadsForNCEOpsSCF) and
+        // before bufferization.
+        nestedPm.addPass(VPU::createConvertTensorPadToVPUPadPass(log));
+    }
     nestedPm.addPass(createAdjustDynamicOpsBeforeBufferizationPass());
     nestedPm.addPass(VPU::createLegalizeDynamicShapeConcatForSWLayersPass(log));
+    nestedPm.addPass(Shave::createExternalKernelMemSpaceAdjustmentPass(log));
     nestedPm.addPass(VPU::createAdjustMemorySpaceForSHVOpsPass(log));
     if (options.enableEntireMainContentOutlining) {
         nestedPm.addPass(VPU::createOutlineEntireMainContentPass(log));

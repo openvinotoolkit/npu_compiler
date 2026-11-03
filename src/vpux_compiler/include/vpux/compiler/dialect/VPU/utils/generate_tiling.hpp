@@ -7,6 +7,8 @@
 
 #include "vpux/compiler/dialect/VPU/utils/cost_model/layer_vpunn_cost.hpp"
 #include "vpux/compiler/dialect/VPU/utils/multi_cluster_strategy_utils.hpp"
+#include "vpux/compiler/dialect/VPU/utils/nce_utils.hpp"
+#include "vpux/compiler/dialect/VPU/utils/odu_utils.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
 
 #include <mlir/IR/IRMapping.h>
@@ -14,6 +16,7 @@
 namespace vpux::VPU {
 class NCEOpInterface;
 class TilingBuilderOpInterface;
+class TilingInfoOpInterface;
 }  // namespace vpux::VPU
 
 namespace vpux {
@@ -31,6 +34,10 @@ constexpr float PIPELINING_AVAILABLE_RATIO = 0.95f;
 std::optional<std::pair<TilingMode, bool>> getTilingMode(mlir::Operation* op, bool enablePrefetchTiling,
                                                          const std::unique_ptr<VPU::LayerVPUNNCost>& layerCost,
                                                          Logger log);
+
+// Returns whether the operation fits into CMX as a whole, i.e. without being split into tiles. When this
+// returns false, tiling is mandatory for correctness (not just an optimization such as prefetching/pipelining).
+bool fitsWithoutTiling(VPU::TilingInfoOpInterface iface, Logger log);
 
 mlir::FailureOr<OutputTiling> getLayerTilingStrategy(VPU::TilingBuilderOpInterface origOp, bool enablePrefetchTiling,
                                                      TilingMode& mode, Logger log);
@@ -106,7 +113,7 @@ TileInfo getWeightsTableTile(ConcreteOp* origOp, const vpux::TileInfo& outputTil
 
     const auto origWeightsTableShape = getShape(origWeightsTable);
     VPUX_THROW_UNLESS((weightsOutputChannels.has_value() ||
-                       origWeightsTableShape[Dim(0)] == getShape(origOp->getOutput())[Dims4D::Act::C]) &&
+                       origWeightsTableShape[Dim(0)] == VPU::getPreODUOutputChannels(origOp->getOperation())) &&
                               origWeightsTableShape[Dim(1)] == 1 && origWeightsTableShape[Dim(2)] == 1 &&
                               origWeightsTableShape[Dim(3)] == VPU::NCEInvariant::WEIGHT_TABLE_NUM_ELEMENTS_PER_OC,
                       "Unexpected WeightsTable shape notation or order: {0} with output shape of {1}"
@@ -131,7 +138,7 @@ TileInfo getDataPointerTableTile(ConcreteOp* origOp, const vpux::TileInfo& outpu
     const auto origDataPointerTableShape = getShape(origDataPointerTable);
     VPUX_THROW_UNLESS(
             (weightsOutputChannels.has_value() ||
-             origDataPointerTableShape[Dim(0)] == getShape(origOp->getOutput())[Dims4D::Act::C]) &&
+             origDataPointerTableShape[Dim(0)] == VPU::getPreODUOutputChannels(origOp->getOperation())) &&
                     origDataPointerTableShape[Dim(1)] == 1 && origDataPointerTableShape[Dim(2)] == 1 &&
                     origDataPointerTableShape[Dim(3)] == VPU::NCEInvariant::NEW_WEIGHT_TABLE_NUM_ELEMENTS_PER_OC,
             "Unexpected DataPointerTable shape notation or order: {0} with output shape of {1}"
@@ -155,7 +162,7 @@ TileInfo getScaleTableTile(ConcreteOp* origOp, const vpux::TileInfo& outputTile,
 
     const auto origScaleTableShape = getShape(origScaleTable);
     VPUX_THROW_UNLESS((weightsOutputChannels.has_value() ||
-                       origScaleTableShape[Dim(0)] == getShape(origOp->getOutput())[Dims4D::Act::C]) &&
+                       origScaleTableShape[Dim(0)] == VPU::getPreODUOutputChannels(origOp->getOperation())) &&
                               origScaleTableShape[Dim(1)] == 1 && origScaleTableShape[Dim(2)] == 1 &&
                               origScaleTableShape[Dim(3)] == VPU::NCEInvariant::NEW_WEIGHT_TABLE_NUM_ELEMENTS_PER_OC,
                       "Unexpected ScaleTable shape notation or order: {0} with output shape of {1}"
@@ -179,7 +186,7 @@ TileInfo getBiasTableTile(ConcreteOp* origOp, const vpux::TileInfo& outputTile,
 
     const auto origBiasTableShape = getShape(origBiasTable);
     VPUX_THROW_UNLESS((weightsOutputChannels.has_value() ||
-                       origBiasTableShape[Dim(0)] == getShape(origOp->getOutput())[Dims4D::Act::C]) &&
+                       origBiasTableShape[Dim(0)] == VPU::getPreODUOutputChannels(origOp->getOperation())) &&
                               origBiasTableShape[Dim(1)] == 1 && origBiasTableShape[Dim(2)] == 1 &&
                               origBiasTableShape[Dim(3)] == VPU::NCEInvariant::NEW_WEIGHT_TABLE_NUM_ELEMENTS_PER_OC,
                       "Unexpected BiasTable shape notation or order: {0} with output shape of {1}"
@@ -204,7 +211,7 @@ TileInfo getZeroPointTableTile(ConcreteOp* origOp, const vpux::TileInfo& outputT
     const auto origZeroPointTableShape = getShape(origZeroPointTable);
     VPUX_THROW_UNLESS(
             (weightsOutputChannels.has_value() ||
-             origZeroPointTableShape[Dim(0)] == getShape(origOp->getOutput())[Dims4D::Act::C]) &&
+             origZeroPointTableShape[Dim(0)] == VPU::getPreODUOutputChannels(origOp->getOperation())) &&
                     origZeroPointTableShape[Dim(1)] == 1 && origZeroPointTableShape[Dim(2)] == 1 &&
                     origZeroPointTableShape[Dim(3)] == VPU::NCEInvariant::NEW_WEIGHT_TABLE_NUM_ELEMENTS_PER_OC,
             "Unexpected ZeroPointTable shape notation or order: {0} with output shape of {1}"

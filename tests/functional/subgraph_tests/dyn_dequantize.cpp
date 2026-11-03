@@ -8,9 +8,13 @@
 #include "openvino/opsets/opset1_decl.hpp"
 #include "vpu_ov2_layer_test.hpp"
 
+#include "openvino/core/type/float16.hpp"
 #include "openvino/op/convert.hpp"
 #include "openvino/op/multiply.hpp"
 #include "openvino/op/subtract.hpp"
+
+#include <cmath>
+#include <random>
 
 namespace ov::test::subgraph {
 
@@ -256,4 +260,79 @@ const std::vector<DynDeQuantAsymParams> paramsAsym = {
 
 INSTANTIATE_TEST_SUITE_P(DynDQAsym, DynDQAsymTestCommon, ::testing::ValuesIn(paramsAsym),
                          DynDQAsymTestCommon::getTestCaseName);
+
+//
+// u16 -> f16 dynamic dequantization.
+//
+// The kernel deliberately computes u16 -> f32 -> multiply -> f16. f16 carries an
+// 11-bit mantissa and saturates at 65504, so converting the input first either
+// truncates it (2049 -> 2048) or overflows outright (>= 65520 -> infinity).
+//
+class DynDQU16Test : public DynDQTestCommon {
+    void generate_inputs(const std::vector<ov::Shape>& targetInputStaticShapes) override {
+        inputs.clear();
+        const auto& funcInputs = function->inputs();
+
+        static const uint16_t kEdge[] = {0, 1, 2048, 2049, 32769, 65504, 65520, 65523, 65527, 65531, 65535};
+        constexpr size_t kEdgeCount = sizeof(kEdge) / sizeof(kEdge[0]);
+
+        auto data = ov::Tensor(funcInputs[0].get_element_type(), targetInputStaticShapes[0]);
+        auto* dataPtr = data.data<uint16_t>();
+        const size_t count = data.get_size();
+        std::mt19937 gen(1);
+        std::uniform_int_distribution<uint32_t> dist(0, 65535);
+        for (size_t i = 0; i < count; i++) {
+            dataPtr[i] = static_cast<uint16_t>(dist(gen));
+        }
+        for (size_t k = 0; k < kEdgeCount && k < count; k++) {
+            dataPtr[(k * count) / kEdgeCount] = kEdge[k];
+        }
+        dataPtr[count - 1] = 65535;
+        inputs.insert({funcInputs[0].get_node_shared_ptr(), data});
+
+        auto scale = ov::Tensor(funcInputs[1].get_element_type(), targetInputStaticShapes[1]);
+        auto* scalePtr = scale.data<ov::float16>();
+        for (size_t i = 0; i < scale.get_size(); i++) {
+            scalePtr[i] = ov::float16(std::ldexp(1.0f, -static_cast<int>(1 + i % 8)));
+        }
+        inputs.insert({funcInputs[1].get_node_shared_ptr(), scale});
+    }
+
+public:
+    void SetUp() override {
+        DynDQTestCommon::SetUp();
+        convert_precisions = {{ov::element::f16, ov::element::f32}};
+        outType = ov::element::f16;
+        rel_threshold = 0.0;
+    }
+};
+
+TEST_P(DynDQU16Test, NPU3720_TestKindSubgraph) {
+    setDefaultHardwareMode();
+    run(Platform::NPU3720);
+}
+
+TEST_P(DynDQU16Test, NPU4000_TestKindSubgraph) {
+    setDefaultHardwareMode();
+    run(Platform::NPU4000);
+}
+
+TEST_P(DynDQU16Test, NPU5010_TestKindSubgraph) {
+    setDefaultHardwareMode();
+    run(Platform::NPU5010);
+}
+
+TEST_P(DynDQU16Test, NPU5020_TestKindSubgraph) {
+    setDefaultHardwareMode();
+    run(Platform::NPU5020);
+}
+
+const std::vector<DynDeQuantParams> paramsU16 = {
+        {{1, 1, 1, 5120}, {1, 1, 1, 1}, ov::element::u16, ov::element::f16},
+        {{1, 64, 1, 100}, {1, 64, 1, 1}, ov::element::u16, ov::element::f16},
+        {{1, 64, 1, 8}, {1, 64, 1, 1}, ov::element::u16, ov::element::f16},
+};
+
+INSTANTIATE_TEST_SUITE_P(DynDQ_U16, DynDQU16Test, ::testing::ValuesIn(paramsU16), DynDQU16Test::getTestCaseName);
+
 }  // namespace ov::test::subgraph

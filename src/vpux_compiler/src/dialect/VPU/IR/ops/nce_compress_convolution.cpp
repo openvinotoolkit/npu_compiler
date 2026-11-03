@@ -304,8 +304,8 @@ vpux::VPU::DistributionInfo vpux::VPU::NCECompressConvolutionOp::getExplicitDist
 // specified for compilation.
 // For example for 4 cluster compilation the output height must be a minimum of 4.
 bool VPU::NCECompressConvolutionOp::isOperationSplitOverHeightCompatible(const vpux::TileInfo& oriOutputTile) {
-    return VPU::isNCEOpSplitOverHeightCompatible(getOperation(), getInput(), getShape(getOutput()), oriOutputTile,
-                                                 false);
+    return VPU::isNCEOpSplitOverHeightCompatible(getOperation(), getInput(), getBoundedShape(getOutput()),
+                                                 oriOutputTile, false);
 }
 
 bool VPU::NCECompressConvolutionOp::isOperationSplitOverWidthCompatible(ShapeRef outputShape, ShapeRef offset,
@@ -337,8 +337,9 @@ bool VPU::NCECompressConvolutionOp::doesLayerFitIntoCMX(VPU::MultiClusterStrateg
 
     SmallVector<Byte> buffers = {
             VPU::getTotalAllocSizeWithDistribution(
-                    getInput().getType(), getActivationDistributionAttrFromOp(nceOp, getInput(), getInput().getType(),
-                                                                              numClusters, strategy, siblingsAnalysis)),
+                    getInput().getType(),
+                    getActivationDistributionAttrFromOp(nceOp, getInputMutable(), getInput().getType(), numClusters,
+                                                        strategy, siblingsAnalysis)),
             VPU::getTotalAllocSizeWithDistribution(
                     getFilter().getType(),
                     getFilterDistributionAttrFromOp(nceOpInterface, getFilter().getType(), numClusters, strategy)),
@@ -366,8 +367,8 @@ bool VPU::NCECompressConvolutionOp::doesLayerChangeOutputAlignmentFitIntoCMX(
     auto nceOpInterface = mlir::cast<VPU::NCEOpInterface>(getOperation());
     auto numClusters = VPU::getOptimalNumClusters(
             nceOp, mlir::cast<vpux::NDTypeInterface>(nceOp.getOutput().getType()).getShape(), strategy);
-    auto distributedInputType = getDistributedActivationTypeFromOp(nceOp, nceOp.getInput(), nceOp.getInput().getType(),
-                                                                   numClusters, strategy);
+    auto distributedInputType = getDistributedActivationTypeFromOp(nceOp, nceOp.getInputMutable(),
+                                                                   nceOp.getInput().getType(), numClusters, strategy);
     auto distributedFilterType =
             getDistributedFilterTypeFromOp(nceOpInterface, nceOp.getFilter().getType(), numClusters, strategy);
     return fitIntoCMX(distributedInputType, distributedFilterType, newDistributedTensorType);
@@ -380,8 +381,8 @@ vpux::NDTypeInterface vpux::VPU::NCECompressConvolutionOp::getDistributedTypeFor
     const auto strategy = clusteredOp.getMultiClusterStrategy().value();
 
     if (operand.get() == origOp.getInput()) {
-        return VPU::getDistributedActivationTypeForOpOperand(clusteredOp, origOp.getInput(), strategy,
-                                                             hasExplicitDistributedAttr, siblingsAnalysis);
+        return VPU::getDistributedActivationTypeForOpOperand(clusteredOp, operand, strategy, hasExplicitDistributedAttr,
+                                                             siblingsAnalysis);
     } else if (operand.get() == origOp.getFilter()) {
         return VPU::getDistributedWeightsTypeForOpOperand(clusteredOp, origOp.getFilter(), strategy,
                                                           hasExplicitDistributedAttr, siblingsAnalysis);

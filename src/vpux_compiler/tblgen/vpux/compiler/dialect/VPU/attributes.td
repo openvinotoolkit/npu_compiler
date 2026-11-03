@@ -88,7 +88,8 @@ def VPU_VFScenario :
                 I64EnumAttrCase<"LASTOP_PREFETCHING", 1>,
                 I64EnumAttrCase<"WEIGHTS_PREFETCHING", 3>,
                 I64EnumAttrCase<"FULL_PREFETCHING", 4>,
-                I64EnumAttrCase<"VF_PIPELINING", 5>
+                I64EnumAttrCase<"VF_PIPELINING", 5>,
+                I64EnumAttrCase<"VF_DPU_SHV_DOUBLE_BUFFERING", 6>
             ]
         > {
 }
@@ -1005,68 +1006,6 @@ def VPU_SEDilatedConvAttr : VPU_Attr<"SEDilatedConv", [
 }
 
 //
-// M2I Color Formats
-//  PL_ = planar
-//  SP_ = semi-planar
-//  IL_ = interleaved
-//
-// PL_YUV444_8 = 0x00, // Planar 4:4:4 format (8-bit per component)
-// PL_YUV420_8 = 0x01, // Planar 8-bit 4:2:0 format
-// PL_RGB24 = 0x02,    // Planar 24-bit RGB data (8-bit per component)
-// PL_RGB30 = 0x03,    // Planar 30-bit RGB data (10-bit per component)
-// PL_GRAY8 = 0x04,    // 8-bit grayscale
-// PL_FP16_RGB = 0x05, // Planar RGB fp16 data
-// PL_FP16_YUV = 0x06, // Planar YUV fp16 data
-// PL_YUV422_8 = 0x07, // Planar 8 bit
-// SP_NV12_8 = 0x08,   // 8-bit YUV 4:2:0 semi planar
-// SP_NV12_10 = 0x09,  // 10-bit YUV 4:2:0 semi planar
-// SP_PO10 = 0x0A,     // 10-bit YUV 4:2:0 semi planar
-// IL_YUV422_8 = 0x18, // Interleaved 8 bit
-// IL_RGB8888 = 0x19,  // Interleaved 32-bit RGB data (8-bit per component)
-// IL_RGB888 = 0x1A,   // Interleaved 24-bit RGB data (8-bit per component)
-// IL_RGB30 = 0x1B     // Interleaved 30-bit RGB data (10-bit per component)
-//
-
-def VPU_M2iColorFmt :
-        VPU_I64EnumAttr<
-            "M2iColorFmt",
-            "M2I color formats",
-            [
-                I64EnumAttrCase<"PL_YUV444_8", 0>,
-                I64EnumAttrCase<"PL_YUV420_8", 1>,
-                I64EnumAttrCase<"PL_RGB24",    2>,
-                I64EnumAttrCase<"PL_RGB30",    3>,
-                I64EnumAttrCase<"PL_GRAY8",    4>,
-                I64EnumAttrCase<"PL_FP16_RGB", 5>,
-                I64EnumAttrCase<"PL_FP16_YUV", 6>,
-                I64EnumAttrCase<"PL_YUV422_8", 7>,
-                I64EnumAttrCase<"SP_NV12_8",   8>,
-                I64EnumAttrCase<"SP_NV12_10",  9>,
-                I64EnumAttrCase<"SP_P010",     10>,
-                I64EnumAttrCase<"IL_YUV422_8", 24>,
-                I64EnumAttrCase<"IL_RGB8888",  25>,
-                I64EnumAttrCase<"IL_RGB888",   26>,
-                I64EnumAttrCase<"IL_RGB30",    27>
-            ]
-        > {
-}
-
-def VPU_M2iColorFmtAttr : VPU_EnumAttr<VPU_M2iColorFmt, "m2i_color_fmt">;
-
-def VPU_M2iInterp :
-        VPU_I64EnumAttr<
-            "M2iInterp",
-            "M2I resize interpolation type",
-            [
-                I64EnumAttrCase<"NEAREST",  0>,
-                I64EnumAttrCase<"BILINEAR", 1>
-            ]
-        > {
-}
-
-def VPU_M2iInterpAttr : VPU_EnumAttr<VPU_M2iInterp, "m2i_interp">;
-
-//
 // TaskType
 //
 
@@ -1079,8 +1018,7 @@ def VPU_TaskType :
             I64EnumAttrCase<"ActKernelInvocation", 1>,
             I64EnumAttrCase<"ActKernelRange",      2>,
             I64EnumAttrCase<"DPUInvariant",        3>,
-            I64EnumAttrCase<"DPUVariant",          4>,
-            I64EnumAttrCase<"M2I",                 5>
+            I64EnumAttrCase<"DPUVariant",          4>
         ]
     > {
 }
@@ -1114,7 +1052,8 @@ def VPU_GatherAddressingMode :
             "Gather Addressing Mode",
             [
                 I64EnumAttrCase<"ABSOLUTE", 0>,
-                I64EnumAttrCase<"INDEXED", 1>
+                I64EnumAttrCase<"INDEXED", 1>,
+                I64EnumAttrCase<"SIGNED_INDEX", 2>
             ]
         > {
     let cppNamespace = "vpux::VPU";
@@ -1125,6 +1064,9 @@ def VPU_GatherAddressingMode :
                                 that is used by the DMA for accessing memory
         - Indexed addressing - each element in the indices list represents the index
                                 to access into a Virtual Array in memory
+        - Signed Index addressing - each element in the indices list is in the range [-N, N - 1], where N = data.shape[axis].
+                                Negative values denote reverse indexing (index -k maps to element N-k).
+                                Indices outside [-N, N-1] are out-of-bound (OOB) and produce zero-filled output or task error.
     }];
 }
 
@@ -1205,17 +1147,72 @@ def VPU_KernelInfoAttr : VPU_Attr<"KernelInfo"> {
 
         `numSlicedInputs` - integer, the number of tensor arguments that require slicing
             when tiling.
+
+        `numTensorInputs` - total number of tensor arguments passed to the
+            kernel, excluding auxiliary buffers. Always >= `numSlicedInputs`.
+
+        `numAuxBuffers` - number of auxiliary (scratch) buffer arguments
+            appended to the kernel after the tensor inputs.
+
+        `inputSegmentationAxes` - array of arrays, with one entry per entry of
+            `tilingAxes`, or empty if the classification has not been performed yet.
+
+            Entry `j` describes what happens to every operand when the first result is
+            segmented on the `tilingAxes[j]` memory dimension. It is itself an array with
+            one value per tensor-like operand, i.e. `numTensorInputs` + `numAuxBuffers`
+            values, in operand order. The value at position `i` of entry `j` refers to the
+            `i`-th tensor-like operand (not to `tilingAxes[j]`) and is:
+              - `kUnknownDim` (-2) - the distribution of the `i`-th operand could not be
+                determined
+              - `kBroadcastDim` (-1) - the `i`-th operand is broadcasted (duplicated) over
+                all the segments
+              - otherwise (>= 0) the `i`-th operand is segmented, on the memory dimension
+                of the `i`-th operand given by this value.
+
+            Example: a kernel with two tensor inputs and no aux buffers, where the first
+            result and the first input have shape 1x?x?x? and the second input has shape
+            1x?x1x1, both in NCHW memory order, with `tilingAxes` = [1, 2, 3]:
+
+                inputSegmentationAxes = [array<i64: 1, 1>, array<i64: 2, -1>, array<i64: 3, -1>]
+
+              - j = 0, tilingAxes[0] = 1, entry = array<i64: 1, 1>: segmenting the result
+                on memory dim 1 (C) segments the first input on its memory dim 1 (C) and
+                the second input on its memory dim 1 (C).
+              - j = 1, tilingAxes[1] = 2, entry = array<i64: 2, -1>: segmenting the result
+                on memory dim 2 (H) segments the first input on its memory dim 2 (H), but
+                duplicates the second input, since its entry is `kBroadcastDim` (its H is 1).
+              - j = 2, tilingAxes[2] = 3, entry = array<i64: 3, -1>: segmenting the result
+                on memory dim 3 (W) segments the first input on its memory dim 3 (W) and
+                again duplicates the second input.
     }];
 
     let parameters = (ins
         "mlir::SymbolRefAttr":$tilingInfoFunc,
         "mlir::DenseI64ArrayAttr":$tilingAxes,
-        "mlir::IntegerAttr":$numSlicedInputs
+        "mlir::IntegerAttr":$numSlicedInputs,
+        "mlir::IntegerAttr":$numTensorInputs,
+        "mlir::IntegerAttr":$numAuxBuffers,
+        "mlir::ArrayAttr":$inputSegmentationAxes
     );
+
+    let genVerifyDecl = 1;
 
     let extraClassDeclaration = [{
         /// Name under which this attribute is stored on the callee function.
         static constexpr llvm::StringLiteral kFuncAttrName = "kernelInfo";
+
+        /// Value in an inputSegmentationAxes entry marking a broadcast input.
+        static constexpr int64_t kBroadcastDim = -1;
+        /// Value in an inputSegmentationAxes entry marking an input whose split
+        /// along the corresponding tiling axis could not be determined.
+        static constexpr int64_t kUnknownDim = -2;
+
+        /// Returns the position of `memDim` in tilingAxes, or std::nullopt when the
+        /// kernel cannot be tiled on that memory dimension of its first result.
+        std::optional<size_t> getTilingAxisIndex(int64_t memDim) const;
+
+        /// Returns the inputSegmentationAxes entry for tiling axis `axisIdx`
+        mlir::ArrayRef<int64_t> getInputSegmentationDims(size_t axisIdx) const;
     }];
 }
 
@@ -1237,6 +1234,39 @@ def VPU_JITTilingAttr : VPU_Attr<"JITTiling"> {
     let parameters = (ins
         "mlir::DenseI64ArrayAttr":$static_sizes,
         "mlir::DenseI64ArrayAttr":$static_offsets
+    );
+}
+
+//
+// LowResAttr
+//
+
+def VPU_LowResAttr : VPU_Attr<"LowRes"> {
+    let cppNamespace = "vpux::VPU";
+
+    let description = [{
+        Low resolution (2-tile) data of the scf.for loop of a dynamic dim. In the low resolution range
+        S < D <= S + halo, the dim is computed by 2 FULLBLK tiles at 0 and R = D - S, and the invalid outputs at
+        the start of tile 1 are overwritten by the valid outputs of tile 0. Set by AdjustBlockSizeForScfTiling on
+        the loop of the dim (attribute name `vpux.lowres`) and kept through UnrollSCF.
+
+        `id` - shared with the pre-loop low resolution predicate, which has the attribute `vpux.lowres_pred = id`.
+
+        `dim` - tensor dim of the loop.
+
+        `step` - loop step S of the original loop. After UnrollSCF only the loops with this step can run the low
+            resolution tiles; unrolled main loops have a multiple of it.
+
+        `invalid_output_left`, `invalid_output_right` - number of invalid outputs O_l / O_r at the start / end of a
+            tile computed with full left / right pad.
+    }];
+
+    let parameters = (ins
+        "int64_t":$id,
+        "int64_t":$dim,
+        "int64_t":$step,
+        "int64_t":$invalid_output_left,
+        "int64_t":$invalid_output_right
     );
 }
 

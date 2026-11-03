@@ -774,3 +774,52 @@ module @MatMulToNCEWTReuse {
         // CHECK-SAME:      } -> tensor<4x1x64x8x1xf16, {order = #GNHWC}>
     }
 }
+
+// -----
+
+#GNHWC = affine_map<(d0, d1, d2, d3, d4) -> (d0, d1, d3, d4, d2)>
+!qElemType = !quant.uniform<i8:f16:2, {
+    0.28466421389112284,0.2861097448012408,0.2889963935403263,0.29137757245232077,
+    0.29757886400409772,0.30814632340973497,0.31356135349647674,0.30971476236979167,
+    0.29762911329082414,0.29195475858800551,0.30524218690161614,0.32280385634478403,
+    0.32712728462967217,0.32712728462967217,0.32712728462967217,0.32712728462967217}>
+
+// CHECK: !qElemType1 = !quant.uniform<i8:f16:1, {0.28466421389112284,0.2861097448012408,0.2889963935403263,0.29137757245232077,0.29757886400409772,0.30814632340973497,0.31356135349647674,0.30971476236979167,0.29762911329082414,0.29195475858800551,0.30524218690161614,0.32280385634478403,0.32712728462967217,0.32712728462967217,0.32712728462967217,0.32712728462967217}>
+
+// CHECK-LABEL: @BatchMatMulPerAxisScaleBroadcastToNCE
+// CHECK-SAME:     ([[ARG0:%.+]]: tensor<1x8x24x128xf16>)
+func.func @BatchMatMulPerAxisScaleBroadcastToNCE(%arg0: tensor<1x8x24x128xf16>) -> tensor<1x8x24x16xf16> {
+    %cst = const.Declare tensor<1x8x16x128x!qElemType> = dense<1.000000e+00> : tensor<1x8x16x128xf16>,
+        [#const.CastElemType<si8>, #const.CastElemType<!qElemType>]
+    %matmul = IE.MatMul(%arg0, %cst) {transpose_b} :
+        tensor<1x8x24x128xf16>, tensor<1x8x16x128x!qElemType> -> tensor<1x8x24x16xf16>
+    return %matmul : tensor<1x8x24x16xf16>
+
+    // CHECK:       [[CST:%.+]] = const.Declare tensor<1x8x16x128x!qElemType> = dense<1.000000e+00> : tensor<1x8x16x128xf16>, [#const.CastElemType<si8>, #const.CastElemType<!qElemType>]
+
+    // CHECK:       [[RESHAPE_0:%.+]] = IE.AffineReshape([[ARG0]])
+    // CHECK-SAME:      tensor<1x8x24x128xf16> -> tensor<8x24x128x1x1xf16>
+    // CHECK:       [[PERMUTE_CAST_0:%.+]] = IE.PermuteCast([[RESHAPE_0]])
+    // CHECK-SAME:      tensor<8x24x128x1x1xf16> -> tensor<8x1x128x24x1xf16, {order = #GNHWC}>
+
+    // CHECK:       [[RESHAPE_1:%.+]] = IE.AffineReshape([[CST]])
+    // CHECK-SAME:      tensor<1x8x16x128x!qElemType> -> tensor<8x16x128x1x1x!qElemType1>
+    // CHECK:       [[PERMUTE_CAST_1:%.+]] = IE.PermuteCast([[RESHAPE_1]])
+    // CHECK-SAME:      tensor<8x16x128x1x1x!qElemType1> -> tensor<8x16x128x1x1x!qElemType1, {order = #GNHWC}>
+
+    // CHECK:       [[WEIGHTS_TABLE:%.+]] = const.Declare tensor<8x16x1x1x4xsi32>
+
+    // CHECK:       [[MATMUL:%.+]] = VPU.NCE.MatMul([[PERMUTE_CAST_0]], [[PERMUTE_CAST_1]], [[WEIGHTS_TABLE]]) rawFilterShape [8, 16, 128, 1, 1] {
+    // CHECK-SAME:      pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>
+    // CHECK-SAME:      ppe = #VPU.PPEFp<mode = <NOOP>,
+    // CHECK-SAME:          clamp_low = -3.4028234663852886E+38 : f64, clamp_high = 3.4028234663852886E+38 : f64,
+    // CHECK-SAME:          prelu_alpha = [1.000000e+00], adder = 0.000000e+00 : f64>
+    // CHECK-SAME:      strides = [1, 1]
+    // CHECK-SAME:      } -> tensor<8x1x16x24x1xf16, {order = #GNHWC}>
+
+    // CHECK:       [[OUT_PERMUTE:%.+]] = IE.MemPermute([[MATMUL]])
+    // CHECK-SAME:      tensor<8x1x16x24x1xf16, {order = #GNHWC}> -> tensor<8x24x16x1x1xf16>
+    // CHECK:       [[OUT_RESHAPE:%.+]] = IE.AffineReshape([[OUT_PERMUTE]])
+    // CHECK-SAME:      tensor<8x24x16x1x1xf16> -> tensor<1x8x24x16xf16>
+    // CHECK:       return [[OUT_RESHAPE]] : tensor<1x8x24x16xf16>
+}

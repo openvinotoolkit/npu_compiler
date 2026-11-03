@@ -669,11 +669,25 @@ SmallVector<PadInfo> VPUIP::DistributedBufferType::getPerClusterPadding(PadInfo 
 // @warning This function should not be used for memory size calculation,
 // because it does not retrieve the true allocate shape in cases
 // of broadcasting.
-SmallVector<StridedShape> VPUIP::DistributedBufferType::getPerClusterMemoryStridedShapes() const {
+mlir::FailureOr<SmallVector<StridedShape>> VPUIP::DistributedBufferType::getPerClusterMemoryStridedShapesOrFailure(
+        vpux::LogCb logCb) const {
     const auto memoryShapes = getPerClusterMemoryShapes();
     const auto strides = getStrides();
-    return VPU::getPerClusterMemoryStridedShapes(getShape(), strides, getDimsOrder(), getDistribution().getMode(),
-                                                 memoryShapes);
+    return VPU::getPerClusterMemoryStridedShapesOrFailure(getShape(), strides, getDimsOrder(),
+                                                          getDistribution().getMode(), memoryShapes, logCb);
+}
+
+// @brief Retrieve the array of strided memory shapes
+// @warning This function should not be used for memory size calculation,
+// because it does not retrieve the true allocate shape in cases
+// of broadcasting.
+SmallVector<StridedShape> VPUIP::DistributedBufferType::getPerClusterMemoryStridedShapes() const {
+    std::string errorMsg;
+    auto stridedShapes = getPerClusterMemoryStridedShapesOrFailure([&](const formatv_object_base& msg) {
+        errorMsg = msg.str();
+    });
+    VPUX_THROW_WHEN(mlir::failed(stridedShapes), "{0}", errorMsg);
+    return stridedShapes.value();
 }
 
 // @brief Get largest strided compute shape

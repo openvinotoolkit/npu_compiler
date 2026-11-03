@@ -925,8 +925,10 @@ mlir::LogicalResult vpux::bufferizeOp(mlir::MLIRContext* ctx, VPU::NCECompressCo
     //
     auto inputType = newArgs.getInput().getType();
     const auto inputShape = mlir::cast<vpux::NDTypeInterface>(inputType).getShape();
-    const auto finalInputShape = vpux::Shape(
-            {inputShape[Dims4D::Act::N], channelAlignValue, inputShape[Dims4D::Act::H], inputShape[Dims4D::Act::W]});
+    // Compressed input uses a fixed 16-channel hardware view. Weight storage alignment can be larger
+    // (e.g. 32 for four-bit weights), but must not change the input view or the IDU workload size.
+    const auto finalInputShape = vpux::Shape({inputShape[Dims4D::Act::N], VPU::NCEInvariant::VPU_CHANNEL_ALIGNMENT,
+                                              inputShape[Dims4D::Act::H], inputShape[Dims4D::Act::W]});
     auto finalInputShapeAttr = getIntArrayAttr(origOp.getContext(), finalInputShape);
 
     const auto kernelSizeAttr = getIntArrayAttr(ctx, ArrayRef({KY, KX}));

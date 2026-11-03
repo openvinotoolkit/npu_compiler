@@ -261,7 +261,7 @@ void trackBackRootOp(IE::AttentionOp attentionOp, PatternOps& patternOps) {
         auto rootMVNOp = patternOps.rootOps.empty()
                                  ? nullptr
                                  : patternOps.rootOps.back().op->getOperand(0).getDefiningOp<IE::MVN6Op>();
-        if (rootMVNOp != nullptr && rootMVNOp.getAxesValue().has_value()) {
+        if (rootMVNOp != nullptr && rootMVNOp.getOutput().hasOneUse() && rootMVNOp.getAxesValue().has_value()) {
             const auto axes = parseIntArrayAttr<int64_t>(rootMVNOp.getAxesValue().value());
             if (llvm::all_of(axes, [&](int64_t axis) {
                     return axis > rootDimQ.ind();
@@ -276,6 +276,12 @@ void trackBackRootOp(IE::AttentionOp attentionOp, PatternOps& patternOps) {
 
 bool isBeneficialForExpandAttention(ArrayRef<PathOp> rootOps) {
     if (rootOps.empty()) {
+        return false;
+    }
+
+    if (llvm::any_of(rootOps.drop_front(), [](const PathOp& rootOp) {
+            return !rootOp.op->hasOneUse();
+        })) {
         return false;
     }
 
@@ -341,6 +347,7 @@ void expandAttention(IE::AttentionOp attentionOp) {
         mapper.map(pathOp.op->getOperands(), operands);
         rewriter.setInsertionPoint(pathOp.op);
         auto* newOp = rewriter.clone(*pathOp.op, mapper);
+        newOp->setLoc(takeOpLoc(pathOp.op, "expanded"));
         if (mlir::isa<IE::AffineReshapeOp, IE::ReshapeOp>(pathOp.op)) {
             newOp->setAttr("shape_value", getIntArrayAttr(rewriter, newShape));
         }

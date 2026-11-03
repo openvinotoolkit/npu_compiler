@@ -397,7 +397,7 @@ func.func @PropagateSoftmaxFakeQuantizeThroughBatchUnrolledMatmul(%arg0: tensor<
     %6 = IE.SoftMax(%5) {axisInd = -1 : i64} : tensor<2x16x2xf32> -> tensor<2x16x2xf32>
     %7 = IE.FakeQuantize(%6, %input_low, %input_high, %input_low, %input_high) {
                     auto_broadcast = #IE.auto_broadcast_type<NUMPY>,
-                    levels = 255 : i64
+                    levels_or_low_fp_type = 255 : i64
                 } : tensor<2x16x2xf32>, tensor<1x1x1xf32>, tensor<1x1x1xf32>, tensor<1x1x1xf32>, tensor<1x1x1xf32> -> tensor<2x16x2xf32>
     return %7 : tensor<2x16x2xf32>
 
@@ -409,9 +409,9 @@ func.func @PropagateSoftmaxFakeQuantizeThroughBatchUnrolledMatmul(%arg0: tensor<
     // CHECK:       [[RESHAPE_2:%.+]] = IE.Reshape([[MATMUL_2]]) {shape_value = [1, 16, 2]} : tensor<16x2xf32> -> tensor<1x16x2xf32>
     // CHECK:       [[SOFTMAX_1:%.+]] = IE.SoftMax([[RESHAPE_1]]) {axisInd = -1 : i64} : tensor<1x16x2xf32> -> tensor<1x16x2xf32>
     // CHECK:       [[SOFTMAX_2:%.+]] = IE.SoftMax([[RESHAPE_2]]) {axisInd = -1 : i64} : tensor<1x16x2xf32> -> tensor<1x16x2xf32>
-    // CHECK:       [[FAKE_QUANTIZE_1:%.+]] = IE.FakeQuantize([[SOFTMAX_1]], [[CST_0]], [[CST_1]], [[CST_0]], [[CST_1]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 255 : i64}
+    // CHECK:       [[FAKE_QUANTIZE_1:%.+]] = IE.FakeQuantize([[SOFTMAX_1]], [[CST_0]], [[CST_1]], [[CST_0]], [[CST_1]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 255 : i64}
     // CHECK-SAME:      : tensor<1x16x2xf32>, tensor<1x1x1xf32>, tensor<1x1x1xf32>, tensor<1x1x1xf32>, tensor<1x1x1xf32> -> tensor<1x16x2xf32>
-    // CHECK:       [[FAKE_QUANTIZE_2:%.+]] = IE.FakeQuantize([[SOFTMAX_2]], [[CST_0]], [[CST_1]], [[CST_0]], [[CST_1]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 255 : i64}
+    // CHECK:       [[FAKE_QUANTIZE_2:%.+]] = IE.FakeQuantize([[SOFTMAX_2]], [[CST_0]], [[CST_1]], [[CST_0]], [[CST_1]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 255 : i64}
     // CHECK-SAME:      : tensor<1x16x2xf32>, tensor<1x1x1xf32>, tensor<1x1x1xf32>, tensor<1x1x1xf32>, tensor<1x1x1xf32> -> tensor<1x16x2xf32>
     // CHECK:       [[CONCAT:%.+]] = IE.Concat([[FAKE_QUANTIZE_1]], [[FAKE_QUANTIZE_2]]) {per_axis = #IE.Concat<axis = 0 : i64>} : tensor<1x16x2xf32>, tensor<1x16x2xf32> -> tensor<2x16x2xf32>
     // CHECK:       return [[CONCAT]] : tensor<2x16x2xf32>

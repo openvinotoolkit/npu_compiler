@@ -96,12 +96,24 @@ private:
         // Don't parse COMPILATION_MODE_PARAMS again!
 
         maybeSetValue(_initCompilerOptions->revisionID, getRevisionID(config));
-        maybeSetValue(_initCompilerOptions->numberOfDPUGroups, getNumberOfDPUGroups(config));
-        maybeSetValue(_initCompilerOptions->numberOfDMAPorts, getNumberOfDMAEngines(config));
+        const auto numOfDpuGroups = getNumberOfDPUGroups(config);
+        _initCompilerOptions->numberOfDPUGroups = numOfDpuGroups;
+        maybeSetValue(_initCompilerOptions->numberOfDMAPorts, getNumberOfDMAEngines(config, numOfDpuGroups));
         const auto dynamicQuantization = getCompilerDynamicQuantization(config);
         maybeSetValue(_initCompilerOptions->enableWeightsDynamicDequantization, dynamicQuantization);
 
+        if (config.has<vpux::OV::OPTIMIZATION_LEVEL>()) {
+            if (_options->optimizationLevel.hasValue()) {
+                Logger::global().warning(
+                        "Both OV::OPTIMIZATION_LEVEL and legacy optimization-level in COMPILATION_MODE_PARAMS are set. "
+                        "Using the dedicated OV::OPTIMIZATION_LEVEL value");
+            }
+
+            _options->optimizationLevel = config.get<vpux::OV::OPTIMIZATION_LEVEL>();
+        }
+
         maybeSetValue(_initCompilerOptions->enableProfiling, getPerfCount(config));
+        maybeSetValue(_initCompilerOptions->powerOptimized, getPowerOptimized(config));
 
         // Custom Kernel Config path
         maybeSetValue(_initCompilerOptions->customKernelConfigPath, getCustomKernelConfigPath(config));
@@ -183,15 +195,45 @@ protected:
     }
 };
 
+/// DefaultHW option values shared by every platform. Platform specific deviations belong to the
+/// per-arch DefaultHW setup.
 template <class ArchSpecificOptionsType>
-static void setupHostPipelineOptionsCommon(ArchSpecificOptionsType& options) {
+static void setupDefaultHWOptionsCommon(ArchSpecificOptionsType& options) {
+    if (options.enableSCFTiling) {
+        overwriteIfUnset(options.enableBoundedTensorsToDynamicDimsMask, false);
+    }
+}
+
+/// ReferenceSW option values shared by every platform. Platform specific deviations belong to the
+/// per-arch ReferenceSW setup.
+template <class ArchSpecificOptionsType>
+static void setupReferenceSWOptionsCommon(ArchSpecificOptionsType& options) {
+    overwriteIfUnset(options.enableForceZMajorConcat, false);
+    overwriteIfUnset(options.enableSwapTransposeWithFQ, false);
+    overwriteIfUnset(options.enableAlignScales, false);
+    overwriteIfUnset(options.enableConvertFCToConv, false);
+    overwriteIfUnset(options.enableAdjustNonZeroFakeQuant, false);
+    overwriteIfUnset(options.enableExtraStaticShapeOps, false);
+    overwriteIfUnset(options.enableOptimizeReorders, false);
+    overwriteIfUnset(options.enableVPUNNPreSplit, false);
+    overwriteIfUnset(options.enableODULocalRegion, false);
+    overwriteIfUnset(options.enableRuntimeDequant, false);
+    overwriteIfUnset(options.enableConvertFFTToConv, false);
+    overwriteIfUnset(options.enableDecomposeGRUSequence, false);
+}
+
+template <class ArchSpecificOptionsType>
+static void setupHostCommonDefaults(ArchSpecificOptionsType& options) {
     overwriteIfUnset(options.enableDynamicShapeTransformationsPipeline, false);
-    overwriteIfUnset(options.enableSCFTiling, true);
-    overwriteIfUnset(options.vfMergeConfiguration, VFMergeConfiguration::GREEDY);
     overwriteIfUnset(options.enableScfComputeOpsOutlining, true);
+    overwriteIfUnset(options.enableWeightsExtraction, true);
     overwriteIfUnset(options.useMemrefForHostFunctionBufferization, true);
-    overwriteIfUnset(options.disablePassOnEntryFunctionForHostCompile, true);
     overwriteIfUnset(options.setMemorySpaceForFunctionBoundaries, false);
+}
+
+template <class ArchSpecificOptionsType>
+static void setupHostDynamicShapeDefaults(ArchSpecificOptionsType& options) {
+    overwriteIfUnset(options.vfMergeConfiguration, VFMergeConfiguration::GREEDY);
 
     // the below options enable DepthToSpace as a SHAVE operator
     overwriteIfUnset(options.enableD2SToTransposedConvConversion, false);
@@ -213,6 +255,39 @@ static void setupHostPipelineOptionsCommon(ArchSpecificOptionsType& options) {
     // OUTER: unroll only the outer loops in each nesting chain.
     // This avoids 2-D unrolling (H-axis + W-axis simultaneously) which can increase blob size and compilation time
     overwriteIfUnset(options.autoUnrollingMode, AutoUnrollingMode::OUTER);
+}
+
+template <class ArchSpecificOptionsType>
+static void setupHostPipelineOptionsCommon(ArchSpecificOptionsType& options) {
+    // Shape-handling mode: SCF tiling (dynamic) vs. VF outlining (static).
+    // E#235617: optimizationLevel is a poor decision point here, since it can in
+    // principle be combined with SCF tiling as well; replace with explicit mode selection.
+    overwriteIfUnset(options.enableSCFTiling, options.optimizationLevel != 0);
+    if (options.optimizationLevel == 0) {
+        // outlining setting for static shape networks
+        overwriteIfUnset(options.enableVerticalFusionOutlining, true);
+        overwriteIfUnset(options.vfOutliningTileThreshold, 1);
+        overwriteIfUnset(options.vfOutliningInstanceThreshold, 1);
+    }
+
+    setupHostCommonDefaults(options);
+    if (options.enableSCFTiling) {
+        setupHostDynamicShapeDefaults(options);
+    }
+}
+
+// Overrides the number of NCE tiles that applyConfig() derived from the config (performance hint) in
+// InitCompilerOptions. NPU_MAX_TILES caps the value.
+inline void overrideHostTiles(VPU::InitCompilerOptions& initCompilerOptions, const vpux::OV::Config& config,
+                              int numTiles) {
+    // The user requested the number of tiles explicitly, keep it
+    if (config.has<vpux::OV::TILES>()) {
+        return;
+    }
+    if (config.has<vpux::OV::MAX_TILES>()) {
+        numTiles = std::min(numTiles, vpux::checked_cast<int>(config.get<vpux::OV::MAX_TILES>()));
+    }
+    initCompilerOptions.numberOfDPUGroups = numTiles;
 }
 
 template <class ArchSpecificOptionsType>

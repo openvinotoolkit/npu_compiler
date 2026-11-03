@@ -70,7 +70,7 @@ TaskList TaskList::selectClusterLevelTasks() const {
 
 TaskList TaskList::selectTasksFromCluster(unsigned clusterId) const {
     TaskList selectedTasks;
-    std::copy_if(begin(), end(), std::back_inserter(selectedTasks), [=](const TaskInfo& task) {
+    std::copy_if(begin(), end(), std::back_inserter(selectedTasks), [clusterId](const TaskInfo& task) {
         return task.clusterId == clusterId;
     });
     return selectedTasks;

@@ -6,7 +6,6 @@
 #pragma once
 
 #include "vpux/compiler/dialect/VPU/transforms/factories/nce_sparsity_converters.hpp"
-#include "vpux/compiler/dialect/VPU/utils/nce_invariant.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_sparsity.hpp"
 #include "vpux/compiler/dialect/const/utils/utils.hpp"
 
@@ -145,13 +144,16 @@ std::vector<float> createBiasTableData(mlir::Value opInput, mlir::Value opOutput
                                        const Const::ContentAttr& bias, int64_t OC,
                                        VPU::NCESparsity::BiasConverterCb biasConverter);
 
-SmallVector<int32_t> materializeZeroPointTable(mlir::Type weightsElemType, int64_t OC, ArrayRef<int32_t> workloadSizes,
-                                               mlir::Value zeroPoints);
+SmallVector<int32_t> materializeZeroPointTable(
+        mlir::Type weightsElemType, int64_t OC, ArrayRef<int32_t> workloadSizes, mlir::Value zeroPoints,
+        VPU::NCESparsity::ZeroPointTableLayout layout = VPU::NCESparsity::ZeroPointTableLayout::Shuffled);
 
 template <typename T>
-std::vector<T> createZeroPointTableData(ArrayRef<int32_t> workloadSizes, mlir::Type weightsElemType, int64_t OC,
-                                        bool isZeroPoint4Bit, ArrayRef<T> zeroPoints) {
-    return VPU::NCESparsity::getZeroPointTable(workloadSizes, OC, weightsElemType, isZeroPoint4Bit, zeroPoints);
+std::vector<T> createZeroPointTableData(
+        ArrayRef<int32_t> workloadSizes, mlir::Type weightsElemType, int64_t OC, bool isZeroPoint4Bit,
+        ArrayRef<T> zeroPoints,
+        VPU::NCESparsity::ZeroPointTableLayout layout = VPU::NCESparsity::ZeroPointTableLayout::Shuffled) {
+    return VPU::NCESparsity::getZeroPointTable(workloadSizes, OC, weightsElemType, isZeroPoint4Bit, zeroPoints, layout);
 }
 
 struct NewWeightsTableData {

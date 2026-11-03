@@ -16,6 +16,7 @@
 #include "vpux/compiler/dialect/core/IR/tensor_attr.hpp"
 #include "vpux/compiler/dialect/core/types.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
+#include "vpux/compiler/utils/quantization.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 #include "vpux/utils/core/small_vector.hpp"
 
@@ -29,13 +30,26 @@
 #include <mlir/Interfaces/TilingInterface.h>
 #include <mlir/Support/LLVM.h>
 
+#include <algorithm>
 #include <functional>
 #include <optional>
 #include <utility>
+
 namespace vpux::VPU {
 
 enum class TilePosition { MIDDLE = 0, END = 1, START = 2, FULLBLK = 3 };
 constexpr size_t NUMBITS = 2;
+
+// Low resolution (2-tile) data of a dim: a VPU::LowResAttr set by AdjustBlockSizeForScfTiling on the scf.for of the
+// dim, and the id of that data on the pre-loop low resolution predicate (an i64 attribute)
+constexpr llvm::StringLiteral LOW_RES_ATTR_NAME = "vpux.lowres";
+constexpr llvm::StringLiteral LOW_RES_PRED_ATTR_NAME = "vpux.lowres_pred";
+// Id of the low resolution data on the single-tile assert of the dim. The assert is removed once the 2-tile range is
+// handled in every loop that can run a low resolution tile
+constexpr llvm::StringLiteral LOW_RES_ASSERT_ATTR_NAME = "vpux.lowres_assert";
+// Ids of the low resolution dims on which an input slice belongs to the FULLBLK case (a dense i64 array). Its offset on
+// those dims is set later to the output tile offset, in the loops that can run a low resolution tile
+constexpr llvm::StringLiteral LOW_RES_SLICE_ATTR_NAME = "vpux.lowres_slice";
 
 int64_t getTilePositionShift(vpux::Dim dim);
 
@@ -155,6 +169,10 @@ SCFTileInfo getWeightsTableSCFTile(mlir::Type origWeightsTableType, mlir::OpBuil
 // @brief Builds AffineMap that computes alignValUp(dim, alignment) for a single dimension.
 mlir::AffineMap getAlignValUpMap(mlir::OpBuilder& builder, int64_t alignment);
 
+// @brief Const-folds an OpFoldResult, else falls back to a ValueBoundsConstraintSet upper bound.
+// Returns std::nullopt for a non-positive extent (not a usable bound for sizing tensors/tiles).
+std::optional<int64_t> getConstantOrUpperBound(mlir::OpFoldResult ofr);
+
 /** @brief Restores input tiling from output tile data
 
     The function calculates input shape, offset and bounds based on
@@ -185,28 +203,19 @@ mlir::Type extractResultType(mlir::Type origType, SCFShapeRef newShape, BoundsRe
 */
 inline mlir::Value createQuantizedPaddingValue(mlir::Location loc, mlir::OpBuilder& builder,
                                                mlir::quant::QuantizedType qType, vpux::NDTypeInterface tiledType) {
-    auto createPaddingValue = [&](mlir::Type valueType, mlir::TypedAttr attr) -> mlir::Value {
-        auto constantOp = mlir::arith::ConstantOp::create(builder, loc, attr);
-        return mlir::UnrealizedConversionCastOp::create(builder, loc, valueType, constantOp.getResult()).getResult(0);
-    };
-
-    mlir::Value paddingValue;
     auto storageType = qType.getStorageType();
     mlir::Type paddingType = storageType;
-
-    VPUX_THROW_WHEN(mlir::isa<mlir::quant::UniformQuantizedPerAxisType>(tiledType.getElementType()),
-                    "Per-channel quantization is not supported");
-
     if (auto intType = mlir::dyn_cast<mlir::IntegerType>(storageType)) {
         paddingType = builder.getIntegerType(intType.getWidth());
     }
 
-    if (const auto uniformType = mlir::dyn_cast<mlir::quant::UniformQuantizedType>(qType)) {
-        const auto zeroPoint = uniformType.getZeroPoint();
-        auto zeroPointAttr = builder.getIntegerAttr(paddingType, zeroPoint);
-        paddingValue = createPaddingValue(tiledType.getElementType(), zeroPointAttr);
-    }
-    return paddingValue;
+    // A single padding value cannot represent a per-axis type whose zero points differ between channels.
+    const auto zeroPoint = vpux::extractSingleZeroPoint(qType);
+    VPUX_THROW_UNLESS(zeroPoint.has_value(), "Per-channel quantization with non-uniform zero points is not supported");
+
+    auto constantOp = mlir::arith::ConstantOp::create(builder, loc, builder.getIntegerAttr(paddingType, *zeroPoint));
+    return mlir::UnrealizedConversionCastOp::create(builder, loc, tiledType.getElementType(), constantOp.getResult())
+            .getResult(0);
 }
 
 namespace {
@@ -272,6 +281,43 @@ mlir::Operation* castCreatedOperation(mlir::OpBuilder& builder, const SCFTileInf
             .getOperation();
 }
 
+// @brief Pad's contribution to a spatial dim's bound: untiled dims always sum (both sides apply every
+// tile); tiled dims use max, since a given tile's low and high pad can't both apply at once -- unless
+// the tiling could collapse to a single tile along this dim, in which case sum is the only sound choice.
+inline int64_t getPadBoundDelta(Dim spatialDim, bool canCollapseToSingleTile, DimArrRef dims,
+                                const mlir::DenseMap<int64_t, std::pair<int64_t, int64_t>>& padsByDims,
+                                ArrayRef<mlir::OpFoldResult> lows, ArrayRef<mlir::OpFoldResult> highs) {
+    const auto& pad = padsByDims.lookup(spatialDim.ind());
+    if (!is_contained(dims, spatialDim)) {
+        return pad.first + pad.second;
+    }
+    const auto foldedLow = mlir::getConstantIntValue(lows[spatialDim.ind()]).value_or(pad.first);
+    const auto foldedHigh = mlir::getConstantIntValue(highs[spatialDim.ind()]).value_or(pad.second);
+    return canCollapseToSingleTile ? foldedLow + foldedHigh : std::max(foldedLow, foldedHigh);
+};
+
+// @brief Recomposes sourceSize + low + high into a single affine expression and returns its own true
+// maximum (constant-folding it, else evaluating it via OpChainAnalysis). Returns std::nullopt if the
+// composed expression can't be resolved either way.
+inline std::optional<int64_t> tryComposePaddedBound(mlir::OpBuilder& builder, mlir::Location loc,
+                                                    mlir::OpFoldResult sourceSize, mlir::OpFoldResult low,
+                                                    mlir::OpFoldResult high, OpChainAnalysis& analysis,
+                                                    ValueRangeMap& valueMap) {
+    mlir::AffineExpr e0, e1, e2;
+    bindDims(builder.getContext(), e0, e1, e2);
+    auto paddedSizeMap = mlir::AffineMap::get(3, 0, {e0 + e1 + e2}, builder.getContext());
+    auto paddedSize = mlir::affine::makeComposedFoldedAffineApply(builder, appendLoc(loc, "paddedSize"), paddedSizeMap,
+                                                                  {sourceSize, low, high});
+    if (const auto constVal = mlir::getConstantIntValue(paddedSize)) {
+        return *constVal;
+    }
+    const auto evaluated = analysis.getOpFoldResultValue(paddedSize, valueMap, OpChainAnalysis::MODE::MAX_VALUE);
+    if (evaluated.has_value() && !evaluated->empty()) {
+        return evaluated->front();
+    }
+    return std::nullopt;
+};
+
 }  // namespace
 
 /** @brief create operation with padding adjustment
@@ -307,17 +353,10 @@ mlir::Operation* createTiledPaddedOperation(OpGeneratorFunc opGenerator, OpTilin
     auto tiledType = mlir::cast<vpux::NDTypeInterface>(tiledInput.getType());
     auto qType = mlir::dyn_cast<mlir::quant::QuantizedType>(tiledType.getElementType());
 
-    auto adjustedBounds = Bounds();
-    if (auto boundedType = mlir::dyn_cast<vpux::Core::BoundedTensorType>(tiledType)) {
-        adjustedBounds = boundedType.getBounds().toValues();
-    }
-
     SmallVector<mlir::OpFoldResult> lows(tiledType.getRank(), builder.getIndexAttr(0));
     SmallVector<mlir::OpFoldResult> highs(tiledType.getRank(), builder.getIndexAttr(0));
 
     auto padsByDims = padInfo.toPadByDims();
-    // bounds are not updated for dynamic dimensions, as the pad value is calculated at runtime based on the loop
-    // index
     for (auto index : irange(Dims4D::Act::numSpatialDims)) {
         const auto spatialDim = Dims4D::Act::getSpatialDim(index);
         if (is_contained(dims, spatialDim)) {
@@ -328,9 +367,6 @@ mlir::Operation* createTiledPaddedOperation(OpGeneratorFunc opGenerator, OpTilin
         } else {
             lows[spatialDim.ind()] = builder.getIndexAttr(padsByDims[spatialDim.ind()].first);
             highs[spatialDim.ind()] = builder.getIndexAttr(padsByDims[spatialDim.ind()].second);
-        }
-        if (!adjustedBounds.raw().empty()) {
-            adjustedBounds[spatialDim] += padsByDims[spatialDim.ind()].first + padsByDims[spatialDim.ind()].second;
         }
     }
 
@@ -344,14 +380,54 @@ mlir::Operation* createTiledPaddedOperation(OpGeneratorFunc opGenerator, OpTilin
     tiledOperands[0] = mlir::tensor::PadOp::create(builder, loc, /*result=*/mlir::Type(), tiledInput, lows, highs,
                                                    paddingValue, /*nofold=*/false);
 
-    if (!mlir::cast<mlir::RankedTensorType>(tiledOperands[0].getType()).hasStaticShape() &&
-        adjustedBounds.raw().empty()) {
-        auto origInputType = mlir::cast<vpux::NDTypeInterface>(operation->getOperand(0).getType());
-        auto boundsValue = to_small_vector(origInputType.getShape());
-        adjustedBounds = vpux::Bounds(ArrayRef<int64_t>(boundsValue.data(), boundsValue.size()));
+    auto adjustedBounds = vpux::getBounds(tiledType).toValues();
+    // It can be checked with getShape(tiledInput).isDynamic but there is a collision with DynamicDim Type, which is not
+    // supported here
+    const bool tileWasDynamicBeforePad = !adjustedBounds.empty();
+    // Padding a dynamic operand can't make it static again, but a static one can become dynamic
+    // here if its pad amounts are loop-IV expressions -- so this can't be inferred from
+    // tileWasDynamicBeforePad alone and needs its own check on the actual padded result.
+    const bool tileIsDynamicAfterPad = !mlir::cast<mlir::RankedTensorType>(tiledOperands[0].getType()).hasStaticShape();
+
+    if (tileIsDynamicAfterPad && !tileWasDynamicBeforePad) {
+        // No bound to build on yet: derive one from the tiling machinery's own upper bound for
+        // this tile when it computed one, else fall back to this tile's current (pre-pad) shape.
+        if (!inputTiling.tiles.empty() && !inputTiling.tiles.front().bounds.empty()) {
+            adjustedBounds = inputTiling.tiles.front().bounds;
+        } else if (tiledType.getShape().isStatic()) {
+            adjustedBounds = vpux::Bounds(tiledType.getShape());
+        } else {
+            assert(false && "Cannot derive bounds for a dynamic pre-pad shape with no existing bounds (passed "
+                            "something like DynamicDimsMaskTensorType)");
+        }
+    }
+
+    // Add the pad's own contribution to whichever bound we now have (already present, or just derived above).
+    // Exception: when the tile already had a pre-pad bound, its shape is a composable expression that may
+    // itself already depend on low/high (e.g. "requiredSize - padBefore - padAfter"), in which case adding
+    // getPadBoundDelta on top would double-count. tryComposePaddedBound recomposes "sourceSize + low + high"
+    // into one expression instead and takes its own max -- correct whether or not that cancellation applies.
+    if (tileIsDynamicAfterPad) {
+        OpChainAnalysis padOpChainAnalysis;
+        ValueRangeMap padValueMap;
         for (auto index : irange(Dims4D::Act::numSpatialDims)) {
             const auto spatialDim = Dims4D::Act::getSpatialDim(index);
-            adjustedBounds[spatialDim] += padsByDims[spatialDim.ind()].first + padsByDims[spatialDim.ind()].second;
+            if (tileWasDynamicBeforePad && is_contained(dims, spatialDim) && !inputTiling.tiles.empty()) {
+                const auto composed = tryComposePaddedBound(
+                        builder, loc, inputTiling.tiles.front().shape[spatialDim.ind()], lows[spatialDim.ind()],
+                        highs[spatialDim.ind()], padOpChainAnalysis, padValueMap);
+                if (composed.has_value()) {
+                    adjustedBounds[spatialDim] = *composed;
+                    continue;
+                }
+                // Could not evaluate the composed expression: fall through to the decomposed heuristic below.
+            }
+            // Non-Constants are not supported. Theoretically if we can't fold number of tiles into constant we should
+            // estimate MIN possible amount of tiles with presburger/OpChainAnalysis
+            const auto numTilesAlongDim = mlir::getConstantIntValue(outputTile.axis[spatialDim.ind()]);
+            const bool canCollapseToSingleTile = !numTilesAlongDim.has_value() || *numTilesAlongDim <= 1;
+            adjustedBounds[spatialDim] +=
+                    getPadBoundDelta(spatialDim, canCollapseToSingleTile, dims, padsByDims, lows, highs);
         }
     }
 
@@ -518,6 +594,24 @@ SmallVector<mlir::Value> applyIndexBacktracking(mlir::tensor::InsertSliceOp inse
 
 void restorePaddingAttribute(mlir::Operation* region, Logger log, bool deferDynamicShapeWorkloads = false);
 
+void refreshInferredResultShapes(ArrayRef<mlir::Operation*> operations);
+
+// @brief Re-infers shape-only result types for `targetOps`, walking `scopes` to recover their true
+// program (dominance) order first - `targetOps`'s own order (e.g. a SetVector's insertion order,
+// or a graph-reachability traversal order) is not guaranteed to be topological. `scopes` need not be
+// loops; any ancestor operations covering all of `targetOps` work (e.g. a single enclosing module).
+void refreshResultShapesInIROrder(ArrayRef<mlir::Operation*> scopes, ArrayRef<mlir::Operation*> targetOps);
+
+inline void refreshResultShapesInIROrder(ArrayRef<mlir::LoopLikeOpInterface> loops,
+                                         ArrayRef<mlir::Operation*> targetOps) {
+    refreshResultShapesInIROrder(
+            SmallVector<mlir::Operation*>(llvm::map_range(loops,
+                                                          [](mlir::LoopLikeOpInterface loop) -> mlir::Operation* {
+                                                              return loop;
+                                                          })),
+            targetOps);
+}
+
 // Translates workloads on NCE ops that restorePaddingAttribute() deferred because their shapes were still dynamic.
 // Must run after the unrolled shapes have been fully inferred, so the concrete output tile is known.
 void translateDeferredWorkloadsAfterInference(mlir::Operation* region, Logger log);
@@ -526,6 +620,21 @@ void translateDeferredWorkloadsAfterInference(mlir::Operation* region, Logger lo
 // tile and padding. Repairs stale bounded-shape fallback descriptors on ops not covered by padding restoration (e.g.
 // unpadded Eltwise). Must run after the unrolled shapes have been fully inferred.
 void clampOversizedWorkloadsToStaticOutput(mlir::Operation* region, Logger log);
+
+/**
+ * @brief Number of iterations of `loopOp`, or nullopt when the trip count is not a compile-time constant.
+ *
+ * Handles both scf.for and scf.forall; for scf.forall the per-dimension trip counts are multiplied, so the
+ * result is the total number of iterations of the whole index space.
+ *
+ * Returns nullopt when any lower/upper bound or step is non-constant which happens when the loop is tiled
+ * against a dimension whose extent is only known at runtime, as in the HostCompile pipeline when a step is
+ * non-positive, or when the product does not fit in int64.
+ *
+ * @param loopOp The loop operation to analyze; any op that is neither scf.for nor scf.forall yields nullopt
+ * @return The constant trip count, or nullopt when it cannot be determined
+ */
+std::optional<int64_t> getConstantTripCount(mlir::Operation* loopOp);
 
 /**
  * @brief This function tries to determine if the given OpFoldResult is dependent on any of the induction variables

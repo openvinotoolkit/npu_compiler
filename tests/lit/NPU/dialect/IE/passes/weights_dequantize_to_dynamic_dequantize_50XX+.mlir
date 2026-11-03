@@ -11,7 +11,7 @@
 func.func @WeightsMultToDynamicDequantizeF8E4M3(%input: tensor<1x8x3000xf32>) -> tensor<1x2x3000xf32> {
   %cst_0 = const.Declare tensor<1x1x1xf32> = dense<158.881897> : tensor<1x1x1xf32>
   %cst = const.Declare tensor<1x1x1xf32> = dense<0.000000e+00> : tensor<1x1x1xf32>
-  %0 = IE.FakeQuantize(%input, %cst, %cst_0, %cst, %cst_0) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, low_fp_type = f8E4M3FN} : tensor<1x8x3000xf32>, tensor<1x1x1xf32>, tensor<1x1x1xf32>, tensor<1x1x1xf32>, tensor<1x1x1xf32> -> tensor<1x8x3000xf32>
+  %0 = IE.FakeQuantize(%input, %cst, %cst_0, %cst, %cst_0) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = f8E4M3FN} : tensor<1x8x3000xf32>, tensor<1x1x1xf32>, tensor<1x1x1xf32>, tensor<1x1x1xf32>, tensor<1x1x1xf32> -> tensor<1x8x3000xf32>
   %cst_1 = const.Declare tensor<2x8x3xf32> = dense<[[[1.500000e+01, 2.250000e+00, -2.800000e+01], [3.000000e+01, 4.000000e+00, -2.600000e+01], [6.000000e+01, 2.000000e+01, -1.500000e+01], [4.000000e+01, 6.000000e+00, -1.800000e+01], [2.600000e+01, -3.250000e+00, 1.000000e+01], [-1.875000e+00, -7.500000e+00, 6.000000e+01], [-7.000000e+00, -5.500000e+00, 8.000000e+01], [1.400000e+01, -5.000000e-01, 4.800000e+01]], [[4.800000e+01, 2.800000e+01, 8.000000e+01], [3.600000e+01, -4.400000e+01, -4.800000e+01], [-3.600000e+01, -1.120000e+02, -7.200000e+01], [-4.800000e+01, -1.920000e+02, -2.400000e+02], [-1.600000e+02, -3.200000e+02, -3.840000e+02], [-1.920000e+02, -3.200000e+02, -3.840000e+02], [-2.400000e+02, -2.880000e+02, -3.200000e+02], [-2.240000e+02, -2.560000e+02, -3.520000e+02]]]> : tensor<2x8x3xf8E4M3FN>, [#const.CastElemType<f32>]
   %cst_2 = const.Declare tensor<2x1x1xf32> = dense<[[[8.68524875E-5]], [[2.0912716E-4]]]> : tensor<2x1x1xf32>
   %1 = IE.Multiply(%cst_1, %cst_2) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<2x8x3xf32>, tensor<2x1x1xf32> -> tensor<2x8x3xf32>
@@ -27,7 +27,7 @@ func.func @WeightsMultToDynamicDequantizeF8E4M3(%input: tensor<1x8x3000xf32>) ->
   // CHECK-SAME{LITERAL}: dense<[[[1.500000e+01, 2.250000e+00, -2.800000e+01], [3.000000e+01, 4.000000e+00, -2.600000e+01], [6.000000e+01, 2.000000e+01, -1.500000e+01], [4.000000e+01, 6.000000e+00, -1.800000e+01], [2.600000e+01, -3.250000e+00, 1.000000e+01], [-1.875000e+00, -7.500000e+00, 6.000000e+01], [-7.000000e+00, -5.500000e+00, 8.000000e+01], [1.400000e+01, -5.000000e-01, 4.800000e+01]], [[4.800000e+01, 2.800000e+01, 8.000000e+01], [3.600000e+01, -4.400000e+01, -4.800000e+01], [-3.600000e+01, -1.120000e+02, -7.200000e+01], [-4.800000e+01, -1.920000e+02, -2.400000e+02], [-1.600000e+02, -3.200000e+02, -3.840000e+02], [-1.920000e+02, -3.200000e+02, -3.840000e+02], [-2.400000e+02, -2.880000e+02, -3.200000e+02], [-2.240000e+02, -2.560000e+02, -3.520000e+02]]]>
 
   // CHECK: [[DDQ:%.+]] = IE.DynamicDequantize([[WT_RAW]], [[SCALE]]) {dstElemType = f32, vpux.weights_import_dyn_dequant} : tensor<2x8x3xf8E4M3FN>, tensor<2x1x1xf32> -> tensor<2x8x3xf32>
-  // CHECK: [[ACT_FQ:%.+]] = IE.FakeQuantize([[INPUT]], [[ACT_LOW]], [[ACT_HIGH]], [[ACT_LOW]], [[ACT_HIGH]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, low_fp_type = f8E4M3FN}
+  // CHECK: [[ACT_FQ:%.+]] = IE.FakeQuantize([[INPUT]], [[ACT_LOW]], [[ACT_HIGH]], [[ACT_LOW]], [[ACT_HIGH]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = f8E4M3FN}
   // CHECK: [[CONV:%.+]] = IE.Convolution([[ACT_FQ]], [[DDQ]])
   // CHECK: return [[CONV]] : tensor<1x2x3000xf32>
 }
@@ -39,7 +39,7 @@ func.func @WeightsMultToDynamicDequantizeF8E4M3(%input: tensor<1x8x3000xf32>) ->
 func.func @WeightsSubtractMultToDynamicDequantizeF8E5M2(%input: tensor<1x4x30xf32>) -> tensor<1x2x30xf32> {
   %cst_0 = const.Declare tensor<1x1x1xf32> = dense<62.314334> : tensor<1x1x1xf32>
   %cst = const.Declare tensor<1x1x1xf32> = dense<0.000000e+00> : tensor<1x1x1xf32>
-  %0 = IE.FakeQuantize(%input, %cst, %cst_0, %cst, %cst_0) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, low_fp_type = f8E5M2} : tensor<1x4x30xf32>, tensor<1x1x1xf32>, tensor<1x1x1xf32>, tensor<1x1x1xf32>, tensor<1x1x1xf32> -> tensor<1x4x30xf32>
+  %0 = IE.FakeQuantize(%input, %cst, %cst_0, %cst, %cst_0) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = f8E5M2} : tensor<1x4x30xf32>, tensor<1x1x1xf32>, tensor<1x1x1xf32>, tensor<1x1x1xf32>, tensor<1x1x1xf32> -> tensor<1x4x30xf32>
   %cst_1 = const.Declare tensor<2x4x3xf32> = dense<[
   [[4.800000e+01, 2.800000e+01, 8.000000e+01],[3.600000e+01, -4.400000e+01, -4.800000e+01],[-3.600000e+01, -1.120000e+02, -7.200000e+01],[-4.800000e+01, -1.920000e+02, -2.400000e+02]],
   [[-1.600000e+02, -3.200000e+02, -3.840000e+02], [-1.920000e+02, -3.200000e+02, -3.840000e+02], [-2.400000e+02, -2.880000e+02, -3.200000e+02], [-2.240000e+02, -2.560000e+02, -3.520000e+02]]]> : tensor<2x4x3xf8E5M2>, [#const.CastElemType<f32>]
@@ -61,7 +61,7 @@ func.func @WeightsSubtractMultToDynamicDequantizeF8E5M2(%input: tensor<1x4x30xf3
   // CHECK-SAME{LITERAL}: dense<[[[1.000000e+00]], [[2.000000e+00]]]>
 
   // CHECK: [[DDQ:%.+]] = IE.DynamicDequantize([[WT_RAW]], [[SCALE]], [[ZP]]) {dstElemType = f32, vpux.weights_import_dyn_dequant} : tensor<2x4x3xf8E5M2>, tensor<2x1x1xf32>, tensor<2x1x1xf8E5M2> -> tensor<2x4x3xf32>
-  // CHECK: [[ACT_FQ:%.+]] = IE.FakeQuantize([[INPUT]], [[ACT_LOW]], [[ACT_HIGH]], [[ACT_LOW]], [[ACT_HIGH]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, low_fp_type = f8E5M2}
+  // CHECK: [[ACT_FQ:%.+]] = IE.FakeQuantize([[INPUT]], [[ACT_LOW]], [[ACT_HIGH]], [[ACT_LOW]], [[ACT_HIGH]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = f8E5M2}
   // CHECK: [[CONV:%.+]] = IE.Convolution([[ACT_FQ]], [[DDQ]])
   // CHECK: return [[CONV]] : tensor<1x2x30xf32>
 }

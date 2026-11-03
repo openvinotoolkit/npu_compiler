@@ -228,14 +228,14 @@ func.func @DoNotInsertAvgPoolToAddAndClamp(%arg0: tensor<1x128x2x32xf16>, %arg1:
 func.func @InsertAvgPoolToFakeQuantizeAndLeakyRelu(%arg0: tensor<1x16x8x8xf16>) -> tensor<1x16x8x8xf16> {
     %cst = const.Declare tensor<1x1x1x1xf16> = dense<7.558590e-01> : tensor<1x1x1x1xf16>
     %cst_0 = const.Declare tensor<1x1x1x1xf16> = dense<0.000000e+00> : tensor<1x1x1x1xf16>
-    %1 = IE.FakeQuantize(%arg0, %cst_0, %cst, %cst_0, %cst) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i64} : tensor<1x16x8x8xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<  1x16x8x8xf16>
+    %1 = IE.FakeQuantize(%arg0, %cst_0, %cst, %cst_0, %cst) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256 : i64} : tensor<1x16x8x8xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<  1x16x8x8xf16>
     %2 = IE.LeakyRelu(%1) { negative_slope = 1.000000e-01 : f64} : tensor<1x16x8x8xf16> -> tensor<1x16x8x8xf16>
 
     return %2 : tensor<1x16x8x8xf16>
 
     // CHECK-DAG: [[CST:%.+]] = const.Declare tensor<1x1x1x1xf16> = dense<7.558590e-01> : tensor<1x1x1x1xf16>
     // CHECK-DAG: [[CST_0:%.+]] = const.Declare tensor<1x1x1x1xf16> = dense<0.000000e+00> : tensor<1x1x1x1xf16>
-    // CHECK:     [[FQ:%.+]] = IE.FakeQuantize([[ARG_0]], [[CST_0]], [[CST]], [[CST_0]], [[CST]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i64} : tensor<1x16x8x8xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<1x16x8x8xf16>
+    // CHECK:     [[FQ:%.+]] = IE.FakeQuantize([[ARG_0]], [[CST_0]], [[CST]], [[CST_0]], [[CST]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256 : i64} : tensor<1x16x8x8xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<1x16x8x8xf16>
     // CHECK:     [[AVG_POOL:%.+]] = IE.AvgPool([[FQ]]) {exclude_pads, kernel_size = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], rounding_type = #IE.rounding_type<FLOOR>, strides = [1, 1]} : tensor<1x16x8x8xf16> -> tensor<1x16x8x8xf16>
     // CHECK:     [[LEAKY_RELU:%.+]] = IE.LeakyRelu([[AVG_POOL]]) {negative_slope = 1.000000e-01 : f64} : tensor<1x16x8x8xf16> -> tensor<1x16x8x8xf16>
 

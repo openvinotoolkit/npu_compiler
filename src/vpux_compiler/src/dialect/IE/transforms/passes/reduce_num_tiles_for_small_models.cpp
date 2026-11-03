@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
+#include "vpux/compiler/core/attributes/shape.hpp"
 #include "vpux/compiler/dialect/IE/IR/dialect.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/activation.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/convolution.hpp"
@@ -77,6 +78,12 @@ void ReduceNumTilesForSmallModelsPass::safeRunOnModule() {
             if (mlir::dyn_cast<IE::ViewLikeOpInterface>(op.getOperation())) {
                 return;
             }
+            const auto isUnbounded = [](mlir::Value value) {
+                return hasUnboundedDynamicShape(value);
+            };
+            if (llvm::any_of(op.getInputs(), isUnbounded) || llvm::any_of(op.getOutputs(), isUnbounded)) {
+                return;
+            }
             double totalShapeSize = 0;
             for (auto input : op.getInputs()) {
                 totalShapeSize +=
@@ -89,6 +96,12 @@ void ReduceNumTilesForSmallModelsPass::safeRunOnModule() {
             averageShapesSizes[op.getOperation()] = (totalShapeSize / (op.getInputs().size() + op.getOutputs().size()));
         });
     });
+    // An empty sample would make all statistics below NaN.
+    if (averageShapesSizes.empty()) {
+        _log.info("No measurable operation in the network, leaving the tile count as it is");
+        return;
+    }
+
     auto sumOfAverageShapes =
             std::accumulate(averageShapesSizes.begin(), averageShapesSizes.end(), 0., [](double sum, const auto& avg) {
                 return sum + avg.second;

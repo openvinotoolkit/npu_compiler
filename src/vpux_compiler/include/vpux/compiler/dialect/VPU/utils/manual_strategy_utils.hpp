@@ -15,6 +15,8 @@
 #include <mlir/IR/Operation.h>
 #include <mlir/Support/LLVM.h>
 
+#include <memory>
+#include <mutex>
 #include <optional>
 
 namespace vpux {
@@ -104,9 +106,21 @@ struct LoopAttributes {
 LoopAttributes getLoopAttributes(mlir::Operation* op);
 /// Copies loop attributes from srcOp to dstOp.
 void copyLoopAttributes(mlir::Operation* srcOp, mlir::Operation* dstOp);
-/// Thread-safely returns a module-wide unused tiling loop index.
-int64_t getNextTilingLoopIndex(mlir::ModuleOp module);
-/// Thread-safely returns a module-wide unused VF loop index.
-int64_t getNextVFLoopIndex(mlir::ModuleOp module);
+
+class LoopIndexAllocator final {
+public:
+    /// Creates a function-local allocator after scanning existing loop indices.
+    explicit LoopIndexAllocator(mlir::func::FuncOp func);
+
+    /// Thread-safely returns an unused tiling loop index.
+    int64_t getNextTilingLoopIndex();
+    /// Thread-safely returns an unused VF loop index.
+    int64_t getNextVFLoopIndex();
+
+private:
+    std::mutex _mutex;
+    int64_t _nextTilingLoopIndex;
+    int64_t _nextVFLoopIndex;
+};
 
 }  // namespace vpux

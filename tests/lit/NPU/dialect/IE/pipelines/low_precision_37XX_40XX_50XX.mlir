@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-// RUN: vpux-opt --split-input-file --init-compiler="platform=%platform%" --low-precision %s | FileCheck %s
+// RUN: vpux-opt --split-input-file --init-compiler="platform=%platform% enable-asymmetric-per-tensor-zp=true" --low-precision %s | FileCheck %s
 // REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010
 
 !qElemType = !quant.uniform<u8:f16, 0.99607843160629272:127>
@@ -26,7 +26,7 @@ func.func @PropagateDequantizeTwiceToFuseMul(
     %input_low = const.Declare tensor<f16> = dense<0.0> : tensor<f16>
     %input_high = const.Declare tensor<f16> = dense<255.0> : tensor<f16>
     %input_fq = IE.FakeQuantize(%conv1, %input_low, %input_high, %input_low, %input_high)
-        { auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 } :
+        { auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256 } :
         tensor<4096x320x1x1xf16>, tensor<f16>, tensor<f16>, tensor<f16>, tensor<f16> -> tensor<4096x320x1x1xf16>
 
     %reshape = IE.Reshape(%input_fq) {shape_value = [1, 4096, 8, 40]} : tensor<4096x320x1x1xf16> -> tensor<1x4096x8x40xf16>
@@ -49,7 +49,7 @@ func.func @PropagateDequantizeTwiceToFuseMul(
     %weights_low = const.Declare tensor<4096x1x1x1xf16> = dense<-127.0> : tensor<4096x1x1x1xf16>
     %weights_high = const.Declare tensor<4096x1x1x1xf16> = dense<127.0> : tensor<4096x1x1x1xf16>
     %weights_fq = IE.FakeQuantize(%weights2, %weights_low, %weights_high, %weights_low, %weights_high)
-        { auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 } :
+        { auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256 } :
         tensor<4096x40x1x1xf16>, tensor<4096x1x1x1xf16>, tensor<4096x1x1x1xf16>, tensor<4096x1x1x1xf16>, tensor<4096x1x1x1xf16> -> tensor<4096x40x1x1xf16>
 
     %conv2 = IE.Convolution(%affine_reshape, %weights_fq)

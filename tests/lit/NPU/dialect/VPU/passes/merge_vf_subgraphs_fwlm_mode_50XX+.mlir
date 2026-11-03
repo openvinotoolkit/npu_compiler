@@ -448,7 +448,7 @@ func.func @MergePermuteCastEltwiseWithQuantizeCastMatMul(
     return %3 : tensor<12x1x64x64x4x!qOutput, {order = #GNHWC}>
 
     // CHECK:     [[VF:%.+]] = VPU.VerticalFusion
-    // CHECK-SAME:      tilingStrategy = [1, 1, 1, 4, 1]
+    // CHECK-SAME:      tilingStrategy = [1, 1, 1, {{[34]}}, 1]
     // CHECK:            [[PERM_CAST0:%.+]] = VPU.PermuteCast
     // CHECK:            [[ELTWISE:%.+]] = VPU.NCE.Eltwise([[PERM_CAST0]]
     // CHECK-NOT: VPU.VerticalFusion

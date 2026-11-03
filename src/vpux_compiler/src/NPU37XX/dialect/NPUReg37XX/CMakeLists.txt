@@ -16,3 +16,5 @@ add_npu_library(npu_compiler_dialect_npureg37xx
         npu_elf
         MLIRIR
 )
+enable_lto_if_possible(npu_compiler_dialect_npureg37xx)
+

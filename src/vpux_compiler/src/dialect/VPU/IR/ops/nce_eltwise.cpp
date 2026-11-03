@@ -269,14 +269,15 @@ bool VPU::NCEEltwiseOp::doesLayerFitIntoCMX(VPU::MultiClusterStrategy strategy, 
     const auto outputDistributionMap = std::make_pair(
             output, getOutputDistributionAttrFromOp(nceOp, output, numClusters, strategy, siblingsAnalysis));
 
-    SmallVector<Byte> buffers = {VPU::getTotalAllocSizeWithDistribution(
-                                         getInput1().getType(),
-                                         getActivationDistributionAttrFromOp(nceOp, getInput1(), getInput1().getType(),
-                                                                             numClusters, strategy, siblingsAnalysis)),
-                                 VPU::getTotalAllocSizeWithDistribution(
-                                         getInput2().getType(),
-                                         getActivationDistributionAttrFromOp(nceOp, getInput2(), getInput2().getType(),
-                                                                             numClusters, strategy, siblingsAnalysis))};
+    SmallVector<Byte> buffers = {
+            VPU::getTotalAllocSizeWithDistribution(
+                    getInput1().getType(),
+                    getActivationDistributionAttrFromOp(nceOp, getInput1Mutable(), getInput1().getType(), numClusters,
+                                                        strategy, siblingsAnalysis)),
+            VPU::getTotalAllocSizeWithDistribution(
+                    getInput2().getType(),
+                    getActivationDistributionAttrFromOp(nceOp, getInput2Mutable(), getInput2().getType(), numClusters,
+                                                        strategy, siblingsAnalysis))};
     auto ppeAttr = getPpe();
     addSprLutBufferIfPresent(ppeAttr, buffers);
 
@@ -305,8 +306,8 @@ vpux::NDTypeInterface vpux::VPU::NCEEltwiseOp::getDistributedTypeForOpOperand(ml
     const auto strategy = clusteredOp.getMultiClusterStrategy().value();
 
     if (operand.get() == getInput1() || operand.get() == getInput2()) {
-        return VPU::getDistributedActivationTypeForOpOperand(clusteredOp, operand.get(), strategy,
-                                                             hasExplicitDistributedAttr, siblingsAnalysis);
+        return VPU::getDistributedActivationTypeForOpOperand(clusteredOp, operand, strategy, hasExplicitDistributedAttr,
+                                                             siblingsAnalysis);
     }
     VPUX_THROW("Failed to compute distributed type for op {0}", clusteredOp);
     return nullptr;

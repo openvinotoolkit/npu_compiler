@@ -196,7 +196,7 @@ mlir::FailureOr<PatternOps> matchWeightsDequantizePattern(ConcreteOp origOp, mli
                            "constant or not int2.");
     }
 
-    if (!wdInfo.isKVcachedPattern() && IE::getTrueElemType(origOp).isInteger(2)) {
+    if (!wdInfo.isDataBoundPattern() && IE::getTrueElemType(origOp).isInteger(2)) {
         return matchFailed(log, rewriter, origOp, "Skipping decomposing for u2 groupwise prefill pattern.");
     }
 

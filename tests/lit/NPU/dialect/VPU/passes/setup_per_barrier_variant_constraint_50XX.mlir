@@ -4,7 +4,7 @@
 //
 
 
-// RUN: vpux-opt --platform=%platform% --setup-npu-constraint="enable-sw-kernel-fifo-per-shave-engine=true" %s | FileCheck %s
+// RUN: vpux-opt --platform=%platform% --setup-npu-constraint %s | FileCheck %s
 // REQUIRES: platform-NPU5010
 
 module @mainModule attributes { config.platform = #config.platform<NPU5010> } {

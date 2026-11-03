@@ -61,7 +61,6 @@ TEST_F(MLIR_InferenceExecutionAnalysis, CheckCycleUpdateWith1ActShaveEngineOn1Cl
                 config.ExecutorResource 1 of @DPU
             }
             config.Resources 1 of @global {
-                config.ExecutorResource 1 of @M2I
                 config.ExecutorResource 1 of @DMA_NN
                 config.MemoryResource 524288000 bytes of @DDR {config.bandwidth = 64 : i64, config.derateFactor = 6.000000e-01 : f64}
             }
@@ -157,7 +156,6 @@ TEST_F(MLIR_InferenceExecutionAnalysis, CheckCycleUpdateWith2ActShaveEngineOn1Cl
                 config.ExecutorResource 1 of @DPU
             }
             config.Resources 1 of @global {
-                config.ExecutorResource 1 of @M2I
                 config.ExecutorResource 1 of @DMA_NN
                 config.MemoryResource 524288000 bytes of @DDR {config.bandwidth = 64 : i64, config.derateFactor = 6.000000e-01 : f64}
             }

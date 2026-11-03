@@ -174,7 +174,7 @@ module @StaticEltwiseNHWC {
           } requires 11:4:10
         > {elfMemOffsetAttrKey = 0 : ui64, input = @io.NetworkInput.0::@DeclareBuffer0, output_buffs = [@io.NetworkOutput.0::@DeclareBuffer1], sym_name = "NNDMA_0_0_0"}
       }
-      VPURegMapped.TaskBufferLayout {ActKernelInvocation = [[#VPURegMapped.TaskGroup<dynamicTaskListSize(0 : ui64), staticTaskListSize(64 : ui64), startOffset(53760 : ui64), binaryTaskSize(96 : ui64)>, #VPURegMapped.TaskGroup<dynamicTaskListSize(0 : ui64), staticTaskListSize(0 : ui64), startOffset(59904 : ui64), binaryTaskSize(96 : ui64)>]], ActKernelRange = [[#VPURegMapped.TaskGroup<dynamicTaskListSize(0 : ui64), staticTaskListSize(64 : ui64), startOffset(51200 : ui64), binaryTaskSize(40 : ui64)>, #VPURegMapped.TaskGroup<dynamicTaskListSize(0 : ui64), staticTaskListSize(0 : ui64), startOffset(53760 : ui64), binaryTaskSize(40 : ui64)>]], DMA = [[#VPURegMapped.TaskGroup<dynamicTaskListSize(1 : ui64), staticTaskListSize(64 : ui64), startOffset(59904 : ui64), binaryTaskSize(224 : ui64)>, #VPURegMapped.TaskGroup<dynamicTaskListSize(0 : ui64), staticTaskListSize(16 : ui64), startOffset(74240 : ui64), binaryTaskSize(224 : ui64)>]], DPUInvariant = [[#VPURegMapped.TaskGroup<dynamicTaskListSize(0 : ui64), staticTaskListSize(64 : ui64), startOffset(0 : ui64), binaryTaskSize(352 : ui64)>]], DPUVariant = [[#VPURegMapped.TaskGroup<dynamicTaskListSize(0 : ui64), staticTaskListSize(128 : ui64), startOffset(22528 : ui64), binaryTaskSize(224 : ui64)>]], M2I = [[#VPURegMapped.TaskGroup<dynamicTaskListSize(0 : ui64), staticTaskListSize(4 : ui64), startOffset(77824 : ui64), binaryTaskSize(240 : ui64)>]]}
+      VPURegMapped.TaskBufferLayout {ActKernelInvocation = [[#VPURegMapped.TaskGroup<dynamicTaskListSize(0 : ui64), staticTaskListSize(64 : ui64), startOffset(53760 : ui64), binaryTaskSize(96 : ui64)>, #VPURegMapped.TaskGroup<dynamicTaskListSize(0 : ui64), staticTaskListSize(0 : ui64), startOffset(59904 : ui64), binaryTaskSize(96 : ui64)>]], ActKernelRange = [[#VPURegMapped.TaskGroup<dynamicTaskListSize(0 : ui64), staticTaskListSize(64 : ui64), startOffset(51200 : ui64), binaryTaskSize(40 : ui64)>, #VPURegMapped.TaskGroup<dynamicTaskListSize(0 : ui64), staticTaskListSize(0 : ui64), startOffset(53760 : ui64), binaryTaskSize(40 : ui64)>]], DMA = [[#VPURegMapped.TaskGroup<dynamicTaskListSize(1 : ui64), staticTaskListSize(64 : ui64), startOffset(59904 : ui64), binaryTaskSize(224 : ui64)>, #VPURegMapped.TaskGroup<dynamicTaskListSize(0 : ui64), staticTaskListSize(16 : ui64), startOffset(74240 : ui64), binaryTaskSize(224 : ui64)>]], DPUInvariant = [[#VPURegMapped.TaskGroup<dynamicTaskListSize(0 : ui64), staticTaskListSize(64 : ui64), startOffset(0 : ui64), binaryTaskSize(352 : ui64)>]], DPUVariant = [[#VPURegMapped.TaskGroup<dynamicTaskListSize(0 : ui64), staticTaskListSize(128 : ui64), startOffset(22528 : ui64), binaryTaskSize(224 : ui64)>]]}
       ELF.CreateSection @meta.PlatformInfo aligned(8) secType(VPU_SHT_PLATFORM_INFO) secFlags("SHF_NONE") secLocation(<DDR>) {
         VPUASM.PlatformInfo {elfMemOffsetAttrKey = 0 : ui64, sym_name = "PlatformInfo_0_0"}
       }
@@ -196,7 +196,7 @@ module @StaticEltwiseNHWC {
             miTcDPUVariantCount = UINT 0x80,
             miTcActRangeCount = UINT 0x40,
             miTcActInvoCount = UINT 0x40,
-            miTcMediaCount = UINT 4,
+            miTcMediaDeprecated = UINT 0,
             miTaskStorageSize = UINT 0,
             taskReferenceR1_DMA_DDR_0 = UINT 0,
             taskReferenceR2_DMA_DDR_0 = UINT 0,
@@ -378,11 +378,11 @@ module @StaticEltwiseNHWC {
             taskReferenceR3_ActKernel_invo_5 = UINT 0,
             taskReferenceAddr_ActKernel_invo_5 = UINT 0,
             taskReferenceCount_ActKernel_invo_5 = UINT 0,
-            taskReferenceR1_MediaTask = UINT 0,
-            taskReferenceR2_MediaTask = UINT 0,
-            taskReferenceR3_MediaTask = UINT 0,
-            taskReferenceAddr_MediaTask = UINT 0,
-            taskReferenceCount_MediaTask = UINT 0,
+            miMediaDeprecated_0 = UINT 0,
+            miMediaDeprecated_1 = UINT 0,
+            miMediaDeprecated_2 = UINT 0,
+            miMediaDeprecated_3 = UINT 0,
+            miMediaDeprecated_4 = UINT 0,
             taskReferenceR1_BarrierConfig = UINT 0,
             taskReferenceR2_BarrierConfig = UINT 0,
             taskReferenceR3_BarrierConfig = UINT 0,
@@ -417,7 +417,7 @@ module @StaticEltwiseNHWC {
             taskReferenceAddr_ManagedInference = UINT 0,
             taskReferenceCount_ManagedInference = UINT 0,
           } requires 11:4:10
-        > {actKernelInvocationsCount = [0, 0, 0, 0, 0, 0], actKernelRangesCount = [0, 0, 0, 0, 0, 0], barrierCount = 0 : i64, dmaCMXCount = [0, 0], dmaCount = [[1, 0], [0, 0]], dmaDDRCount = [1, 0], dmaHwpBase = @buffer.CMX_NN.0::@DeclareBuffer2, dmaTasks = [[@task.dma.0.0::@NNDMA_0_0_0]], elfMemOffsetAttrKey = 0 : ui64, invariantCount = [0, 0, 0, 0, 0, 0], mappedInferenceVersion = @note.MappedInferenceVersion::@MappedInferenceVersion_0_0, mediaCount = 0 : i64, sym_name = "MappedInference", variantCount = [0, 0, 0, 0, 0, 0]}
+        > {actKernelInvocationsCount = [0, 0, 0, 0, 0, 0], actKernelRangesCount = [0, 0, 0, 0, 0, 0], barrierCount = 0 : i64, dmaCMXCount = [0, 0], dmaCount = [[1, 0], [0, 0]], dmaDDRCount = [1, 0], dmaHwpBase = @buffer.CMX_NN.0::@DeclareBuffer2, dmaTasks = [[@task.dma.0.0::@NNDMA_0_0_0]], elfMemOffsetAttrKey = 0 : ui64, invariantCount = [0, 0, 0, 0, 0, 0], mappedInferenceVersion = @note.MappedInferenceVersion::@MappedInferenceVersion_0_0, sym_name = "MappedInference", variantCount = [0, 0, 0, 0, 0, 0]}
       }
       ELF.CreateSection @note.LoaderABIVersion aligned(4) secType(SHT_NOTE) secFlags("SHF_NONE") secLocation(<DDR>) {
         ELF.ABIVersion {elfMemOffsetAttrKey = 0 : ui64, sym_name = "LoaderABIVersion"}

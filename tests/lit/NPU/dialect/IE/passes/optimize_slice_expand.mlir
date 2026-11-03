@@ -1386,18 +1386,23 @@ func.func @OptimizeSliceConcatExpandForQuantizedType(%arg0: tensor<1x6x32x56x!qE
 
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
-// CHECK-LABEL: @OptimizeExpandSlicePattern
+// The 'LayoutCast' relocates the padded axis (channel: NCHW outermost -> NHWC innermost), so
+// swapping 'Expand' across it and fusing 'Slice'+'Expand' into 'LayoutCast(%arg0)' would corrupt
+// the real (non-padded) data - 'LayoutCast' is a byte-preserving reinterpret and reinterpreting a
+// sliced vs a full buffer yields different logical values. The swap must be rejected and the chain
+// left unchanged.
+// CHECK-LABEL: @NotOptimizeExpandSlicePatternRelocatingLayoutCast
 // CHECK-SAME:        [[INPUT:%arg[0-9]]]: tensor<1x16x32x32xf16>
-func.func @OptimizeExpandSlicePattern(%arg0: tensor<1x16x32x32xf16>) -> tensor<1x16x32x32xf16, {order = #NHWC}> {
+func.func @NotOptimizeExpandSlicePatternRelocatingLayoutCast(%arg0: tensor<1x16x32x32xf16>) -> tensor<1x16x32x32xf16, {order = #NHWC}> {
    %0 = IE.Slice %arg0 [0, 0, 0, 0] [1, 3, 32, 32] : tensor<1x16x32x32xf16> to tensor<1x3x32x32xf16>
    %1 = IE.LayoutCast(%0) {dst_order = #NHWC} : tensor<1x3x32x32xf16> -> tensor<1x3x32x32xf16, {order = #NHWC}>
    %2 = IE.Expand(%1) {pads_begin = [0, 0, 0, 0], pads_end = [0, 13, 0, 0]} : tensor<1x3x32x32xf16, {order = #NHWC}> -> tensor<1x16x32x32xf16, {order = #NHWC}>
    return %2 : tensor<1x16x32x32xf16, {order = #NHWC}>
 
-   // CHECK-NOT:    IE.Expand
-   // CHECK-NOT:    IE.Slice
-   // CHECK:        [[LAYOUTCAST:%.+]] = IE.LayoutCast([[INPUT]])
-   // CHECK:        return [[LAYOUTCAST]] : tensor<1x16x32x32xf16, {order = #NHWC}>
+   // CHECK:        [[SLICE:%.+]] = IE.Slice [[INPUT]] [0, 0, 0, 0] [1, 3, 32, 32] : tensor<1x16x32x32xf16> to tensor<1x3x32x32xf16>
+   // CHECK:        [[LAYOUTCAST:%.+]] = IE.LayoutCast([[SLICE]]) {dst_order = #NHWC} : tensor<1x3x32x32xf16> -> tensor<1x3x32x32xf16, {order = #NHWC}>
+   // CHECK:        [[EXPAND:%.+]] = IE.Expand([[LAYOUTCAST]]) {pads_begin = [0, 0, 0, 0], pads_end = [0, 13, 0, 0]} : tensor<1x3x32x32xf16, {order = #NHWC}> -> tensor<1x16x32x32xf16, {order = #NHWC}>
+   // CHECK:        return [[EXPAND]] : tensor<1x16x32x32xf16, {order = #NHWC}>
 }
 
 // -----
@@ -2092,4 +2097,120 @@ func.func @OptimizeSliceViewLikeChainExpand_QuantizeCast(%arg0: tensor<1x48x1024
    // CHECK: [[QUANTIZECAST:%.+]] = IE.QuantizeCast([[PERMUTECAST1]]) {dstElemType = [[QELEMTYPE1]]} : tensor<1x48x4096x1x[[QELEMTYPE0]], {order = #NHWC}> -> tensor<1x48x4096x1x[[QELEMTYPE1]], {order = #NHWC}>
 
    // CHECK: return [[QUANTIZECAST]]
+}
+
+// -----
+
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+
+// CHECK-LABEL: func.func @OptimizeSliceExpandStaticEltwiseChain
+// CHECK-SAME:      [[ARG_0:%[^:]+]]: tensor<1x12x64x64xf16, {order = #NHWC}>
+// CHECK-SAME:      [[ARG_1:%[^:]+]]: tensor<1x16x64x64xf16, {order = #NHWC}>
+// CHECK-SAME:      [[ARG_2:%[^:]+]]: tensor<1x16x64x64xf16, {order = #NHWC}>
+// The first Expand feeds an Add, and the second Expand sits behind a Slice of that Add.
+func.func @OptimizeSliceExpandStaticEltwiseChain(%arg0: tensor<1x12x64x64xf16, {order = #NHWC}>, %arg1: tensor<1x16x64x64xf16, {order = #NHWC}>, %arg2: tensor<1x16x64x64xf16, {order = #NHWC}>) -> tensor<1x16x64x64xf16, {order = #NHWC}> {
+   // First branch: Slice -> Expand -> Add.
+   %0 = IE.Slice %arg0 [0, 0, 0, 0] [1, 3, 64, 64] : tensor<1x12x64x64xf16, {order = #NHWC}> to tensor<1x3x64x64xf16, {order = #NHWC}>
+   %1 = IE.Expand(%0) {pads_begin = [0, 0, 0, 0], pads_end = [0, 13, 0, 0]} : tensor<1x3x64x64xf16, {order = #NHWC}> -> tensor<1x16x64x64xf16, {order = #NHWC}>
+   %2 = IE.Add(%1, %arg1) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x16x64x64xf16, {order = #NHWC}>, tensor<1x16x64x64xf16, {order = #NHWC}> -> tensor<1x16x64x64xf16, {order = #NHWC}>
+   // Second branch: Slice of the Add result -> Expand -> Add.
+   %3 = IE.Slice %2 [0, 0, 0, 0] [1, 3, 64, 64] : tensor<1x16x64x64xf16, {order = #NHWC}> to tensor<1x3x64x64xf16, {order = #NHWC}>
+   %4 = IE.Expand(%3) {pads_begin = [0, 0, 0, 0], pads_end = [0, 13, 0, 0]} : tensor<1x3x64x64xf16, {order = #NHWC}> -> tensor<1x16x64x64xf16, {order = #NHWC}>
+   %5 = IE.Add(%4, %arg2) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x16x64x64xf16, {order = #NHWC}>, tensor<1x16x64x64xf16, {order = #NHWC}> -> tensor<1x16x64x64xf16, {order = #NHWC}>
+
+   return %5 : tensor<1x16x64x64xf16, {order = #NHWC}>
+
+   // CHECK:       [[SLICE0:%.+]] = IE.Slice [[ARG_0]] [0, 0, 0, 0] [1, 3, 64, 64] : tensor<1x12x64x64xf16, {order = #NHWC}> to tensor<1x3x64x64xf16, {order = #NHWC}>
+   // CHECK:       [[EXPAND0:%.+]] = IE.Expand([[SLICE0]]) {pads_begin = [0, 0, 0, 0], pads_end = [0, 13, 0, 0]} : tensor<1x3x64x64xf16, {order = #NHWC}> -> tensor<1x16x64x64xf16, {order = #NHWC}>
+   // CHECK:       [[ADD0:%.+]] = IE.Add([[EXPAND0]], [[ARG_1]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x16x64x64xf16, {order = #NHWC}>, tensor<1x16x64x64xf16, {order = #NHWC}> -> tensor<1x16x64x64xf16, {order = #NHWC}>
+   // CHECK:       [[ADD1:%.+]] = IE.Add([[ADD0]], [[ARG_2]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x16x64x64xf16, {order = #NHWC}>, tensor<1x16x64x64xf16, {order = #NHWC}> -> tensor<1x16x64x64xf16, {order = #NHWC}>
+   // CHECK:       return [[ADD1]] : tensor<1x16x64x64xf16, {order = #NHWC}>
+}
+
+// -----
+
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+
+// CHECK-LABEL: @OptimizeSliceExpandForDynamicAvgPoolIfExpandHasMultiUsers
+// CHECK-SAME:      [[ARG_0:%[^:]+]]: tensor<1x16x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 64, 64]> : tensor<4xsi64>, order = #NHWC}>
+// CHECK-SAME:      [[ARG_1:%[^:]+]]: tensor<1x16x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 64, 64]> : tensor<4xsi64>, order = #NHWC}>
+func.func @OptimizeSliceExpandForDynamicAvgPoolIfExpandHasMultiUsers(%arg0: tensor<1x16x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 64, 64]> : tensor<4xsi64>, order = #NHWC}>, %arg1: tensor<1x16x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 64, 64]> : tensor<4xsi64>, order = #NHWC}>)
+                                                                     -> (tensor<1x16x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 64, 64]> : tensor<4xsi64>, order = #NHWC}>, tensor<1x4x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 4, 64, 64]> : tensor<4xsi64>, order = #NHWC}>) {
+   %filter = const.Declare tensor<4x4x1x1xf16, {order = #NHWC}> = dense<1.0> : tensor<4x4x1x1xf16>, [#const.Reorder<#NHWC>]
+   %0 = IE.AvgPool(%arg0) {
+           kernel_size = [1, 1],
+           pads_begin = [0, 0],
+           pads_end = [0, 0],
+           rounding_type = #IE.rounding_type<FLOOR>,
+           strides = [1, 1]
+        } : tensor<1x16x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 64, 64]> : tensor<4xsi64>, order = #NHWC}> -> tensor<1x16x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 64, 64]> : tensor<4xsi64>, order = #NHWC}>
+   %1 = IE.Slice %0 [0, 0, 0, 0] [1, 3, -9223372036854775808, -9223372036854775808] : tensor<1x16x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 64, 64]> : tensor<4xsi64>, order = #NHWC}> to tensor<1x3x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 3, 64, 64]> : tensor<4xsi64>, order = #NHWC}>
+   %2 = IE.Expand(%1) {pads_begin = [0, 0, 0, 0], pads_end = [0, 13, 0, 0]} : tensor<1x3x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 3, 64, 64]> : tensor<4xsi64>, order = #NHWC}> -> tensor<1x16x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 64, 64]> : tensor<4xsi64>, order = #NHWC}>
+   %3 = IE.Add(%2, %arg1) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x16x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 64, 64]> : tensor<4xsi64>, order = #NHWC}>, tensor<1x16x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 64, 64]> : tensor<4xsi64>, order = #NHWC}> -> tensor<1x16x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 64, 64]> : tensor<4xsi64>, order = #NHWC}>
+   %4 = IE.Expand(%1) {pads_begin = [0, 0, 0, 0], pads_end = [0, 1, 0, 0]} : tensor<1x3x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 3, 64, 64]> : tensor<4xsi64>, order = #NHWC}> -> tensor<1x4x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 4, 64, 64]> : tensor<4xsi64>, order = #NHWC}>
+   %5 = IE.Convolution(%4, %filter) {dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]} : tensor<1x4x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 4, 64, 64]> : tensor<4xsi64>, order = #NHWC}>, tensor<4x4x1x1xf16, {order = #NHWC}> -> tensor<1x4x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 4, 64, 64]> : tensor<4xsi64>, order = #NHWC}>
+
+   return %3, %5 : tensor<1x16x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 64, 64]> : tensor<4xsi64>, order = #NHWC}>, tensor<1x4x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 4, 64, 64]> : tensor<4xsi64>, order = #NHWC}>
+
+   // CHECK:       [[AVGPOOL:%.+]] = IE.AvgPool([[ARG_0]])
+   // CHECK-SAME:      -> tensor<1x16x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 64, 64]> : tensor<4xsi64>, order = #NHWC}>
+   // CHECK:       [[SLICE:%.+]] = IE.Slice [[AVGPOOL]] [0, 0, 0, 0] [1, 3, -9223372036854775808, -9223372036854775808]
+   // CHECK-SAME:      to tensor<1x3x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 3, 64, 64]> : tensor<4xsi64>, order = #NHWC}>
+   // CHECK:       [[EXPAND0:%.+]] = IE.Expand([[SLICE]]) {pads_begin = [0, 0, 0, 0], pads_end = [0, 13, 0, 0]} : tensor<1x3x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 3, 64, 64]> : tensor<4xsi64>, order = #NHWC}> -> tensor<1x16x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 64, 64]> : tensor<4xsi64>, order = #NHWC}>
+   // CHECK:       [[ADD:%.+]] = IE.Add([[EXPAND0]], [[ARG_1]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x16x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 64, 64]> : tensor<4xsi64>, order = #NHWC}>, tensor<1x16x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 64, 64]> : tensor<4xsi64>, order = #NHWC}> -> tensor<1x16x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 64, 64]> : tensor<4xsi64>, order = #NHWC}>
+   // CHECK:       [[EXPAND1:%.+]] = IE.Expand([[SLICE]]) {pads_begin = [0, 0, 0, 0], pads_end = [0, 1, 0, 0]} : tensor<1x3x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 3, 64, 64]> : tensor<4xsi64>, order = #NHWC}> -> tensor<1x4x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 4, 64, 64]> : tensor<4xsi64>, order = #NHWC}>
+   // CHECK:       [[CONV:%.+]] = IE.Convolution([[EXPAND1]], [[FILTER:%.+]]) {dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]} : tensor<1x4x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 4, 64, 64]> : tensor<4xsi64>, order = #NHWC}>, tensor<4x4x1x1xf16, {order = #NHWC}> -> tensor<1x4x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 4, 64, 64]> : tensor<4xsi64>, order = #NHWC}>
+   // CHECK:       return [[ADD]], [[CONV]] : tensor<1x16x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 64, 64]> : tensor<4xsi64>, order = #NHWC}>, tensor<1x4x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 4, 64, 64]> : tensor<4xsi64>, order = #NHWC}>
+}
+
+// -----
+
+// The following are the FoldSliceExpand related tests
+
+// CHECK-LABEL: @FoldSliceExpandWithSameNoneZeroOffsets
+// CHECK-SAME:    ([[ARG_0:%[^:]+]]: tensor<1x16x320x320xf16>)
+func.func @FoldSliceExpandWithSameNoneZeroOffsets(%arg0: tensor<1x16x320x320xf16>) -> tensor<1x16x320x320xf16> {
+   %0 = IE.Slice %arg0 [0, 3, 0, 0] [1, 1, 320, 320] : tensor<1x16x320x320xf16> to tensor<1x1x320x320xf16>
+   %1 = IE.Expand(%0) {pads_begin = [0, 3, 0, 0], pads_end = [0, 12, 0, 0]} : tensor<1x1x320x320xf16> -> tensor<1x16x320x320xf16>
+   return %1 : tensor<1x16x320x320xf16>
+
+   // CHECK: return [[ARG_0]] : tensor<1x16x320x320xf16>
+}
+
+// -----
+
+// CHECK-LABEL: @FoldSliceExpandWithSameZeroOffsets
+// CHECK-SAME:    ([[ARG_0:%[^:]+]]: tensor<1x80x56x56xf16>)
+func.func @FoldSliceExpandWithSameZeroOffsets(%arg0: tensor<1x80x56x56xf16>) -> tensor<1x80x56x56xf16> {
+   %0 = IE.Slice %arg0 [0, 0, 0, 0] [1, 72, 56, 56] : tensor<1x80x56x56xf16> to tensor<1x72x56x56xf16>
+   %1 = IE.Expand(%0) {pads_begin = [0, 0, 0, 0], pads_end = [0, 8, 0, 0]} : tensor<1x72x56x56xf16> -> tensor<1x80x56x56xf16>
+   return %1 : tensor<1x80x56x56xf16>
+
+   // CHECK: return [[ARG_0]] : tensor<1x80x56x56xf16>
+}
+
+// -----
+
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+
+// CHECK-LABEL: func.func @OptimizeSliceExpandForDynamicEltwiseAndConvSamePadding
+// CHECK-SAME:      [[ARG_0:%[^:]+]]: tensor<1x12x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 12, 64, 64]> : tensor<4xsi64>, order = #NHWC}>
+// CHECK-SAME:      [[ARG_1:%[^:]+]]: tensor<1x3x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 3, 64, 64]> : tensor<4xsi64>, order = #NHWC}>
+func.func @OptimizeSliceExpandForDynamicEltwiseAndConvSamePadding(%arg0: tensor<1x12x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 12, 64, 64]> : tensor<4xsi64>, order = #NHWC}>, %arg1: tensor<1x3x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 3, 64, 64]> : tensor<4xsi64>, order = #NHWC}>) -> (tensor<1x16x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 64, 64]> : tensor<4xsi64>, order = #NHWC}>, tensor<1x1x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 1, 64, 64]> : tensor<4xsi64>, order = #NHWC}>) {
+   %filter = const.Declare tensor<1x16x1x1xf16, {order = #NHWC}> = dense<1.0> : tensor<1x16x1x1xf16>, [#const.Reorder<#NHWC>]
+   %0 = IE.Slice %arg0 [0, 0, 0, 0] [1, 3, -9223372036854775808, -9223372036854775808] : tensor<1x12x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 12, 64, 64]> : tensor<4xsi64>, order = #NHWC}> to tensor<1x3x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 3, 64, 64]> : tensor<4xsi64>, order = #NHWC}>
+   %1 = IE.Expand(%0) {pads_begin = [0, 0, 0, 0], pads_end = [0, 13, 0, 0]} : tensor<1x3x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 3, 64, 64]> : tensor<4xsi64>, order = #NHWC}> -> tensor<1x16x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 64, 64]> : tensor<4xsi64>, order = #NHWC}>
+   %2 = IE.Expand(%arg1) {pads_begin = [0, 0, 0, 0], pads_end = [0, 13, 0, 0]} : tensor<1x3x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 3, 64, 64]> : tensor<4xsi64>, order = #NHWC}> -> tensor<1x16x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 64, 64]> : tensor<4xsi64>, order = #NHWC}>
+   %3 = IE.Add(%1, %2) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x16x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 64, 64]> : tensor<4xsi64>, order = #NHWC}>, tensor<1x16x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 64, 64]> : tensor<4xsi64>, order = #NHWC}> -> tensor<1x16x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 64, 64]> : tensor<4xsi64>, order = #NHWC}>
+   %4 = IE.Convolution(%1, %filter) {dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]} : tensor<1x16x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 64, 64]> : tensor<4xsi64>, order = #NHWC}>, tensor<1x16x1x1xf16, {order = #NHWC}> -> tensor<1x1x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 1, 64, 64]> : tensor<4xsi64>, order = #NHWC}>
+
+   return %3, %4 : tensor<1x16x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 64, 64]> : tensor<4xsi64>, order = #NHWC}>, tensor<1x1x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 1, 64, 64]> : tensor<4xsi64>, order = #NHWC}>
+
+   // CHECK-DAG:   [[CST:%.+]] = const.Declare tensor<1x16x1x1xf16, {order = #NHWC}> = dense<1.000000e+00> : tensor<1x16x1x1xf16>, [#const.Reorder<#NHWC>]
+   // CHECK:       [[EXPAND0:%.+]] = IE.Expand([[ARG_0]]) {pads_begin = [0, 0, 0, 0], pads_end = [0, 4, 0, 0]} : tensor<1x12x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 12, 64, 64]> : tensor<4xsi64>, order = #NHWC}> -> tensor<1x16x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 64, 64]> : tensor<4xsi64>, order = #NHWC}>
+   // CHECK:       [[EXPAND1:%.+]] = IE.Expand([[ARG_1]]) {pads_begin = [0, 0, 0, 0], pads_end = [0, 13, 0, 0]} : tensor<1x3x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 3, 64, 64]> : tensor<4xsi64>, order = #NHWC}> -> tensor<1x16x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 64, 64]> : tensor<4xsi64>, order = #NHWC}>
+   // CHECK:       [[ADD:%.+]] = IE.Add([[EXPAND0]], [[EXPAND1]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x16x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 64, 64]> : tensor<4xsi64>, order = #NHWC}>, tensor<1x16x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 64, 64]> : tensor<4xsi64>, order = #NHWC}> -> tensor<1x16x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 64, 64]> : tensor<4xsi64>, order = #NHWC}>
+   // CHECK:       [[CONV:%.+]] = IE.Convolution([[EXPAND0]], [[CST]]) {dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]} : tensor<1x16x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 64, 64]> : tensor<4xsi64>, order = #NHWC}>, tensor<1x16x1x1xf16, {order = #NHWC}> -> tensor<1x1x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 1, 64, 64]> : tensor<4xsi64>, order = #NHWC}>
+   // CHECK:       return [[ADD]], [[CONV]] : tensor<1x16x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 64, 64]> : tensor<4xsi64>, order = #NHWC}>, tensor<1x1x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 1, 64, 64]> : tensor<4xsi64>, order = #NHWC}>
+
 }

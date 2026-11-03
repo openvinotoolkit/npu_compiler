@@ -76,7 +76,9 @@ Pipelining is based on cost and intervals of operations
 */
 class VFPipelineContainer {
 public:
-    VFPipelineContainer();
+    // prefetchDMAWithinTile allows a transfer to start as soon as the DMA engine is free instead of waiting for the
+    // previously placed operation of the same tile
+    explicit VFPipelineContainer(bool prefetchDMAWithinTile = false);
 
     // add new operation to the container to be pipelined with current ones
     bool addOperation(mlir::Operation* operation, int64_t index, const StrategyCost& cost);
@@ -110,6 +112,8 @@ private:
 
     // last interval in the timeline with biggest end value
     std::optional<TimelineInterval> _lastInterval;
+
+    bool _prefetchDMAWithinTile = false;
 };
 
 }  // namespace VPU

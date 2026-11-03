@@ -32,6 +32,29 @@ using namespace vpux;
 
 namespace {
 
+// ConvertDQRawDataTypeToQuantized wraps raw-typed constant weights in an identity IE.QuantizeCast (scale=1, zp=0)
+// which folds into the constant as a trailing CastElemType. The const framework never fuses casts to quantized
+// types (E#151161), so drop it here to keep the rebuilt float constant identical to the one the FakeQuantize path
+// produced before that pass was introduced.
+Const::ContentAttr dropIdentityQuantizeCast(Const::ContentAttr contentAttr) {
+    const auto transformations = contentAttr.getTransformations();
+    if (transformations.empty()) {
+        return contentAttr;
+    }
+
+    const auto castAttr = mlir::dyn_cast<Const::CastElemTypeAttr>(transformations.back());
+    if (castAttr == nullptr) {
+        return contentAttr;
+    }
+
+    const auto quantType = mlir::dyn_cast<mlir::quant::UniformQuantizedType>(castAttr.getElemType());
+    if (quantType == nullptr || !isDoubleEqual(quantType.getScale(), 1.0) || quantType.getZeroPoint() != 0) {
+        return contentAttr;
+    }
+
+    return Const::ContentAttr::get(contentAttr.getBaseContent(), transformations.drop_back());
+}
+
 //
 // ConvertDynamicDequantizeToFakeQuantize
 //
@@ -65,7 +88,20 @@ mlir::LogicalResult ConvertDynamicDequantizeToFakeQuantize::matchAndRewrite(IE::
     // The weights are either a compile-time constant (static weights-as-constant) or a block argument
     // (weights-as-input, e.g. groupwise-quantized MatMul). Both must be reconstructed to FakeQuantize;
     // the only difference is how the float FakeQuantize input is built (see below).
-    auto weightsConst = origOp.getInput().getDefiningOp<Const::DeclareOp>();
+    // ConvertDQRawDataTypeToQuantizedPass runs before this pass and wraps a raw-typed constant input in an
+    // identity IE.QuantizeCast (scale=1, zp=0); look through it to still recognize the static-weights case.
+    auto weightsInput = origOp.getInput();
+    auto weightsConst = weightsInput.getDefiningOp<Const::DeclareOp>();
+    IE::QuantizeCastOp identityQuantCast = nullptr;
+    if (weightsConst == nullptr) {
+        if (auto quantCast = weightsInput.getDefiningOp<IE::QuantizeCastOp>()) {
+            weightsConst = quantCast.getInput().getDefiningOp<Const::DeclareOp>();
+            const auto quantType = mlir::dyn_cast<mlir::quant::UniformQuantizedType>(quantCast.getDstElemType());
+            if (quantType != nullptr && isDoubleEqual(quantType.getScale(), 1.0) && quantType.getZeroPoint() == 0) {
+                identityQuantCast = quantCast;
+            }
+        }
+    }
 
     const auto inElemType = mlir::cast<vpux::NDTypeInterface>(origOp.getInput().getType()).getElementType();
     // The input is either quantized (e.g. quant.uniform / quant.uniform_per_axis / ...)
@@ -127,8 +163,7 @@ mlir::LogicalResult ConvertDynamicDequantizeToFakeQuantize::matchAndRewrite(IE::
 
     float inLow = 0.0f;
     float inHigh = 0.0f;
-    mlir::IntegerAttr levelsAttr = nullptr;
-    mlir::TypeAttr lowFpTypeAttr = nullptr;
+    mlir::Attribute levelsOrLowFpType = nullptr;
 
     const auto intervalResult =
             mlir::TypeSwitch<mlir::Type, mlir::LogicalResult>(storageType)
@@ -136,13 +171,13 @@ mlir::LogicalResult ConvertDynamicDequantizeToFakeQuantize::matchAndRewrite(IE::
                         const auto quantileTable = quantileType.getQuantiles();
                         inLow = static_cast<float>(quantileTable.front());
                         inHigh = static_cast<float>(quantileTable.back());
-                        lowFpTypeAttr = mlir::TypeAttr::get(quantileType);
+                        levelsOrLowFpType = mlir::TypeAttr::get(quantileType);
                         return mlir::success();
                     })
                     .Case<mlir::IntegerType>([&](mlir::IntegerType intType) {
                         constexpr float halfDivisor = 2.0f;
                         const auto levels = IE::getQuantizationLevels(intType);
-                        levelsAttr = getIntAttr(ctx, levels);
+                        levelsOrLowFpType = getIntAttr(ctx, levels);
                         const bool isSigned = quantType != nullptr ? quantType.isSigned() : intType.isSignedInteger();
                         inLow = isSigned ? -(static_cast<float>(levels) / halfDivisor) : 0.0f;
                         inHigh = static_cast<float>(levels) + inLow - 1.0f;
@@ -159,7 +194,7 @@ mlir::LogicalResult ConvertDynamicDequantizeToFakeQuantize::matchAndRewrite(IE::
                                                "Failed to get storage params for the weights storage type");
                         }
                         std::tie(inLow, inHigh, std::ignore) = *storageParams;
-                        lowFpTypeAttr = mlir::TypeAttr::get(t);
+                        levelsOrLowFpType = mlir::TypeAttr::get(t);
                         return mlir::success();
                     });
     if (mlir::failed(intervalResult)) {
@@ -175,14 +210,15 @@ mlir::LogicalResult ConvertDynamicDequantizeToFakeQuantize::matchAndRewrite(IE::
             mlir::cast<vpux::NDTypeInterface>(origOp.getInput().getType()).changeElemType(fqElemType);
     mlir::Value floatWeights;
     if (weightsConst != nullptr) {
-        const auto contentAttr = weightsConst.getContentAttr();
+        const auto contentAttr = dropIdentityQuantizeCast(weightsConst.getContentAttr());
         const auto floatWeightsContent = contentAttr.transform().castElemType(fqElemType).get();
         floatWeights =
                 Const::DeclareOp::create(rewriter, appendLoc(loc, "fq_weights"),
                                          mlir::cast<mlir::RankedTensorType>(floatWeightsType), floatWeightsContent)
                         .getOutput();
     } else {
-        floatWeights = IE::ConvertOp::create(rewriter, appendLoc(loc, "fq_weights"), origOp.getInput(), fqElemType)
+        const auto floatWeightsInput = identityQuantCast != nullptr ? identityQuantCast.getInput() : weightsInput;
+        floatWeights = IE::ConvertOp::create(rewriter, appendLoc(loc, "fq_weights"), floatWeightsInput, fqElemType)
                                .getOutput();
     }
 
@@ -315,9 +351,8 @@ mlir::LogicalResult ConvertDynamicDequantizeToFakeQuantize::matchAndRewrite(IE::
     }
 
     const auto broadCastAttr = IE::AutoBroadcastTypeAttr::get(ctx, IE::AutoBroadcastType::NUMPY);
-    auto fqOp =
-            rewriter.replaceOpWithNewOp<IE::FakeQuantizeOp>(origOp, floatWeights, inLowConst, inHighConst, outLowConst,
-                                                            outHighConst, levelsAttr, lowFpTypeAttr, broadCastAttr);
+    auto fqOp = rewriter.replaceOpWithNewOp<IE::FakeQuantizeOp>(
+            origOp, floatWeights, inLowConst, inHighConst, outLowConst, outHighConst, levelsOrLowFpType, broadCastAttr);
 
     // Capture the original fp32 scales/ZPs from the DynamicDequantize operands as discardable attributes on
     // the FQ op. ConvertPrecisionToFP later rounds the output-limit constants to f16; SplitFakeQuant reads

@@ -4,6 +4,7 @@
 //
 
 #include "vpux/compiler/dialect/IE/IR/ops/data_movement.hpp"
+#include "vpux/compiler/utils/error.hpp"
 #include "vpux/compiler/utils/infer_output_shape.hpp"
 
 using namespace vpux;
@@ -22,6 +23,9 @@ mlir::LogicalResult vpux::IE::DynamicExpandOp::inferReturnTypeComponents(
     const auto inType = mlir::cast<vpux::NDTypeInterface>(dynExpand.getInput().getType());
 
     auto inShapeInfo = ShapeInfo::fromNDType(inType);
+    if (inShapeInfo.isUnbounded()) {
+        return errorAt(loc, "DynamicExpand input '{0}' has a dimension without an upper bound to expand to", inType);
+    }
     inferredReturnShapes.emplace_back(inType.getShape().isDynamic() ? inShapeInfo.bounds : inShapeInfo.shape,
                                       inType.getElementType());
     return mlir::success();

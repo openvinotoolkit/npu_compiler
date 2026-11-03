@@ -5,7 +5,6 @@
 
 #include "vpux/compiler/NPU50XX/dialect/VPU/IR/ops_interfaces.hpp"
 #include "vpux/compiler/dialect/IE/IR/dialect.hpp"
-#include "vpux/compiler/dialect/IE/IR/ops/activation.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/arithmetic.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/convolution.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/eltwise.hpp"
@@ -14,8 +13,6 @@
 #include "vpux/compiler/dialect/VPU/IR/ops/convolution.hpp"
 
 #include "vpux/compiler/dialect/VPU/utils/layer_post_ops_utils.hpp"
-#include "vpux/compiler/dialect/VPU/utils/nce_invariant.hpp"
-#include "vpux/compiler/dialect/config/IR/attributes.hpp"
 #include "vpux/compiler/dialect/config/utils/config_option_utils.hpp"
 
 #include <llvm/ADT/TypeSwitch.h>
@@ -115,6 +112,7 @@ void vpux::VPU::arch50xx::registerLayerWithPostOpModelInterface(mlir::DialectReg
         // #E157147: Disable fuse postOp for multiply. It will be enabled once it is optimal.
         // IE::MultiplyOp::attachInterface<LayerWithPostOpModel<IE::MultiplyOp>>(*ctx);
         IE::MatMulOp::attachInterface<LayerWithPostOpModel<IE::MatMulOp>>(*ctx);
+        IE::FullyConnectedOp::attachInterface<LayerWithPostOpModel<IE::FullyConnectedOp>>(*ctx);
     });
     registry.addExtension(+[](mlir::MLIRContext* ctx, VPU::VPUDialect*) {
         VPU::TransposedConvolutionOp::attachInterface<LayerWithPostOpModel<VPU::TransposedConvolutionOp>>(*ctx);

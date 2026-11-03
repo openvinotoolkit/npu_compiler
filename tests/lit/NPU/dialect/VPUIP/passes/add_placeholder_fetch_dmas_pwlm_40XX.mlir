@@ -24,7 +24,6 @@ module @LegalizeWithMultiTile attributes {config.compilationMode = #config.compi
     config.ExecutorResource 4 of @SHAVE_ACT
     config.ExecutorResource 2 of @DPU
   }
-  config.ExecutorResource 1 of @M2I
   config.ExecutorResource 2 of @DMA_NN
   config.MemoryResource 67108864000 bytes of @DDR {config.bandwidth = 64 : i64, config.derateFactor = 6.000000e-01 : f64}
   net.NetworkInfo entryPoint : @main inputsInfo : {
@@ -232,7 +231,6 @@ module @LegalizeMultiTileAsymmetry attributes {config.compilationMode = #config.
     config.ExecutorResource 4 of @SHAVE_ACT
     config.ExecutorResource 2 of @DPU
   }
-  config.ExecutorResource 1 of @M2I
   config.ExecutorResource 2 of @DMA_NN
   config.MemoryResource 67108864000 bytes of @DDR {config.bandwidth = 64 : i64, config.derateFactor = 6.000000e-01 : f64}
   net.NetworkInfo entryPoint : @main inputsInfo : {
@@ -434,7 +432,6 @@ module @PlaceholderForFetchWithMultipleBocks {
     config.ExecutorResource 2 of @SHAVE_ACT
     config.ExecutorResource 1 of @DPU
   }
-  config.ExecutorResource 1 of @M2I
   config.ExecutorResource 2 of @DMA_NN
   config.MemoryResource 67108864000 bytes of @DDR {VPU.bandwidth = 64 : i64, VPU.derateFactor = 6.000000e-01 : f64}
   config.PipelineOptions @Options {
@@ -614,7 +611,6 @@ module @LegalizeWithMultiTileParent attributes {config.compilationMode = #config
     config.ExecutorResource 4 of @SHAVE_ACT
     config.ExecutorResource 2 of @DPU
   }
-  config.ExecutorResource 1 of @M2I
   config.ExecutorResource 2 of @DMA_NN
   config.MemoryResource 67108864000 bytes of @DDR {config.bandwidth = 64 : i64, config.derateFactor = 6.000000e-01 : f64}
   net.NetworkInfo entryPoint : @main inputsInfo : {

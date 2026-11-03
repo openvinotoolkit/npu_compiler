@@ -75,34 +75,20 @@ TEST_P(ConversionLayerTestCommon, NPU5020_SW) {
     run(Platform::NPU5020);
 }
 
-class ConversionLayerTest_HostCompile : public ConversionLayerTestCommon {};
-
-TEST_P(ConversionLayerTest_HostCompile, NPU4000_HC) {
-    setHostCompileMode("HostCompile");
-    setPluginCompilerType();
-    run(Platform::NPU4000);
-}
-
-TEST_P(ConversionLayerTest_HostCompile, NPU5010_HC) {
-    setHostCompileMode("HostCompile");
-    setPluginCompilerType();
-    run(Platform::NPU5010);
-}
-
-class ConversionLayerTest_HostCompile_Interpreter : public ConversionLayerTestCommon {
+class ConversionLayerTest_HostCompile : public ConversionLayerTestCommon {
     void configure_model() override {
         // E#220008: failed to legalize operation 'arith.divui' that was explicitly marked illegal
         VpuOv2LayerTest::configuration[ov::intel_npu::compilation_mode_params.name()] = "auto-unrolling-mode=disabled";
     }
 };
 
-TEST_P(ConversionLayerTest_HostCompile_Interpreter, NPU4000_HC) {
+TEST_P(ConversionLayerTest_HostCompile, NPU4000_HC) {
     setHostCompileMode();
     setPluginCompilerType();
     run(Platform::NPU4000);
 }
 
-TEST_P(ConversionLayerTest_HostCompile_Interpreter, NPU5010_HC) {
+TEST_P(ConversionLayerTest_HostCompile, NPU5010_HC) {
     setHostCompileMode();
     setPluginCompilerType();
     run(Platform::NPU5010);
@@ -168,6 +154,14 @@ const auto genParams = [](std::vector<ov::element::Type> srcPrec, std::vector<ov
 const auto configParams = genParams(netPrecisions, netPrecisions, inShape);
 const auto configParamsBF16ToF16 = genParams({bf16}, {f16}, inShape);
 const auto configParamsI32ToU64 = genParams({i32}, {u64}, inShape);
+const auto configParamsU8ToU32 = genParams({u8}, {u32}, inShape, false);
+const auto configParamsF32ToU32 = genParams({f32}, {u32}, inShape, false);
+const auto configParamsF16ToU32 = genParams({f16}, {u32}, inShape, false);
+const auto configParamsI8ToU32 = genParams({i8}, {u32}, inShape, false);
+const auto configParamsU32ToNarrow = genParams({u32}, {u8, i8, i32}, inShape, false);
+const auto configParamsU32ToFloat = genParams({u32}, {f16, f32}, inShape, false);
+const auto configParamsU32ToI64 = genParams({u32}, {i64}, inShape, false);
+const auto configParamsI64ToU32 = genParams({i64}, {u32}, inShape, false);
 const auto configParamsF64ToI64 = genParams({f64}, {i64}, inShape);
 const auto configParamsI64ToF64 = genParams({i64}, {f64}, inShape);
 // Vectorized I64->FP16 kernel path: covers the regular shape and
@@ -275,6 +269,30 @@ INSTANTIATE_TEST_SUITE_P(smoke_nf4_f16_Conversion, ConversionLayerTestCommon_HW,
 INSTANTIATE_TEST_SUITE_P(smoke_i32_u64_Conversion, ConversionLayerTestCommon_HW, configParamsI32ToU64,
                          ConversionLayerTest::getTestCaseName);
 
+INSTANTIATE_TEST_SUITE_P(smoke_u8_u32_Conversion, ConversionLayerTestCommon_HW, configParamsU8ToU32,
+                         ConversionLayerTest::getTestCaseName);
+
+INSTANTIATE_TEST_SUITE_P(smoke_f32_u32_Conversion, ConversionLayerTestCommon_HW, configParamsF32ToU32,
+                         ConversionLayerTest::getTestCaseName);
+
+INSTANTIATE_TEST_SUITE_P(smoke_f16_u32_Conversion, ConversionLayerTestCommon_HW, configParamsF16ToU32,
+                         ConversionLayerTest::getTestCaseName);
+
+INSTANTIATE_TEST_SUITE_P(smoke_i8_u32_Conversion, ConversionLayerTestCommon_HW, configParamsI8ToU32,
+                         ConversionLayerTest::getTestCaseName);
+
+INSTANTIATE_TEST_SUITE_P(smoke_u32_narrow_Conversion, ConversionLayerTestCommon_HW, configParamsU32ToNarrow,
+                         ConversionLayerTest::getTestCaseName);
+
+INSTANTIATE_TEST_SUITE_P(smoke_u32_float_Conversion, ConversionLayerTestCommon_HW, configParamsU32ToFloat,
+                         ConversionLayerTest::getTestCaseName);
+
+INSTANTIATE_TEST_SUITE_P(smoke_u32_i64_Conversion, ConversionLayerTestCommon_HW, configParamsU32ToI64,
+                         ConversionLayerTest::getTestCaseName);
+
+INSTANTIATE_TEST_SUITE_P(smoke_i64_u32_Conversion, ConversionLayerTestCommon_HW, configParamsI64ToU32,
+                         ConversionLayerTest::getTestCaseName);
+
 INSTANTIATE_TEST_SUITE_P(smoke_i32_u64_Dynamic_Conversion, ConversionLayerTestCommon_HW, configParamsI32ToU64Dyn,
                          ConversionLayerTest::getTestCaseName);
 
@@ -341,11 +359,6 @@ INSTANTIATE_TEST_SUITE_P(smoke_i32_f64_Conversion, ConversionLayerTestCommon, co
 
 // ------ HostCompile ------
 INSTANTIATE_TEST_SUITE_P(smoke_precommit_Conversion_HostCompile, ConversionLayerTest_HostCompile, configParamsF32ToF16,
-                         ConversionLayerTest::getTestCaseName);
-
-// ------ HostCompile_Interpreter ------
-INSTANTIATE_TEST_SUITE_P(smoke_precommit_Conversion_HostCompile_Interpreter,
-                         ConversionLayerTest_HostCompile_Interpreter, configParamsF32ToF16,
                          ConversionLayerTest::getTestCaseName);
 
 // ------ SCFTiling ------

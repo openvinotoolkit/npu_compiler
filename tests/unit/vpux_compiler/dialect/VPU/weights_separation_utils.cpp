@@ -433,6 +433,7 @@ struct MLIR_VPU_WeightsSeparationUtils_Obfuscation : MLIR_UnitBase {
         ctx.loadDialect<Core::CoreDialect>();
         ctx.loadDialect<Const::ConstDialect>();
         ctx.loadDialect<IE::IEDialect>();
+        ctx.loadDialect<VPU::VPUDialect>();
     }
 
     mlir::MLIRContext ctx;
@@ -441,6 +442,11 @@ struct MLIR_VPU_WeightsSeparationUtils_Obfuscation : MLIR_UnitBase {
     static mlir::Operation* createSlice(mlir::OpBuilder& builder, mlir::Location loc, mlir::Value input,
                                         ArrayRef<int64_t> offsets, ArrayRef<int64_t> sizes) {
         return IE::SliceOp::create(builder, loc, input, offsets, sizes);
+    }
+
+    static mlir::Operation* createVpuSlice(mlir::OpBuilder& builder, mlir::Location loc, mlir::Value input,
+                                           ArrayRef<int64_t> offsets, ArrayRef<int64_t> sizes) {
+        return VPU::SliceOp::create(builder, loc, input, offsets, sizes);
     }
 
     static mlir::Operation* createConcat(mlir::OpBuilder& builder, mlir::Location loc, ArrayRef<mlir::Value> inputs,
@@ -462,6 +468,46 @@ module @main {
         %1 = IE.Convert(%a1) {dstElemType = f32} : tensor<1x1x2xf16> -> tensor<1x1x2xf32>
         %2 = IE.Convert(%a2) {dstElemType = f16} : tensor<4x2x1xsi8> -> tensor<4x2x1xf16>
         return %0, %1, %2, %extra : tensor<1x1x1xsi8>, tensor<1x1x2xf32>, tensor<4x2x1xf16>, tensor<2x3x4xf16>
+    }
+})";
+
+constexpr llvm::StringLiteral INPUT_IR_PRECOMPUTED_SLICES = R"(
+{-#
+    dialect_resources: {
+        builtin: {
+            vpux_ow_0: "0x1000000001020304",
+            vpux_ow_1: "0x100000000506",
+            vpux_ow_2: "0x10000000070809"
+        }
+    }
+#-}
+
+module @SharedSubsetConsts {
+    func.func private @kernel_func0(%arg0: tensor<1x16x1x1xf16>) -> tensor<1x16x1x1xf16> {
+        return %arg0 : tensor<1x16x1x1xf16>
+    }
+
+    func.func private @kernel_func1(%arg0: tensor<1x16x1x1xf16>, %arg1: tensor<1x8x1x1xf16>) -> (tensor<1x16x1x1xf16>, tensor<1x8x1x1xf16>) {
+        return %arg0, %arg1 : tensor<1x16x1x1xf16>, tensor<1x8x1x1xf16>
+    }
+
+    func.func private @kernel_func2(%arg0: tensor<1x8x1x1xf16>, %arg1: tensor<1x12x1x1xf16>) -> (tensor<1x8x1x1xf16>, tensor<1x12x1x1xf16>) {
+        return %arg0, %arg1 : tensor<1x8x1x1xf16>, tensor<1x12x1x1xf16>
+    }
+
+    func.func private @kernel_func3(%arg0: tensor<1x16x1x1xf16>, %arg1: tensor<1x12x1x1xf16>) -> (tensor<1x16x1x1xf16>, tensor<1x12x1x1xf16>) {
+        return %arg0, %arg1 : tensor<1x16x1x1xf16>, tensor<1x12x1x1xf16>
+    }
+
+    func.func @main() -> (tensor<1x16x1x1xf16>, tensor<1x8x1x1xf16>, tensor<1x12x1x1xf16>) {
+        %cst = const.Declare tensor<1x16x1x1xf16> = dense_resource<vpux_ow_0> : tensor<4xui8>, [#const.Reshape<[1, 4, 1, 1]>, #const.CastElemType<f16>, #const.PadWithZero<[0, 0, 0, 0], [0, 12, 0, 0]>]
+        %cst_0 = const.Declare tensor<1x8x1x1xf16> = dense_resource<vpux_ow_1> : tensor<2xui8>, [#const.Reshape<[1, 2, 1, 1]>, #const.CastElemType<f16>, #const.PadWithZero<[0, 0, 0, 0], [0, 6, 0, 0]>]
+        %cst_1 = const.Declare tensor<1x12x1x1xf16> = dense_resource<vpux_ow_2> : tensor<3xui8>, [#const.Reshape<[1, 3, 1, 1]>, #const.CastElemType<f16>, #const.PadWithZero<[0, 0, 0, 0], [0, 9, 0, 0]>]
+        %0 = call @kernel_func0(%cst) : (tensor<1x16x1x1xf16>) -> tensor<1x16x1x1xf16>
+        %1:2 = call @kernel_func1(%cst, %cst_0) : (tensor<1x16x1x1xf16>, tensor<1x8x1x1xf16>) -> (tensor<1x16x1x1xf16>, tensor<1x8x1x1xf16>)
+        %2:2 = call @kernel_func2(%cst_0, %cst_1) : (tensor<1x8x1x1xf16>, tensor<1x12x1x1xf16>) -> (tensor<1x8x1x1xf16>, tensor<1x12x1x1xf16>)
+        %3:2 = call @kernel_func3(%cst, %cst_1) : (tensor<1x16x1x1xf16>, tensor<1x12x1x1xf16>) -> (tensor<1x16x1x1xf16>, tensor<1x12x1x1xf16>)
+        return %0, %1#1, %2#1 : tensor<1x16x1x1xf16>, tensor<1x8x1x1xf16>, tensor<1x12x1x1xf16>
     }
 })";
 
@@ -542,6 +588,83 @@ TEST_F(MLIR_VPU_WeightsSeparationUtils_Obfuscation, ObfuscateInputs_Full) {
             mlir::RankedTensorType::get({64}, getInt8Type(&ctx)),
     };
     ASSERT_EQ(op.getFunctionType().getInputs(), ArrayRef(expected));
+
+    ASSERT_TRUE(mlir::succeeded(mlir::verify(op))) << "IR must be valid";
+}
+
+TEST_F(MLIR_VPU_WeightsSeparationUtils_Obfuscation, ObfuscateInputs_PrecomputedSlices_UsesProvidedSlices_Contiguous) {
+    auto module = mlir::parseSourceString<mlir::ModuleOp>(INPUT_IR_PRECOMPUTED_SLICES, &ctx);
+    ASSERT_TRUE(module.get() != nullptr);
+
+    auto op = module->lookupSymbol<mlir::func::FuncOp>("kernel_func1");
+    ASSERT_FALSE(op == nullptr);
+
+    // The caller tells the pass exactly which byte ranges to use for each
+    // original argument in the folded blob
+    SmallVector<size_t> indices = {0, 1};
+    SmallVector<int64_t> offsets = {0, 32};
+
+    // The blob is the concatenation of the shared constants, so the two slices
+    // occupy 32 bytes and 16 bytes inside the 48-byte buffer
+    auto blobType = mlir::RankedTensorType::get({48}, getInt8Type(&ctx));
+
+    // Run the rewrite and let the test verify that the provided slice metadata
+    // is materialized as real VPU slice ops in the callee body
+    VPU::obfuscateInputs(log, appendLoc(op.getLoc(), "test"), op, indices, offsets, blobType, createVpuSlice);
+
+    // The callee body should now contain one VPU slice per original argument
+    auto sliceOps = to_std_vector(op.getOps<VPU::SliceOp>());
+    ASSERT_EQ(sliceOps.size(), indices.size());
+
+    // The slice offsets must match the folded layout exactly, and the slice
+    // sizes must match the original tensor byte sizes
+    const SmallVector<SmallVector<int64_t>> expectedOffsets = {
+            {0},
+            {32},
+    };
+    const SmallVector<SmallVector<int64_t>> expectedSizes = {
+            {32},
+            {16},
+    };
+
+    for (const auto& [index, sliceOp] : sliceOps | indexed) {
+        ASSERT_EQ(parseIntArrayAttr<int64_t>(sliceOp.getStaticOffsets()), expectedOffsets[index]);
+        ASSERT_EQ(parseIntArrayAttr<int64_t>(sliceOp.getStaticSizes()), expectedSizes[index]);
+    }
+
+    ASSERT_TRUE(mlir::succeeded(mlir::verify(op))) << "IR must be valid";
+}
+
+TEST_F(MLIR_VPU_WeightsSeparationUtils_Obfuscation,
+       ObfuscateInputs_PrecomputedSlices_UsesProvidedSlices_Non_Contiguous) {
+    auto module = mlir::parseSourceString<mlir::ModuleOp>(INPUT_IR_PRECOMPUTED_SLICES, &ctx);
+    ASSERT_TRUE(module.get() != nullptr);
+
+    auto op = module->lookupSymbol<mlir::func::FuncOp>("kernel_func3");
+    ASSERT_FALSE(op == nullptr);
+
+    SmallVector<size_t> indices = {0, 1};
+    SmallVector<int64_t> offsets = {0, 48};
+    auto blobType = mlir::RankedTensorType::get({72}, getInt8Type(&ctx));
+
+    VPU::obfuscateInputs(log, appendLoc(op.getLoc(), "test"), op, indices, offsets, blobType, createVpuSlice);
+
+    auto sliceOps = to_std_vector(op.getOps<VPU::SliceOp>());
+    ASSERT_EQ(sliceOps.size(), indices.size());
+
+    const SmallVector<SmallVector<int64_t>> expectedOffsets = {
+            {0},
+            {48},
+    };
+    const SmallVector<SmallVector<int64_t>> expectedSizes = {
+            {32},
+            {24},
+    };
+
+    for (const auto& [index, sliceOp] : sliceOps | indexed) {
+        ASSERT_EQ(parseIntArrayAttr<int64_t>(sliceOp.getStaticOffsets()), expectedOffsets[index]);
+        ASSERT_EQ(parseIntArrayAttr<int64_t>(sliceOp.getStaticSizes()), expectedSizes[index]);
+    }
 
     ASSERT_TRUE(mlir::succeeded(mlir::verify(op))) << "IR must be valid";
 }
@@ -1182,7 +1305,7 @@ TEST_F(MLIR_VPU_HostWeightsExtraction, ExtractConcatWeightsIR) {
 
     mlir::PassManager pm(module.get()->getName(), mlir::OpPassManager::Nesting::Implicit);
     auto initCompilerOptions =
-            VPU::InitCompilerOptions(config::Platform::NPU4000, config::CompilationMode::HostCompile);
+            VPU::InitCompilerOptions(config::Platform::NPU4000, config::CompilationMode::HostCompile_Interpreter);
     VPU::buildInitCompilerPipeline(pm, initCompilerOptions, vpux::Logger::global());
 
     VPU::WeightsSeparationInfo::Options options;
@@ -1285,4 +1408,126 @@ TEST_F(MLIR_VPU_HostWeightsExtraction, ExtractConcatWeightsIR) {
 
     ASSERT_EQ(extractedConstContents.size(), slicedContents.size());
     EXPECT_EQ(extractedConstContents, slicedContents);
+}
+
+constexpr llvm::StringLiteral HOST_INPUT_IR_PRECOMPUTED_OFFSETS = R"(
+{-#
+    dialect_resources: {
+        builtin: {
+            vpux_ow_0: "0x1000000001020304",
+            vpux_ow_1: "0x100000000506",
+            vpux_ow_2: "0x10000000070809"
+        }
+    }
+#-}
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+module @SharedSubsetConsts {
+    net.NetworkInfo entryPoint : @main inputsInfo : {
+    } outputsInfo : {
+        DataInfo "output_0" : tensor<1x16x1x1xf16, {order = #NHWC}>
+        DataInfo "output_1" : tensor<1x8x1x1xf16, {order = #NHWC}>
+        DataInfo "output_2" : tensor<1x12x1x1xf16, {order = #NHWC}>
+    }
+
+    func.func private @kernel_func0() -> tensor<1x16x1x1xf16, {order = #NHWC}> {
+        %cst = const.Declare tensor<1x16x1x1xf16, {order = #NHWC}> = dense_resource<vpux_ow_0> : tensor<4xui8>, [#const.Reshape<[1, 4, 1, 1]>, #const.Reorder<#NHWC>, #const.CastElemType<f16>, #const.PadWithZero<[0, 0, 0, 0], [0, 12, 0, 0]>]
+        return %cst : tensor<1x16x1x1xf16, {order = #NHWC}>
+    }
+
+    func.func private @kernel_func1() -> (tensor<1x16x1x1xf16, {order = #NHWC}>, tensor<1x8x1x1xf16, {order = #NHWC}>) {
+        %cst0 = const.Declare tensor<1x16x1x1xf16, {order = #NHWC}> = dense_resource<vpux_ow_0> : tensor<4xui8>, [#const.Reshape<[1, 4, 1, 1]>, #const.Reorder<#NHWC>, #const.CastElemType<f16>, #const.PadWithZero<[0, 0, 0, 0], [0, 12, 0, 0]>]
+        %cst1 = const.Declare tensor<1x8x1x1xf16, {order = #NHWC}> = dense_resource<vpux_ow_1> : tensor<2xui8>, [#const.Reshape<[1, 2, 1, 1]>, #const.Reorder<#NHWC>, #const.CastElemType<f16>, #const.PadWithZero<[0, 0, 0, 0], [0, 6, 0, 0]>]
+        return %cst0, %cst1 : tensor<1x16x1x1xf16, {order = #NHWC}>, tensor<1x8x1x1xf16, {order = #NHWC}>
+    }
+
+    func.func private @kernel_func2() -> (tensor<1x8x1x1xf16, {order = #NHWC}>, tensor<1x12x1x1xf16, {order = #NHWC}>) {
+        %cst1 = const.Declare tensor<1x8x1x1xf16, {order = #NHWC}> = dense_resource<vpux_ow_1> : tensor<2xui8>, [#const.Reshape<[1, 2, 1, 1]>, #const.Reorder<#NHWC>, #const.CastElemType<f16>, #const.PadWithZero<[0, 0, 0, 0], [0, 6, 0, 0]>]
+        %cst2 = const.Declare tensor<1x12x1x1xf16, {order = #NHWC}> = dense_resource<vpux_ow_2> : tensor<3xui8>, [#const.Reshape<[1, 3, 1, 1]>, #const.Reorder<#NHWC>, #const.CastElemType<f16>, #const.PadWithZero<[0, 0, 0, 0], [0, 9, 0, 0]>]
+        return %cst1, %cst2 : tensor<1x8x1x1xf16, {order = #NHWC}>, tensor<1x12x1x1xf16, {order = #NHWC}>
+    }
+
+    func.func private @kernel_func3() -> (tensor<1x16x1x1xf16, {order = #NHWC}>, tensor<1x12x1x1xf16, {order = #NHWC}>) {
+        %cst0 = const.Declare tensor<1x16x1x1xf16, {order = #NHWC}> = dense_resource<vpux_ow_0> : tensor<4xui8>, [#const.Reshape<[1, 4, 1, 1]>, #const.Reorder<#NHWC>, #const.CastElemType<f16>, #const.PadWithZero<[0, 0, 0, 0], [0, 12, 0, 0]>]
+        %cst2 = const.Declare tensor<1x12x1x1xf16, {order = #NHWC}> = dense_resource<vpux_ow_2> : tensor<3xui8>, [#const.Reshape<[1, 3, 1, 1]>, #const.Reorder<#NHWC>, #const.CastElemType<f16>, #const.PadWithZero<[0, 0, 0, 0], [0, 9, 0, 0]>]
+        return %cst0, %cst2 : tensor<1x16x1x1xf16, {order = #NHWC}>, tensor<1x12x1x1xf16, {order = #NHWC}>
+    }
+
+    func.func @main() -> (tensor<1x16x1x1xf16, {order = #NHWC}>, tensor<1x8x1x1xf16, {order = #NHWC}>, tensor<1x12x1x1xf16, {order = #NHWC}>) {
+        %call0 = call @kernel_func0() : () -> tensor<1x16x1x1xf16, {order = #NHWC}>
+        %call1:2 = call @kernel_func1() : () -> (tensor<1x16x1x1xf16, {order = #NHWC}>, tensor<1x8x1x1xf16, {order = #NHWC}>)
+        %call2:2 = call @kernel_func2() : () -> (tensor<1x8x1x1xf16, {order = #NHWC}>, tensor<1x12x1x1xf16, {order = #NHWC}>)
+        %call3:2 = call @kernel_func3() : () -> (tensor<1x16x1x1xf16, {order = #NHWC}>, tensor<1x12x1x1xf16, {order = #NHWC}>)
+        return %call0, %call1#1, %call2#1 : tensor<1x16x1x1xf16, {order = #NHWC}>, tensor<1x8x1x1xf16, {order = #NHWC}>, tensor<1x12x1x1xf16, {order = #NHWC}>
+    }
+})";
+
+TEST_F(MLIR_VPU_HostWeightsExtraction, ExtractConcatWeightsIRPrecomputedOffsets) {
+    // Parse the larger shared-subset HostCompile example, where each callee
+    // uses a different subset of the same three constants
+    auto module = mlir::parseSourceString<mlir::ModuleOp>(HOST_INPUT_IR_PRECOMPUTED_OFFSETS, &ctx);
+    ASSERT_FALSE(module.get() == nullptr);
+
+    // Build the HostCompile pipeline so extract-weights produces per-callee
+    // slices and concat-host-consts folds them into one shared blob
+    mlir::PassManager pm(module.get()->getName(), mlir::OpPassManager::Nesting::Implicit);
+    auto initCompilerOptions =
+            VPU::InitCompilerOptions(config::Platform::NPU4000, config::CompilationMode::HostCompile_Interpreter);
+    VPU::buildInitCompilerPipeline(pm, initCompilerOptions, vpux::Logger::global());
+
+    // Collect the expected extracted constants before rewriting so we can
+    // compare their bytes with the slices materialized after concatenation
+    VPU::WeightsSeparationInfo::Options options;
+    options.weightsAnalysisMode = VPU::WeightsSeparationInfo::Options::WeightsAnalysisMode::HostCompile;
+    const auto extractedSplits = collectSplitsFromModule(module.get(), options);
+    ASSERT_EQ(extractedSplits.size(), 3);
+
+    {
+        pm.addPass(VPU::createExtractWeightsPass(log));
+        pm.addPass(VPU::createConcatHostConstsPass(log));
+        ASSERT_TRUE(mlir::succeeded(pm.run(module.get())));
+    }
+
+    // Each kernel should now take the concatenated byte blob and reconstruct
+    // only the subset it actually uses
+    auto kernelFunc0 = module.get().lookupSymbol<mlir::func::FuncOp>("kernel_func0");
+    ASSERT_FALSE(kernelFunc0 == nullptr);
+    auto kernelFunc1 = module.get().lookupSymbol<mlir::func::FuncOp>("kernel_func1");
+    ASSERT_FALSE(kernelFunc1 == nullptr);
+    auto kernelFunc2 = module.get().lookupSymbol<mlir::func::FuncOp>("kernel_func2");
+    ASSERT_FALSE(kernelFunc2 == nullptr);
+    auto kernelFunc3 = module.get().lookupSymbol<mlir::func::FuncOp>("kernel_func3");
+    ASSERT_FALSE(kernelFunc3 == nullptr);
+
+    auto collectSliceRanges = [](mlir::func::FuncOp funcOp) {
+        std::vector<std::pair<int64_t, int64_t>> sliceRanges;
+        for (auto sliceOp : funcOp.getOps<VPU::SliceOp>()) {
+            const auto offsets = parseIntArrayAttr<int64_t>(sliceOp.getStaticOffsets());
+            const auto sizes = parseIntArrayAttr<int64_t>(sliceOp.getStaticSizes());
+            sliceRanges.emplace_back(offsets[0], sizes[0]);
+        }
+        return sliceRanges;
+    };
+
+    // The four kernels use different subsets of the folded blob:
+    // kernel_func0 -> [0, 32)
+    // kernel_func1 -> [0, 32) and [32, 48)
+    // kernel_func2 -> [32, 48) and [48, 72)
+    // kernel_func3 -> [0, 32) and [48, 72)
+    ASSERT_EQ(collectSliceRanges(kernelFunc0), (std::vector<std::pair<int64_t, int64_t>>{{0, 32}}));
+    ASSERT_EQ(collectSliceRanges(kernelFunc1), (std::vector<std::pair<int64_t, int64_t>>{{0, 32}, {32, 16}}));
+    ASSERT_EQ(collectSliceRanges(kernelFunc2), (std::vector<std::pair<int64_t, int64_t>>{{32, 16}, {48, 24}}));
+    ASSERT_EQ(collectSliceRanges(kernelFunc3), (std::vector<std::pair<int64_t, int64_t>>{{0, 32}, {48, 24}}));
+
+    // The main function should be rewritten to materialize one folded byte
+    // constant that feeds all kernel calls
+    auto mainFunc = module.get().lookupSymbol<mlir::func::FuncOp>("main");
+    ASSERT_FALSE(mainFunc == nullptr);
+
+    auto arithConsts = to_std_vector(mainFunc.getOps<mlir::arith::ConstantOp>());
+    ASSERT_EQ(arithConsts.size(), 1);
+    auto denseAttr = mlir::dyn_cast<mlir::DenseIntElementsAttr>(arithConsts[0].getValue());
+    ASSERT_FALSE(denseAttr == nullptr);
+    // The concatenated blob should contain the full 72-byte payload made from
+    // the three extracted subsets
+    ASSERT_EQ(denseAttr.getNumElements(), 72);
 }

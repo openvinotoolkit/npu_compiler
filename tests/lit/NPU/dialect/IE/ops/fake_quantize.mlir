@@ -13,11 +13,11 @@ func.func @FuseFQ(%arg0: tensor<1x3x16x16xf16>) -> tensor<1x3x16x16xf16> {
     %input_high = const.Declare tensor<f32> = dense<255.0> : tensor<f32>
 
     %0 = IE.FakeQuantize(%arg0, %input_low, %input_high, %input_low, %input_high)
-        { auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 } :
+        { auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256 } :
         tensor<1x3x16x16xf16>, tensor<f32>, tensor<f32>, tensor<f32>, tensor<f32> -> tensor<1x3x16x16xf16>
 
     %1 = IE.FakeQuantize(%0, %input_low, %input_high, %input_low, %input_high)
-        { auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 } :
+        { auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256 } :
         tensor<1x3x16x16xf16>, tensor<f32>, tensor<f32>, tensor<f32>, tensor<f32> -> tensor<1x3x16x16xf16>
 
     return %1 : tensor<1x3x16x16xf16>
@@ -41,11 +41,11 @@ func.func @DoNotFuseFQ(%arg0: tensor<1x3x16x16xf16>) -> tensor<1x3x16x16xf16> {
     %input_high_2 = const.Declare tensor<f32> = dense<128.0> : tensor<f32>
 
     %0 = IE.FakeQuantize(%arg0, %input_low, %input_high_1, %input_low, %input_high_1)
-        { auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 } :
+        { auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256 } :
         tensor<1x3x16x16xf16>, tensor<f32>, tensor<f32>, tensor<f32>, tensor<f32> -> tensor<1x3x16x16xf16>
 
     %1 = IE.FakeQuantize(%0, %input_low, %input_high_1, %input_low, %input_high_2)
-        { auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 } :
+        { auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256 } :
         tensor<1x3x16x16xf16>, tensor<f32>, tensor<f32>, tensor<f32>, tensor<f32> -> tensor<1x3x16x16xf16>
 
     return %1 : tensor<1x3x16x16xf16>
@@ -84,7 +84,7 @@ func.func @TransposeGroups() -> tensor<1280x20x128xf32> {
 
     %FQ = IE.FakeQuantize(%DATA, %IN_LOW, %IN_HIGH, %OUT_LOW, %OUT_HIGH) {
         auto_broadcast = #IE.auto_broadcast_type<NUMPY>,
-        levels = 16 : i64
+        levels_or_low_fp_type = 16 : i64
     } : tensor<1280x20x128xf32>,
         tensor<1x1x1xf32>,
         tensor<1x1x1xf32>,
@@ -93,7 +93,7 @@ func.func @TransposeGroups() -> tensor<1280x20x128xf32> {
 
     // CHECK:   [[FQ:%.+]] = IE.FakeQuantize([[DATA]], [[IN_LOW]], [[IN_HIGH]], [[OUT_LOW]], [[OUT_HIGH]]) {
     // CHECK-SAME:      auto_broadcast = #IE.auto_broadcast_type<NUMPY>,
-    // CHECK-SAME:      levels = 16 : i64
+    // CHECK-SAME:      levels_or_low_fp_type = 16 : i64
     // CHECK-SAME:  } : tensor<128x1280x20xf32>, tensor<1x1x1xf32>, tensor<1x1x1xf32>, tensor<1x1280x20xf32>, tensor<1x1280x20xf32> -> tensor<128x1280x20xf32>
 
     // CHECK:   [[TRANSPOSE:%.+]] = IE.Transpose([[FQ]]) {
@@ -128,7 +128,7 @@ func.func @PropagateGroupsReshapeLastTwoDims() -> tensor<1280x2560xf32> {
 
     %FQ = IE.FakeQuantize(%DATA, %IN_LOW, %IN_HIGH, %OUT_LOW, %OUT_HIGH) {
         auto_broadcast = #IE.auto_broadcast_type<NUMPY>,
-        levels = 16 : i64
+        levels_or_low_fp_type = 16 : i64
     } : tensor<1280x20x128xf32>,
         tensor<1x1x1xf32>,
         tensor<1x1x1xf32>,
@@ -137,7 +137,7 @@ func.func @PropagateGroupsReshapeLastTwoDims() -> tensor<1280x2560xf32> {
 
     // CHECK:   [[FQ:%.+]] = IE.FakeQuantize([[DATA]], [[IN_LOW]], [[IN_HIGH]], [[OUT_LOW]], [[OUT_HIGH]]) {
     // CHECK-SAME:      auto_broadcast = #IE.auto_broadcast_type<NUMPY>,
-    // CHECK-SAME:      levels = 16 : i64
+    // CHECK-SAME:      levels_or_low_fp_type = 16 : i64
     // CHECK-SAME:  } : tensor<20x128x1280xf32>, tensor<1x1x1xf32>, tensor<1x1x1xf32>, tensor<20x1x1280xf32>, tensor<20x1x1280xf32> -> tensor<20x128x1280xf32>
 
     // CHECK:   [[TRANSPOSE:%.+]] = IE.Transpose([[FQ]]) {
@@ -182,7 +182,7 @@ func.func @PropagateGroupsReshapeFirstTwoDims() -> tensor<5120x128xf32> {
 
     %FQ = IE.FakeQuantize(%DATA, %IN_LOW, %IN_HIGH, %OUT_LOW, %OUT_HIGH) {
         auto_broadcast = #IE.auto_broadcast_type<NUMPY>,
-        levels = 16 : i64
+        levels_or_low_fp_type = 16 : i64
     } : tensor<256x20x128xf32>,
         tensor<1x1x1xf32>,
         tensor<1x1x1xf32>,
@@ -191,7 +191,7 @@ func.func @PropagateGroupsReshapeFirstTwoDims() -> tensor<5120x128xf32> {
 
     // CHECK:   [[FQ:%.+]] = IE.FakeQuantize([[DATA]], [[IN_LOW]], [[IN_HIGH]], [[OUT_LOW]], [[OUT_HIGH]]) {
     // CHECK-SAME:      auto_broadcast = #IE.auto_broadcast_type<NUMPY>,
-    // CHECK-SAME:      levels = 16 : i64
+    // CHECK-SAME:      levels_or_low_fp_type = 16 : i64
     // CHECK-SAME:  } : tensor<128x256x20xf32>, tensor<1x1x1xf32>, tensor<1x1x1xf32>, tensor<128x256x1xf32>, tensor<128x256x1xf32> -> tensor<128x256x20xf32>
 
     // CHECK:   [[TRANSPOSE:%.+]] = IE.Transpose([[FQ]]) {
@@ -233,7 +233,7 @@ func.func @NotBeneficialToTranspose() -> tensor<64x25600xf32> {
 
     %FQ = IE.FakeQuantize(%DATA, %IN_LOW, %IN_HIGH, %OUT_LOW, %OUT_HIGH) {
         auto_broadcast = #IE.auto_broadcast_type<NUMPY>,
-        levels = 16 : i64
+        levels_or_low_fp_type = 16 : i64
     } : tensor<64x200x128xf32>, tensor<1x1x1xf32>, tensor<1x1x1xf32>, tensor<64x200x1xf32>, tensor<64x200x1xf32> -> tensor<64x200x128xf32>
     // CHECK:   [[FQ:%.+]] = IE.FakeQuantize([[DATA]], [[IN_LOW]], [[IN_HIGH]], [[OUT_LOW]], [[OUT_HIGH]])
     // CHECK-NOT:   IE.Transpose
@@ -269,7 +269,7 @@ func.func @NotBeneficialToTranspose4dData() -> tensor<512x64x200x128xf32> {
 
     %FQ = IE.FakeQuantize(%DATA, %IN_LOW, %IN_HIGH, %OUT_LOW, %OUT_HIGH) {
         auto_broadcast = #IE.auto_broadcast_type<NUMPY>,
-        levels = 16 : i64
+        levels_or_low_fp_type = 16 : i64
     } : tensor<512x64x200x128xf32>, tensor<1x1x1xf32>, tensor<1x1x1xf32>, tensor<64x200x1xf32>, tensor<64x200x1xf32> -> tensor<512x64x200x128xf32>
     // CHECK:   [[FQ:%.+]] = IE.FakeQuantize([[DATA]], [[IN_LOW]], [[IN_HIGH]], [[OUT_LOW]], [[OUT_HIGH]])
     // CHECK-NOT:   IE.Transpose
@@ -303,7 +303,7 @@ func.func @TransposeGroupsWAI(%arg0: tensor<1280x20x128xf32>) -> tensor<1280x256
 
     %FQ = IE.FakeQuantize(%arg0, %IN_LOW, %IN_HIGH, %OUT_LOW, %OUT_HIGH) {
         auto_broadcast = #IE.auto_broadcast_type<NUMPY>,
-        levels = 16 : i64
+        levels_or_low_fp_type = 16 : i64
     } : tensor<1280x20x128xf32>,
         tensor<1x1x1xf32>,
         tensor<1x1x1xf32>,
@@ -312,7 +312,7 @@ func.func @TransposeGroupsWAI(%arg0: tensor<1280x20x128xf32>) -> tensor<1280x256
 
     // CHECK:   [[FQ:%.+]] = IE.FakeQuantize([[ARG]], [[IN_LOW]], [[IN_HIGH]], [[OUT_LOW]], [[OUT_HIGH]]) {
     // CHECK-SAME:      auto_broadcast = #IE.auto_broadcast_type<NUMPY>,
-    // CHECK-SAME:      levels = 16 : i64
+    // CHECK-SAME:      levels_or_low_fp_type = 16 : i64
     // CHECK-SAME:  } : tensor<1280x20x128xf32>, tensor<1x1x1xf32>, tensor<1x1x1xf32>, tensor<1280x20x1xf32>, tensor<1280x20x1xf32> -> tensor<1280x20x128xf32>
 
     // CHECK-NOT:    IE.Transpose
@@ -356,7 +356,7 @@ func.func @WAIConvertDoNotInsertTranspose(%arg0: tensor<1280x20x128xui4>) -> ten
 
     %FQ = IE.FakeQuantize(%CONVERT, %IN_LOW, %IN_HIGH, %OUT_LOW, %OUT_HIGH) {
         auto_broadcast = #IE.auto_broadcast_type<NUMPY>,
-        levels = 16 : i64
+        levels_or_low_fp_type = 16 : i64
     } : tensor<1280x20x128xf32>,
         tensor<1x1x1xf32>,
         tensor<1x1x1xf32>,
@@ -365,7 +365,7 @@ func.func @WAIConvertDoNotInsertTranspose(%arg0: tensor<1280x20x128xui4>) -> ten
 
     // CHECK:   [[FQ:%.+]] = IE.FakeQuantize([[CONVERT]], [[IN_LOW]], [[IN_HIGH]], [[OUT_LOW]], [[OUT_HIGH]]) {
     // CHECK-SAME:      auto_broadcast = #IE.auto_broadcast_type<NUMPY>,
-    // CHECK-SAME:      levels = 16 : i64
+    // CHECK-SAME:      levels_or_low_fp_type = 16 : i64
     // CHECK-SAME:  } : tensor<1280x20x128xf32>, tensor<1x1x1xf32>, tensor<1x1x1xf32>, tensor<1280x20x1xf32>, tensor<1280x20x1xf32> -> tensor<1280x20x128xf32>
 
     // CHECK-NOT:    IE.Transpose
@@ -412,7 +412,7 @@ func.func @WAINoInsertTranspose(%arg0: tensor<1280x2560xf32>) -> tensor<1280x256
 
     %FQ = IE.FakeQuantize(%RESHAPE1, %IN_LOW, %IN_HIGH, %OUT_LOW, %OUT_HIGH) {
         auto_broadcast = #IE.auto_broadcast_type<NUMPY>,
-        levels = 16 : i64
+        levels_or_low_fp_type = 16 : i64
     } : tensor<1280x20x128xf32>,
         tensor<1x1x1xf32>,
         tensor<1x1x1xf32>,
@@ -421,7 +421,7 @@ func.func @WAINoInsertTranspose(%arg0: tensor<1280x2560xf32>) -> tensor<1280x256
 
     // CHECK:   [[FQ:%.+]] = IE.FakeQuantize([[RESHAPE1]], [[IN_LOW]], [[IN_HIGH]], [[OUT_LOW]], [[OUT_HIGH]]) {
     // CHECK-SAME:      auto_broadcast = #IE.auto_broadcast_type<NUMPY>,
-    // CHECK-SAME:      levels = 16 : i64
+    // CHECK-SAME:      levels_or_low_fp_type = 16 : i64
     // CHECK-SAME:  } : tensor<1280x20x128xf32>, tensor<1x1x1xf32>, tensor<1x1x1xf32>, tensor<1280x20x1xf32>, tensor<1280x20x1xf32> -> tensor<1280x20x128xf32>
 
     // CHECK-NOT:   IE.Transpose

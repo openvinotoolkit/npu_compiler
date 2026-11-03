@@ -44,12 +44,63 @@
 #include "vpux/compiler/dialect/core/IR/tensor_attr.hpp"
 #include "vpux/compiler/utils/infer_output_shape.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
+#include "vpux/compiler/utils/verifier_utils.hpp"
 
 #include <mlir/IR/PatternMatch.h>
 
 #include <numeric>
 
 using namespace vpux;
+
+mlir::LogicalResult vpux::IE::MatMulOp::verify() {
+    if (const auto zp = getZeroPoints()) {
+        if (mlir::failed(isZeroPointsTypeValidForQuantization(*this, zp))) {
+            return mlir::failure();
+        }
+    }
+
+    if (mlir::failed(IE::verifyInputIs4D(getBias(), /*allowNull=*/true))) {
+        return mlir::failure();
+    }
+
+    const auto scale = getScale();
+    const auto zp = getZeroPoints();
+    if (scale == nullptr && zp == nullptr) {
+        return mlir::success();
+    }
+
+    if (scale != nullptr && zp != nullptr) {
+        const auto scaleShape = mlir::cast<mlir::ShapedType>(scale.getType()).getShape();
+        const auto zpShape = mlir::cast<mlir::ShapedType>(zp.getType()).getShape();
+        if (scaleShape != zpShape) {
+            return errorAt(*this, "Scale and ZeroPoints must have the same shape, got {0} and {1}", scaleShape,
+                           zpShape);
+        }
+    }
+
+    // Scale and ZeroPoints (whichever is present) are either a single value or one value per output channel:
+    // [OC, 1, ..., 1]
+    const auto paramShape = mlir::cast<mlir::ShapedType>((scale != nullptr ? scale : zp).getType()).getShape();
+    const auto outShape = mlir::cast<mlir::ShapedType>(getOutput().getType()).getShape();
+    if (paramShape.empty() || outShape.empty()) {
+        return mlir::success();
+    }
+    if (!llvm::all_of(paramShape.drop_front(), [](int64_t dim) {
+            return dim == 1 || mlir::ShapedType::isDynamic(dim);
+        })) {
+        return errorAt(*this, "Scale and ZeroPoints must have the form [OC, 1, ..., 1] or [1, ..., 1], got {0}",
+                       paramShape);
+    }
+    const auto channels = paramShape.front();
+    const auto outChannels = outShape.back();
+    if (channels != 1 && channels != outChannels && !mlir::ShapedType::isDynamic(channels) &&
+        !mlir::ShapedType::isDynamic(outChannels)) {
+        return errorAt(*this,
+                       "Scale and ZeroPoints must hold a single value or one value per output channel ({0}), got {1}",
+                       outChannels, channels);
+    }
+    return mlir::success();
+}
 
 mlir::LogicalResult vpux::IE::MatMulOp::inferReturnTypeComponents(
         mlir::MLIRContext* ctx, std::optional<mlir::Location> optLoc, mlir::ValueShapeRange operands,
@@ -129,6 +180,12 @@ mlir::LogicalResult UseFullyConnected::matchAndRewrite(IE::MatMulOp matmulOp, ml
     static const auto IC = Dim(1);
 
     if (inShape.size() != 2 || weightsShape.size() != 2) {
+        return mlir::failure();
+    }
+
+    // FullyConnected has neither scale / zero points operands nor quantized weights support, so the dequantization
+    // semantics of an extended MatMul would be lost
+    if (matmulOp.getScale() != nullptr || matmulOp.getZeroPoints() != nullptr || matmulOp.getBias() != nullptr) {
         return mlir::failure();
     }
 
@@ -229,12 +286,12 @@ void vpux::IE::MatMulOp::getCanonicalizationPatterns(mlir::RewritePatternSet& pa
 
 void vpux::IE::MatMulOp::build(mlir::OpBuilder& odsBuilder, mlir::OperationState& odsState, mlir::Value input1,
                                mlir::Value input2, bool transposeA, bool transposeB) {
-    build(odsBuilder, odsState, input1, input2, transposeA, transposeB,
-          /*postOpAttr=*/nullptr, /*clampAttr=*/nullptr);
+    build(odsBuilder, odsState, input1, input2, /*bias=*/nullptr, /*scale=*/nullptr, /*zero_points=*/nullptr,
+          transposeA, transposeB, /*postOpAttr=*/nullptr, /*clampAttr=*/nullptr);
 }
 
 void vpux::IE::MatMulOp::build(mlir::OpBuilder& odsBuilder, mlir::OperationState& odsState, mlir::Type output,
                                mlir::Value input1, mlir::Value input2, bool transposeA, bool transposeB) {
-    build(odsBuilder, odsState, output, input1, input2, transposeA, transposeB,
-          /*postOpAttr=*/nullptr, /*clampAttr=*/nullptr);
+    build(odsBuilder, odsState, output, input1, input2, /*bias=*/nullptr, /*scale=*/nullptr, /*zero_points=*/nullptr,
+          transposeA, transposeB, /*postOpAttr=*/nullptr, /*clampAttr=*/nullptr);
 }

@@ -4814,3 +4814,55 @@ func.func @NotTileScatterElementsUpdateIndicesSmallerThanOutput(%arg0: memref<1x
     // CHECK:       [[RES_COPY:%.+]] = VPUIP.Copy inputs([[RESULT]] : memref<1x2x3x4xf16, [@CMX_NN, 0]>) outputs([[RES_ALLOC]] : memref<1x2x3x4xf16>) -> memref<1x2x3x4xf16>
     // CHECK:       return [[RES_COPY]] : memref<1x2x3x4xf16>
 }
+
+// -----
+
+#NC = affine_map<(d0, d1) -> (d0, d1)>
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+module @VPU.SW {
+    func.func nested @builtin_Gather(memref<*xf16, [@CMX_NN, 0]>, memref<*xsi32, [@CMX_NN, 0]>,
+                                     memref<*xui32, [@CMX_NN, 0]>, memref<*xf16, [@CMX_NN, 0]>, i64, i64, i64)
+        attributes {VPU.kernel_code = "gather.cpp", VPU.kernel_entry = "gather",
+                    VPU.kernel_name = "gather", VPU.task_type = @COMPUTE}
+    func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"}
+}
+
+// CHECK-LABEL: func.func @NotTileDynamicShapeGather
+func.func @NotTileDynamicShapeGather(%data: memref<2x128xf16>, %shape: memref<2xsi32>, %ind: memref<2x128xui32>, %out: memref<2x2x128xf16>)
+        -> memref<2x2x128xf16> {
+    %data_alloc = memref.alloc() : memref<2x128xf16, [@CMX_NN, 0]>
+    %shape_alloc = memref.alloc() : memref<2xsi32, [@CMX_NN, 0]>
+    %data_cmx = VPUIP.Copy
+        inputs(%data: memref<2x128xf16>)
+        outputs(%data_alloc : memref<2x128xf16, [@CMX_NN, 0]>)
+        -> memref<2x128xf16, [@CMX_NN, 0]>
+    %shape_cmx = VPUIP.Copy
+        inputs(%shape: memref<2xsi32>)
+        outputs(%shape_alloc : memref<2xsi32, [@CMX_NN, 0]>)
+        -> memref<2xsi32, [@CMX_NN, 0]>
+
+    %ind_alloc = memref.alloc() : memref<2x128xui32, [@CMX_NN, 0]>
+    %ind_cmx = VPUIP.Copy inputs(%ind : memref<2x128xui32>) outputs(%ind_alloc : memref<2x128xui32, [@CMX_NN, 0]>)
+        -> memref<2x128xui32, [@CMX_NN, 0]>
+    %gather_alloc = memref.alloc() : memref<2x2x128xf16, [@CMX_NN, 0]>
+    %sw_res = VPUIP.SW.Kernel
+        {dynamicInputShapesMap = array<i32: 0, -1>, dynamicOutputShapesMap = array<i32: -1>, resultSegmentSizes = array<i32: 1, 0, 0>}
+        @VPU.SW::@builtin_Gather
+        inputs(%data_cmx as %arg0: memref<2x128xf16, [@CMX_NN, 0]>, %ind_cmx as %arg1: memref<2x128xui32, [@CMX_NN, 0]>)
+        dynamicInputShapes(%shape_cmx: memref<2xsi32, [@CMX_NN, 0]>)
+        outputs(%gather_alloc as %arg2: memref<2x2x128xf16, [@CMX_NN, 0]>)
+        on tile 0 -> memref<2x2x128xf16, [@CMX_NN, 0]>
+    {
+        VPUIP.SW.Kernel.run {attrs = [0, 0, 2]}(%arg0, %arg1, %arg2)
+            : memref<2x128xf16, [@CMX_NN, 0]>, memref<2x128xui32, [@CMX_NN, 0]>, memref<2x2x128xf16, [@CMX_NN, 0]>
+    }
+    // CHECK: [[GATHER:%.+]] = VPUIP.SW.Kernel {{.*}} @VPU.SW::@builtin_Gather
+
+    %sw_res_alloc = memref.alloc() : memref<2x2x128xf16>
+    %sw_res_ddr = VPUIP.Copy inputs(%sw_res : memref<2x2x128xf16, [@CMX_NN, 0]>) outputs(%sw_res_alloc : memref<2x2x128xf16>) -> memref<2x2x128xf16>
+    %res = VPUIP.Copy inputs(%sw_res_ddr : memref<2x2x128xf16>) outputs(%out : memref<2x2x128xf16>) -> memref<2x2x128xf16>
+    return %res : memref<2x2x128xf16>
+    // CHECK: [[COPY_TO_DDR:%.+]] = VPUIP.Copy inputs([[GATHER]]
+    // CHECK: [[COPY_TO_OUT:%.+]] = VPUIP.Copy inputs([[COPY_TO_DDR]]
+    // CHECK: return [[COPY_TO_OUT]]
+}

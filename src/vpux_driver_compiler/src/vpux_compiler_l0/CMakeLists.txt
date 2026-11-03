@@ -60,14 +60,14 @@ install_target_with_debug_files(${TARGET_NAME} ${INSTALL_DESTINATION}/lib ${INST
 # Install library header
 install(
         FILES
-            "${PROJECT_SOURCE_DIR}/src/vpux_driver_compiler/include/npu_driver_compiler.h"
+            "${PROJECT_SOURCE_DIR}/src/vpux_driver_compiler/include/compatibility/npu_driver_compiler.h"
         DESTINATION ${INSTALL_DESTINATION}
         COMPONENT ${INSTALL_COMPONENT})
 
 # Also install under include/ for standard include paths (keep root install above for backward compatibility).
 install(
         FILES
-            "${PROJECT_SOURCE_DIR}/src/vpux_driver_compiler/include/npu_driver_compiler.h"
+            "${PROJECT_SOURCE_DIR}/src/vpux_driver_compiler/include/compatibility/npu_driver_compiler.h"
         DESTINATION ${INSTALL_DESTINATION}/include
         COMPONENT ${INSTALL_COMPONENT})
 

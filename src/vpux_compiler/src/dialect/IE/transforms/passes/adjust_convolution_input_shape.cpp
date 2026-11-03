@@ -10,7 +10,9 @@
 #include "vpux/compiler/dialect/IE/utils/convolution_utils.hpp"
 #include "vpux/compiler/dialect/IE/utils/dynamic_shape_utils.hpp"
 #include "vpux/compiler/dialect/IE/utils/reshape_utils.hpp"
+#include "vpux/compiler/dialect/VPU/IR/attributes.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/dpu.hpp"
+#include "vpux/compiler/dialect/VPU/utils/const_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_invariant.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
 #include "vpux/compiler/dialect/config/utils/config_option_utils.hpp"
@@ -48,6 +50,94 @@ std::tuple<int64_t, int64_t> calcShapeAligned(int64_t divider, int64_t dimValue)
     }
 
     return std::make_tuple(divider, dimValue);
+}
+
+// A conv that does not fit CMX with SOH gets tiled and its output goes through DDR anyway
+bool isTileAlignmentBeneficial(mlir::Operation* convOp, int64_t numTiles) {
+    const auto inType = mlir::cast<vpux::NDTypeInterface>(convOp->getOperand(0).getType());
+    if (inType.getShape().totalSize() < THRESHOLD_FOR_BENEFICIAL_CONVERSION) {
+        return false;
+    }
+
+    const auto outType = mlir::cast<vpux::NDTypeInterface>(convOp->getResult(0).getType());
+    const auto filterType = mlir::cast<vpux::NDTypeInterface>(convOp->getOperand(1).getType());
+    SmallVector<Byte> buffers = {Byte(divUp(inType.getTotalAllocSize().count(), numTiles)),
+                                 Byte(divUp(outType.getTotalAllocSize().count(), numTiles)),
+                                 filterType.getTotalAllocSize(),
+                                 VPU::NCEInvariant::getWeightsTableSize(filterType.getShape()[Dims4D::Filter::OC])};
+    return VPU::calculateAlignedBuffersMemoryRequirement(config::getArch(convOp), buffers) <=
+           VPU::getTotalCMXFragmentationAwareSize(convOp);
+}
+
+// Returns true if the conv output goes through view ops only, to an NCHW MemPermute whose C is the conv's H*W.
+bool feedsMemPermute(mlir::Operation* convOp, int64_t spatialSize) {
+    SmallVector<mlir::Operation*> worklist(convOp->getUsers());
+    llvm::SmallPtrSet<mlir::Operation*, 16> visited;
+    while (!worklist.empty()) {
+        auto* op = worklist.pop_back_val();
+        if (!visited.insert(op).second) {
+            continue;
+        }
+        if (IE::isPureViewOp(op)) {
+            llvm::append_range(worklist, op->getUsers());
+            continue;
+        }
+        auto permuteOp = mlir::dyn_cast<IE::MemPermuteOp>(op);
+        if (permuteOp == nullptr) {
+            continue;
+        }
+        const auto inType = mlir::cast<vpux::NDTypeInterface>(permuteOp.getInput().getType());
+        const auto inShape = inType.getShape();
+        if (inType.getDimsOrder() == DimsOrder::NCHW && inShape[Dims4D::Act::N] == 1 &&
+            inShape[Dims4D::Act::C] == spatialSize) {
+            return true;
+        }
+    }
+    return false;
+}
+
+// Returns true if every 1x1 conv with the same H*W as rootConv, reachable from it through pure view ops (as a
+// producer, consumer or another user of the same input), passes isTileAlignmentBeneficial, and at least one of them
+// passes feedsMemPermute. A rootConv without such neighbours forms a group on its own.
+// Taking the decision per group, not per conv, keeps the members from ending up with different reshapes, which would
+// not fold and would copy the data through DDR.
+bool canAlignConnectedConvsToTiles(mlir::Operation* rootConv, int64_t spatialSize, int64_t numTiles) {
+    const auto isGroupMember = [&](mlir::Operation* op) {
+        if (!mlir::isa<IE::ConvolutionOp, IE::GroupConvolutionOp>(op)) {
+            return false;
+        }
+        const auto inShape = getShape(op->getOperand(0));
+        const auto filterShape = getShape(op->getOperand(1));
+        return inShape.size() == 4 && filterShape.size() == 4 && filterShape[Dims4D::Filter::KX] == 1 &&
+               filterShape[Dims4D::Filter::KY] == 1 && inShape[Dims4D::Act::H] * inShape[Dims4D::Act::W] == spatialSize;
+    };
+
+    SmallVector<mlir::Operation*> worklist{rootConv};
+    llvm::SmallPtrSet<mlir::Operation*, 16> visited;
+    bool canAlign = false;
+    while (!worklist.empty()) {
+        auto* op = worklist.pop_back_val();
+        if (op == nullptr || !visited.insert(op).second) {
+            continue;
+        }
+
+        const bool isMember = isGroupMember(op);
+        if (isMember && !isTileAlignmentBeneficial(op, numTiles)) {
+            return false;
+        }
+        if (!isMember && !IE::isPureViewOp(op)) {
+            continue;
+        }
+        canAlign |= (isMember && feedsMemPermute(op, spatialSize));
+
+        const auto input = op->getOperand(0);
+        worklist.push_back(input.getDefiningOp());
+        llvm::append_range(worklist, input.getUsers());
+        for (auto result : op->getResults()) {
+            llvm::append_range(worklist, result.getUsers());
+        }
+    }
+    return canAlign;
 }
 
 //
@@ -620,25 +710,47 @@ mlir::LogicalResult ReshapeConvInput<ConcreteOp>::matchAndRewrite(ConcreteOp con
     }
 
     // Try to move larger dim size to H as it is more likely to lead to beneficial tiling & multiclustering
-    int64_t newHeight, newWidth;
-    std::tie(newHeight, newWidth) = [&]() -> std::tuple<int64_t, int64_t> {
+    const auto getNewHeightAndWidth = [&](int64_t alignment) -> std::tuple<int64_t, int64_t> {
         if (!_favorLargerHeight) {
-            return alignOnH ? std::make_tuple(convolutionInputShapeAlignment,
-                                              inputShape[Dims4D::Act::W] / convolutionInputShapeAlignment)
-                            : std::make_tuple(inputShape[Dims4D::Act::H] / convolutionInputShapeAlignment,
-                                              convolutionInputShapeAlignment);
+            return alignOnH ? std::make_tuple(alignment, inputShape[Dims4D::Act::W] / alignment)
+                            : std::make_tuple(inputShape[Dims4D::Act::H] / alignment, alignment);
         }
 
         if (alignOnH) {
-            auto height = std::max(convolutionInputShapeAlignment,
-                                   inputShape[Dims4D::Act::W] / convolutionInputShapeAlignment);
+            auto height = std::max(alignment, inputShape[Dims4D::Act::W] / alignment);
             return std::make_tuple(height, inputShape[Dims4D::Act::W] / height);
         }
 
-        auto height =
-                std::max(convolutionInputShapeAlignment, inputShape[Dims4D::Act::H] / convolutionInputShapeAlignment);
+        auto height = std::max(alignment, inputShape[Dims4D::Act::H] / alignment);
         return std::make_tuple(height, inputShape[Dims4D::Act::H] / height);
-    }();
+    };
+    int64_t newHeight, newWidth;
+    std::tie(newHeight, newWidth) = getNewHeightAndWidth(convolutionInputShapeAlignment);
+
+    // Make the new height divisible by the tile count, so the next op can read each tile's part of the output in
+    // place instead of copying it through DDR
+    const auto numTiles = config::getTileExecutor(convOp->template getParentOfType<mlir::ModuleOp>()).getCount();
+    const auto dimToAlign = alignOnH ? inputShape[Dims4D::Act::W] : inputShape[Dims4D::Act::H];
+    if (numTiles > 1 && newHeight % numTiles != 0 &&
+        canAlignConnectedConvsToTiles(convOp.getOperation(), dimToAlign, numTiles)) {
+        for (int64_t delta = 1; delta <= convolutionInputShapeAlignment; ++delta) {
+            const auto candidates = {convolutionInputShapeAlignment - delta, convolutionInputShapeAlignment + delta};
+            const auto alignedCandidate = llvm::find_if(candidates, [&](int64_t candidate) {
+                if (candidate < 2 || dimToAlign % candidate != 0) {
+                    return false;
+                }
+                const auto [candidateHeight, candidateWidth] = getNewHeightAndWidth(candidate);
+                return candidateHeight % numTiles == 0 &&
+                       std::max(candidateHeight, candidateWidth) <= VPU::NCEInvariant::VPU_DIMENSION_LIMIT;
+            });
+            if (alignedCandidate != candidates.end()) {
+                nestedLog.trace("Use alignment {0} instead of {1} to keep height divisible by {2} tiles",
+                                *alignedCandidate, convolutionInputShapeAlignment, numTiles);
+                std::tie(newHeight, newWidth) = getNewHeightAndWidth(*alignedCandidate);
+                break;
+            }
+        }
+    }
 
     const SmallVector<int64_t> newInShape = {inputShape[Dims4D::Act::N], inputShape[Dims4D::Act::C], newHeight,
                                              newWidth};

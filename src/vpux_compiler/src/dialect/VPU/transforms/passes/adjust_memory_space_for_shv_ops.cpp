@@ -5,6 +5,7 @@
 
 #include "vpux/compiler/NPU40XX/utils.hpp"
 #include "vpux/compiler/conversion/passes/VPU2VPUIP/bufferize_sw_ops_interface.hpp"
+#include "vpux/compiler/dialect/Shave/IR/ops/meta-ops.hpp"
 #include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/data_movement.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/internal.hpp"
@@ -59,6 +60,12 @@ private:
             if (!willBeBufferizedToShave(op)) {
                 return;
             }
+
+            // Skip ExternalKernelOps, as they've been already adjusted in an earlier special pass
+            if (mlir::isa<Shave::ExternalKernelOp>(op) || mlir::isa<Shave::RepeatedExternalKernelOp>(op)) {
+                return;
+            }
+
             // Skip operations that have distributed types, as their data is already placed in CMX
             auto hasDistributedType = [](mlir::Value value) {
                 if (auto distributedIf = mlir::dyn_cast<vpux::VPU::DistributedTypeInterface>(value.getType())) {

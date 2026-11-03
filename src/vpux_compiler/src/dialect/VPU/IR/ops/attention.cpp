@@ -148,10 +148,8 @@ SmallVector<mlir::Type> getAuxiliaryBufferTypes(mlir::ModuleOp moduleOp, mlir::V
                                                 std::vector<int32_t>& resultDpuStorageData,
                                                 vpux::VPU::MultiClusterStrategyAttr multiClusterStrategy, bool hasSink,
                                                 bool hasMask) {
-    const auto inputVType = mlir::cast<vpux::NDTypeInterface>(inputV.getType());
-    const auto inputVShape = inputVType.getShape();
-    const auto inputQType = mlir::cast<vpux::NDTypeInterface>(inputQ.getType());
-    const auto inputQShape = inputQType.getShape();
+    const auto inputVShape = getBoundedShape(inputV.getType());
+    const auto inputQShape = getBoundedShape(inputQ.getType());
 
     const auto dimS = inputVShape[Dim(3)];
     const auto dimEv = inputVShape[Dim(2)];

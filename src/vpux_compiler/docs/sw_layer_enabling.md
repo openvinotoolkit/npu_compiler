@@ -25,7 +25,6 @@
 - [You're half way there.](#youre-half-way-there)
 - [VPUIP Dialect](#vpuip-dialect)
   - [VPUIP table gen](#vpuip-table-gen)
-  - [Redirect interfaces for IE and VPUIP](#redirect-interfaces-for-ie-and-vpuip)
   - [VPUIP verifier](#vpuip-verifier)
   - [Kernel binaries](#kernel-binaries)
   - [Add kernel information](#add-kernel-information)
@@ -215,7 +214,7 @@ void NGraphImporter::parseNode(mlir::OpBuilder& builder, const std::shared_ptr<o
     VPUX_THROW_UNLESS(inputs.size() == 1, "nGraph Sigmoid node '{0}' has unsupported number of inputs '{1}'",
                       origNode->get_friendly_name(), inputs.size());
 
-    auto op = builder.create<IE::SigmoidOp>(createLocation(origNode), inputs[0]);
+    auto op = IE::SigmoidOp::create(builder, createLocation(origNode), inputs[0]);
 
     addOutputs(origNode, op);
 }
@@ -463,8 +462,8 @@ mlir::LogicalResult ConvolutionExpansion::matchAndRewrite(IE::ConvolutionOp orig
     const auto newDilations = append(getContext(), origOp.dilations(), 1);
 
     // Create new operation with transformed parameters
-    auto newConvOp = rewriter.create<IE::ConvolutionOp>(origOp->getLoc(), newInput, newFilter, newBias, newStrides,
-                                                        newPadsBegin, newPadsEnd, newDilations, origOp.post_opAttr());
+    auto newConvOp = IE::ConvolutionOp::create(rewriter, origOp->getLoc(), newInput, newFilter, newBias, newStrides,
+                                               newPadsBegin, newPadsEnd, newDilations, origOp.post_opAttr());
 
     const auto outputShape = mlir::cast<mlir::ShapedType>(origOp.output().getType()).getShape();
     const auto outputShapeAttr = getIntArrayAttr(getContext(), outputShape);
@@ -704,7 +703,7 @@ Generally, it will be enough to add the lowering logic in [convert_layers_to_VPU
 
 def createSigmoidOp :
         NativeCodeCall<[{
-            $_builder.create<vpux::VPU::SigmoidOp>($_loc, $0)
+            vpux::VPU::SigmoidOp::create($_builder, $_loc, $0)
         }]>;
 
 def RewriteSigmoid :

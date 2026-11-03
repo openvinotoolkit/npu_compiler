@@ -7,6 +7,7 @@
 
 #include "vpux/compiler/core/attributes/dims_order.hpp"
 #include "vpux/compiler/core/attributes/shape.hpp"
+#include "vpux/compiler/core/attributes/strides.hpp"
 #include "vpux/compiler/dialect/VPUIP/IR/attributes.hpp"
 #include "vpux/compiler/dialect/core/IR/dynamic_attrs.hpp"
 #include "vpux/compiler/dialect/core/interfaces/type_interfaces.hpp"
@@ -126,6 +127,11 @@ memref_type_if<Enum> getMemRefType(ShapeRef shape, mlir::Type elemType, const Di
 IndexedSymbolAttr getMemorySpace(mlir::MemRefType type);
 
 mlir::SmallVector<float> getFloatStrides(StridesRef strides);
+
+// Strides to pass to getMemRefType when a type is rebuilt with another component, such as the memory space. A type
+// with a dimension without an upper bound has only the identity layout and its strides are unknown at compile time,
+// so none are returned for it; one with an explicit strided layout is rejected, since that layout cannot be rebuilt.
+Strides getStridesUnlessUnbounded(NDTypeInterface type);
 
 //
 // RankedTensorType utilities

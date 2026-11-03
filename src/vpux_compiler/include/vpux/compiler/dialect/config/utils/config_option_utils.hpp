@@ -20,9 +20,7 @@ constexpr StringRef ENABLE_ADAPTIVE_STRIPPING = "config.EnableAdaptiveStripping"
 bool hasEnableAdaptiveStripping(mlir::ModuleOp module);
 
 // Asymmetric Quantization
-constexpr StringRef ASYMMETRIC_PER_TENSOR_ZP = "config.AsymmetricPerTensorZP";
 constexpr StringRef ASYMMETRIC_PER_CHANNEL_ZP = "config.AsymmetricPerChannelZP";
-bool asymmetricPerTensorZeroPointSupported(mlir::ModuleOp);
 bool asymmetricPerChannelZeroPointSupported(mlir::ModuleOp);
 
 // Auto Padding
@@ -74,7 +72,6 @@ constexpr StringRef METADATA_MAX_VARIANT_COUNT = "config.MetadataMaxVariantCount
 constexpr StringRef METADATA_MAX_INVARIANT_COUNT = "config.MetadataMaxInvariantCount";
 constexpr StringRef METADATA_MAX_KERNEL_INVOCATION_COUNT = "config.MetadataMaxKernelInvocationCount";
 constexpr StringRef METADATA_MAX_KERNEL_RANGE_COUNT = "config.MetadataMaxKernelRangeCount";
-constexpr StringRef METADATA_MAX_MEDIA_COUNT = "config.MetadataMaxMediaCount";
 constexpr StringRef METADATA_MAX_DMA_COUNT = "config.MetadataMaxDMACount";
 
 constexpr StringRef SHV_FIFO_ADDRS = "config.ShvFIFOAddrs";
@@ -107,6 +104,12 @@ constexpr StringRef WEIGHTS_TABLE_REUSE_MODE = "config.WeightsTableReuseMode";
 WeightsTableReuseMode getWeightsTableReuseMode(mlir::Operation* op);
 bool isWeightsTableReuseEnabled(mlir::Operation* op);
 
+// Unbounded Dynamism Mode
+constexpr StringRef UNBOUNDED_DYNAMISM_MODE = "config.UnboundedDynamismMode";
+UnboundedDynamismMode getUnboundedDynamismMode(mlir::Operation* op);
+bool isLowerUnboundedDynamismEnabled(mlir::Operation* op);
+bool isUpperUnboundedDynamismEnabled(mlir::Operation* op);
+
 // SHAVE Engine FIFO
 constexpr StringRef USE_DEDICATED_FIFO_PER_SHAVE_ENGINE = "config.UseDedicatedFifoPerShaveEngine";
 bool isFifoPerShaveEngineEnabled(mlir::Operation* op);
@@ -116,11 +119,24 @@ bool hasSupportForFifoPerShaveEngine(config::ArchKind arch);
 constexpr StringRef SPRLUT_ENABLED = "config.SprLUTEnabled";
 bool isSprLUTEnabled(mlir::Operation* op);
 
+// Power Optimized
+constexpr StringRef POWER_OPTIMIZED = "config.PowerOptimized";
+bool isPowerOptimized(mlir::Operation* op);
+
 // Enable SoftmaxMaskAware and configure the FP16 minimum-threshold adjustment.
 constexpr StringRef SOFTMAX_MASK_AWARE = "config.EnableSoftmaxMaskAware";
 constexpr StringRef SOFTMAX_MASK_AWARE_THRESHOLD = "config.SoftmaxMaskAwareThreshold";
 bool isSoftmaxMaskAwareEnabled(mlir::Operation* op);
 double getSoftmaxMaskAwareThreshold(mlir::Operation* op);
+
+// Minimum Tiles
+// Devices of the same platform may provide different numbers of NCE tiles. MinTiles is the smallest of these
+// numbers, so code compiled for at most MinTiles tiles runs on every device of the platform.
+constexpr StringRef MIN_TILES = "config.MinTiles";
+std::optional<int64_t> getDefaultMinTiles(config::Platform platform);
+// Returns std::nullopt when the option is not set, for example on platforms that do not define it
+std::optional<int64_t> getMinTiles(mlir::Operation* op);
+
 bool isBarrierFifoDummyEntrySupported(config::ArchKind arch);
 bool isFinalBarrierConsumerRequired(config::ArchKind arch, [[maybe_unused]] bool is4kWlmBarrierProgrammingMode);
 bool isShvToDmaImplicitDep(config::ArchKind arch);

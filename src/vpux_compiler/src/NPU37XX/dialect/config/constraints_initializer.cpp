@@ -21,5 +21,6 @@ void config::ConstraintsInitializer37XX::initialize(mlir::MLIRContext* context) 
     constraints.maxKernelSize = arch37xx::DPU_MAX_KERNEL_SIZE;
     constraints.legalRoPEConfigs = getDefaultLegalRoPEConfigs();
 
+    constraints.asymmetricPerTensorZP = arch37xx::ASYMMETRIC_PER_TENSOR_ZP;
     setNPUConstraints(context, constraints);
 }

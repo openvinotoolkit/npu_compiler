@@ -46,7 +46,7 @@ void InterfacesRegistry50XX::registerInterfaces(mlir::DialectRegistry& registry)
     // NB: arch37xx::LayerWithPermuteInterfaceForIE can be re-used for 50XX
     VPU::arch37xx::registerLayerWithPermuteInterfaceForIE(registry);
     VPU::arch50xx::registerUnrollBatchOpInterfaces(registry);
-    VPU::arch37xx::registerNCEOpInterface(registry);
+    VPU::arch50xx::registerNCEOpInterface(registry);
     // NB: arch50xx::registerClusterBroadcastingOpInterfaces uses its own logic
     VPU::arch50xx::registerClusterBroadcastingOpInterfaces(registry);
     VPU::arch40xx::registerSCFTilingOpsInterfaces(registry);

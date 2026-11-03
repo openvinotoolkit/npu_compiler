@@ -56,7 +56,8 @@ int64_t computeSplitCost(mlir::MLIRContext* ctx, const VPUIP::WorkloadSplit& spl
     // split to produce more small and valid workloads
     const auto& strategyFactory = VPU::getVPUStrategyFactory(ctx);
     const auto supportedChannelsDW = strategyFactory->getSupportedChannelsDW();
-    auto correctDepthwiseWorkloadChannel = [=](const VPUIP::WorkloadTile& wl) -> std::vector<VPUIP::WorkloadTile> {
+    auto correctDepthwiseWorkloadChannel = [isAutopadODUEnabled, supportedChannelsDW](
+                                                   const VPUIP::WorkloadTile& wl) -> std::vector<VPUIP::WorkloadTile> {
         auto wlChannel = std::get<0>(wl).shape[Dims4D::Act::C];
 
         // In case the autopadding feature is used, the output channels might not be aligned to be a multiple of 16
@@ -70,7 +71,7 @@ int64_t computeSplitCost(mlir::MLIRContext* ctx, const VPUIP::WorkloadSplit& spl
         std::vector<VPUIP::WorkloadTile> newWorkloads;
         auto newWl = wl;
         validWorkloadChannels = splitWorkloadChannel(wlChannel, supportedChannelsDW);
-        VPUX_THROW_WHEN(validWorkloadChannels.size() == 0,
+        VPUX_THROW_WHEN(validWorkloadChannels.empty(),
                         "splitWorkloadChannel failed please check wlChannel - {0}, supportedChannelsDW - {1}",
                         wlChannel, supportedChannelsDW);
         for (auto validChannel : validWorkloadChannels) {
@@ -159,14 +160,8 @@ void generateWorkloads(mlir::OpBuilder& builder, VPU::NCEOpInterface origOp,
         // cluster 2: outOffsets [64, 0, 0, 0, 0] outSizes [32, 1, 16, 16, 1]
         const Shape offsets = subTensorOffset.empty() ? Shape{0, 0, 0, 0, 0} : Shape(subTensorOffset);
         auto tilePad = VPU::getPaddingAttr(builder.getContext(), 0, 0, 0, 0);
-        const auto kernel = origOp.getKernelSizeVal();
-        const auto isOneByOneMatMul = mlir::isa<VPU::NCEMatMulOp>(origOp) &&
-                                      kernel[DimsGroups5D::Kernel::Y.ind()] == 1 &&
-                                      kernel[DimsGroups5D::Kernel::X.ind()] == 1;
-
-        const auto workloadMpeMode = costParams.arch == config::ArchKind::NPU50XX && isOneByOneMatMul
-                                             ? VPU::MPEMode::CUBOID_4x16
-                                             : VPU::MPEMode::CUBOID_16x16;
+        // Grouped matmul mode selection belongs to its architecture-specific NCE model.
+        const auto workloadMpeMode = mlir::isa<VPU::NCEMatMulOp>(origOp) ? mpeMode : VPU::MPEMode::CUBOID_16x16;
         origOp.addWorkload(builder, origOp.getLoc(), offsets, costParams.outputShape, tilePad, workloadMpeMode,
                            getIntAttr(ctx, cluster));
         return;
@@ -311,21 +306,18 @@ void splitOntoWorkloads(mlir::OpBuilder& builder, VPU::NCEOpInterface origOp, VP
             // Map the per-cluster post-ODU output shape back to pre-ODU space so DpuTiler
             // sees the coordinate system the DPU hardware operates in.  When no transform is
             // active, invertODUScaling is a no-op and preODUShape equals outputShape.
-            const auto preODUShapeResult = VPU::invertODUScaling(
-                    oduScales, SmallVector<int64_t>(costParams.outputShape.raw()), origOp->getLoc());
+            const auto preODUShapeResult = VPU::invertODUScaling(oduScales, costParams.outputShape, origOp->getLoc());
             VPUX_THROW_UNLESS(mlir::succeeded(preODUShapeResult),
                               "Failed to invert ODU scaling for workload split at cluster {0}", clusterId);
-            costParams.preODUShape = Shape(preODUShapeResult.value());
+            costParams.preODUShape = preODUShapeResult.value();
 
             // Per-cluster distributed offsets are defined in post-ODU output space.
             // Workload generation uses pre-ODU coordinates, so map offsets back as well.
             auto preODUOffset = SmallVector<int64_t>(outputSubTensorOffsets[clusterId].raw());
-            if (!oduScales.empty()) {
-                const auto preODUOffsetResult = VPU::invertODUScaling(oduScales, preODUOffset, origOp->getLoc());
-                VPUX_THROW_UNLESS(mlir::succeeded(preODUOffsetResult),
-                                  "Failed to invert ODU output offset for workload split at cluster {0}", clusterId);
-                preODUOffset = preODUOffsetResult.value();
-            }
+            const auto preODUOffsetResult = VPU::invertODUScaling(oduScales, preODUOffset, origOp->getLoc());
+            VPUX_THROW_UNLESS(mlir::succeeded(preODUOffsetResult),
+                              "Failed to invert ODU output offset for workload split at cluster {0}", clusterId);
+            preODUOffset = preODUOffsetResult.value();
 
             costParams.numTiles = distributionAttr.getNumClusters().getInt();
             // #E129156 once with the update of VPUNN to provide MPE mode explicitly
@@ -416,13 +408,8 @@ SmallVector<VPU::WorkloadDescriptor, 4> generateWorkloadDescriptors(
     if (costParams.outputShape.size() == 5) {
         int64_t cluster = clusterId.value_or(0);
         const Shape offsets = subTensorOffset.empty() ? Shape{0, 0, 0, 0, 0} : Shape(subTensorOffset);
-        const auto kernel = origOp.getKernelSizeVal();
-        const auto isOneByOneMatMul = mlir::isa<VPU::NCEMatMulOp>(origOp) &&
-                                      kernel[DimsGroups5D::Kernel::Y.ind()] == 1 &&
-                                      kernel[DimsGroups5D::Kernel::X.ind()] == 1;
-        const auto workloadMpeMode = costParams.arch == config::ArchKind::NPU50XX && isOneByOneMatMul
-                                             ? VPU::MPEMode::CUBOID_4x16
-                                             : VPU::MPEMode::CUBOID_16x16;
+        // Grouped matmul mode selection belongs to its architecture-specific NCE model.
+        const auto workloadMpeMode = mlir::isa<VPU::NCEMatMulOp>(origOp) ? mpeMode : VPU::MPEMode::CUBOID_16x16;
         result.push_back(VPU::WorkloadDescriptor{offsets,
                                                  costParams.outputShape,
                                                  PadInfo(0, 0, 0, 0),
@@ -799,7 +786,7 @@ SmallVector<VPU::WorkloadDescriptor, 4> splitDescriptorChannels(const VPU::Workl
 
 void vpux::VPU::correctWorkloadDescriptors(VPU::NCEOpInterface nceOp, SmallVector<WorkloadDescriptor, 4>& workloads,
                                            mlir::MLIRContext* ctx, Logger log,
-                                           SmallVector<int64_t>* outSupportedChannels) {
+                                           SmallVector<int64_t>* outSupportedChannels, ShapeRef inputShapeOverride) {
     auto* op = nceOp.getOperation();
     const auto& strategyFactory = VPU::getVPUStrategyFactory(ctx);
 
@@ -832,13 +819,13 @@ void vpux::VPU::correctWorkloadDescriptors(VPU::NCEOpInterface nceOp, SmallVecto
 
     // Small spatial compute DW ops errata
     auto workloadSizeConstraint = strategyFactory->getWorkloadSizeConstraint();
-    if (workloadSizeConstraint.doesDWOperationNeedWorkloadSplit(nceOp)) {
+    if (workloadSizeConstraint.doesDWOperationNeedWorkloadSplit(nceOp, inputShapeOverride)) {
         supportedChannels = workloadSizeConstraint.getChannelsSupportedBySmallSpatialComputeDwOp(supportedChannels);
     }
 
     // ODU autopad: add the output channel count as a supported channel
     if (VPU::canAutopadOutput(op)) {
-        const auto outputChannels = mlir::cast<NDTypeInterface>(op->getResult(0).getType()).getShape()[Dims4D::Act::C];
+        const auto outputChannels = getPreODUOutputChannels(op);
         if (outputChannels != mlir::ShapedType::kDynamic && outputChannels > 0) {
             supportedChannels.push_back(outputChannels);
         }
@@ -908,8 +895,8 @@ int64_t getInputWorkloadSizeCh(VPU::NCEOpInterface nceOp, int64_t outputSizeCh, 
                 return outputSizeCh;
             })
             .Case<NCECompressConvolutionOp>([&](mlir::Operation*) {
-                return VPU::NCEInvariant::getAlignment(
-                        mlir::cast<vpux::NDTypeInterface>(nceOp.getWeightsOperand().getType()).getElementType());
+                // Compressed input has a fixed hardware channel view, independent of weight storage width.
+                return VPU::NCEInvariant::VPU_CHANNEL_ALIGNMENT;
             })
             .Case<NCEPermuteOp>([&](mlir::Operation*) {
                 if ((outputStartCh + outputSizeCh) > fullInputChannels) {

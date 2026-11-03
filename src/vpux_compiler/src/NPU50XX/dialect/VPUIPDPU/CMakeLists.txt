@@ -24,3 +24,5 @@ add_npu_library(npu_compiler_vpuipdpu_50XX
         npu_compiler_utils
         npu_core_utils
 )
+enable_lto_if_possible(npu_compiler_vpuipdpu_50XX)
+

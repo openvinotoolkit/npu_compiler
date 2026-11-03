@@ -734,29 +734,41 @@ mlir::LogicalResult PermuteEltwiseDiffLayoutRewriter::matchAndRewrite(IE::AddOp 
     auto leftInputOps = getNonViewLikeAndPermuteInput(origOp.getInput1());
     auto rightInputOps = getNonViewLikeAndPermuteInput(origOp.getInput2());
 
-    // The rewrite keeps the view/permute chain of one side only and replays it on the sum, while the
-    // other side is reconnected through a PermuteCast. A PermuteCast is metadata-only, so it cannot
-    // compensate for a difference in the actual data shuffling done by the two chains. Replaying a
-    // single chain is therefore correct only when both chains perform the same memory permutation;
-    // otherwise the discarded side's permutation is lost and that operand is read with the wrong
-    // layout. Only IE.MemPermute moves data - IE.PermuteCast and IE.ShapeCast do not - so compose
-    // the mem_perm of the MemPermute ops found on each side and require them to match.
+    // The rewrite replays one side's permute chain on the sum and reconnects the other through a
+    // metadata-only PermuteCast, so it is only correct when both chains permute memory identically.
+    // Compose each side's mem_perm maps and require a match. A view sitting between two MemPermutes
+    // must keep the memory shape, otherwise the maps around it are expressed in different coordinate
+    // spaces; such a chain has no single mem_perm and yields an invalid map.
+    const auto keepsMemShape = [](mlir::Operation* viewOp) {
+        const auto inType = mlir::cast<vpux::NDTypeInterface>(viewOp->getOperand(0).getType());
+        const auto outType = mlir::cast<vpux::NDTypeInterface>(viewOp->getResult(0).getType());
+        return inType.getMemShape() == outType.getMemShape();
+    };
+
     const auto getChainMemPerm = [&](ArrayRef<mlir::Operation*> chainOps) -> mlir::AffineMap {
         mlir::AffineMap composed;
         // chainOps are ordered from the eltwise upwards, so walk them producer-first.
         for (auto* chainOp : llvm::reverse(chainOps)) {
-            auto memPermuteOp = mlir::dyn_cast<IE::MemPermuteOp>(chainOp);
-            if (memPermuteOp == nullptr) {
-                continue;
+            if (auto memPermuteOp = mlir::dyn_cast<IE::MemPermuteOp>(chainOp)) {
+                // An unchanged memory shape implies an unchanged rank, so compose() arity always matches.
+                const auto memPerm = memPermuteOp.getMemPerm();
+                composed = composed ? memPerm.compose(composed) : memPerm;
+            } else if (composed && !keepsMemShape(chainOp)) {
+                // Views before the first MemPermute are free; any later one must keep the memory shape.
+                return mlir::AffineMap();
             }
-            const auto memPerm = memPermuteOp.getMemPerm();
-            composed = composed ? memPerm.compose(composed) : memPerm;
         }
+        // Both eltwise inputs are MemPermutes, so a valid chain always composes at least one map.
         return composed;
     };
 
     const auto leftMemPerm = getChainMemPerm(leftInputOps);
     const auto rightMemPerm = getChainMemPerm(rightInputOps);
+    if (!leftMemPerm || !rightMemPerm) {
+        return matchFailed(_log, rewriter, origOp,
+                           "Skipping: an input chain has no single mem_perm - a view op between two "
+                           "MemPermutes changes the memory shape");
+    }
     if (leftMemPerm != rightMemPerm) {
         return matchFailed(_log, rewriter, origOp,
                            "Skipping: inputs perform different memory permutations ({0} vs {1})", leftMemPerm,

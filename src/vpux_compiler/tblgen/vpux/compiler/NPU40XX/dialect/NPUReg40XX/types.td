@@ -1218,158 +1218,6 @@ def reg_mapped_ActKernelInvocationDescriptor : NPUReg40XX_RegMappedWrapper<"VpuA
     "barriers_wait_mask_hi_act", "barriers_wait_mask_lo_act", "barriers_post_mask_hi_act", "barriers_post_mask_lo_act", "barriers_group_mask_act",
     "act_invo_barriers_sched", "invo_index", "invo_tile", "kernel_range_index", "next_aki_wl_addr"]>;
 
-//
-// M2I registers
-//
-
-// VpuMediaBuffDescriptor
-
-// IN_ADDR common
-def bf_InAddr : NPUReg40XX_RegFieldWrapper<"inAddr", 64, 0>;
-
-// IN_ADDR_0
-def reg_InAddr0 : NPUReg40XX_RegisterWrapper<"inAddr0", 8, 0x0, ["inAddr"]>;
-
-// common part for InSize0,1,2
-def bf_Width : NPUReg40XX_RegFieldWrapper<"width", 16, 0>;
-def bf_Height : NPUReg40XX_RegFieldWrapper<"height", 16, 16>;
-def bf_Ls : NPUReg40XX_RegFieldWrapper<"ls", 24, 32>;
-
-// InSize0
-def bf_PID : NPUReg40XX_RegFieldWrapper<"pid", 8, 56>;
-def reg_InSize0 : NPUReg40XX_RegisterWrapper<"inSize0", 8, 0x8, ["width", "height", "ls", "pid"]>;
-
-// IN_ADDR_1
-def reg_InAddr1 : NPUReg40XX_RegisterWrapper<"inAddr1", 8, 0x10, ["inAddr"]>;
-
-// InSize1
-def bf_HWPEN : NPUReg40XX_RegFieldWrapper<"HWPEN", 1, 56>;
-def bf_ExtHDR : NPUReg40XX_RegFieldWrapper<"ExtHDR", 1, 57>;
-def bf_Reserved_InSize1 : NPUReg40XX_RegFieldWrapper<"Reserved_InSize1", 6, 58>;
-def reg_InSize1 : NPUReg40XX_RegisterWrapper<"inSize1", 8, 0x18, ["width", "height", "ls", "HWPEN", "ExtHDR", "Reserved_InSize1"]>;
-
-// IN_ADDR_2
-def reg_InAddr2 : NPUReg40XX_RegisterWrapper<"inAddr2", 8, 0x20, ["inAddr"]>;
-
-// InSize2
-def bf_Reserved_InSize2 : NPUReg40XX_RegFieldWrapper<"Reserved_InSize2", 8, 56>;
-def reg_InSize2 : NPUReg40XX_RegisterWrapper<"inSize2", 8, 0x28, ["width", "height", "ls", "Reserved_InSize2"]>;
-
-// IOCfg
-def bf_InFormat : NPUReg40XX_RegFieldWrapper<"inFormat", 8, 0>;
-def bf_OutFormat : NPUReg40XX_RegFieldWrapper<"outFormat", 8, 8>;
-def bf_NumRois : NPUReg40XX_RegFieldWrapper<"numRois", 16, 16>;
-def bf_SampleType : NPUReg40XX_RegFieldWrapper<"sampleType", 4, 32>;
-def bf_Operations : NPUReg40XX_RegFieldWrapper<"operations", 4, 36>;
-def bf_IFC : NPUReg40XX_RegFieldWrapper<"IFC", 8, 40>;
-def bf_IRQMask : NPUReg40XX_RegFieldWrapper<"IRQMask", 16, 48>;
-
-def reg_IOCfg : NPUReg40XX_RegisterWrapper<"IOCfg", 8, 0x30, ["inFormat", "outFormat", "numRois", "sampleType", "operations", "IFC", "IRQMask"]>;
-
-// NormFactor
-def bf_NormFact0 : NPUReg40XX_RegFieldWrapper<"NormFact0", 16, 0>;
-def bf_NormFact1 : NPUReg40XX_RegFieldWrapper<"NormFact1", 16, 16>;
-def bf_NormFact2 : NPUReg40XX_RegFieldWrapper<"NormFact2", 16, 32>;
-def bf_NormFact3 : NPUReg40XX_RegFieldWrapper<"NormFact3", 16, 48>;
-
-def reg_NormFactor_0 : NPUReg40XX_RegisterWrapper<"NormFactor_0", 8, 0x38, ["NormFact0", "NormFact1", "NormFact2", "NormFact3"]>;
-def reg_NormFactor_1 : NPUReg40XX_RegisterWrapper<"NormFactor_1", 8, 0x40, ["NormFact0", "NormFact1", "NormFact2", "NormFact3"]>;
-def reg_NormFactor_2 : NPUReg40XX_RegisterWrapper<"NormFactor_2", 8, 0x48, ["NormFact0", "NormFact1", "NormFact2", "NormFact3"]>;
-
-// PSOB
-def bf_InPS : NPUReg40XX_RegFieldWrapper<"inPS", 32, 0>;
-def bf_OutBase : NPUReg40XX_RegFieldWrapper<"outBase", 16, 32>;
-def bf_HWPAddrLO : NPUReg40XX_RegFieldWrapper<"HWPAddrLO", 16, 48>;
-
-def reg_PSOB : NPUReg40XX_RegisterWrapper<"PSOB", 8, 0x50, ["inPS", "outBase", "HWPAddrLO"]>;
-
-// nextDesc
-def bf_NextDesc : NPUReg40XX_RegFieldWrapper<"nextDesc", 48, 0>;
-def reg_NextDesc : NPUReg40XX_RegisterWrapper<"nextDesc", 6, 0x58, ["nextDesc"]>;
-
-// HWPAddrHI
-def bf_HWPAddrHI : NPUReg40XX_RegFieldWrapper<"HWPAddrHI", 16, 0>;
-def reg_HWPAddrHI : NPUReg40XX_RegisterWrapper<"HWPAddrHI", 2, 0x5E, ["HWPAddrHI"]>;
-
-//VpuROIDescriptor
-// RoiDef
-def bf_RoiBase : NPUReg40XX_RegFieldWrapper<"roiBase", 32, 0>;
-def bf_OutFormatLocal : NPUReg40XX_RegFieldWrapper<"outFormatLocal", 8, 32>;
-def bf_SamlingTypeLocal : NPUReg40XX_RegFieldWrapper<"samlingTypeLocal", 4, 40>;
-def bf_OFC : NPUReg40XX_RegFieldWrapper<"OFC", 8, 44>;
-def bf_IRQLocal : NPUReg40XX_RegFieldWrapper<"IRQLocal", 8, 52>;
-def bf_HWProfEN : NPUReg40XX_RegFieldWrapper<"HWProfEN", 1, 60>;
-def bf_RoiDef_RESERVED : NPUReg40XX_RegFieldWrapper<"RoiDef_RESERVED", 3, 61>;
-def reg_RoiDef : NPUReg40XX_RegisterWrapper<"RoiDef", 8, 0x60,
-    ["roiBase", "outFormatLocal", "samlingTypeLocal", "OFC", "IRQLocal", "HWProfEN", "RoiDef_RESERVED"]>;
-
-// RoiCfg
-def bf_X_coord : NPUReg40XX_RegFieldWrapper<"X_coord", 16, 0>;
-def bf_Y_coord : NPUReg40XX_RegFieldWrapper<"Y_coord", 16, 16>;
-def bf_RoiWidth : NPUReg40XX_RegFieldWrapper<"roiWidth", 16, 32>;
-def bf_RoiHeight : NPUReg40XX_RegFieldWrapper<"roiHeight", 16, 48>;
-def reg_RoiCfg : NPUReg40XX_RegisterWrapper<"RoiCfg", 8, 0x68, ["X_coord", "Y_coord", "roiWidth", "roiHeight"]>;
-
-// OutScaleSize
-def bf_OutScale0_width : NPUReg40XX_RegFieldWrapper<"outScale0_width", 16, 0>;
-def bf_OutScale0_height : NPUReg40XX_RegFieldWrapper<"outScale0_height", 16, 16>;
-def bf_OutScale1_width : NPUReg40XX_RegFieldWrapper<"outScale1_width", 16, 32>;
-def bf_OutScale1_height : NPUReg40XX_RegFieldWrapper<"outScale1_height", 16, 48>;
-def reg_OutScaleSize : NPUReg40XX_RegisterWrapper<"OutScaleSize", 8, 0x70, ["outScale0_width", "outScale0_height", "outScale1_width", "outScale1_height"]>;
-
-// ScPSY
-def bf_PsSc0Y : NPUReg40XX_RegFieldWrapper<"psSc0Y", 32, 0>;
-def bf_PsSc1Y : NPUReg40XX_RegFieldWrapper<"psSc1Y", 32, 32>;
-def reg_ScPSY : NPUReg40XX_RegisterWrapper<"ScPSY", 8, 0x78, ["psSc0Y", "psSc1Y"]>;
-
-// ScPSUV
-def bf_PsSc0UV : NPUReg40XX_RegFieldWrapper<"psSc0UV", 32, 0>;
-def bf_PsSc1UV : NPUReg40XX_RegFieldWrapper<"psSc1UV", 32, 32>;
-def reg_ScPSUV : NPUReg40XX_RegisterWrapper<"ScPSUV", 8, 0x80, ["psSc0UV", "psSc1UV"]>;
-
-// OutLS
-def bf_LsSc0Y : NPUReg40XX_RegFieldWrapper<"lsSc0Y", 16, 0>;
-def bf_LsSc1Y : NPUReg40XX_RegFieldWrapper<"lsSc1Y", 16, 16>;
-def bf_LsSc0UV : NPUReg40XX_RegFieldWrapper<"lsSc0UV", 16, 32>;
-def bf_LsSc1UV : NPUReg40XX_RegFieldWrapper<"lsSc1UV", 16, 48>;
-def reg_OutLS : NPUReg40XX_RegisterWrapper<"OutLS", 8, 0x88, ["lsSc0Y", "lsSc1Y", "lsSc0UV", "lsSc1UV"]>;
-
-// ScOffset
-def bf_VSc_offset : NPUReg40XX_RegFieldWrapper<"vSc_offset", 32, 0>;
-def bf_HSc_offset : NPUReg40XX_RegFieldWrapper<"hSc_offset", 32, 32>;
-def reg_ScOffset : NPUReg40XX_RegisterWrapper<"ScOffset", 8, 0x90, ["vSc_offset", "hSc_offset"]>;
-
-// ScFactor
-def bf_VSc_factor : NPUReg40XX_RegFieldWrapper<"vSc_factor", 32, 0>;
-def bf_HSc_factor : NPUReg40XX_RegFieldWrapper<"hSc_factor", 32, 32>;
-def reg_ScFactor : NPUReg40XX_RegisterWrapper<"ScFactor", 8, 0x98, ["vSc_factor", "hSc_factor"]>;
-
-def bf_BarGateMaskLO : NPUReg40XX_RegFieldWrapper<"barGateMaskLO", 64, 0>;
-def reg_BarGateMaskLO : NPUReg40XX_RegisterWrapper<"barGateMaskLO", 8, 0xA0, ["barGateMaskLO"]>;
-def bf_BarGateMaskHI : NPUReg40XX_RegFieldWrapper<"barGateMaskHI", 64, 0>;
-def reg_BarGateMaskHI : NPUReg40XX_RegisterWrapper<"barGateMaskHI", 8, 0xA8, ["barGateMaskHI"]>;
-def bf_BarUpdateLO : NPUReg40XX_RegFieldWrapper<"barUpdateLO", 64, 0>;
-def reg_BarUpdateLO : NPUReg40XX_RegisterWrapper<"barUpdateLO", 8, 0xB0, ["barUpdateLO"]>;
-def bf_BarUpdateHI : NPUReg40XX_RegFieldWrapper<"barUpdateHI", 64, 0>;
-def reg_BarUpdateHI : NPUReg40XX_RegisterWrapper<"barUpdateHI", 8, 0xB8, ["barUpdateHI"]>;
-
-// Media BarriersScheduling
-def reg_MediaBarriersSchedulingCfg : NPUReg40XX_RegisterWrapper<"media_barriers_sched_", 8, 0xE0, ["start_after_", "clean_after_"]>;
-
-// uint8_t pad0_[8];
-def bf_Pad8_0 : NPUReg40XX_RegFieldWrapper<"pad8_0", 32, 0>;
-def reg_Pad8_0 : NPUReg40XX_RegisterWrapper<"pad8_0", 4, 0xE8, ["pad8_0"]>;
-def bf_Pad8_1 : NPUReg40XX_RegFieldWrapper<"pad8_1", 32, 0>;
-def reg_Pad8_1 : NPUReg40XX_RegisterWrapper<"pad8_1", 4, 0xEC, ["pad8_1"]>;
-
-// M2I descriptor
-def reg_mapped_M2IDescriptor : NPUReg40XX_RegMappedWrapper<"VpuMediaTask",
-    ["inAddr0", "inSize0", "inAddr1", "inSize1", "inAddr2", "inSize2", "IOCfg", "NormFactor_0", "NormFactor_1",
-    "NormFactor_2", "PSOB", "nextDesc", "HWPAddrHI", "RoiDef", "RoiCfg", "OutScaleSize", "ScPSY", "ScPSUV", "OutLS",
-    "ScOffset", "ScFactor", "barGateMaskLO", "barGateMaskHI", "barUpdateLO", "barUpdateHI",
-    "media_barriers_sched_", "pad8_0", "pad8_1"]>;
-
-
 // WorkItem registers
 
 def bf_WI_desc_ptr : NPUReg40XX_RegFieldWrapper<"desc_ptr", 64, 0>;
@@ -1509,8 +1357,9 @@ def reg_miTcActRangeCount : NPUReg40XX_RegisterWrapper<"miTcActRangeCount", 4, 0
 def bf_miTcActInvoCount : NPUReg40XX_RegFieldWrapper<"miTcActInvoCount", 32, 0, "UINT">;
 def reg_miTcActInvoCount : NPUReg40XX_RegisterWrapper<"miTcActInvoCount", 4, 0x34, ["miTcActInvoCount"]>;
 
-def bf_miTcMediaCount : NPUReg40XX_RegFieldWrapper<"miTcMediaCount", 32, 0, "UINT">;
-def reg_miTcMediaCount : NPUReg40XX_RegisterWrapper<"miTcMediaCount", 4, 0x38, ["miTcMediaCount"]>;
+// uint32_t deprecated (was media_count)
+def bf_miTcMediaDeprecated : NPUReg40XX_RegFieldWrapper<"miTcMediaDeprecated", 32, 0, "UINT">;
+def reg_miTcMediaDeprecated : NPUReg40XX_RegisterWrapper<"miTcMediaDeprecated", 4, 0x38, ["miTcMediaDeprecated"]>;
 // VpuTaskCounts end
 
 def bf_miTaskStorageSize : NPUReg40XX_RegFieldWrapper<"miTaskStorageSize", 32, 0, "UINT">;
@@ -1919,17 +1768,17 @@ def reg_taskReferenceAddr_ActKernel_invo_5 : NPUReg40XX_RegisterWrapper<"taskRef
 def bf_taskReferenceCount_ActKernel_invo_5 : NPUReg40XX_RegFieldWrapper<"taskReferenceCount_ActKernel_invo_5", 64, 0>;
 def reg_taskReferenceCount_ActKernel_invo_5 : NPUReg40XX_RegisterWrapper<"taskReferenceCount_ActKernel_invo_5", 8, 0x5D8, ["taskReferenceCount_ActKernel_invo_5"]>;
 
-// VpuTaskReference<VpuMediaTask> media_tasks
-def bf_taskReferenceR1_MediaTask : NPUReg40XX_RegFieldWrapper<"taskReferenceR1_MediaTask", 64, 0, "UINT">;
-def reg_taskReferenceR1_MediaTask : NPUReg40XX_RegisterWrapper<"taskReferenceR1_MediaTask", 8, 0x5E0, ["taskReferenceR1_MediaTask"]>;
-def bf_taskReferenceR2_MediaTask : NPUReg40XX_RegFieldWrapper<"taskReferenceR2_MediaTask", 64, 0, "UINT">;
-def reg_taskReferenceR2_MediaTask : NPUReg40XX_RegisterWrapper<"taskReferenceR2_MediaTask", 8, 0x5E8, ["taskReferenceR2_MediaTask"]>;
-def bf_taskReferenceR3_MediaTask : NPUReg40XX_RegFieldWrapper<"taskReferenceR3_MediaTask", 64, 0, "UINT">;
-def reg_taskReferenceR3_MediaTask : NPUReg40XX_RegisterWrapper<"taskReferenceR3_MediaTask", 8, 0x5F0, ["taskReferenceR3_MediaTask"]>;
-def bf_taskReferenceAddr_MediaTask : NPUReg40XX_RegFieldWrapper<"taskReferenceAddr_MediaTask", 64, 0, "UINT">;
-def reg_taskReferenceAddr_MediaTask : NPUReg40XX_RegisterWrapper<"taskReferenceAddr_MediaTask", 8, 0x5F8, ["taskReferenceAddr_MediaTask"]>;
-def bf_taskReferenceCount_MediaTask : NPUReg40XX_RegFieldWrapper<"taskReferenceCount_MediaTask", 64, 0>;
-def reg_taskReferenceCount_MediaTask : NPUReg40XX_RegisterWrapper<"taskReferenceCount_MediaTask", 8, 0x600, ["taskReferenceCount_MediaTask"]>;
+// uint8_t deprecated[40] (was VpuTaskReference<VpuMediaTask> media_tasks)
+def bf_miMediaDeprecated_0 : NPUReg40XX_RegFieldWrapper<"miMediaDeprecated_0", 64, 0, "UINT">;
+def reg_miMediaDeprecated_0 : NPUReg40XX_RegisterWrapper<"miMediaDeprecated_0", 8, 0x5E0, ["miMediaDeprecated_0"]>;
+def bf_miMediaDeprecated_1 : NPUReg40XX_RegFieldWrapper<"miMediaDeprecated_1", 64, 0, "UINT">;
+def reg_miMediaDeprecated_1 : NPUReg40XX_RegisterWrapper<"miMediaDeprecated_1", 8, 0x5E8, ["miMediaDeprecated_1"]>;
+def bf_miMediaDeprecated_2 : NPUReg40XX_RegFieldWrapper<"miMediaDeprecated_2", 64, 0, "UINT">;
+def reg_miMediaDeprecated_2 : NPUReg40XX_RegisterWrapper<"miMediaDeprecated_2", 8, 0x5F0, ["miMediaDeprecated_2"]>;
+def bf_miMediaDeprecated_3 : NPUReg40XX_RegFieldWrapper<"miMediaDeprecated_3", 64, 0, "UINT">;
+def reg_miMediaDeprecated_3 : NPUReg40XX_RegisterWrapper<"miMediaDeprecated_3", 8, 0x5F8, ["miMediaDeprecated_3"]>;
+def bf_miMediaDeprecated_4 : NPUReg40XX_RegFieldWrapper<"miMediaDeprecated_4", 64, 0, "UINT">;
+def reg_miMediaDeprecated_4 : NPUReg40XX_RegisterWrapper<"miMediaDeprecated_4", 8, 0x600, ["miMediaDeprecated_4"]>;
 
 // VpuTaskReference<VpuBarrierCountConfig> barrier_configs
 def bf_taskReferenceR1_BarrierConfig : NPUReg40XX_RegFieldWrapper<"taskReferenceR1_BarrierConfig", 64, 0, "UINT">;
@@ -2018,7 +1867,7 @@ def reg_taskReferenceCount_ManagedInference : NPUReg40XX_RegisterWrapper<"taskRe
 
 def reg_mapped_VpuMappedInferenceDescriptor : NPUReg40XX_RegMappedWrapper<"VpuMappedInference",
     ["miVpuNNRTApiVer", "miPad0", "miReserved0", "miLogAddrDmaHwp", "miTcReserved1", "miTcReserved2", "miTcDmaDDRCount",
-     "miTcDmaCMXCount", "miDPUInvariantCount", "miTcDPUVariantCount", "miTcActRangeCount", "miTcActInvoCount", "miTcMediaCount", "miTaskStorageSize",
+     "miTcDmaCMXCount", "miDPUInvariantCount", "miTcDPUVariantCount", "miTcActRangeCount", "miTcActInvoCount", "miTcMediaDeprecated", "miTaskStorageSize",
 
      "taskReferenceR1_DMA_DDR_0", "taskReferenceR2_DMA_DDR_0", "taskReferenceR3_DMA_DDR_0", "taskReferenceAddr_DMA_DDR_0", "taskReferenceCount_DMA_DDR_0",
      "taskReferenceR1_DMA_DDR_1", "taskReferenceR2_DMA_DDR_1", "taskReferenceR3_DMA_DDR_1", "taskReferenceAddr_DMA_DDR_1", "taskReferenceCount_DMA_DDR_1",
@@ -2062,7 +1911,7 @@ def reg_mapped_VpuMappedInferenceDescriptor : NPUReg40XX_RegMappedWrapper<"VpuMa
      "taskReferenceR1_ActKernel_invo_4", "taskReferenceR2_ActKernel_invo_4", "taskReferenceR3_ActKernel_invo_4", "taskReferenceAddr_ActKernel_invo_4", "taskReferenceCount_ActKernel_invo_4",
      "taskReferenceR1_ActKernel_invo_5", "taskReferenceR2_ActKernel_invo_5", "taskReferenceR3_ActKernel_invo_5", "taskReferenceAddr_ActKernel_invo_5", "taskReferenceCount_ActKernel_invo_5",
 
-     "taskReferenceR1_MediaTask", "taskReferenceR2_MediaTask", "taskReferenceR3_MediaTask", "taskReferenceAddr_MediaTask", "taskReferenceCount_MediaTask",
+     "miMediaDeprecated_0", "miMediaDeprecated_1", "miMediaDeprecated_2", "miMediaDeprecated_3", "miMediaDeprecated_4",
      "taskReferenceR1_BarrierConfig", "taskReferenceR2_BarrierConfig", "taskReferenceR3_BarrierConfig", "taskReferenceAddr_BarrierConfig", "taskReferenceCount_BarrierConfig",
      "MiNNRTCfg_reserved", "MiNNRTCfg_runtime_entry", "MiNNRTCfg_act_rt_window_base", "MiNNRTCfg_stack_0", "MiNNRTCfg_stack_1", "MiNNRTCfg_stack_2", "MiNNRTCfg_stack_3",
      "MiNNRTCfg_stack_4", "MiNNRTCfg_stack_5", "MiNNRTCfg_stack_6", "MiNNRTCfg_stack_7", "MiNNRTCfg_stack_8", "MiNNRTCfg_stack_9", "MiNNRTCfg_stack_10", "MiNNRTCfg_stack_11",
@@ -2311,9 +2160,9 @@ def reg_MMI_actshv_used : NPUReg40XX_RegisterWrapper<"MMI_actshv_used", 1, 0x198
 def bf_MMI_dpu_used : NPUReg40XX_RegFieldWrapper<"MMI_dpu_used", 8, 0, "UINT">;
 def reg_MMI_dpu_used : NPUReg40XX_RegisterWrapper<"MMI_dpu_used", 1, 0x199, ["MMI_dpu_used"]>;
 
-// uint8_t media_used
-def bf_MMI_media_used : NPUReg40XX_RegFieldWrapper<"MMI_media_used", 8, 0, "UINT">;
-def reg_MMI_media_used : NPUReg40XX_RegisterWrapper<"MMI_media_used", 1, 0x19A, ["MMI_media_used"]>;
+// uint8_t deprecated (was media_used)
+def bf_MMI_media_deprecated : NPUReg40XX_RegFieldWrapper<"MMI_media_deprecated", 8, 0, "UINT">;
+def reg_MMI_media_deprecated : NPUReg40XX_RegisterWrapper<"MMI_media_deprecated", 1, 0x19A, ["MMI_media_deprecated"]>;
 
 // uint8_t dma_from_ddr_used
 def bf_MMI_dma_from_ddr_used : NPUReg40XX_RegFieldWrapper<"MMI_dma_from_ddr_used", 8, 0, "UINT">;
@@ -2469,7 +2318,7 @@ def reg_mapped_VpuManagedMappedInferenceDescriptor : NPUReg40XX_RegMappedWrapper
         "taskReferenceR1_MMI_num_of_barrier_reprogrammings", "taskReferenceR2_MMI_num_of_barrier_reprogrammings", "taskReferenceR3_MMI_num_of_barrier_reprogrammings", "taskReferenceAddr_MMI_num_of_barrier_reprogrammings", "taskReferenceCount_MMI_num_of_barrier_reprogrammings",
         "taskReferenceR1_MMI_initial_barriers", "taskReferenceR2_MMI_initial_barriers", "taskReferenceR3_MMI_initial_barriers", "taskReferenceAddr_MMI_initial_barriers", "taskReferenceCount_MMI_initial_barriers",
         "taskReferenceR1_MMI_nnrt_config", "taskReferenceR2_MMI_nnrt_config", "taskReferenceR3_MMI_nnrt_config", "taskReferenceAddr_MMI_nnrt_config", "taskReferenceCount_MMI_nnrt_config",
-        "MMI_actshv_used", "MMI_dpu_used", "MMI_media_used", "MMI_dma_from_ddr_used", "MMI_dma_from_cmx_used", "MMI_pad0_", "MMI_barrier_programming_mode",
+        "MMI_actshv_used", "MMI_dpu_used", "MMI_media_deprecated", "MMI_dma_from_ddr_used", "MMI_dma_from_cmx_used", "MMI_pad0_", "MMI_barrier_programming_mode",
         "MMI_deprecated_0", "MMI_deprecated_1", "MMI_deprecated_2", "MMI_deprecated_3", "MMI_deprecated_4",
         "MMI_barrier_configuration_stride", "MMI_inference_feature_cfg", "MMI_pad1_", "MMI_model_identifier", "MMI_pad2_0", "MMI_pad2_1", "MMI_pad2_2", "MMI_pad2_3", "MMI_pad2_4", "MMI_pad2_5", "MMI_pad2_6", "MMI_pad2_7",
         "MMI_pad2_8", "MMI_pad2_9", "MMI_pad2_10", "MMI_pad2_11", "MMI_pad2_12", "MMI_pad2_13", "MMI_pad2_14", "MMI_pad2_15", "MMI_pad2_16", "MMI_pad2_17",

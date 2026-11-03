@@ -22,7 +22,6 @@ module @DpusAndEnqueueDmaOp attributes {config.compilationMode = #config.compila
     config.ExecutorResource 2 of @SHAVE_ACT
     config.ExecutorResource 1 of @DPU
   }
-  config.ExecutorResource 1 of @M2I
   config.ExecutorResource 1 of @DMA_NN
   config.MemoryResource 67108864000 bytes of @DDR {config.bandwidth = 64 : i64, config.derateFactor = 6.000000e-01 : f64}
   net.NetworkInfo entryPoint : @main inputsInfo : {
@@ -85,7 +84,7 @@ module @DpusAndEnqueueDmaOp attributes {config.compilationMode = #config.compila
 
     %31 = VPURegMapped.Enqueue (%enq_dma0 -> %enq_dma1 : <0:0:0> -> <0:0:1>) -> !VPURegMapped.Index<0:0:0> {taskType = #VPURegMapped.task_type<DMA>}
 
-    %33 = VPUMI40XX.MappedInference dmas((%enq_dma0) : (!VPURegMapped.Index<0:0:0>)) invariants(%23 : !VPURegMapped.Index<0:0:0>) variants(%27 : !VPURegMapped.Index<0:0:0>) barriers(%10 : !VPURegMapped.Index<0:0:0>) workItemTasks(%31 : !VPURegMapped.Index<0:0:0>) dmaCount([[1]]) invariantCount([4]) variantCount([4]) actKernelRangesCount([[0, 0]]) actKernelInvocationsCount([[0, 0]]) mediaCount(0) barrierCount(3) workItemCount(1) bootstrapWorkItemsCount(1) -> !VPURegMapped.Index<0:0:0>
+    %33 = VPUMI40XX.MappedInference dmas((%enq_dma0) : (!VPURegMapped.Index<0:0:0>)) invariants(%23 : !VPURegMapped.Index<0:0:0>) variants(%27 : !VPURegMapped.Index<0:0:0>) barriers(%10 : !VPURegMapped.Index<0:0:0>) workItemTasks(%31 : !VPURegMapped.Index<0:0:0>) dmaCount([[1]]) invariantCount([4]) variantCount([4]) actKernelRangesCount([[0, 0]]) actKernelInvocationsCount([[0, 0]]) barrierCount(3) workItemCount(1) bootstrapWorkItemsCount(1) -> !VPURegMapped.Index<0:0:0>
     return %arg1 : memref<1x16x14x14xf16, @DDR>
   }
 }

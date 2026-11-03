@@ -75,7 +75,10 @@ def IE_EpsMode :
             [
                 I64EnumAttrCase<"ADD", 0>,
                 I64EnumAttrCase<"MAX", 1>,
-                I64EnumAttrCase<"CONDITIONAL_EPS", 2>
+                I64EnumAttrCase<"CONDITIONAL_EPS", 2>,
+                I64EnumAttrCase<"ADD_SUM", 3>,
+                I64EnumAttrCase<"MAX_SUM", 4>,
+                I64EnumAttrCase<"CONDITIONAL_EPS_SUM", 5>
             ]
         > {
 }
@@ -749,6 +752,24 @@ def IE_RoPEMode :
 }
 
 def IE_RoPEModeAttr : IE_EnumAttr<IE_RoPEMode, "rope_mode">;
+
+//
+// GQAQuantType
+//
+
+def IE_GQAQuantType :
+        IE_I64EnumAttr<
+            "GQAQuantType",
+            "KV cache quantization type of GroupQueryAttention",
+            [
+                I64EnumAttrCase<"NONE", 0>,
+                I64EnumAttrCase<"PER_TENSOR", 1>,
+                I64EnumAttrCase<"PER_CHANNEL", 2>,
+            ]
+        > {
+}
+
+def IE_GQAQuantTypeAttr : IE_EnumAttr<IE_GQAQuantType, "gqa_quant_type">;
 
 //
 // DeformablePSROIPoolingMode

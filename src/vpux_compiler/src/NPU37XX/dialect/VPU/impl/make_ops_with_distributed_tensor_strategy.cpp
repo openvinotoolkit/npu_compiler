@@ -57,7 +57,8 @@ mlir::LogicalResult NCEPermuteRewriter::matchAndRewrite(VPU::NCEPermuteOp origOp
     const auto activationTensorDistributionMode = getActivationTensorDistributionMode(clusteredOp, strategy);
     const auto activationTensorNumTiles = getActivationTensorNumTiles(clusteredOp, numClusters, strategy);
 
-    const auto activationAlignment = getActivationTensorAlignment(clusteredOp, numClusters, strategy);
+    const auto activationAlignment =
+            getActivationTensorAlignment(clusteredOp, origOp.getInputMutable(), numClusters, strategy);
 
     const auto neutralPads = VPU::Padding(0, 0, 0, 0);
     auto nceOp = mlir::dyn_cast<VPU::NCEOpInterface>(origOp.getOperation());

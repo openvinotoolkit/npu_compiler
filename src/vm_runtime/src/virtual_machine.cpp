@@ -522,6 +522,96 @@ public:
     }
 };
 
+class ConstantPool {
+    // Bytecode parsing only gives us constant payloads as views into the parsed module. That storage is not the right
+    // runtime owner for zero-copy buffers because BUFFER_FROM_CONST needs the bytes to stay alive after the VM turns
+    // them into buffer handles, and createFromMemory() only borrows memory instead of extending its lifetime.
+    //
+    // ConstantPool is the missing owner: it copies each constant once into allocator-backed shared memory, keeps that
+    // storage alive for the whole module lifetime, and stores the resulting memory as spans. BUFFER_FROM_CONST can
+    // then create read-only handles directly on top of those spans without a second copy, while the pool still
+    // controls when the backing memory is released (module reload, context change, or engine destruction)
+    AnyAllocator _allocator{makeHostAllocator()};
+    std::vector<Block> _ownedBlocks;
+    std::vector<Span<const uint8_t>> _constants;
+    ze_context_handle_t _allocatorContext = nullptr;
+    std::shared_ptr<const BytecodeModule> _materializedModule;
+    bool _materialized = false;
+
+public:
+    ConstantPool() = default;
+    ConstantPool(const ConstantPool&) = delete;
+    ConstantPool& operator=(const ConstantPool&) = delete;
+    ConstantPool(ConstantPool&&) = default;
+    ConstantPool& operator=(ConstantPool&&) = default;
+    ~ConstantPool() {
+        deallocateAll();
+    }
+
+    void ensure(std::shared_ptr<const BytecodeModule> module, ze_context_handle_t ctx) {
+        // If we already materialized constants for this context, keep the existing
+        // storage and do nothing. Rebuilding is only needed when the Level Zero
+        // context changes or the module changes
+        const bool contextChanged = (ctx != _allocatorContext);
+        if (_materialized && !contextChanged && _materializedModule == module) {
+            return;
+        }
+
+        // Build a fresh pool for the new context so all constant bytes live in a
+        // stable allocator-owned block that survives VM buffer creation
+        ConstantPool nextPool;
+        nextPool._allocator = ctx != nullptr ? makeLevelZeroAllocator(ctx) : makeHostAllocator();
+        nextPool._allocatorContext = ctx;
+
+        // Copy every extracted constant once into allocator-backed storage.
+        // The VM will later create read-only buffer handles directly from these
+        // spans, so the pool owns the lifetime
+        const auto& sourceConstants = module->getConstants();
+        nextPool._ownedBlocks.reserve(sourceConstants.size());
+        nextPool._constants.reserve(sourceConstants.size());
+
+        for (const auto& constant : sourceConstants) {
+            const auto constantData = constant.get();
+            if (constantData.empty()) {
+                nextPool._constants.emplace_back();
+                continue;
+            }
+
+            auto block = nextPool._allocator.allocate(constantData.size());
+            if (!block) {
+                throw std::bad_alloc();
+            }
+
+            std::memcpy(block.ptr, constantData.data(), constantData.size());
+            nextPool._ownedBlocks.push_back(block);
+            nextPool._constants.emplace_back(Span<const uint8_t>(block.ptr, block.size));
+        }
+
+        deallocateAll();
+        *this = std::move(nextPool);
+        _materializedModule = std::move(module);
+        _materialized = true;
+    }
+
+    const std::vector<Span<const uint8_t>>& getConstants() const {
+        return _constants;
+    }
+
+    void deallocateAll() noexcept {
+        // Release the backing blocks first, then clear the span views and reset
+        // the allocator state so the next ensure() starts from a clean pool
+        for (auto& block : _ownedBlocks) {
+            _allocator.deallocate(block);
+        }
+        _ownedBlocks.clear();
+        _constants.clear();
+        _allocator.release();
+        _allocatorContext = nullptr;
+        _materializedModule.reset();
+        _materialized = false;
+    }
+};
+
 class EngineState {
     ExecState _execState{ExecState::Initialized};  // Current execution state of the VM
     const uint8_t* _pc{nullptr};                   // Program counter
@@ -533,7 +623,7 @@ class EngineState {
             _kernelInfos;  // Metadata for created kernels, keyed by their handles
 
     ExecutionContext _executionContext;
-    ze_graph_dditable_ext_t* _ddiTableHandle =
+    ze_graph_dditable_ext_t* _graphDdiTableHandle =
             nullptr;  // Ddi table handle provided at execution time, used for kernel execution
 
 public:
@@ -565,11 +655,11 @@ public:
 
     /// Destroys all graph handles associated with the kernels in the current engine state
     void destroyGraphHandles() {
-        if (_ddiTableHandle) {
+        if (_graphDdiTableHandle) {
             for (auto& [_, kernelInfo] : _kernelInfos) {
                 auto graphHandle = kernelInfo.getGraphHandle();
                 if (graphHandle) {
-                    _ddiTableHandle->pfnDestroy(graphHandle);
+                    _graphDdiTableHandle->pfnDestroy(graphHandle);
                 }
             }
         }
@@ -614,11 +704,11 @@ public:
     }
 
     ze_graph_dditable_ext_t* getDDITableHandle() {
-        return _ddiTableHandle;
+        return _graphDdiTableHandle;
     }
 
     void setDDITableHandle(ze_graph_dditable_ext_t* ddiTableHandle) {
-        _ddiTableHandle = ddiTableHandle;
+        _graphDdiTableHandle = ddiTableHandle;
     }
 };
 
@@ -654,6 +744,7 @@ bool applyJump(EngineState& engineState, int64_t jumpOffset, const uint8_t* func
 
 class VMEngine {
     std::shared_ptr<BytecodeModule> _bytecodeModule;
+    ConstantPool _constantPool;
     EngineState _state{};
 
     // Advances the program counter by the given bytes
@@ -730,6 +821,12 @@ public:
 
     /// Sets Level Zero objects for the engine, including the context and the DDI table
     void setLevelZeroObjects(ze_context_handle_t ctx, ze_graph_dditable_ext_t* graphDdiTableExt);
+
+    void ensureConstantPool(ze_context_handle_t ctx) {
+        if (_bytecodeModule != nullptr) {
+            _constantPool.ensure(_bytecodeModule, ctx);
+        }
+    }
 };
 
 bool VMEngine::loadModule(std::shared_ptr<BytecodeModule> bytecodeModule, npu_vm_module_load_params* loadParams) {
@@ -742,16 +839,16 @@ bool VMEngine::loadModule(std::shared_ptr<BytecodeModule> bytecodeModule, npu_vm
     _state.destroyGraphHandles();  // Ensure any graph handles from a previous module are released
     auto metadata = _bytecodeModule->getNetworkMetadata();
 
-    size_t concurrentJobCount = 1;
+    uint32_t concurrentJobCount = 1;
     npu_vm_runtime_create_execution_context_params_t* params = nullptr;
     if (loadParams != nullptr) {
         if (loadParams->create_execution_context_params) {
             params = loadParams->create_execution_context_params;
             setLevelZeroObjects(params->ctx, params->graphDdiTableExt);
         }
-
         concurrentJobCount = loadParams->concurrentJobCount;
     }
+    ensureConstantPool(params ? params->ctx : nullptr);
 
     auto contextType = params ? ExecutionContext::ExecutionContextType::V2 : ExecutionContext::ExecutionContextType::V1;
     if (metadata.has_value()) {
@@ -761,13 +858,24 @@ bool VMEngine::loadModule(std::shared_ptr<BytecodeModule> bytecodeModule, npu_vm
 
         // initialize the execution context with the number of command lists,
         // number of network arguments, and concurrent job count
-        executionContext.initialize(contextType, metadata->numCmdLists,
-                                    metadata->inputs.size() + metadata->outputs.size(), concurrentJobCount);
+        bool counterBasedEventSupported = (loadParams && loadParams->counterBasedEventSupported) ? true : false;
+        bool result =
+                executionContext.initialize(contextType, static_cast<uint32_t>(metadata->numCmdLists),
+                                            static_cast<uint32_t>(metadata->inputs.size() + metadata->outputs.size()),
+                                            concurrentJobCount, counterBasedEventSupported);
+        if (result == false) {
+            NPU_VM_LOG_ERROR("Failed to initialize execution context");
+            return false;
+        }
+
         if (params) {
-            auto& executionContext = _state.getExecutionContext();
-            executionContext.initializeExecutionObjects(params->ctx, params->device, params->commandQueue,
-                                                        params->graphDdiTableExt, params->commandQueueDdiTableExt,
-                                                        loadParams->internalCommandQueue);
+            auto initResult = executionContext.initializeExecutionObjects(
+                    params->ctx, params->device, params->commandQueue, params->graphDdiTableExt,
+                    params->commandQueueDdiTableExt, loadParams->internalCommandQueue);
+            if (initResult != ZE_RESULT_SUCCESS) {
+                NPU_VM_LOG_ERROR("Failed to initialize execution context");
+                return false;
+            }
         }
     }
 
@@ -784,7 +892,10 @@ bool VMEngine::resetState(bool resetExecutionContext) {
 
 bool VMEngine::hostSync() {
     auto& executionContext = _state.getExecutionContext();
-    executionContext.hostSync();
+    if (executionContext.hostSync() != ZE_RESULT_SUCCESS) {
+        NPU_VM_LOG_ERROR("Failed to host sync execution context");
+        return false;
+    }
     return true;
 }
 
@@ -829,6 +940,9 @@ bool VMEngine::hostCodeExecutionRequired(npu_vm_runtime_execute_params2_t* param
 void VMEngine::setLevelZeroObjects(ze_context_handle_t ctx, ze_graph_dditable_ext_t* graphDdiTableExt) {
     // Install/refresh the BufferManager for this context before allocating buffers (see ensureBufferManager).
     _state.ensureBufferManager(ctx);
+    // Materialize constants into the same memory space so BUFFER_FROM_CONST can
+    // borrow them through createFromMemory without a second copy
+    ensureConstantPool(ctx);
     // Keep the DDI table to release graph handle later, as graph handles are created with the DDI table
     _state.setDDITableHandle(graphDdiTableExt);
 }
@@ -1025,7 +1139,7 @@ bool VMEngine::call(std::string_view name, Span<const npu_vm_value> arguments, S
                     NPU_VM_LOG_ERROR("Failed to allocate memory for buffer result {}", i);
                     return false;
                 }
-                resultBuffer.size = buffer.getSize();
+                resultBuffer.size = static_cast<uint32_t>(buffer.getSize());
             } else {
                 // The user provided a buffer for the result, so write the result to the provided buffer. The caller is
                 // responsible for ensuring that the provided buffer has sufficient size to hold the result.
@@ -1870,7 +1984,7 @@ void VMEngine::execute(CallFrame entryFrame) {
             }
             const auto elemByteSize =
                     intel_npu::vm::lookupTypeByteSize(_bytecodeModule->getTypeByteSizes(), elemTypeIdx);
-            const auto& constants = _bytecodeModule->getConstants();
+            const auto& constants = _constantPool.getConstants();
             if (elemByteSize == 0 || static_cast<size_t>(constantIndex) >= constants.size()) {
                 NPU_VM_LOG_ERROR("buffer.from_const references unknown type {} or constant {}", elemTypeIdx,
                                  constantIndex);
@@ -1891,7 +2005,7 @@ void VMEngine::execute(CallFrame entryFrame) {
                 break;
             }
             const auto byteSize = intel_npu::vm::computeLogicalByteSize(meta);
-            const auto constantData = constants.at(static_cast<size_t>(constantIndex)).get();
+            const auto constantData = constants.at(static_cast<size_t>(constantIndex));
             if (!byteSize.has_value() || *byteSize != constantData.size()) {
                 NPU_VM_LOG_ERROR("buffer.from_const descriptor size {} does not match constant {} size {}",
                                  byteSize.has_value() ? std::to_string(*byteSize) : "<overflow>", constantIndex,
@@ -1901,7 +2015,7 @@ void VMEngine::execute(CallFrame entryFrame) {
             }
             try {
                 const auto handle = _state.getBufferManager().createFromMemory(
-                        const_cast<uint8_t*>(constantData.begin()), constantData.size(), Permission::Read);
+                        const_cast<uint8_t*>(constantData.data()), constantData.size(), Permission::Read);
                 _state.getBufferMetadata().emplace(handle, std::move(meta));
                 frame.setReg(dstReg, static_cast<int64_t>(handle));
                 NPU_VM_LOG_DEBUG("  buffer.from_const -> handle {}, constant {}", handle, constantIndex);
@@ -3147,8 +3261,8 @@ NPU_VM_EXPORT npu_vm_result NPU_VM_APICALL npu_vm_get_function_info(npu_vm_modul
     }
     std::memcpy(info->name, funcName.c_str(), funcName.size() + 1);
 
-    info->num_params = function->getParamTypes().size();
-    info->num_results = function->getResultTypes().size();
+    info->num_params = static_cast<uint32_t>(function->getParamTypes().size());
+    info->num_results = static_cast<uint32_t>(function->getResultTypes().size());
     // Allocate arrays for param_types and result_types (caller must free)
     if (info->num_params > 0) {
         info->param_types = new (std::nothrow) npu_vm_type[info->num_params];
@@ -3426,4 +3540,5 @@ NPU_VM_EXPORT npu_vm_result NPU_VM_APICALL npu_vm_host_sync(npu_vm_engine* engin
     }
     return NPU_VM_SUCCESS;
 }
+
 // NOLINTEND(readability-identifier-naming)

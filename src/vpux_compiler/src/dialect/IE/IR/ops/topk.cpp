@@ -5,8 +5,10 @@
 
 #include "vpux/compiler/dialect/IE/IR/ops/specialized.hpp"
 #include "vpux/compiler/dialect/const/utils/attributes_utils.hpp"
+#include "vpux/compiler/dialect/core/IR/tensor_attr.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
 #include "vpux/compiler/utils/error.hpp"
+#include "vpux/compiler/utils/infer_output_shape.hpp"
 
 #include <mlir/IR/PatternMatch.h>
 
@@ -40,29 +42,20 @@ mlir::LogicalResult vpux::IE::TopKOp::inferReturnTypeComponents(
         return mlir::failure();
     }
 
-    const auto inType = mlir::cast<mlir::ShapedType>(topK.getInput().getType());
-    const auto inputShape = inType.getShape();
+    const auto inType = mlir::cast<vpux::NDTypeInterface>(topK.getInput().getType());
+    const auto inShapeInfo = ShapeInfo::fromNDType(inType);
 
-    const auto kValue = Const::getConstOrAttrValue(topK.getK(), topK.getKValueAttr());
-
-    if (mlir::failed(kValue)) {
+    const auto outInfo = inferTopKOutputShapeInfo(inShapeInfo, topK.getAxis(), topK.getK(), topK.getKValueAttr(), loc);
+    if (mlir::failed(outInfo)) {
         return mlir::failure();
     }
 
-    SmallVector<int64_t> outShape;
-    for (size_t i = 0; i < inputShape.size(); ++i) {
-        outShape.push_back(inputShape[i]);
-    }
-    int64_t axis = topK.getAxis();
-    const auto inRank = inType.getRank();
-    if (axis < 0) {
-        axis += inRank;
-    }
+    const auto& outShape = outInfo->shape;
+    const mlir::Attribute outTensorAttr =
+            vpux::getTensorAttr(ctx, inType.getDimsOrder(), inType.getMemSpace(), BoundsRef(outInfo->bounds));
 
-    outShape[axis] = kValue.value();
-
-    inferredReturnShapes.emplace_back(outShape, inType.getElementType());
-    inferredReturnShapes.emplace_back(outShape, topK.getElementType());
+    inferredReturnShapes.emplace_back(outShape, inType.getElementType(), outTensorAttr);
+    inferredReturnShapes.emplace_back(outShape, topK.getElementType(), outTensorAttr);
 
     return mlir::success();
 }

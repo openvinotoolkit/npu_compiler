@@ -359,7 +359,7 @@ size_t getBoundedNetworkIOBinarySize(vpux::NDTypeInterface type, mlir::Operation
     VPUX_THROW_WHEN(bounds.empty(), "No bounds found for section: section={0}, index={1}", section, ioIndex);
 
     const auto upperBoundType = type.changeShape(ShapeRef(bounds));
-    const auto sizeInBytes = vpux::ELF::getOpBinarySize(upperBoundType);
+    const auto sizeInBytes = checked_cast<size_t>(upperBoundType.getTotalAllocSize().count());
     Logger::global().trace(
             "ELF bounded binary size from NetworkInfo: section={0}, index={1}, type={2}, bounds={3}, size={4}", section,
             ioIndex, type, bounds, sizeInBytes);
@@ -377,110 +377,7 @@ size_t vpux::ELF::getBufferBinarySize(vpux::NDTypeInterface type, mlir::Operatio
         return getBoundedNetworkIOBinarySize(type, contextOp, section, sectionIndex);
     }
 
-    return getOpBinarySize(type);
-}
-
-size_t vpux::ELF::getOpBinarySize(vpux::NDTypeInterface type) {
-    enum tensor_4d_index_t {
-        TENSOR_4D_INDEX_N,
-        TENSOR_4D_INDEX_C,
-        TENSOR_4D_INDEX_H,
-        TENSOR_4D_INDEX_W,
-
-        TENSOR_4D_INDEX_COUNT,
-    };
-
-    if (type.getMemoryKind() == vpux::VPU::MemoryKind::DDR) {
-        auto memShape = to_small_vector(type.getShape());
-        auto memStrides = to_small_vector(type.getStrides());
-        auto dimsOrder = type.getDimsOrder();
-        auto elementTypeSize = type.getElemTypeSize().count();
-        auto elementTypeSizeInByte = (elementTypeSize >= CHAR_BIT) ? (elementTypeSize / CHAR_BIT) : (elementTypeSize);
-        bool isNonZero4DTensor = false;
-
-        if (memShape.size() == 4) {
-            if (memShape[TENSOR_4D_INDEX_N] != 0 && memShape[TENSOR_4D_INDEX_C] != 0 &&
-                memShape[TENSOR_4D_INDEX_H] != 0 && memShape[TENSOR_4D_INDEX_W] != 0) {
-                isNonZero4DTensor = true;
-            }
-        }
-
-        // When the highest non-unitary dim is padded, the dma using that declare buffer won't actually write data to
-        // the padded region, so the strict span of the declare buffer (where data is actually being written) needs to
-        // use the unstrided size in the highest non-unitary dimension.
-        if (isNonZero4DTensor && memShape.size() == memStrides.size() && elementTypeSize >= CHAR_BIT) {
-            if (dimsOrder == DimsOrder::NHWC) {
-                if (memShape[TENSOR_4D_INDEX_N] > 1) {
-                    auto totalSize =
-                            memShape[TENSOR_4D_INDEX_N] *
-                            ((memStrides[TENSOR_4D_INDEX_N].count()) / (memStrides[TENSOR_4D_INDEX_H].count())) *
-                            ((memStrides[TENSOR_4D_INDEX_H].count()) / (memStrides[TENSOR_4D_INDEX_W].count())) *
-                            ((memStrides[TENSOR_4D_INDEX_W].count()) / (memStrides[TENSOR_4D_INDEX_C].count())) *
-                            elementTypeSizeInByte;
-                    return totalSize;
-                } else {
-                    if (memShape[TENSOR_4D_INDEX_H] > 1) {
-                        auto totalSize =
-                                memShape[TENSOR_4D_INDEX_N] * memShape[TENSOR_4D_INDEX_H] *
-                                ((memStrides[TENSOR_4D_INDEX_H].count()) / (memStrides[TENSOR_4D_INDEX_W].count())) *
-                                ((memStrides[TENSOR_4D_INDEX_W].count()) / (memStrides[TENSOR_4D_INDEX_C].count())) *
-                                elementTypeSizeInByte;
-                        return totalSize;
-                    } else {
-                        if (memShape[TENSOR_4D_INDEX_W] > 1) {
-                            auto totalSize = memShape[TENSOR_4D_INDEX_N] * memShape[TENSOR_4D_INDEX_H] *
-                                             memShape[TENSOR_4D_INDEX_W] *
-                                             ((memStrides[TENSOR_4D_INDEX_W].count()) /
-                                              (memStrides[TENSOR_4D_INDEX_C].count())) *
-                                             elementTypeSizeInByte;
-                            return totalSize;
-                        } else {
-                            auto totalSize = memShape[TENSOR_4D_INDEX_N] * memShape[TENSOR_4D_INDEX_H] *
-                                             memShape[TENSOR_4D_INDEX_W] * memShape[TENSOR_4D_INDEX_C] *
-                                             elementTypeSizeInByte;
-                            return totalSize;
-                        }
-                    }
-                }
-            }
-            if (dimsOrder == DimsOrder::NCHW) {
-                if (memShape[TENSOR_4D_INDEX_N] > 1) {
-                    auto totalSize =
-                            memShape[TENSOR_4D_INDEX_N] *
-                            ((memStrides[TENSOR_4D_INDEX_N].count()) / (memStrides[TENSOR_4D_INDEX_C].count())) *
-                            ((memStrides[TENSOR_4D_INDEX_C].count()) / (memStrides[TENSOR_4D_INDEX_H].count())) *
-                            ((memStrides[TENSOR_4D_INDEX_H].count()) / (memStrides[TENSOR_4D_INDEX_W].count())) *
-                            elementTypeSizeInByte;
-                    return totalSize;
-                } else {
-                    if (memShape[TENSOR_4D_INDEX_C] > 1) {
-                        auto totalSize =
-                                memShape[TENSOR_4D_INDEX_N] * memShape[TENSOR_4D_INDEX_C] *
-                                ((memStrides[TENSOR_4D_INDEX_C].count()) / (memStrides[TENSOR_4D_INDEX_H].count())) *
-                                ((memStrides[TENSOR_4D_INDEX_H].count()) / (memStrides[TENSOR_4D_INDEX_W].count())) *
-                                elementTypeSizeInByte;
-                        return totalSize;
-                    } else {
-                        if (memShape[TENSOR_4D_INDEX_H] > 1) {
-                            auto totalSize = memShape[TENSOR_4D_INDEX_N] * memShape[TENSOR_4D_INDEX_C] *
-                                             memShape[TENSOR_4D_INDEX_H] *
-                                             ((memStrides[TENSOR_4D_INDEX_H].count()) /
-                                              (memStrides[TENSOR_4D_INDEX_W].count())) *
-                                             elementTypeSizeInByte;
-                            return totalSize;
-                        } else {
-                            auto totalSize = memShape[TENSOR_4D_INDEX_N] * memShape[TENSOR_4D_INDEX_C] *
-                                             memShape[TENSOR_4D_INDEX_H] * memShape[TENSOR_4D_INDEX_W] *
-                                             elementTypeSizeInByte;
-                            return totalSize;
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    return type.getTotalAllocSize().count();
+    return checked_cast<size_t>(type.getTotalAllocSize().count());
 }
 
 namespace {

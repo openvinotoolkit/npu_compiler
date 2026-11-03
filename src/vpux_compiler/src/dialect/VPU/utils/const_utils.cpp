@@ -10,9 +10,7 @@
 #include "vpux/compiler/dialect/IE/IR/ops/data_movement.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/shape_manipulation.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/specialized.hpp"
-#include "vpux/compiler/dialect/IE/IR/ops_interfaces.hpp"
 #include "vpux/compiler/dialect/IE/utils/pooling_utils.hpp"
-#include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/convolution.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/data_movement.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/dpu.hpp"
@@ -20,7 +18,6 @@
 #include "vpux/compiler/dialect/VPU/IR/ops/specialized.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
 #include "vpux/compiler/dialect/core/interfaces/type_interfaces.hpp"
-#include "vpux/compiler/dialect/core/types.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
 #include "vpux/compiler/utils/hw_settings.hpp"
 #include "vpux/compiler/utils/permute_utils.hpp"
@@ -35,18 +32,20 @@ namespace VPU {
 
 template <class T>
 void replicateZeroPointsInPlace(SmallVector<T>& zeroPoints, size_t size) {
-    VPUX_THROW_UNLESS(!zeroPoints.empty() && zeroPoints.size() <= size && size % zeroPoints.size() == 0,
-                      "Cannot replicate {0} zero-points to size {1}", zeroPoints.size(), size);
+    const size_t originalSize = zeroPoints.size();
+    VPUX_THROW_UNLESS(originalSize > 0 && originalSize <= size && size % originalSize == 0,
+                      "Cannot replicate {0} zero-points to size {1}", originalSize, size);
 
-    if (zeroPoints.size() == size) {
+    if (originalSize == size) {
         return;
     }
 
-    const size_t replicationFactor = size / zeroPoints.size();
-    const SmallVector<T> originalValues(zeroPoints);
     zeroPoints.reserve(size);
+
+    const SmallVector<T> original(zeroPoints.begin(), zeroPoints.begin() + originalSize);
+    const size_t replicationFactor = size / originalSize;
     for (size_t i = 1; i < replicationFactor; ++i) {
-        zeroPoints.append(originalValues.begin(), originalValues.end());
+        zeroPoints.append(original.begin(), original.end());
     }
 }
 
@@ -109,7 +108,13 @@ SmallVector<int32_t> materializeDataPointerTable(mlir::MLIRContext* context,
         auto buildTable = [&](auto storageType) {
             using StorageT = decltype(storageType);
             const auto content = zpConst.getContent();
-            auto zeroPointsTyped = to_small_vector(content.getValues<StorageT>());
+            const auto contentValues = content.getValues<StorageT>();
+
+            // Reserve for the final (possibly replicated) size upfront so replicateZeroPointsInPlace's
+            // own reserve() is a no-op, avoiding a reallocation when growing to `OC`.
+            SmallVector<StorageT> zeroPointsTyped;
+            zeroPointsTyped.reserve(std::max<int64_t>(OC, content.getType().getNumElements()));
+            zeroPointsTyped.append(contentValues.begin(), contentValues.end());
 
             if (OC > static_cast<int64_t>(zeroPointsTyped.size())) {
                 replicateZeroPointsInPlace(zeroPointsTyped, OC);
@@ -143,7 +148,7 @@ std::vector<float> createBiasTableData(mlir::Value opInput, mlir::Value opOutput
 }
 
 SmallVector<int32_t> materializeZeroPointTable(mlir::Type weightsElemType, int64_t OC, ArrayRef<int32_t> workloadSizes,
-                                               mlir::Value zeroPoints) {
+                                               mlir::Value zeroPoints, NCESparsity::ZeroPointTableLayout layout) {
     const auto zpConst = zeroPoints.getDefiningOp<Const::DeclareOp>();
     const auto zpElemType = mlir::cast<vpux::NDTypeInterface>(zeroPoints.getType()).getElementType();
     VPUX_THROW_UNLESS(zpElemType.isInteger(),
@@ -155,7 +160,7 @@ SmallVector<int32_t> materializeZeroPointTable(mlir::Type weightsElemType, int64
 
         const auto content = zpConst.getContent();
         auto tableData = createZeroPointTableData<StorageT>(workloadSizes, weightsElemType, OC, isZeroPointSubByte,
-                                                            to_small_vector(content.getValues<StorageT>()));
+                                                            to_small_vector(content.getValues<StorageT>()), layout);
 
         return to_small_vector(llvm::map_range(tableData, [](StorageT zp) {
             return static_cast<int32_t>(zp);
@@ -428,14 +433,15 @@ mlir::Value alignConvWeightsTensor(mlir::OpBuilder& builder, mlir::Location loc,
     const auto origFilterType = mlir::cast<vpux::NDTypeInterface>(origFilter.getType());
     const auto alignment = VPU::NCEInvariant::getAlignment(origFilterType.getElementType());
 
-    const auto remainder = (IC * KY * KX) % alignment;
+    const auto weightsElementCount = IC * KY * KX;
+    const auto remainder = weightsElementCount % alignment;
     VPUX_THROW_UNLESS(remainder >= 0, "Channel alignment cannot be negative: {0}", remainder);
 
     if (remainder == 0) {
         return origFilter;
     }
 
-    const auto flatWeightShape = Shape{OC, 1, 1, IC * KY * KX};
+    const auto flatWeightShape = Shape{OC, 1, 1, weightsElementCount};
     const auto padding = alignment - remainder;
 
     auto weightsConst = origFilter.getDefiningOp<Const::DeclareOp>();
@@ -456,7 +462,7 @@ mlir::Value alignConvWeightsTensor(mlir::OpBuilder& builder, mlir::Location loc,
                                              .padWithZero({0, 0, 0, 0}, {0, 0, 0, padding})
                                              .get();
 
-    const auto alignedWeightShape = SmallVector<int64_t>{OC, 1, 1, IC * KY * KX + padding};
+    const auto alignedWeightShape = SmallVector<int64_t>{OC, 1, 1, weightsElementCount + padding};
     const auto outAllocType = mlir::cast<vpux::NDTypeInterface>(
             mlir::RankedTensorType::get(alignedWeightShape, origFilterType.getElementType()));
     const auto outAllocTypeNHWC = outAllocType.changeDimsOrder(DimsOrder::NHWC);
@@ -512,7 +518,7 @@ mlir::Value createRuntimeBiasForWeightTable(mlir::PatternRewriter& rewriter, mli
     // Weight-table bias entries are always f32 per hardware spec. Convert via a DPU identity MaxPool
     // (createConvertPoolingForScaleTable reshapes to a near-square [1,C,H,W] with genuine spatial
     // extent, so the pool is a valid DPU workload) rather than a SW Convert.
-    mlir::Value converted = IE::createConvertPoolingForScaleTable(bias, rewriter);
+    mlir::Value converted = IE::createConvertPoolingForScaleTable(bias, rewriter, /*nhwcLayout=*/true);
     // createConvertPoolingForScaleTable returns its input unchanged for an already-f32 bias, so
     // reshape explicitly to the [OC,1,1,1] weight_table_bias shape required by NCE.DepthConvolution.
     const SmallVector<int64_t> wtBiasShape = {OC, 1, 1, 1};

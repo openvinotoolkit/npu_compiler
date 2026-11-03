@@ -25,18 +25,6 @@ using namespace VPU;
 
 namespace {
 
-bool hasMultiDimTilingIncludeChannel(ArrayRef<int64_t> tilingStrategy) {
-    if (tilingStrategy.size() != static_cast<size_t>(Dims4D::Act::numDims)) {
-        return false;
-    }
-
-    return llvm::count_if(tilingStrategy,
-                          [](auto tileSize) {
-                              return tileSize > 1;
-                          }) > 1 &&
-           tilingStrategy[Dims4D::Act::C.ind()] > 1;
-}
-
 bool isSplitOverKernel(VPU::ClusteredOpInterface clusteredOp) {
     auto strategy = clusteredOp.getMultiClusterStrategy();
     return strategy.has_value() && strategy.value() == VPU::MultiClusterStrategy::SplitOverKernel;
@@ -197,7 +185,6 @@ bool DynamicDequantConvVFPattern::alignConvStrategyWithDequant(VPU::VerticalFusi
         return false;
     }
 
-    auto originalStrategy = convClusteredOp.getMultiClusterStrategy();
     convClusteredOp.setMultiClusterStrategy(VPU::MultiClusterStrategy::SplitOverKernel);
 
     auto newTilingStrategy = parseIntArrayAttr<int64_t>(convVF.getTilingStrategy());
@@ -208,13 +195,6 @@ bool DynamicDequantConvVFPattern::alignConvStrategyWithDequant(VPU::VerticalFusi
     const auto channelMinNumTiles = 2;
     newTilingStrategy[Dims4D::Act::C.ind()] = channelMinNumTiles;
     newTilingStrategy[heightIdx] = maxNumTiles[heightIdx];
-
-    if (!hasMultiDimTilingIncludeChannel(newTilingStrategy)) {
-        log.trace("DynamicDequantConvVFPattern rejected SOK tiling {0} for Conv at {1}", newTilingStrategy,
-                  convOp->getLoc());
-        restoreMultiClusterStrategy(convClusteredOp, originalStrategy);
-        return false;
-    }
 
     convVF.setTilingStrategyAttr(getIntArrayAttr(convVF->getContext(), newTilingStrategy));
     log.trace("DynamicDequantConvVFPattern aligned Conv strategy to SOK with tiling {0} at {1}", newTilingStrategy,
@@ -244,10 +224,6 @@ bool DynamicDequantConvVFPattern::hasExpectedChain(VPU::VerticalFusionOp dequant
 
     auto convOp = mlir::dyn_cast<VPU::NCEConvolutionOp>(convOps.back());
     if (convOp == nullptr) {
-        return false;
-    }
-    auto tilingStrategy = parseIntArrayAttr<int64_t>(convVF.getTilingStrategy());
-    if (!hasMultiDimTilingIncludeChannel(tilingStrategy)) {
         return false;
     }
 
@@ -346,12 +322,13 @@ std::optional<SmallVector<VPU::VerticalFusionOp>> DynamicDequantConvVFPattern::g
 }
 
 std::optional<VPU::VF::v2::VFCase> DynamicDequantConvVFPattern::buildVFCase(
-        VPU::VerticalFusionOp mergedOp, VPU::VerticalFusionOp convVFOp,
+        VPU::VerticalFusionOp mergedOp, ArrayRef<VPU::VerticalFusionOp> matchedOps,
         const std::unique_ptr<VPU::LayerVPUNNCost>& costFunction, VFMergeCostMode costMode, Logger log) const {
     VPU::VF::v2::VFCacheAnalysis cache(mergedOp.getOperation());
     VPU::VF::v2::VFConfig vfConfig(mergedOp, cache, /*enableVFPipelining=*/true, /*firstVFNeedsTiling=*/true,
                                    /*secondVFNeedsTiling=*/true);
-    auto tiling = parseIntArrayAttr<int64_t>(convVFOp.getTilingStrategyAttr());
+    auto convVFOp = matchedOps.back();
+    const auto tiling = parseIntArrayAttr<int64_t>(convVFOp.getTilingStrategyAttr());
 
     auto dequantOp = getDynamicDequantizeOp(mergedOp);
     auto convOp = getTrailingConvOp(mergedOp);
@@ -359,21 +336,34 @@ std::optional<VPU::VF::v2::VFCase> DynamicDequantConvVFPattern::buildVFCase(
         return std::nullopt;
     }
 
-    const auto minNumCalc = [&](Dim, const VPU::VF::v2::VFSplit&) {
-        return tiling[Dims4D::Act::C.ind()];
+    auto split = VPU::VF::v2::getVFTilingSplit(tiling);
+    const auto convChannelTiles = tiling[Dims4D::Act::C.ind()];
+    auto maxExistingChannelTiles = convChannelTiles;
+    for (auto vfOp : matchedOps) {
+        const auto vfTiling = parseIntArrayAttr<int64_t>(vfOp.getTilingStrategy());
+        if (vfTiling.size() == tiling.size()) {
+            maxExistingChannelTiles = std::max(maxExistingChannelTiles, vfTiling[Dims4D::Act::C.ind()]);
+        }
+    }
+
+    const auto minNumCalc = [&tiling, convChannelTiles, maxExistingChannelTiles](
+                                    Dim dim, const VPU::VF::v2::VFSplit& candidateSplit) {
+        if (dim != Dims4D::Act::C) {
+            return tiling[dim.ind()];
+        }
+
+        const auto hasFixedSpatialTiling = llvm::any_of(candidateSplit, [](const auto& item) {
+            return item.second.has_value() && VPU::VF::v2::isSpatialDim(item.first);
+        });
+        // The C entry being searched is nullopt in candidateSplit. Keep Conv's original C tile count as the
+        // baseline; without fixed spatial tiling, preserve the largest existing C count across the matched VFs.
+        // A smaller starting point can miss a pipelined schedule because the range search skips some tile counts.
+        return hasFixedSpatialTiling ? convChannelTiles : maxExistingChannelTiles;
     };
 
     const auto maxNumCalc = [&vfConfig](Dim dim, const VPU::VF::v2::VFSplit&) {
         return VPU::VF::v2::getTilingLimit(dim, vfConfig);
     };
-
-    auto split = VPU::VF::v2::getVFTilingSplit(tiling);
-    auto tiledOnSpatialDim = llvm::any_of(split, [](auto& item) {
-        return item.second.has_value() && VPU::VF::v2::isSpatialDim(item.first);
-    });
-    if (!tiledOnSpatialDim) {
-        return std::nullopt;
-    }
 
     split[Dims4D::Act::C] = std::nullopt;
     auto vfCase = VPU::VF::v2::findBestVFCaseFromSplits(vfConfig, {split}, minNumCalc, maxNumCalc, costFunction, false,
@@ -395,14 +385,14 @@ std::optional<VPU::VF::v2::VFCase> DynamicDequantConvVFPattern::buildVFCase(
                                                   /*checkWorkloadEfficiency=*/true);
 
     auto vfSchedulingChecks = VPU::VF::v2::getSchedulingScenarios(vfConfig, log, costMode);
-    const auto adjustedMinNumCalc = [&](Dim dim, const VPU::VF::v2::VFSplit&) {
+    const auto adjustedMinNumCalc = [&baseTiling](Dim dim, const VPU::VF::v2::VFSplit&) {
         return baseTiling[dim.ind()];
     };
-    const auto adjustedMaxNumCalc = [&](Dim dim, const VPU::VF::v2::VFSplit&) {
+    const auto adjustedMaxNumCalc = [&maxNumTiles](Dim dim, const VPU::VF::v2::VFSplit&) {
         return maxNumTiles[dim.ind()];
     };
 
-    const auto filterDynamicDequantConvCMXOverflow = [&](Dim dim, const VPU::VF::v2::VFSplit& candidateSplit) {
+    const auto filterDynamicDequantConvCMXOverflow = [&, log](Dim dim, const VPU::VF::v2::VFSplit& candidateSplit) {
         auto candidate = VPU::VF::v2::getVFCaseWithTiling(vfConfig, dim, candidateSplit, adjustedMinNumCalc,
                                                           adjustedMaxNumCalc, false, log, vfSchedulingChecks);
         return !candidate.isInitialized() ||
@@ -426,7 +416,7 @@ mlir::FailureOr<VPU::VerticalFusionOp> DynamicDequantConvVFPattern::tryMerge(
         const std::unique_ptr<VPU::LayerVPUNNCost>& costFunction, VFMergeCostMode costMode, Logger log) const {
     log.trace("DynamicDequantConvVFPattern::tryMerge start root={0}", rootOp->getLoc());
     auto convAlignmentState = getConvAlignmentState(getUniqUser(rootOp));
-    const auto restoreConvAlignmentOnFailure = [&]() {
+    const auto restoreConvAlignmentOnFailure = [convAlignmentState]() {
         if (convAlignmentState.has_value()) {
             restoreConvAlignmentState(convAlignmentState.value());
         }
@@ -448,7 +438,7 @@ mlir::FailureOr<VPU::VerticalFusionOp> DynamicDequantConvVFPattern::tryMerge(
         return mlir::failure();
     }
 
-    auto vfCase = buildVFCase(mergedOp, matchedOps->back(), costFunction, costMode, log);
+    auto vfCase = buildVFCase(mergedOp, matchedOps.value(), costFunction, costMode, log);
     if (!vfCase.has_value()) {
         log.trace("DynamicDequantConvVFPattern::tryMerge buildVFCase failed, skip fusion at {0}", mergedOp->getLoc());
         rewriter.eraseOp(mergedOp);

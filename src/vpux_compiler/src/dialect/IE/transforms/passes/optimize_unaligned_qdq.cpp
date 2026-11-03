@@ -125,8 +125,7 @@ mlir::LogicalResult UnalignedFakeQuantizeRewriter::matchAndRewrite(IE::FakeQuant
     auto newFakeQuantize = IE::FakeQuantizeOp::create(
             rewriter, oldFakeQuantize->getLoc(), oldAffineReshape.getInput(), oldFakeQuantize.getInputLow(),
             oldFakeQuantize.getInputHigh(), oldFakeQuantize.getOutputLow(), oldFakeQuantize.getOutputHigh(),
-            oldFakeQuantize.getLevelsAttr(), oldFakeQuantize.getLowFpTypeAttr(),
-            oldFakeQuantize.getAutoBroadcastAttr());
+            oldFakeQuantize.getLevelsOrLowFpTypeAttr(), oldFakeQuantize.getAutoBroadcastAttr());
     rewriter.replaceOpWithNewOp<IE::AffineReshapeOp>(oldFakeQuantize, newFakeQuantize.getOutput(),
                                                      oldAffineReshape.getDimMappingAttr(),
                                                      oldAffineReshape.getShapeValueAttr());

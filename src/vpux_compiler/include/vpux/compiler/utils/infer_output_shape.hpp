@@ -20,7 +20,10 @@ struct ShapeInfo {
     SmallVector<int64_t> bounds;
 
     int64_t rank() const;
+    // True if the upper bounds are known. An unbounded shape has none, see isUnbounded.
     bool isDynamic() const;
+    // True if a dimension is dynamic and no upper bounds are known.
+    bool isUnbounded() const;
 
     static ShapeInfo fromNDType(NDTypeInterface type);
 };
@@ -353,6 +356,18 @@ mlir::LogicalResult reifyYuvToRgbTensors(mlir::Operation* op, mlir::OpBuilder& b
                                          mlir::ReifiedRankedShapedTypeDims& reifiedReturnShapes);
 
 /**
+ * @brief Detect whether the V operand of an attention-like op is pre-transposed to [..., Ev, S].
+ *
+ * Compares the K and V sequence-length dimensions of the bounded shapes. A dimension without an upper
+ * bound (kDynamic) is unknown, not a mismatch: when a sequence dimension is unknown, V is transposed
+ * only if its last dimension is the one without an upper bound.
+ *
+ * @param kBounds         bounded shape of K
+ * @param vBounds         bounded shape of V
+ */
+bool isAttentionVTransposed(ShapeRef kBounds, ShapeRef vBounds);
+
+/**
  * @brief Infer attention-like output shape with bounded type support.
  *
  * Common logic for IE::SDPAOp, IE::AttentionOp, and IE::AttentionDMAOp.
@@ -373,11 +388,41 @@ void inferAttentionOutputShapeComponents(mlir::MLIRContext* ctx, mlir::Value inp
                                          mlir::Attribute& outEncoding, mlir::Type& outElementType);
 
 /**
- * @brief Reify attention-like output shape from Q and V inputs.
+ * @brief Infer attention-like output shape components, returning the bounds as raw values.
  *
- * Output shape = Q dims [0..rank-2] + V last dim.
+ * @param inputQ          Q input value (provides the leading dims)
+ * @param inputK          K input value (used for transposition detection)
+ * @param inputV          V input value (provides the embedding dim)
+ * @param outShape        [out] output shape (may contain kDynamic entries)
+ * @param outBounds       [out] per-dimension upper bounds; empty if the output is static or unbounded
+ * @param outElementType  [out] element type of the output
  */
-mlir::LogicalResult reifyAttentionResultShape(mlir::OpBuilder& builder, mlir::Value inputQ, mlir::Value inputV,
-                                              mlir::Location loc,
+void inferAttentionOutputShapeAndBounds(mlir::Value inputQ, mlir::Value inputK, mlir::Value inputV,
+                                        SmallVector<int64_t>& outShape, SmallVector<int64_t>& outBounds,
+                                        mlir::Type& outElementType);
+
+/**
+ * @brief Reify attention-like output shape from Q, K and V inputs.
+ *
+ * Output shape = Q dims [0..rank-2] + the V embedding dim: the last V dim, or the last but one when V is
+ * pre-transposed to [..., Ev, S] (see isAttentionVTransposed).
+ */
+mlir::LogicalResult reifyAttentionResultShape(mlir::OpBuilder& builder, mlir::Value inputQ, mlir::Value inputK,
+                                              mlir::Value inputV, mlir::Location loc,
                                               mlir::ReifiedRankedShapedTypeDims& reifiedReturnShapes);
+
+/**
+ * @brief Infers TopK output shape info. Negative `axis` is counted from the end.
+ *
+ * K is taken from the `kValue` operand (constant) or `kValueAttr`. Output is dynamic if the input is dynamic or K is
+ * a non-constant operand (runtime K).
+ * Bounds are empty for a static output; otherwise they equal the input bounds,
+ * with the axis bound replaced by `k` when known.
+ * An unbounded input gives an unbounded output, or a static one if a known `k` replaces its only unbounded dim.
+ *
+ * @return failure (reported at `loc`) if both K sources are missing, `axis` is out of range or a known K is not
+ * positive
+ */
+mlir::FailureOr<ShapeInfo> inferTopKOutputShapeInfo(const ShapeInfo& inShapeInfo, int64_t axis, mlir::Value kValue,
+                                                    mlir::IntegerAttr kValueAttr, mlir::Location loc);
 }  // namespace vpux

@@ -23,7 +23,6 @@
 using namespace intel_npu::vm;
 
 namespace {
-
 result_t success() {
     return ZE_RESULT_SUCCESS;
 }
@@ -39,8 +38,8 @@ result_t failure(result_t errorCode, const std::string& format, Args... args) {
     return errorCode;
 }
 
-int32_t setArguments(uint64_t index, const BufferMapperItem& desc, ze_graph_handle_t graphHandle,
-                     ze_graph_dditable_ext_t* ddiTableHandle, bool supportsDynamicStrides) {
+int32_t setArguments(uint32_t index, const BufferMapperItem& desc, ze_graph_handle_t graphHandle,
+                     ze_graph_dditable_ext_t* graphDdiTable, bool supportsDynamicStrides) {
     ze_result_t result = ZE_RESULT_SUCCESS;
 
     auto buffer = desc.first;
@@ -80,9 +79,9 @@ int32_t setArguments(uint64_t index, const BufferMapperItem& desc, ze_graph_hand
             }
             tensorValue.pNext = static_cast<void*>(&tensorStrides);
         }
-        result = ddiTableHandle->pfnSetArgumentValue2(graphHandle, index, &tensorValue);
+        result = graphDdiTable->pfnSetArgumentValue2(graphHandle, index, &tensorValue);
     } else {
-        result = ddiTableHandle->pfnSetArgumentValue(graphHandle, index, address);
+        result = graphDdiTable->pfnSetArgumentValue(graphHandle, index, address);
     }
 
     NPU_VM_LOG_TRACE("setArguments index={}, address={}, buffer={}, metadata={}, elemByteSize={}, "
@@ -92,106 +91,140 @@ int32_t setArguments(uint64_t index, const BufferMapperItem& desc, ze_graph_hand
     return result;
 }
 
-result_t createCmdList(ze_context_handle_t context, ze_device_handle_t device, uint32_t groupOrdinal,
-                       ze_command_list_handle_t& handle) {
-    ze_mutable_command_list_exp_desc_t mutable_desc = {ZE_STRUCTURE_TYPE_MUTABLE_COMMAND_LIST_EXP_DESC, nullptr, 0};
-    ze_command_list_desc_t desc = {ZE_STRUCTURE_TYPE_COMMAND_LIST_DESC, &mutable_desc, groupOrdinal, 0};
-    return zeCommandListCreate(context, device, &desc, &handle);
+template <typename CmdListCreateImmediateT>
+result_t createImmediateCmdList(ze_context_handle_t context, ze_device_handle_t device, uint32_t groupOrdinal,
+                                CmdListCreateImmediateT cmdListCreateFunc, ze_command_list_handle_t& handle) {
+    // currently, it is an experimental feature.
+    // Use specified command queue configuration will be ignored,
+    // and the command queue will be created with default configuration.
+    const ze_command_queue_mode_t mode = ZE_COMMAND_QUEUE_MODE_ASYNCHRONOUS;
+    const ze_command_queue_priority_t priority = ZE_COMMAND_QUEUE_PRIORITY_NORMAL;
+    ze_command_queue_desc_t queueDesc = {
+            ZE_STRUCTURE_TYPE_COMMAND_QUEUE_DESC, nullptr, groupOrdinal, 0, /*flags*/ 0, mode, priority};
+    return cmdListCreateFunc(context, device, &queueDesc, &handle);
 }
 
 }  // namespace
 
 namespace intel_npu::vm {
+result_t ExecutionContext::EventPool::initialize(ze_device_handle_t deviceHandle, ze_context_handle_t context,
+                                                 uint32_t cmdListCount, ExecutionContext::ExecutionMode executionMode,
+                                                 bool isCounterBasedEventSupported, bool hostSyncWithEventRequired,
+                                                 uint32_t concurrentJobCount) {
+    _device = deviceHandle;
+    _context = context;
+    _hostSyncWithEventRequired = hostSyncWithEventRequired;
+    _executionMode = executionMode;
 
-result_t ExecutionContext::CmdListPool::initialize(uint32_t cmdListCount, ze_context_handle_t context,
-                                                   ze_device_handle_t device, uint32_t groupOrdinal) {
-    for (uint32_t i = 0; i < _cmdLists.size(); ++i) {
-        if (_cmdLists.at(i) != nullptr) {
-            auto result = zeCommandListDestroy(_cmdLists.at(i));
-            if (result != ZE_RESULT_SUCCESS) {
-                return failure(result, "Failed to destroy command lists");
-            }
-        }
-    }
+    // counter based event will be used only for TILE_AGNOSTIC execution mode
+    _eventType = (isCounterBasedEventSupported && executionMode != ExecutionMode::TILE_BOUND)
+                         ? EventPool::EventType::COUNTER_BASED
+                         : EventPool::EventType::DEFAULT;
 
-    _cmdLists.resize(cmdListCount, nullptr);
-    for (uint32_t i = 0; i < cmdListCount; ++i) {
-        auto result = ::createCmdList(context, device, groupOrdinal, _cmdLists.at(i));
-        if (result != ZE_RESULT_SUCCESS) {
-            return failure(result, "Failed to create a fence");
-        }
-    }
+    _eventResetRequired = (_eventType == EventType::COUNTER_BASED) ? false : true;
 
-    return success();
-}
+    // event will be used for host sync, so need to create an additional event
+    auto eventCount = [&]() -> uint32_t {
+        uint32_t eventCount = hostSyncWithEventRequired ? 1 : 0;
 
-void ExecutionContext::CmdListPool::destroy() {
-    for (auto cmdList : _cmdLists) {
-        if (cmdList != nullptr) {
-            auto result = zeCommandListDestroy(cmdList);
-            if (result != ZE_RESULT_SUCCESS) {
-                NPU_VM_LOG_ERROR("Failed to destroy command list during move assignment");
-            }
-        }
-    }
-    _cmdLists.clear();
-}
+        // if counter based event is supported, we only need one signal event per subgraph
+        // as the target count will increase for each signal event set
+        uint32_t synEventCountPerSubgraph = (_eventType == EventType::COUNTER_BASED) ? 1 : concurrentJobCount;
 
-result_t ExecutionContext::createCmdList(ze_command_list_handle_t& cmdListhandle) {
-    uint32_t currentCmdListIndex = _nextCmdListIndex;
-
-    // If the concurrent job count is greater than 1,
-    // we need to create multiple command lists for concurrent execution.
-    for (uint32_t i = 0; i < _concurrentJobCount; ++i) {
-        // The round index is used internally to determine which command list
-        // to use for the current execution
-        auto handle = getCmdList(currentCmdListIndex);
-        if (handle != nullptr) {
-            // stores it to the recorded command lists for reuse in future executions
-            // when no tensor shape changes are detected and the recorded command lists
-            // can be reused for execution.
-            _recordedCommandLists.push_back(handle);
+        if (_eventType == EventPool::EventType::DEFAULT && !_hostSyncWithEventRequired) {
+            // if there is one subgraph, no sync event is required
+            eventCount += (cmdListCount > 1) ? (cmdListCount - 1) * synEventCountPerSubgraph : 0;
         } else {
-            return ZE_RESULT_ERROR_INVALID_NULL_HANDLE;
+            eventCount += cmdListCount * synEventCountPerSubgraph;
+        }
+
+        return eventCount;
+    }();
+
+    auto createCounterBasedEvents = [&]() -> result_t {
+#if defined(_WIN32)
+        ze_event_pool_counter_based_exp_flags_t flag = ZE_EVENT_POOL_COUNTER_BASED_EXP_FLAG_NON_IMMEDIATE;
+
+        ze_event_counter_based_desc_t desc = {ZE_STRUCTURE_TYPE_EVENT_COUNTER_BASED_DESC, nullptr, flag, 0, 0};
+
+        for (uint32_t i = 0; i < eventCount; i++) {
+            auto result = zeEventCounterBasedCreate(context, deviceHandle, &desc, &_events.at(i));
+            if (result != ZE_RESULT_SUCCESS) {
+                return failure(result, "Failed to create event");
+            }
+        }
+#else
+        return failure(ZE_RESULT_ERROR_UNSUPPORTED_FEATURE, "Failed to create a counter based event");
+#endif
+        return ZE_RESULT_SUCCESS;
+    };
+
+    auto createEvents = [&]() -> result_t {
+        uint32_t eventPoolSize = eventCount;
+        ze_event_pool_desc_t eventPoolDesc = {ZE_STRUCTURE_TYPE_EVENT_POOL_DESC, nullptr,
+                                              ZE_EVENT_POOL_FLAG_HOST_VISIBLE, eventPoolSize};
+
+        auto result = zeEventPoolCreate(context, &eventPoolDesc, /*numDevices*/ 1, &deviceHandle, &_eventPool);
+        if (result != ZE_RESULT_SUCCESS) {
+            return failure(result, "Failed to create event pool for execution context");
+        }
+
+        for (uint32_t i = 0; i < eventCount; i++) {
+            ze_event_desc_t eventDesc = {ZE_STRUCTURE_TYPE_EVENT_DESC, nullptr, i, 0, 0};
+            auto result = zeEventCreate(_eventPool, &eventDesc, &_events.at(i));
+            if (result != ZE_RESULT_SUCCESS) {
+                return failure(result, "Failed to create event");
+            }
+        }
+        return ZE_RESULT_SUCCESS;
+    };
+
+    result_t result = ZE_RESULT_SUCCESS;
+    if (eventCount > 0) {
+        _events.resize(eventCount);
+        if (_eventType == EventType::COUNTER_BASED) {
+            result = createCounterBasedEvents();
+        } else {
+            result = createEvents();
         }
     }
-    // updates the current command list index to the next command list index
-    _currentCmdListIndex = _nextCmdListIndex;
 
-    if (_concurrentJobCount > 1) {
-        // return nullptr here
-        // the caller should use getCmdList() to get the command list handle for execution
-        cmdListhandle = nullptr;
-    } else {
-        cmdListhandle = _recordedCommandLists.at(_currentCmdListIndex);
-    }
-
-    // increases the next command list index
-    _nextCmdListIndex += _concurrentJobCount;
-    return success();
+    return result;
 }
 
-ze_event_handle_t ExecutionContext::getSignalEvent() {
+ze_event_handle_t ExecutionContext::EventPool::getSignalEvent() {
     if (_events.empty()) {
         return nullptr;
     }
 
     if (_curEventIndex < _events.size()) {
-        ze_event_handle_t eventHandle = _events.at(_curEventIndex++);
+        ze_event_handle_t eventHandle = _events.at(_curEventIndex);
 
-        if (_signalEventsArrayIndex >= _signalEvents.size()) {
+        if (_signalEventsArrayIndex == _signalEvents.size()) {
             _signalEvents.push_back(std::vector<ze_event_handle_t>());
+        } else if (_signalEventsArrayIndex > _signalEvents.size()) {
+            _signalEvents.resize(_signalEventsArrayIndex + 1);
         }
 
-        // stores the signal event handle to the signal events array for synchronization
-        _signalEvents[_signalEventsArrayIndex].push_back(eventHandle);
+        if (_eventType == EventType::DEFAULT) {
+            _curEventIndex++;
+
+            // stores the signal event handle to the signal events array for synchronization
+            _signalEvents[_signalEventsArrayIndex].push_back(eventHandle);
+        } else {
+            // note that for counter based events, we don't need to increase the event index
+            // as the target count will be increased for each signal event set
+            if (_signalEvents[_signalEventsArrayIndex].size() == 0) {
+                _signalEvents[_signalEventsArrayIndex].push_back(eventHandle);
+            }
+        }
         return eventHandle;
     }
 
     return nullptr;
 }
 
-std::vector<ze_event_handle_t>& ExecutionContext::getWaitEvents() {
+std::vector<ze_event_handle_t>& ExecutionContext::EventPool::getWaitEvents() {
     if (_signalEventsArrayIndex == 1) {
         if (_signalEventsArrayIndex >= _signalEvents.size()) {
             _signalEvents.push_back(std::vector<ze_event_handle_t>());
@@ -207,12 +240,19 @@ std::vector<ze_event_handle_t>& ExecutionContext::getWaitEvents() {
     return _signalEvents.back();
 }
 
-void ExecutionContext::destroySyncObjects() {
-    // Release currently owned resources (if any)
+bool ExecutionContext::EventPool::destroy() {
+    bool success = true;
     for (auto& event : _events) {
+        if (event == nullptr) {
+            continue;
+        }
+
         auto result = zeEventDestroy(event);
         if (result != ZE_RESULT_SUCCESS) {
-            NPU_VM_LOG_ERROR("Failed to destroy event during move assignment");
+            NPU_VM_LOG_ERROR("Failed to destroy event during destruction: {}", result);
+            success = false;
+        } else {
+            event = nullptr;
         }
     }
     _events.clear();
@@ -220,148 +260,176 @@ void ExecutionContext::destroySyncObjects() {
     if (_eventPool != nullptr) {
         auto result = zeEventPoolDestroy(_eventPool);
         if (result != ZE_RESULT_SUCCESS) {
-            NPU_VM_LOG_ERROR("Failed to destroy event pool during move assignment");
+            NPU_VM_LOG_ERROR("Failed to destroy event pool during destruction: {}", result);
+            success = false;
+        } else {
+            _eventPool = nullptr;
         }
-        _eventPool = nullptr;
+    }
+
+    return success;
+}
+
+result_t ExecutionContext::CmdListPool::createCmdList(ze_context_handle_t context, ze_device_handle_t device,
+                                                      uint32_t groupOrdinal, ze_command_list_handle_t& handle) {
+    ze_mutable_command_list_exp_desc_t mutable_desc = {ZE_STRUCTURE_TYPE_MUTABLE_COMMAND_LIST_EXP_DESC, nullptr, 0};
+    ze_command_list_desc_t desc = {ZE_STRUCTURE_TYPE_COMMAND_LIST_DESC, &mutable_desc, groupOrdinal, 0};
+
+    return zeCommandListCreate(context, device, &desc, &handle);
+}
+
+result_t ExecutionContext::CmdListPool::initialize(ze_context_handle_t context, ze_device_handle_t device,
+                                                   uint32_t cmdListCount, uint32_t groupOrdinal) {
+    for (uint32_t i = 0; i < _cmdLists.size(); ++i) {
+        if (_cmdLists.at(i) != nullptr) {
+            auto result = zeCommandListDestroy(_cmdLists.at(i));
+            if (result != ZE_RESULT_SUCCESS) {
+                return failure(result, "Failed to destroy command lists");
+            } else {
+                _cmdLists.at(i) = nullptr;
+            }
+        }
+    }
+    _cmdLists.clear();
+
+    _groupOrdinal = groupOrdinal;
+    _context = context;
+    _device = device;
+    _cmdLists.resize(cmdListCount, nullptr);
+
+    for (uint32_t i = 0; i < _cmdLists.size(); ++i) {
+        auto result = createCmdList(context, device, groupOrdinal, _cmdLists.at(i));
+        if (result != ZE_RESULT_SUCCESS) {
+            return failure(result, "Failed to create a command list");
+        }
+    }
+
+    return success();
+}
+
+bool ExecutionContext::CmdListPool::destroy() {
+    bool success = true;
+    for (auto cmdList : _cmdLists) {
+        if (cmdList != nullptr) {
+            auto result = zeCommandListDestroy(cmdList);
+            if (result != ZE_RESULT_SUCCESS) {
+                NPU_VM_LOG_ERROR("Failed to destroy command list during destruction: {}", result);
+                success = false;
+            }
+        }
+    }
+    _cmdLists.clear();
+
+    return success;
+}
+
+result_t ExecutionContext::createCmdList(ze_command_list_handle_t& cmdListHandle) {
+    switch (_executionMode) {
+    case ExecutionMode::TILE_AGNOSTIC_ROUND_ROBIN_CMDLIST:
+    case ExecutionMode::TILE_BOUND: {
+        // reset the round index to 0 for the next execution
+        _cmdListRoundIndex = 0;
+
+        uint32_t currentCmdListIndex = _nextCmdListIndex;
+        // If the concurrent job count is greater than 1,
+        // we need to create multiple command lists for concurrent execution.
+        for (uint32_t i = 0; i < _concurrentJobCount; ++i) {
+            // The round index is used internally to determine which command list
+            // to use for the current execution
+            auto handle = getCmdList(currentCmdListIndex);
+            if (handle == nullptr) {
+                return ZE_RESULT_ERROR_INVALID_NULL_HANDLE;
+            }
+
+            // reset cmdlists for V2 execution context,
+            // as they are created internally and need to be reset
+            if (_executionContextType == ExecutionContextType::V2) {
+                auto result = zeCommandListReset(handle);
+                if (result != ZE_RESULT_SUCCESS) {
+                    return failure(result, "Failed to reset command list");
+                }
+            }
+        }
+
+        // updates the current command list index to the next command list index
+        _currentCmdListIndex = _nextCmdListIndex;
+
+        if (_concurrentJobCount > 1) {
+            // return nullptr here
+            // the caller should use getCmdList() to get the command list handle for execution
+            cmdListHandle = nullptr;
+
+            // specifies that all command lists in the current group have not been used for execution
+            _allCmdListsUsedInGroup = false;
+        } else {
+            cmdListHandle = getCmdList(_currentCmdListIndex);
+        }
+
+        // increases the next command list index
+        _nextCmdListIndex += _concurrentJobCount;
+        break;
+    }
+    }
+
+    return success();
+}
+
+bool ExecutionContext::destroySyncObjects() {
+    bool success = true;
+    if (!_eventPool.destroy()) {
+        success = false;
     }
 
     if (_internalHostSyncObjectType == HostSyncOjbectType::FENCE && _hostSyncFence != nullptr) {
         auto result = zeFenceDestroy(_hostSyncFence);
         if (result != ZE_RESULT_SUCCESS) {
-            NPU_VM_LOG_ERROR("Failed to destroy host sync fence during destruction");
+            NPU_VM_LOG_ERROR("Failed to destroy host sync fence during destruction: {}", result);
+            success = false;
+        } else {
+            _hostSyncFence = nullptr;
         }
-        _hostSyncFence = nullptr;
     }
-}
 
-ExecutionContext::ExecutionContext(ExecutionContext&& other) noexcept
-        : _nextCmdListIndex(other._nextCmdListIndex),
-          _currentCmdListIndex(other._currentCmdListIndex),
-          _cmdListRoundIndex(other._cmdListRoundIndex),
-          _cmdListCount(other._cmdListCount),
-          _concurrentJobCount(other._concurrentJobCount),
-          _curEventIndex(other._curEventIndex),
-          _events(std::move(other._events)),
-          _eventPool(other._eventPool),
-          _inferenceCmdIds(std::move(other._inferenceCmdIds)),
-          _executionContextType(other._executionContextType),
-          _executionMode(other._executionMode),
-          _internalHostSyncObjectType(other._internalHostSyncObjectType),
-          _hostSyncFence(other._hostSyncFence),
-          _hostSyncEvent(other._hostSyncEvent),
-          _executeParamsV1(other._executeParamsV1),
-          _executeParamsV2(other._executeParamsV2),
-          _recordedCommandLists(std::move(other._recordedCommandLists)),
-          _signalEventsArrayIndex(other._signalEventsArrayIndex),
-          _context(other._context),
-          _device(other._device),
-          _commandQueue(other._commandQueue),
-          _graphDdiTable(other._graphDdiTable),
-          _commandQueueDdiTableExt(other._commandQueueDdiTableExt),
-          _executionObjectsInitialized(other._executionObjectsInitialized),
-          _optimizedDynamicStridesSupported(other._optimizedDynamicStridesSupported),
-          _recordedCmdListReusable(other._recordedCmdListReusable) {
-    _cmdListPool._cmdLists = std::move(other._cmdListPool._cmdLists);
-    other._nextCmdListIndex = 0;
-    other._currentCmdListIndex = 0;
-    other._cmdListCount = 0;
-    other._eventPool = nullptr;
-    other._curEventIndex = 0;
-    other._executionObjectsInitialized = false;
-    other._optimizedDynamicStridesSupported = false;
-    other._hostSyncFence = nullptr;
-    other._hostSyncEvent = nullptr;
-    other._context = nullptr;
-    other._device = nullptr;
-    other._commandQueue = nullptr;
-    other._graphDdiTable = nullptr;
-    other._commandQueueDdiTableExt = nullptr;
-}
-
-ExecutionContext& ExecutionContext::operator=(ExecutionContext&& other) noexcept {
-    if (this != &other) {
-        _nextCmdListIndex = other._nextCmdListIndex;
-        _currentCmdListIndex = other._currentCmdListIndex;
-        _cmdListRoundIndex = other._cmdListRoundIndex;
-        _cmdListCount = other._cmdListCount;
-        _concurrentJobCount = other._concurrentJobCount;
-        destroySyncObjects();
-        _events = std::move(other._events);
-        _eventPool = other._eventPool;
-
-        _curEventIndex = other._curEventIndex;
-        _executionObjectsInitialized = other._executionObjectsInitialized;
-        _inferenceCmdIds = std::move(other._inferenceCmdIds);
-        _optimizedDynamicStridesSupported = other._optimizedDynamicStridesSupported;
-        _recordedCmdListReusable = other._recordedCmdListReusable;
-        _cmdListPool.destroy();
-        _cmdListPool._cmdLists = std::move(other._cmdListPool._cmdLists);
-        _internalHostSyncObjectType = other._internalHostSyncObjectType;
-        _hostSyncFence = other._hostSyncFence;
-        _hostSyncEvent = other._hostSyncEvent;
-        _executeParamsV1 = other._executeParamsV1;
-        _executeParamsV2 = other._executeParamsV2;
-        _executionContextType = other._executionContextType;
-        _executionMode = other._executionMode;
-        _recordedCommandLists = std::move(other._recordedCommandLists);
-        _signalEventsArrayIndex = other._signalEventsArrayIndex;
-        _context = other._context;
-        _device = other._device;
-        _commandQueue = other._commandQueue;
-        _graphDdiTable = other._graphDdiTable;
-        _commandQueueDdiTableExt = other._commandQueueDdiTableExt;
-        _executeParamsV1 = other._executeParamsV1;
-        _executeParamsV2 = other._executeParamsV2;
-        _executionContextType = other._executionContextType;
-        _executionMode = other._executionMode;
-
-        _context = other._context;
-        _device = other._device;
-        _commandQueue = other._commandQueue;
-        _graphDdiTable = other._graphDdiTable;
-        _commandQueueDdiTableExt = other._commandQueueDdiTableExt;
-
-        other._nextCmdListIndex = 0;
-        other._cmdListCount = 0;
-        other._eventPool = nullptr;
-        other._curEventIndex = 0;
-        other._executionObjectsInitialized = false;
-        other._optimizedDynamicStridesSupported = false;
-
-        other._hostSyncFence = nullptr;
-        other._hostSyncEvent = nullptr;
-
-        other._context = nullptr;
-        other._device = nullptr;
-        other._commandQueue = nullptr;
-        other._graphDdiTable = nullptr;
-        other._commandQueueDdiTableExt = nullptr;
-    }
-    return *this;
+    return success;
 }
 
 ExecutionContext::~ExecutionContext() {
-    destroySyncObjects();
+    (void)destroySyncObjects();
+    if (!_cmdListPool.destroy()) {
+        NPU_VM_LOG_ERROR("Failed to destroy command list pool during execution context destruction");
+    }
 }
 
-void ExecutionContext::initialize(ExecutionContextType type, uint32_t cmdListCount, uint32_t /*numNetworkArgs*/,
-                                  size_t concurrentJobCount) {
+bool ExecutionContext::initialize(ExecutionContextType type, uint32_t cmdListCount, uint32_t /*numNetworkArgs*/,
+                                  uint32_t concurrentJobCount, bool isCounterBasedEventSupported) {
+    _executionObjectsInitialized = false;
+
     // release resources
-    destroySyncObjects();
-    _cmdListPool.destroy();
+    if (!destroySyncObjects()) {
+        NPU_VM_LOG_ERROR("Failed to destroy sync objects during execution context initialization");
+        return false;
+    }
+    if (!_cmdListPool.destroy()) {
+        NPU_VM_LOG_ERROR("Failed to destroy command list pool during execution context initialization");
+        return false;
+    }
 
     _executionContextType = type;
     _cmdListCount = cmdListCount;
     _concurrentJobCount = concurrentJobCount;
-    _executionMode = (_concurrentJobCount > 1) ? ExecutionMode::TILE_AGNOSTIC : ExecutionMode::TILE_BOUND;
+    _executionMode =
+            (_concurrentJobCount > 1) ? ExecutionMode::TILE_AGNOSTIC_ROUND_ROBIN_CMDLIST : ExecutionMode::TILE_BOUND;
+    _isCounterBasedEventSupported = isCounterBasedEventSupported;
+
+    return true;
 }
 
 result_t ExecutionContext::initializeExecutionObjects(ze_context_handle_t context, ze_device_handle_t device,
                                                       ze_command_queue_handle_t commandQueue,
-                                                      ze_graph_dditable_ext_t* ddiTable,
+                                                      ze_graph_dditable_ext_t* graphDdiTable,
                                                       ze_command_queue_npu_dditable_ext_t* cmdQueueDdiTable,
-                                                      bool /*useInternalCmdQueue*/) {
-    if (ddiTable == nullptr) {
+                                                      [[maybe_unused]] bool useInternalCmdQueue) {
+    if (graphDdiTable == nullptr) {
         return failure(ZE_RESULT_ERROR_INVALID_NULL_POINTER, "Invalid null pointer for ddi table");
     }
     if (device == nullptr) {
@@ -369,12 +437,12 @@ result_t ExecutionContext::initializeExecutionObjects(ze_context_handle_t contex
     }
 
     _optimizedDynamicStridesSupported =
-            (ddiTable->pfnCompilerIsOptionSupported != nullptr) &&
-            (ddiTable->pfnCompilerIsOptionSupported(device, ZE_NPU_DRIVER_OPTIONS, "OPTIMIZED_DYNAMIC_STRIDES",
-                                                    nullptr) == ZE_RESULT_SUCCESS);
+            (graphDdiTable->pfnCompilerIsOptionSupported != nullptr) &&
+            (graphDdiTable->pfnCompilerIsOptionSupported(device, ZE_NPU_DRIVER_OPTIONS, "OPTIMIZED_DYNAMIC_STRIDES",
+                                                         nullptr) == ZE_RESULT_SUCCESS);
 
     // Initialize the execution context with the provided context, device, command queue, and DDI tables.
-    _graphDdiTable = ddiTable;
+    _graphDdiTable = graphDdiTable;
     _commandQueueDdiTableExt = cmdQueueDdiTable;
     _device = device;
     _context = context;
@@ -382,15 +450,7 @@ result_t ExecutionContext::initializeExecutionObjects(ze_context_handle_t contex
 
     // recorded command list can be reused for execution
     // if the tensor shapes do not change between executions
-    // If command list pool or immediate command list are used
-    // it will be false
     _recordedCmdListReusable = true;
-#if defined(VPUX_DEVELOPER_BUILD)
-    const char* envVar = std::getenv("NPU_VM_RUNTIME_FORCE_CMD_LIST_RECORDING");
-    if (envVar != nullptr) {
-        _recordedCmdListReusable = OptionParser<bool>::parse(envVar);
-    }
-#endif
 
     // Set the internal host synchronization object type based on the execution context type.
     // It should be set before creating the event pool, as the event pool creation may depend on the host sync object
@@ -400,21 +460,45 @@ result_t ExecutionContext::initializeExecutionObjects(ze_context_handle_t contex
                 (_recordedCmdListReusable) ? HostSyncOjbectType::FENCE : HostSyncOjbectType::EVENT;
     }
 
+#if defined(VPUX_DEVELOPER_BUILD)
+    // forcing command list recording should not change _internalHostSyncObjectType
+    const char* envVar = std::getenv("NPU_VM_RUNTIME_FORCE_CMD_LIST_RECORDING");
+    if (envVar != nullptr && OptionParser<bool>::parse(envVar)) {
+        _recordedCmdListReusable = false;
+    }
+#endif
+
     auto result = createEventPool(device, context);
     if (result != ZE_RESULT_SUCCESS) {
         return failure(result, "Failed to create event pool for execution context");
     }
 
     // V2 requires to create command lists and sync objects internally
+    auto initializeCmdListsAndCmdListPool = [&]() -> result_t {
+        if (_executionMode == ExecutionMode::TILE_BOUND ||
+            _executionMode == ExecutionMode::TILE_AGNOSTIC_ROUND_ROBIN_CMDLIST) {
+            auto totalCmdLists = _cmdListCount * _concurrentJobCount;
+            result = _cmdListPool.initialize(context, device, totalCmdLists, 0);
+            if (result != ZE_RESULT_SUCCESS) {
+                return failure(result, "Failed to initialize command list pool");
+            }
+            _inferenceCmdIds.assign(totalCmdLists, DEFAULT_INFERENCE_ID);
+        }
+        return ZE_RESULT_SUCCESS;
+    };
+
     if (_executionContextType == ExecutionContextType::V2) {
-        auto totalCmdLists = _cmdListCount * _concurrentJobCount;
-        _cmdListPool.initialize(totalCmdLists, context, device, 0);
-        _inferenceCmdIds.assign(totalCmdLists, DEFAULT_INFERENCE_ID);
+        if (initializeCmdListsAndCmdListPool() != ZE_RESULT_SUCCESS) {
+            return result;
+        }
+
         result = createHostSyncObject(commandQueue);
         if (result != ZE_RESULT_SUCCESS) {
             return failure(result, "Failed to create host sync object for execution context");
         }
     } else {
+        // internal command lists for V1 execution context is not required, so destroy the command list pool
+        _cmdListPool.destroy();
         _inferenceCmdIds.assign(_cmdListCount, DEFAULT_INFERENCE_ID);
     }
     _executionObjectsInitialized = true;
@@ -423,97 +507,102 @@ result_t ExecutionContext::initializeExecutionObjects(ze_context_handle_t contex
 }
 
 result_t ExecutionContext::createEventPool(ze_device_handle_t deviceHandle, ze_context_handle_t context) {
-    auto eventCount = (_cmdListCount > 1) ? (_cmdListCount - 1) * _concurrentJobCount : 0;
-    if (_internalHostSyncObjectType == HostSyncOjbectType::EVENT) {
-        // event will b used for host sync, so need to create an additional event
-        eventCount += 1;
-    }
-
-    if (eventCount > 0) {
-        ze_event_pool_desc_t eventPoolDesc = {ZE_STRUCTURE_TYPE_EVENT_POOL_DESC, nullptr,
-                                              ZE_EVENT_POOL_FLAG_HOST_VISIBLE, static_cast<uint32_t>(eventCount)};
-        auto result = zeEventPoolCreate(context, &eventPoolDesc, /*numDevices*/ 1, &deviceHandle, &_eventPool);
-        if (result != ZE_RESULT_SUCCESS) {
-            return failure(result, "Failed to create event pool for execution context");
-        }
-
-        _events.resize(eventCount);
-        for (uint32_t i = 0; i < eventCount; i++) {
-            ze_event_desc_t eventDesc = {ZE_STRUCTURE_TYPE_EVENT_DESC, nullptr, i, 0, 0};
-            result = zeEventCreate(_eventPool, &eventDesc, &_events.at(i));
-            if (result != ZE_RESULT_SUCCESS) {
-                return failure(result, "Failed to create event");
-            }
-        }
-    }
-
-    return ZE_RESULT_SUCCESS;
+    return _eventPool.initialize(deviceHandle, context, _cmdListCount, _executionMode, _isCounterBasedEventSupported,
+                                 _internalHostSyncObjectType == HostSyncOjbectType::EVENT, _concurrentJobCount);
 }
 
-result_t ExecutionContext::prepareSubmission(ze_command_list_handle_t commandListHandle, bool needHostSync) {
+result_t ExecutionContext::prepareSubmission(ze_command_list_handle_t commandListHandle, bool needHostSync,
+                                             uint32_t& cmdListCountToBeSubmitted) {
     result_t result = ZE_RESULT_SUCCESS;
+
     if (commandListHandle == nullptr) {
-        // Need to reset the command list round index to 0
-        // This is because we are starting a new submission and need to use the first command list
-        _cmdListRoundIndex = 0;
         auto cmdListIndex = getCurrentCmdListIndex();
 
         const bool hostEventSyncRequired = needHostSync && _hostSyncEvent != nullptr;
+        cmdListCountToBeSubmitted =
+                _allCmdListsUsedInGroup ? _concurrentJobCount : std::min(_cmdListRoundIndex, _concurrentJobCount);
+
         // No host sync means add sync objects to make sure that execution of the current command lists completes.
-        if ((!needHostSync || _hostSyncFence == nullptr) && _concurrentJobCount > 1) {
-            for (uint32_t i = 0; i < _concurrentJobCount; ++i) {
-                auto cmdListHandle = getCmdList(cmdListIndex);
-                if (cmdListHandle == nullptr) {
-                    return failure(ZE_RESULT_ERROR_INVALID_NULL_HANDLE, "Invalid commandListHandle for submission");
-                }
+        if (_concurrentJobCount > 1) {
+            // Need to reset the command list round index to 0
+            // This is because we are starting a new submission and need to use the first command list
+            _cmdListRoundIndex = 0;
 
-                // Need to add signal event to the command list to ensure that the host sync event is signaled
-                // after all command lists complete execution
-                auto signalEvent = getSignalEvent();
-                result = zeCommandListAppendBarrier(cmdListHandle, signalEvent, 0, nullptr);
-                if (result != ZE_RESULT_SUCCESS) {
-                    return failure(result, "Failed to append barrier to command list");
-                }
+            if (!needHostSync || _hostSyncFence == nullptr) {
+                for (uint32_t i = 0; i < cmdListCountToBeSubmitted; ++i) {
+                    auto cmdListHandle = getCmdList(cmdListIndex);
+                    if (cmdListHandle == nullptr) {
+                        return failure(ZE_RESULT_ERROR_INVALID_NULL_HANDLE, "Invalid commandListHandle for submission");
+                    }
 
-                if (!hostEventSyncRequired) {
-                    // no additional record required
-                    auto result = zeCommandListClose(cmdListHandle);
+                    // Need to add signal event to the command list to ensure that the host sync event is signaled
+                    // after all command lists complete execution
+                    auto signalEvent = _eventPool.getSignalEvent();
+                    if (signalEvent == nullptr) {
+                        return failure(ZE_RESULT_ERROR_INVALID_SIZE, "No synchronization event is available");
+                    }
+                    result = zeCommandListAppendBarrier(cmdListHandle, signalEvent, 0, nullptr);
                     if (result != ZE_RESULT_SUCCESS) {
-                        return failure(result, "Failed to zeCommandListClose");
+                        return failure(result, "Failed to append barrier to command list");
+                    }
+
+                    if (!hostEventSyncRequired) {
+                        // no additional record required
+                        auto result = zeCommandListClose(cmdListHandle);
+                        if (result != ZE_RESULT_SUCCESS) {
+                            return failure(result, "Failed to close a command list");
+                        }
                     }
                 }
-            }
 
-            // requires to add a barrier to the command lists to ensure that the host sync event is signaled
-            // after all command lists complete execution
-            if (hostEventSyncRequired) {
-                // increase the signal events array index to ensure the current submission uses
-                // a set of signal events as wait events
-                increaseSignalEventsArrayIndex();
+                // requires to add a barrier to the command lists to ensure that the host sync event is signaled
+                // after all command lists complete execution
+                if (hostEventSyncRequired) {
+                    // increase the signal events array index to ensure the current submission uses
+                    // a set of signal events as wait events
+                    _eventPool.increaseSignalEventsArrayIndex();
 
-                auto& waitEvents = getWaitEvents();
-                auto cmdListHandle = getCmdList(cmdListIndex);
-                if (cmdListHandle == nullptr) {
-                    return failure(ZE_RESULT_ERROR_INVALID_NULL_HANDLE, "Invalid commandListHandle for submission");
+                    auto& waitEvents = _eventPool.getWaitEvents();
+                    auto cmdListHandle = getCmdList(cmdListIndex);
+                    if (cmdListHandle == nullptr) {
+                        return failure(ZE_RESULT_ERROR_INVALID_NULL_HANDLE, "Invalid commandListHandle for submission");
+                    }
+
+                    result = zeCommandListAppendBarrier(cmdListHandle, _hostSyncEvent,
+                                                        static_cast<uint32_t>(waitEvents.size()), waitEvents.data());
+                    if (result != ZE_RESULT_SUCCESS) {
+                        return failure(result, "Failed to append barrier to command list");
+                    }
+
+                    result = zeCommandListClose(cmdListHandle);
+                    if (result != ZE_RESULT_SUCCESS) {
+                        return failure(result, "Failed to close a command list");
+                    }
                 }
+            } else {
+                // need to close command lists
+                for (uint32_t i = 0; i < _concurrentJobCount; ++i) {
+                    auto cmdListHandle = getCmdList(cmdListIndex);
+                    if (cmdListHandle == nullptr) {
+                        return failure(ZE_RESULT_ERROR_INVALID_NULL_HANDLE, "Invalid commandListHandle for submission");
+                    }
 
-                result =
-                        zeCommandListAppendBarrier(cmdListHandle, _hostSyncEvent, waitEvents.size(), waitEvents.data());
-                if (result != ZE_RESULT_SUCCESS) {
-                    return failure(result, "Failed to append barrier to command list");
-                }
-
-                auto result = zeCommandListClose(cmdListHandle);
-                if (result != ZE_RESULT_SUCCESS) {
-                    return failure(result, "Failed to zeCommandListClose");
+                    result = zeCommandListClose(cmdListHandle);
+                    if (result != ZE_RESULT_SUCCESS) {
+                        return failure(result, "Failed to close a command list");
+                    }
                 }
             }
         }
     } else {
+        cmdListCountToBeSubmitted = 1;
         if (!needHostSync) {
             // Need to add signal event to the command list to ensure that the host sync event is signaled
             // after all commands complete execution
-            auto signalEvent = getSignalEvent();
+            auto signalEvent = _eventPool.getSignalEvent();
+            if (signalEvent == nullptr) {
+                return failure(ZE_RESULT_ERROR_INVALID_SIZE, "No synchronization event is available");
+            }
             result = zeCommandListAppendBarrier(commandListHandle, signalEvent, 0, nullptr);
             if (result != ZE_RESULT_SUCCESS) {
                 return failure(result, "Failed to append barrier to command list");
@@ -524,13 +613,13 @@ result_t ExecutionContext::prepareSubmission(ze_command_list_handle_t commandLis
 
         auto result = zeCommandListClose(commandListHandle);
         if (result != ZE_RESULT_SUCCESS) {
-            return failure(result, "Failed to zeCommandListClose");
+            return failure(result, "Failed to close a command list");
         }
     }
 
     // increase the signal events array index to ensure the current submission uses
     // a set of signal events as wait events
-    increaseSignalEventsArrayIndex();
+    _eventPool.increaseSignalEventsArrayIndex();
 
     return result;
 }
@@ -566,11 +655,11 @@ result_t createKernel(ExecutionContext& executionContext, uint8_t* kernelBlob, s
                               nullptr /* build flag */,
                               flag};
 
-    auto ddiTableHandle = executionContext.getGraphDdiTable();
+    auto graphDdiTable = executionContext.getGraphDdiTable();
     auto context = executionContext.getContext();
     auto device = executionContext.getDevice();
 
-    if (ddiTableHandle == nullptr) {
+    if (graphDdiTable == nullptr) {
         return failure(ZE_RESULT_ERROR_INVALID_NULL_POINTER, "Invalid null pointer for graph ddi table");
     }
     if (context == nullptr) {
@@ -580,7 +669,7 @@ result_t createKernel(ExecutionContext& executionContext, uint8_t* kernelBlob, s
         return failure(ZE_RESULT_ERROR_INVALID_NULL_POINTER, "Invalid null pointer for device");
     }
 
-    auto pfnCreate = ddiTableHandle->pfnCreate2;
+    auto pfnCreate = graphDdiTable->pfnCreate2;
     auto result = pfnCreate(context, device, &desc, &graphHandle);
     if (result != ZE_RESULT_SUCCESS) {
         return failure(result, "Failed to create graph, kern: {}, size: {}", kernelBlob, kernelBlobSize);
@@ -588,7 +677,7 @@ result_t createKernel(ExecutionContext& executionContext, uint8_t* kernelBlob, s
 
     ze_graph_properties_t props{};
     props.stype = ZE_STRUCTURE_TYPE_GRAPH_PROPERTIES;
-    result = ddiTableHandle->pfnGetProperties(graphHandle, &props);
+    result = graphDdiTable->pfnGetProperties(graphHandle, &props);
     if (result != ZE_RESULT_SUCCESS) {
         return failure(result, "Failed to get graph properties");
     }
@@ -604,7 +693,7 @@ result_t createKernel(ExecutionContext& executionContext, uint8_t* kernelBlob, s
 
         ze_graph_argument_property_strides_t strides{ZE_STRUCTURE_TYPE_GRAPH_ARGUMENT_PROPERTY_STRIDES, nullptr, false};
         arg3.pNext = static_cast<void*>(&strides);
-        result = ddiTableHandle->pfnGetArgumentProperties3(graphHandle, index, &arg3);
+        result = graphDdiTable->pfnGetArgumentProperties3(graphHandle, index, &arg3);
         if (result != ZE_RESULT_SUCCESS) {
             return failure(result, "Failed to get properties of arg: {}, kern: {}, size: {}", index, kernelBlob,
                            kernelBlobSize);
@@ -691,15 +780,22 @@ result_t setBindings(ExecutionContext& executionContext, ze_graph_handle_t graph
 
 result_t executeGraph(ExecutionContext& executionContext, ze_command_list_handle_t commandListHandle,
                       ze_graph_handle_t graphHandle, void* kernelName) {
+    auto executionMode = executionContext.getExecutionMode();
+
     if (graphHandle == nullptr) {
         return failure(ZE_RESULT_ERROR_INVALID_NULL_HANDLE, "Invalid graph handle");
     }
 
-    auto ddiTableHandle = executionContext.getGraphDdiTable();
+    auto graphDdiTable = executionContext.getGraphDdiTable();
     auto cmdListIndex = executionContext.getCurrentCmdListIndex();
-
+    auto cmdListRoundIndex = executionContext.getCmdListRoundIndex();
     if (commandListHandle == nullptr) {
         commandListHandle = executionContext.getCmdList(cmdListIndex);
+    }
+    if (executionMode == ExecutionContext::ExecutionMode::TILE_AGNOSTIC_ROUND_ROBIN_CMDLIST) {
+        // actually, the command list index is the round robin index, so we need to add the round index to get the
+        // actual command list index
+        cmdListIndex += cmdListRoundIndex;
     }
 
     if (kernelName == nullptr) {
@@ -709,8 +805,9 @@ result_t executeGraph(ExecutionContext& executionContext, ze_command_list_handle
                          static_cast<const char*>(kernelName), graphHandle, commandListHandle, &executionContext);
     }
 
-    ze_pfnAppendGraphExecute_ext_t pfnAppendGraphExecute = ddiTableHandle->pfnAppendGraphExecute;
-    std::vector<ze_event_handle_t>& waitEvents = executionContext.getWaitEvents();
+    ze_pfnAppendGraphExecute_ext_t pfnAppendGraphExecute = graphDdiTable->pfnAppendGraphExecute;
+    auto& eventPool = executionContext.getEventPool();
+    std::vector<ze_event_handle_t>& waitEvents = eventPool.getWaitEvents();
     auto& inferenceCmdIds = executionContext.getInferenceCmdIds();
     const auto inferenceCmdCount = inferenceCmdIds.size();
     bool waitSyncRequired = false;
@@ -731,16 +828,22 @@ result_t executeGraph(ExecutionContext& executionContext, ze_command_list_handle
     if (waitSyncRequired == true) {
         result = pfnAppendGraphExecute(commandListHandle, graphHandle, nullptr, nullptr, waitEvents.size(),
                                        waitEvents.data());
+        if (result != ZE_RESULT_SUCCESS) {
+            return failure(result, "Failed to append graph execute in command list: {}, kern: {}, numWaits: {}",
+                           commandListHandle, graphHandle, waitEvents.size());
+        }
         if (executionContext.getConcurrentJobCount() == 1 && waitEvents.size() == 1) {
             result = zeCommandListAppendEventReset(commandListHandle, waitEvents[0]);
+            if (result != ZE_RESULT_SUCCESS) {
+                return failure(result, "Failed to append an event reset in command list: {}", commandListHandle);
+            }
         }
     } else {
         result = pfnAppendGraphExecute(commandListHandle, graphHandle, nullptr, nullptr, 0, nullptr);
-    }
-
-    if (result != ZE_RESULT_SUCCESS) {
-        return failure(result, "Failed to append graph execute in command list: {}, kern: {}, numWaits: {}",
-                       commandListHandle, graphHandle, waitEvents.size());
+        if (result != ZE_RESULT_SUCCESS) {
+            return failure(result, "Failed to append graph execute in command list: {}, kern: {}, numWaits: {}",
+                           commandListHandle, graphHandle, waitEvents.size());
+        }
     }
 
     executionContext.increaseInferenceCmdId(cmdListIndex);
@@ -771,28 +874,55 @@ result_t submitCmdList(ExecutionContext& executionContext, ze_command_list_handl
     NPU_VM_LOG_TRACE("Submitting command list: {}, fence: {}, event: {}", commandListHandle, fence, event);
 
     // prepare for submission
-    executionContext.prepareSubmission(commandListHandle, needHostSync);
+    uint32_t cmdListCountToBeSubmitted = 0;
+    auto result = executionContext.prepareSubmission(commandListHandle, needHostSync, cmdListCountToBeSubmitted);
+    if (result != ZE_RESULT_SUCCESS) {
+        return failure(result, "Failed to prepare command list submission");
+    }
 
     auto commandQueue = executionContext.getCommandQueue();
-    auto concurrentJobCount = executionContext.getConcurrentJobCount();
+
     // note command queue is null when immediate command list is used
     if (commandQueueHandle != nullptr) {
         auto result = ZE_RESULT_SUCCESS;
         if (commandListHandle) {
             // tile bound execution will pass not null commandListHandle
             result = zeCommandQueueExecuteCommandLists(commandQueueHandle, 1, &commandListHandle, fence);
+            if (result != ZE_RESULT_SUCCESS) {
+                return failure(result,
+                               "Failed to zeCommandQueueExecuteCommandList with event: {}, fence: {}, command queue: "
+                               "{}, command "
+                               "list: {}",
+                               event, fence, commandQueue, commandListHandle);
+            }
+
+            // stores it to the recorded command lists for reuse in future executions
+            // when no tensor shape changes are detected and the recorded command lists
+            // can be reused for execution.
+            if (!executionContext.appendRecordedCmdLists(&commandListHandle, 1)) {
+                return failure(ZE_RESULT_ERROR_INVALID_NULL_POINTER,
+                               "Failed to add command lists handles to a recorded command list");
+            }
         } else {
             // tile agnostic execution will pass null commandListHandle
             // need to get the command list array from the execution context
-            result = zeCommandQueueExecuteCommandLists(commandQueueHandle, concurrentJobCount,
+            result = zeCommandQueueExecuteCommandLists(commandQueueHandle, cmdListCountToBeSubmitted,
                                                        executionContext.getCmdListArrayPtr(), fence);
-        }
-        if (result != ZE_RESULT_SUCCESS) {
-            return failure(
-                    result,
-                    "Failed to zeCommandQueueExecuteCommandList with event: {}, fence: {}, command queue: {}, command "
-                    "list: {}",
-                    event, fence, commandQueue, commandListHandle);
+            if (result != ZE_RESULT_SUCCESS) {
+                return failure(result,
+                               "Failed to zeCommandQueueExecuteCommandList with event: {}, fence: {}, command queue: "
+                               "{}, command ",
+                               event, fence, commandQueue);
+            }
+
+            // stores it to the recorded command lists for reuse in future executions
+            // when no tensor shape changes are detected and the recorded command lists
+            // can be reused for execution.
+            if (!executionContext.appendRecordedCmdLists(executionContext.getCmdListArrayPtr(),
+                                                         cmdListCountToBeSubmitted)) {
+                return failure(ZE_RESULT_ERROR_INVALID_NULL_POINTER,
+                               "Failed to add command lists handles to a recorded command list");
+            }
         }
     }
 

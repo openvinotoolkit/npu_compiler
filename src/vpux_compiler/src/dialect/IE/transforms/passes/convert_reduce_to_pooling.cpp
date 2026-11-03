@@ -23,6 +23,7 @@
 #include "vpux/compiler/utils/attributes.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 
+#include <mlir/IR/IRMapping.h>
 #include <mlir/Transforms/DialectConversion.h>
 
 namespace vpux::IE {
@@ -690,6 +691,122 @@ mlir::LogicalResult ReduceSimplifyAxesRewriter<ConcreteOp>::matchAndRewrite(Conc
 }
 
 //
+// ReduceChannelSplitRewriter
+//
+// When a Reduce op reduces over the channel axis and the remaining spatial size (W, with
+// H==1) is not a multiple of VPU_CHANNEL_ALIGNMENT, ConvertReduceToPooling's avoidExpandCase
+// optimization cannot apply and the whole tensor is left on the Pooling's W dimension. If W
+// is instead split into an aligned "bulk" (W rounded down to the nearest multiple of
+// VPU_CHANNEL_ALIGNMENT) and a small unaligned "remainder", the bulk sub-reduce becomes
+// eligible for avoidExpandCase's free-PermuteCast path, while only the (tiny) remainder
+// pays for the plain fallback. This avoids an Expand (channel pad + real data movement)
+// over the *entire* tensor merely because of a small misalignment.
+// Example: ReduceSum(1x16x1x200019, axis=1), W % 16 == 3
+//       -> Slice(W=200016) -> ReduceSum  (aligned bulk, avoidExpandCase applies)
+//       -> Slice(W=3)      -> ReduceSum  (tiny remainder, plain fallback)
+//       -> Concat on W
+//
+template <class ConcreteOp>
+class ReduceChannelSplitRewriter final : public mlir::OpRewritePattern<ConcreteOp> {
+public:
+    ReduceChannelSplitRewriter(mlir::MLIRContext* ctx, mlir::PatternBenefit benefit, Logger log,
+                               IE::ChannelAxisReductionWithDPUParentCheckerBase* checker)
+            : mlir::OpRewritePattern<ConcreteOp>(ctx, benefit), _log(log), _channelReductionChecker(checker) {
+        this->setDebugName("ReduceChannelSplitRewriter");
+    }
+
+    mlir::LogicalResult matchAndRewrite(ConcreteOp origOp, mlir::PatternRewriter& rewriter) const final;
+
+private:
+    Logger _log;
+    IE::ChannelAxisReductionWithDPUParentCheckerBase* _channelReductionChecker;
+};
+
+template <class ConcreteOp>
+mlir::LogicalResult ReduceChannelSplitRewriter<ConcreteOp>::matchAndRewrite(ConcreteOp origOp,
+                                                                            mlir::PatternRewriter& rewriter) const {
+    _log.trace("[{0}] Got Reduce layer at '{1}'", this->getDebugName(), origOp->getLoc());
+
+    // Only worth restructuring if this op is actually going to become a DPU Pooling op;
+    // otherwise there is no Expand/alignment concern to avoid.
+    if (!isValidOperationForConversion(origOp, _log, _channelReductionChecker)) {
+        return mlir::failure();
+    }
+
+    const auto inputShape = getShape(origOp.getInput()).raw();
+    if (inputShape.size() != 4 || inputShape[Dims4D::Act::H.ind()] != 1) {
+        return mlir::failure();
+    }
+
+    auto axes = parseIntArrayAttr<int64_t>(origOp.getAxesValue());
+    if (axes.size() != 1) {
+        return mlir::failure();
+    }
+    auto* ctx = origOp->getContext();
+    // Normalize a negative axis (e.g. -3 for a 4D tensor) to its positive index before
+    // comparing against the channel axis, matching how the rest of the pass handles axes.
+    if (axes.front() < 0) {
+        axes.front() += static_cast<int64_t>(inputShape.size());
+    }
+    if (axes.front() != Dims4D::Act::C.ind()) {
+        return mlir::failure();
+    }
+    // Downstream rewriters (e.g. ReduceSumRewriter's constant-generation code) re-parse
+    // axes_value directly from the op instead of reusing a caller-normalized copy, so the
+    // clones below must carry the already-normalized (non-negative) axis themselves.
+    const auto normalizedAxesAttr = getIntArrayAttr(ctx, axes);
+
+    const auto alignment = VPU::NCEInvariant::VPU_CHANNEL_ALIGNMENT;
+    const auto width = inputShape[Dims4D::Act::W.ind()];
+    if (width <= alignment || width % alignment == 0) {
+        // Already aligned (handled by avoidExpandCase directly) or too small to bother splitting.
+        return mlir::failure();
+    }
+
+    const auto alignedWidth = (width / alignment) * alignment;
+    const auto remainderWidth = width - alignedWidth;
+
+    const auto loc = origOp->getLoc();
+    const auto input = origOp.getInput();
+
+    const SmallVector<int64_t> bulkOffsets(inputShape.size(), 0);
+    SmallVector<int64_t> bulkSizes = to_small_vector(inputShape);
+    bulkSizes[Dims4D::Act::W.ind()] = alignedWidth;
+    auto bulkSlice = IE::SliceOp::create(rewriter, appendLoc(loc, "channel_split_bulk"), input,
+                                         getIntArrayAttr(ctx, bulkOffsets), getIntArrayAttr(ctx, bulkSizes));
+
+    SmallVector<int64_t> remainderOffsets(inputShape.size(), 0);
+    remainderOffsets[Dims4D::Act::W.ind()] = alignedWidth;
+    SmallVector<int64_t> remainderSizes = to_small_vector(inputShape);
+    remainderSizes[Dims4D::Act::W.ind()] = remainderWidth;
+    auto remainderSlice =
+            IE::SliceOp::create(rewriter, appendLoc(loc, "channel_split_remainder"), input,
+                                getIntArrayAttr(ctx, remainderOffsets), getIntArrayAttr(ctx, remainderSizes));
+
+    const auto cloneReduceOnInput = [&](mlir::Value newInput, StringRef locSuffix) -> mlir::Value {
+        mlir::IRMapping mapper;
+        mapper.map(input, newInput);
+        auto* newOp = rewriter.clone(*origOp.getOperation(), mapper);
+        newOp->setAttr("axes_value", normalizedAxesAttr);
+        extendOpLoc(newOp, "{0}", locSuffix);
+        vpux::inferReturnTypes(newOp, vpux::InferShapedTypeMode::SHAPE | vpux::InferShapedTypeMode::LAYOUT);
+        return newOp->getResult(0);
+    };
+
+    const auto bulkResult = cloneReduceOnInput(bulkSlice.getResult(), "channel_split_bulk_reduce");
+    const auto remainderResult = cloneReduceOnInput(remainderSlice.getResult(), "channel_split_remainder_reduce");
+
+    // W remains the last dimension of the output regardless of keep_dims (H == 1 is required above).
+    const auto outputRank = getShape(origOp.getOutput()).size();
+    const auto concatAxis = Dim(outputRank - 1);
+    rewriter.replaceOpWithNewOp<IE::ConcatOp>(origOp, mlir::ValueRange{bulkResult, remainderResult}, concatAxis);
+
+    _log.trace("[{0}] done", this->getDebugName());
+
+    return mlir::success();
+}
+
+//
 // ReduceSumBatchToChannelRewriter
 //
 
@@ -775,6 +892,14 @@ void ConvertReduceToPoolingPass::safeRunOnFunc() {
     patterns.add<ReduceSimplifyAxesRewriter<IE::ReduceMinOp>>(&ctx, benefitLevels[0], _log,
                                                               channelReductionChecker.get());
     patterns.add<ReduceSimplifyAxesRewriter<IE::ReduceSumOp>>(&ctx, benefitLevels[0], _log,
+                                                              channelReductionChecker.get());
+    patterns.add<ReduceChannelSplitRewriter<IE::ReduceMeanOp>>(&ctx, benefitLevels[0], _log,
+                                                               channelReductionChecker.get());
+    patterns.add<ReduceChannelSplitRewriter<IE::ReduceMaxOp>>(&ctx, benefitLevels[0], _log,
+                                                              channelReductionChecker.get());
+    patterns.add<ReduceChannelSplitRewriter<IE::ReduceMinOp>>(&ctx, benefitLevels[0], _log,
+                                                              channelReductionChecker.get());
+    patterns.add<ReduceChannelSplitRewriter<IE::ReduceSumOp>>(&ctx, benefitLevels[0], _log,
                                                               channelReductionChecker.get());
     patterns.add<ReduceSumBatchToChannelRewriter>(&ctx, benefitLevels[0], _log);
     patterns.add<ReduceMeanRewriter>(&ctx, benefitLevels[1], _log, channelReductionChecker.get());

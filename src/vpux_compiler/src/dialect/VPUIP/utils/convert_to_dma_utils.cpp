@@ -697,6 +697,17 @@ bool vpux::VPUIP::isLegalConvertToDMA(mlir::Operation* op, vpux::Logger log, boo
     const auto arch = config::getArch(op);
     const auto& dmaEngineLimits = VPUIP::DMA::getEngineLimits(arch);
     const auto dmaMaxNumPlanes = dmaEngineLimits.getMaxNumPlanes();
+    const auto isUnsupportedBatchedDepthFirstSpaceToDepth = [arch](mlir::Operation* op) {
+        if (arch != config::ArchKind::NPU37XX || !op->hasAttr("mode")) {
+            return false;
+        }
+        const auto mode = mlir::cast<IE::SpaceToDepthModeAttr>(op->getAttr("mode")).getValue();
+        if (mode != IE::SpaceToDepthMode::DEPTH_FIRST) {
+            return false;
+        }
+        const auto inputType = mlir::cast<vpux::NDTypeInterface>(op->getOperand(0).getType());
+        return inputType.getRank() == 4 && inputType.getShape()[Dims4D::Act::N] != 1;
+    };
 
     return llvm::TypeSwitch<mlir::Operation*, bool>(op)
             .Case<VPU::MemPermuteOp>([&](mlir::Operation* op) {
@@ -741,6 +752,11 @@ bool vpux::VPUIP::isLegalConvertToDMA(mlir::Operation* op, vpux::Logger log, boo
             .Case<IE::SpaceToDepthOp>([&](mlir::Operation* op) {
                 log.trace("Got SpaceToDepthOp at {0}.", op->getLoc());
 
+                if (isUnsupportedBatchedDepthFirstSpaceToDepth(op)) {
+                    log.trace("Batched DEPTH_FIRST SpaceToDepth at {0} cannot use NPU37XX DMA.", op->getLoc());
+                    return false;
+                }
+
                 if (op->hasAttr("mode") && op->hasAttr("block_size")) {
                     const auto blockSize = mlir::cast<mlir::IntegerAttr>(op->getAttr("block_size")).getInt();
                     return blockSize <= dmaMaxNumPlanes;
@@ -751,6 +767,11 @@ bool vpux::VPUIP::isLegalConvertToDMA(mlir::Operation* op, vpux::Logger log, boo
             })
             .Case<VPU::SpaceToDepthOp>([&](mlir::Operation* op) {
                 log.trace("Got SpaceToDepthOp at {0}.", op->getLoc());
+
+                if (isUnsupportedBatchedDepthFirstSpaceToDepth(op)) {
+                    log.trace("Batched DEPTH_FIRST SpaceToDepth at {0} cannot use NPU37XX DMA.", op->getLoc());
+                    return false;
+                }
 
                 if (op->hasAttr("mode") && op->hasAttr("block_size")) {
                     const auto inputType = mlir::cast<vpux::NDTypeInterface>(op->getOperand(0).getType());
@@ -973,7 +994,7 @@ bool isDistributedOutputTypeIncompatibleOverlapped(VPU::ClusteredOpInterface pre
     // check if the overlapped mode is compatible with the curOp
     auto curOpInputDistributedType =
             mlir::dyn_cast<vpux::VPU::DistributedTensorType>(getDistributedActivationTypeFromOp(
-                    curOp, curOp->getOperand(0), curOp->getOperand(0).getType(), numClusters));
+                    curOp, curOp->getOpOperand(0), curOp->getOperand(0).getType(), numClusters));
     if (curOpInputDistributedType == nullptr) {
         return false;
     }

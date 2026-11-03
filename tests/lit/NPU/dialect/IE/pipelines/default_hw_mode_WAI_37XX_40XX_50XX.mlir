@@ -90,25 +90,25 @@ net.NetworkInfo entryPoint : @main
         // CHECK-SAME:      : tensor<4x2880x1x1xf16, {order = #NHWC}> to tensor<1x2880x1x1xf16, {order = #NHWC}>
 
         // CHECK:       [[CONV0:%.+]] = IE.Convolution([[INPUT_SLICE0]], [[WEIGHT_SLICE0]]) {
-        // CHECK-SAME:      dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]
+        // CHECK-SAME:      dilations = [1, 1], loop_tile_coord = {axes = array<i64: 0>, indices = array<i64: 0>}, pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1], tiling_loop_index = 0 : i64}
         // CHECK-SAME:      : tensor<1x2880x1x1xf16, {order = #NHWC}>, tensor<5760x2880x1x1x!qElemType, {order = #NHWC}> -> tensor<1x5760x1x1xf16, {order = #NHWC}>
         // CHECK:       [[GCONV0:%.+]] = IE.GroupConvolution([[CONV0]], [[SCALE_SLICE0]]) {
         // CHECK-SAME:      dilations = [1, 1], groups = 5760 : i64, pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]}
         // CHECK-SAME:      : tensor<1x5760x1x1xf16, {order = #NHWC}>, tensor<5760x1x1x1xf16, {order = #NHWC}> -> tensor<1x5760x1x1xf16, {order = #NHWC}>
         // CHECK:       [[CONV1:%.+]] = IE.Convolution([[INPUT_SLICE1]], [[WEIGHT_SLICE1]]) {
-        // CHECK-SAME:      dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]
+        // CHECK-SAME:      dilations = [1, 1], loop_tile_coord = {axes = array<i64: 0>, indices = array<i64: 1>}, pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1], tiling_loop_index = 0 : i64}
         // CHECK-SAME:      : tensor<1x2880x1x1xf16, {order = #NHWC}>, tensor<5760x2880x1x1x!qElemType, {order = #NHWC}> -> tensor<1x5760x1x1xf16, {order = #NHWC}>
         // CHECK:       [[GCONV1:%.+]] = IE.GroupConvolution([[CONV1]], [[SCALE_SLICE1]]) {
         // CHECK-SAME:      dilations = [1, 1], groups = 5760 : i64, pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]}
         // CHECK-SAME:      : tensor<1x5760x1x1xf16, {order = #NHWC}>, tensor<5760x1x1x1xf16, {order = #NHWC}> -> tensor<1x5760x1x1xf16, {order = #NHWC}>
         // CHECK:       [[CONV2:%.+]] = IE.Convolution([[INPUT_SLICE2]], [[WEIGHT_SLICE2]]) {
-        // CHECK-SAME:      dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]
+        // CHECK-SAME:      dilations = [1, 1], loop_tile_coord = {axes = array<i64: 0>, indices = array<i64: 2>}, pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1], tiling_loop_index = 0 : i64}
         // CHECK-SAME:      : tensor<1x2880x1x1xf16, {order = #NHWC}>, tensor<5760x2880x1x1x!qElemType, {order = #NHWC}> -> tensor<1x5760x1x1xf16, {order = #NHWC}>
         // CHECK:       [[GCONV2:%.+]] = IE.GroupConvolution([[CONV2]], [[SCALE_SLICE2]]) {
         // CHECK-SAME:      dilations = [1, 1], groups = 5760 : i64, pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]}
         // CHECK-SAME:      : tensor<1x5760x1x1xf16, {order = #NHWC}>, tensor<5760x1x1x1xf16, {order = #NHWC}> -> tensor<1x5760x1x1xf16, {order = #NHWC}>
         // CHECK:       [[CONV3:%.+]] = IE.Convolution([[INPUT_SLICE3]], [[WEIGHT_SLICE3]]) {
-        // CHECK-SAME:      dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]
+        // CHECK-SAME:      dilations = [1, 1], loop_tile_coord = {axes = array<i64: 0>, indices = array<i64: 3>}, pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1], tiling_loop_index = 0 : i64}
         // CHECK-SAME:      : tensor<1x2880x1x1xf16, {order = #NHWC}>, tensor<5760x2880x1x1x!qElemType, {order = #NHWC}> -> tensor<1x5760x1x1xf16, {order = #NHWC}>
         // CHECK:       [[GCONV3:%.+]] = IE.GroupConvolution([[CONV3]], [[SCALE_SLICE3]]) {
         // CHECK-SAME:      dilations = [1, 1], groups = 5760 : i64, pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]}

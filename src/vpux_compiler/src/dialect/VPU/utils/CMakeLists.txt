@@ -34,3 +34,5 @@ add_npu_library(npu_compiler_dialect_vpu_utils
         npu_algo_utils
         openvino::threading  # TBB
 )
+enable_lto_if_possible(npu_compiler_dialect_vpu_utils)
+

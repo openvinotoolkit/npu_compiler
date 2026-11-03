@@ -312,8 +312,8 @@ std::optional<int64_t> getZeroPoint(IE::FakeQuantizeOp fqOp) {
     VPUX_THROW_WHEN(inLowConst == nullptr || inHighConst == nullptr,
                     "Cannot get low and high constant of FakeQuantizeOp {0}", fqOp->getLoc());
     const auto quantizeElemType = getQuantizedType(
-            inLowConst.getContentAttr(), inHighConst.getContentAttr(), fqOp.getLevels(), fqOp.getLowFpType(),
-            realElemType, Const::hasNegativeValues(inLowConst.getContent()), fqOp.getLoc(), fqOp.getAutoBroadcast());
+            inLowConst.getContentAttr(), inHighConst.getContentAttr(), fqOp.getLevelsOrLowFpTypeAttr(), realElemType,
+            Const::hasNegativeValues(inLowConst.getContent()), fqOp.getLoc(), fqOp.getAutoBroadcast());
 
     if (auto uniformQuantType = mlir::dyn_cast_or_null<mlir::quant::UniformQuantizedType>(quantizeElemType)) {
         return uniformQuantType.getZeroPoint();
@@ -569,8 +569,8 @@ mlir::LogicalResult ConvertGroupConvToConvPass::GroupConvToSingleConvConverter::
         auto newOutputLow = updateQuantParams(weightsFQ.getOutputLow());
         auto newOutputHigh = updateQuantParams(weightsFQ.getOutputHigh());
         newWeights = IE::FakeQuantizeOp::create(rewriter, takeOpLoc(origOp, "weights_fq"), newWeights, newInputLow,
-                                                newInputHigh, newOutputLow, newOutputHigh, weightsFQ.getLevelsAttr(),
-                                                weightsFQ.getLowFpTypeAttr(), weightsFQ.getAutoBroadcastAttr())
+                                                newInputHigh, newOutputLow, newOutputHigh,
+                                                weightsFQ.getLevelsOrLowFpTypeAttr(), weightsFQ.getAutoBroadcastAttr())
                              .getResult();
     }
 
@@ -673,7 +673,7 @@ mlir::LogicalResult ConvertGroupConvToConvPass::GroupConvToMultiConvConverter::m
 
             weightsSlice = IE::FakeQuantizeOp::create(rewriter, takeOpLoc(fakeQuantizeOp, "weights_fq_{0}", sliceIdx),
                                                       newInput, inputLow, inputHigh, outputLow, outputHigh,
-                                                      fakeQuantizeOp.getLevelsAttr(), fakeQuantizeOp.getLowFpTypeAttr(),
+                                                      fakeQuantizeOp.getLevelsOrLowFpTypeAttr(),
                                                       fakeQuantizeOp.getAutoBroadcastAttr());
         } else {
             weightsSlice = rewriter.createOrFold<IE::SliceOp>(takeOpLoc(origOp, "weights_slice_{0}", sliceIdx), weights,

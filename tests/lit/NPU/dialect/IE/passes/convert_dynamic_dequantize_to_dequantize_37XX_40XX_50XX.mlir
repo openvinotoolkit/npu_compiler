@@ -509,6 +509,108 @@ func.func @RescaleForNF4LargeLUTWeightsAsInputs(%arg0: tensor<1024x8960xf16>, %a
 
 // -----
 
+!quantileType = !quant.quantile<ui4:f16, {-1.000000e+01,-0.69619280099868774,-0.52507305145263672,-0.39491748809814453,-0.28444138169288635,-0.18477343022823334,-0.091050036251544952,0.000000e+00,0.07958029955625534,0.16093020141124725,0.24611230194568634,0.33791524171829224,0.44070982933044434,0.56261700391769409,0.72295683622360229,1.000000e+01}>
+!qElemType1 = !quant.uniform<!quant.quantile<ui4:f16, {-1.000000e+01,-0.69619280099868774,-0.52507305145263672,-0.39491748809814453,-0.28444138169288635,-0.18477343022823334,-0.091050036251544952,0.000000e+00,0.07958029955625534,0.16093020141124725,0.24611230194568634,0.33791524171829224,0.44070982933044434,0.56261700391769409,0.72295683622360229,1.000000e+01}>:f16, 1.000000e+00>
+// CHECK-DAG: [[QELEMTYPE_OUT:!.+]] = !quant.uniform<!quant.quantile<ui4:f16, {-1.000000e+01,-6.961928e-01,-5.250731e-01,-3.949175e-01,-2.844414e-01,-1.847734e-01,-9.105004e-02,0.000000e+00,7.958030e-02,1.609302e-01,2.461123e-01,3.379152e-01,4.407098e-01,5.626170e-01,7.229568e-01,1.000000e+01}>:f16, 0.69999998807907104>
+
+// Note that "CHECK-LABEL" directive is deliberately skipped here because it resets previously captured variables
+// CHECK:       @RescaleForNF4LargeLUTWeightsTwoConsumers
+// CHECK-SAME:      [[INPUT_0:%[^:]+]]: tensor<1024x8960xf16>,
+// CHECK-SAME:      [[INPUT_1:%[^:]+]]: tensor<1536x8960x!quantileType>,
+// CHECK-SAME:      [[INPUT_2:%[^:]+]]: tensor<1536x1xf16>,
+// CHECK-SAME:      [[INPUT_3:%[^:]+]]: tensor<1024x8960xf16>,
+// CHECK-SAME:      [[INPUT_4:%[^:]+]]: tensor<1536x1xf16>
+func.func @RescaleForNF4LargeLUTWeightsTwoConsumers(%arg0: tensor<1024x8960xf16>, %arg1: tensor<1536x8960x!quantileType>, %arg2: tensor<1536x1xf16>, %arg3: tensor<1024x8960xf16>, %arg4: tensor<1536x1xf16>) -> (tensor<1024x1536xf16>, tensor<1024x1536xf16>) {
+    %0 = IE.QuantizeCast(%arg1) {dstElemType = !qElemType1} : tensor<1536x8960x!quantileType> -> tensor<1536x8960x!qElemType1>
+    %1 = IE.DynamicDequantize(%0, %arg2) {dstElemType = f16} : tensor<1536x8960x!qElemType1>, tensor<1536x1xf16> -> tensor<1536x8960xf16>
+    %2 = IE.FullyConnected(%arg0, %1) : tensor<1024x8960xf16>, tensor<1536x8960xf16> -> tensor<1024x1536xf16>
+
+    %3 = IE.DynamicDequantize(%0, %arg4) {dstElemType = f16} : tensor<1536x8960x!qElemType1>, tensor<1536x1xf16> -> tensor<1536x8960xf16>
+    %4 = IE.FullyConnected(%arg3, %3) : tensor<1024x8960xf16>, tensor<1536x8960xf16> -> tensor<1024x1536xf16>
+
+    return %2, %4 : tensor<1024x1536xf16>, tensor<1024x1536xf16>
+
+    // Both DynamicDequantize consumers of the shared IE.QuantizeCast get their own rescaled cast,
+    // and the original (non-rescaled) QuantizeCast is fully replaced rather than left as a stacked
+    // cast, once both of its uses are rewired away from it.
+    // CHECK:       [[RESHAPE0:%.+]] = IE.Reshape([[INPUT_2]]) {shape_value = [1, 1536]} : tensor<1536x1xf16> -> tensor<1x1536xf16>
+    // CHECK:       [[QUANTIZECAST0:%.+]] = IE.QuantizeCast([[INPUT_1]]) {dstElemType = [[QELEMTYPE_OUT]]} : tensor<1536x8960x!quantileType> -> tensor<1536x8960x[[QELEMTYPE_OUT]]>
+    // CHECK:       [[CONST0:%.+]] = const.Declare tensor<1xf16> = dense<1.428710e+00> : tensor<1xf16>
+    // CHECK:       [[MULTIPLY0:%.+]] = IE.Multiply([[RESHAPE0]], [[CONST0]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1536xf16>, tensor<1xf16> -> tensor<1x1536xf16>
+    // CHECK:       [[DEQUANTIZE0:%.+]] = IE.Dequantize([[QUANTIZECAST0]]) {dstElemType = f16} : tensor<1536x8960x[[QELEMTYPE_OUT]]> -> tensor<1536x8960xf16>
+    // CHECK:       [[FULLYCONNECTED0:%.+]] = IE.FullyConnected([[INPUT_0]], [[DEQUANTIZE0]]) : tensor<1024x8960xf16>, tensor<1536x8960xf16> -> tensor<1024x1536xf16>
+    // CHECK:       [[MULTIPLY1:%.+]] = IE.Multiply([[FULLYCONNECTED0]], [[MULTIPLY0]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1024x1536xf16>, tensor<1x1536xf16> -> tensor<1024x1536xf16>
+
+    // CHECK:       [[RESHAPE1:%.+]] = IE.Reshape([[INPUT_4]]) {shape_value = [1, 1536]} : tensor<1536x1xf16> -> tensor<1x1536xf16>
+    // CHECK:       [[QUANTIZECAST1:%.+]] = IE.QuantizeCast([[INPUT_1]]) {dstElemType = [[QELEMTYPE_OUT]]} : tensor<1536x8960x!quantileType> -> tensor<1536x8960x[[QELEMTYPE_OUT]]>
+    // CHECK:       [[CONST1:%.+]] = const.Declare tensor<1xf16> = dense<1.428710e+00> : tensor<1xf16>
+    // CHECK:       [[MULTIPLY2:%.+]] = IE.Multiply([[RESHAPE1]], [[CONST1]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1536xf16>, tensor<1xf16> -> tensor<1x1536xf16>
+    // CHECK:       [[DEQUANTIZE1:%.+]] = IE.Dequantize([[QUANTIZECAST1]]) {dstElemType = f16} : tensor<1536x8960x[[QELEMTYPE_OUT]]> -> tensor<1536x8960xf16>
+    // CHECK:       [[FULLYCONNECTED1:%.+]] = IE.FullyConnected([[INPUT_3]], [[DEQUANTIZE1]]) : tensor<1024x8960xf16>, tensor<1536x8960xf16> -> tensor<1024x1536xf16>
+    // CHECK:       [[MULTIPLY3:%.+]] = IE.Multiply([[FULLYCONNECTED1]], [[MULTIPLY2]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1024x1536xf16>, tensor<1x1536xf16> -> tensor<1024x1536xf16>
+
+    // CHECK:       return [[MULTIPLY1]], [[MULTIPLY3]] : tensor<1024x1536xf16>, tensor<1024x1536xf16>
+}
+
+// -----
+
+!quantileType = !quant.quantile<ui4:f16, {-1.000000e+01,-0.69619280099868774,-0.52507305145263672,-0.39491748809814453,-0.28444138169288635,-0.18477343022823334,-0.091050036251544952,0.000000e+00,0.07958029955625534,0.16093020141124725,0.24611230194568634,0.33791524171829224,0.44070982933044434,0.56261700391769409,0.72295683622360229,1.000000e+01}>
+!qElemType1 = !quant.uniform<!quant.quantile<ui4:f16, {-1.000000e+01,-0.69619280099868774,-0.52507305145263672,-0.39491748809814453,-0.28444138169288635,-0.18477343022823334,-0.091050036251544952,0.000000e+00,0.07958029955625534,0.16093020141124725,0.24611230194568634,0.33791524171829224,0.44070982933044434,0.56261700391769409,0.72295683622360229,1.000000e+01}>:f16, 1.000000e+00>
+// CHECK-DAG: [[QELEMTYPE_MID:!.+]] = !quant.uniform<!quant.quantile<ui4:f16, {-1.000000e+01,-6.961928e-01,-5.250731e-01,-3.949175e-01,-2.844414e-01,-1.847734e-01,-9.105004e-02,0.000000e+00,7.958030e-02,1.609302e-01,2.461123e-01,3.379152e-01,4.407098e-01,5.626170e-01,7.229568e-01,1.000000e+01}>:f16, 1.000000e+00>
+// CHECK-DAG: [[QELEMTYPE_OUT:!.+]] = !quant.uniform<!quant.quantile<ui4:f16, {-1.000000e+01,-6.961928e-01,-5.250731e-01,-3.949175e-01,-2.844414e-01,-1.847734e-01,-9.105004e-02,0.000000e+00,7.958030e-02,1.609302e-01,2.461123e-01,3.379152e-01,4.407098e-01,5.626170e-01,7.229568e-01,1.000000e+01}>:f16, 0.69999998807907104>
+
+// CHECK:       @RescaleForNF4LargeLUTWeightsSliceAsDirectProducer
+// CHECK-SAME:      [[INPUT_0:%.+]]: tensor<1024x3072xf16>,
+// CHECK-SAME:      [[INPUT_1:%.+]]: tensor<16384x3072x!quantileType>,
+// CHECK-SAME:      [[INPUT_2:%.+]]: tensor<16384x1xf16>
+func.func @RescaleForNF4LargeLUTWeightsSliceAsDirectProducer(%arg0: tensor<1024x3072xf16>, %arg1: tensor<16384x3072x!quantileType>, %arg2: tensor<16384x1xf16>) -> (tensor<1024x8192xf16>, tensor<1024x8192xf16>) {
+    %0 = IE.QuantizeCast(%arg1) {dstElemType = !qElemType1} : tensor<16384x3072x!quantileType> -> tensor<16384x3072x!qElemType1>
+
+    %1 = IE.Slice %0 [0, 0] [8192, 3072] : tensor<16384x3072x!qElemType1> to tensor<8192x3072x!qElemType1>
+    %2 = IE.Slice %arg2 [0, 0] [8192, 1] : tensor<16384x1xf16> to tensor<8192x1xf16>
+    %3 = IE.DynamicDequantize(%1, %2) {dstElemType = f16} : tensor<8192x3072x!qElemType1>, tensor<8192x1xf16> -> tensor<8192x3072xf16>
+
+    %4 = IE.Slice %0 [8192, 0] [8192, 3072] : tensor<16384x3072x!qElemType1> to tensor<8192x3072x!qElemType1>
+    %5 = IE.Slice %arg2 [8192, 0] [8192, 1] : tensor<16384x1xf16> to tensor<8192x1xf16>
+    %6 = IE.DynamicDequantize(%4, %5) {dstElemType = f16} : tensor<8192x3072x!qElemType1>, tensor<8192x1xf16> -> tensor<8192x3072xf16>
+
+    %7 = IE.FullyConnected(%arg0, %3) : tensor<1024x3072xf16>, tensor<8192x3072xf16> -> tensor<1024x8192xf16>
+    %8 = IE.FullyConnected(%arg0, %6) : tensor<1024x3072xf16>, tensor<8192x3072xf16> -> tensor<1024x8192xf16>
+
+    return %7, %8 : tensor<1024x8192xf16>, tensor<1024x8192xf16>
+
+    // The QuantizeCast is shared by both branches through a Slice (weight producer chain is
+    // QuantizeCast -> Slice -> DynamicDequantize). Each branch's Slice output gets its own
+    // rescaled QuantizeCast inserted right after it; the original (unscaled) QuantizeCast is left
+    // untouched since it still feeds both Slices.
+    // CHECK:       [[QUANTIZECAST0:%.+]] = IE.QuantizeCast([[INPUT_1]]) {dstElemType = [[QELEMTYPE_MID]]} : tensor<16384x3072x!quantileType> -> tensor<16384x3072x[[QELEMTYPE_MID]]>
+
+    // CHECK:       [[SLICE0:%.+]] = IE.Slice [[QUANTIZECAST0]] [0, 0] [8192, 3072] : tensor<16384x3072x[[QELEMTYPE_MID]]> to tensor<8192x3072x[[QELEMTYPE_MID]]>
+    // CHECK:       [[SLICE_SCALE0:%.+]] = IE.Slice [[INPUT_2]] [0, 0] [8192, 1] : tensor<16384x1xf16> to tensor<8192x1xf16>
+    // CHECK:       [[RESHAPE0:%.+]] = IE.Reshape([[SLICE_SCALE0]]) {shape_value = [1, 8192]} : tensor<8192x1xf16> -> tensor<1x8192xf16>
+    // CHECK:       [[QUANTIZECAST1:%.+]] = IE.QuantizeCast([[SLICE0]]) {dstElemType = [[QELEMTYPE_OUT]]} : tensor<8192x3072x[[QELEMTYPE_MID]]> -> tensor<8192x3072x[[QELEMTYPE_OUT]]>
+    // CHECK:       [[CONST0:%.+]] = const.Declare tensor<1xf16> = dense<1.428710e+00> : tensor<1xf16>
+    // CHECK:       [[MULTIPLY0:%.+]] = IE.Multiply([[RESHAPE0]], [[CONST0]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x8192xf16>, tensor<1xf16> -> tensor<1x8192xf16>
+    // CHECK:       [[DEQUANTIZE0:%.+]] = IE.Dequantize([[QUANTIZECAST1]]) {dstElemType = f16} : tensor<8192x3072x[[QELEMTYPE_OUT]]> -> tensor<8192x3072xf16>
+
+    // CHECK:       [[SLICE1:%.+]] = IE.Slice [[QUANTIZECAST0]] [8192, 0] [8192, 3072] : tensor<16384x3072x[[QELEMTYPE_MID]]> to tensor<8192x3072x[[QELEMTYPE_MID]]>
+    // CHECK:       [[SLICE_SCALE1:%.+]] = IE.Slice [[INPUT_2]] [8192, 0] [8192, 1] : tensor<16384x1xf16> to tensor<8192x1xf16>
+    // CHECK:       [[RESHAPE1:%.+]] = IE.Reshape([[SLICE_SCALE1]]) {shape_value = [1, 8192]} : tensor<8192x1xf16> -> tensor<1x8192xf16>
+    // CHECK:       [[QUANTIZECAST2:%.+]] = IE.QuantizeCast([[SLICE1]]) {dstElemType = [[QELEMTYPE_OUT]]} : tensor<8192x3072x[[QELEMTYPE_MID]]> -> tensor<8192x3072x[[QELEMTYPE_OUT]]>
+    // CHECK:       [[CONST1:%.+]] = const.Declare tensor<1xf16> = dense<1.428710e+00> : tensor<1xf16>
+    // CHECK:       [[MULTIPLY1:%.+]] = IE.Multiply([[RESHAPE1]], [[CONST1]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x8192xf16>, tensor<1xf16> -> tensor<1x8192xf16>
+    // CHECK:       [[DEQUANTIZE1:%.+]] = IE.Dequantize([[QUANTIZECAST2]]) {dstElemType = f16} : tensor<8192x3072x[[QELEMTYPE_OUT]]> -> tensor<8192x3072xf16>
+
+    // CHECK:       [[FULLYCONNECTED0:%.+]] = IE.FullyConnected([[INPUT_0]], [[DEQUANTIZE0]]) : tensor<1024x3072xf16>, tensor<8192x3072xf16> -> tensor<1024x8192xf16>
+    // CHECK:       [[MULTIPLY2:%.+]] = IE.Multiply([[FULLYCONNECTED0]], [[MULTIPLY0]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1024x8192xf16>, tensor<1x8192xf16> -> tensor<1024x8192xf16>
+    // CHECK:       [[FULLYCONNECTED1:%.+]] = IE.FullyConnected([[INPUT_0]], [[DEQUANTIZE1]]) : tensor<1024x3072xf16>, tensor<8192x3072xf16> -> tensor<1024x8192xf16>
+    // CHECK:       [[MULTIPLY3:%.+]] = IE.Multiply([[FULLYCONNECTED1]], [[MULTIPLY1]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1024x8192xf16>, tensor<1x8192xf16> -> tensor<1024x8192xf16>
+
+    // CHECK:       return [[MULTIPLY2]], [[MULTIPLY3]] : tensor<1024x8192xf16>, tensor<1024x8192xf16>
+}
+
+// -----
+
 !quantileType = !quant.quantile<ui4:f16, {-1.600000e+01,-1.500000e+01,-1.400000e+01,-1.300000e+01,-1.200000e+01,-1.100000e+01,-1.000000e+01,-9.000000e+00,-8.000000e+00,-7.000000e+00,-6.000000e+00,-5.000000e+00,-4.000000e+00,-3.000000e+00,-2.000000e+00,-1.000000e+00}>
 !qElemType1 = !quant.uniform<!quant.quantile<ui4:f16, {-1.600000e+01,-1.500000e+01,-1.400000e+01,-1.300000e+01,-1.200000e+01,-1.100000e+01,-1.000000e+01,-9.000000e+00,-8.000000e+00,-7.000000e+00,-6.000000e+00,-5.000000e+00,-4.000000e+00,-3.000000e+00,-2.000000e+00,-1.000000e+00}>:f16, 1.000000e+00>
 // CHECK-DAG: [[QELEMTYPE_OUT:!.+]] = !quant.uniform<!quant.quantile<ui4:f16, {-1.600000e+01,-1.500000e+01,-1.400000e+01,-1.300000e+01,-1.200000e+01,-1.100000e+01,-1.000000e+01,-9.000000e+00,-8.000000e+00,-7.000000e+00,-6.000000e+00,-5.000000e+00,-4.000000e+00,-3.000000e+00,-2.000000e+00,-1.000000e+00}>:f16, 5.000000e-01>

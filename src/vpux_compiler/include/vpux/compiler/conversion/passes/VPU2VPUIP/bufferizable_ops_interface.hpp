@@ -83,6 +83,7 @@ void registerVpuNceBufferizableOpInterfaces(mlir::DialectRegistry& registry);
 void registerVPUBufferizableOpInterfaces(mlir::DialectRegistry& registry);
 void registerConstDeclareBufferizableOpInterfaces(mlir::DialectRegistry& registry);
 void registerCoreBufferizableOpInterfaces(mlir::DialectRegistry& registry);
+void registerTensorSliceBufferizableOpInterfaces(mlir::DialectRegistry& registry);
 
 //
 // bufferize vpu ops functions

@@ -11,13 +11,13 @@ module @test {
 
 // CHECK-DAG:    {{  }}config.PipelineOptions @Options {
 // CHECK-DAG:    {{    }}config.Option @config.BarrierMaxSlotCount : 256
+// CHECK-DAG:    {{    }}config.Option @config.MinTiles : 3 : ui64
 // CHECK-DAG:    {{    }}config.Option @config.AutoPaddingODU : false
 // CHECK-DAG:    {{    }}config.Option @config.AutoPaddingIDU : false
 // CHECK-DAG:    {{    }}config.Option @config.FragmentationAvoidRatioPipeliningLargeWeights : 3.200000e-01 : f32
 // CHECK-DAG:    {{  }}}
 
 // CHECK-DAG:    {{  }}config.ExecutorResource 2 of @DMA_NN
-// CHECK-DAG:    {{  }}config.ExecutorResource 1 of @M2I
 // CHECK-DAG:    {{  }}config.Resources 3 of @NCE at 2.100000e+03 MHz {
 // CHECK-DAG:    {{    }}config.ExecutorResource 2 of @SHAVE_ACT
 // CHECK-DAG:    {{    }}config.ExecutorResource 1 of @DPU

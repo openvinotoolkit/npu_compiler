@@ -63,7 +63,7 @@ func.func @ConvertCOnlyMultiplyToScaleShiftWithFakeQuantize(%arg0: tensor<1x6144
         { auto_broadcast = #IE.auto_broadcast_type<NUMPY> } :
         tensor<1x6144x1x1xf16>, tensor<1x6144x1x1xf16> -> tensor<1x6144x1x1xf16>
     %fq = IE.FakeQuantize(%multiply, %cst_low, %cst_high, %cst_low, %cst_high)
-        {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i64} :
+        {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256 : i64} :
         tensor<1x6144x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>
         -> tensor<1x6144x1x1xf16>
 
@@ -87,7 +87,7 @@ func.func @DontConvertLargeCOnlyMultiplyToScaleShiftWithFakeQuantize(%arg0: tens
         { auto_broadcast = #IE.auto_broadcast_type<NUMPY> } :
         tensor<1x16384x1x1xf16>, tensor<1x16384x1x1xf16> -> tensor<1x16384x1x1xf16>
     %fq = IE.FakeQuantize(%multiply, %cst_low, %cst_high, %cst_low, %cst_high)
-        {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i64} :
+        {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256 : i64} :
         tensor<1x16384x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>
         -> tensor<1x16384x1x1xf16>
 
@@ -113,7 +113,7 @@ func.func @ConvertCOnlyMultiplyToScaleShiftWithFakeQuantizeViaViewOp(%arg0: tens
     %reshape = IE.Reshape(%multiply) { shape_value = [1, 1, 6144, 1] } :
         tensor<1x6144x1x1xf16> -> tensor<1x1x6144x1xf16>
     %fq = IE.FakeQuantize(%reshape, %cst_low, %cst_high, %cst_low, %cst_high)
-        {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i64} :
+        {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256 : i64} :
         tensor<1x1x6144x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>
         -> tensor<1x1x6144x1xf16>
 
@@ -137,7 +137,7 @@ func.func @DontConvertCOnlyMultiplyWithMultipleUsersBeforeFakeQuantize(%arg0: te
         { auto_broadcast = #IE.auto_broadcast_type<NUMPY> } :
         tensor<1x6144x1x1xf16>, tensor<1x6144x1x1xf16> -> tensor<1x6144x1x1xf16>
     %fq = IE.FakeQuantize(%multiply, %cst_low, %cst_high, %cst_low, %cst_high)
-        {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i64} :
+        {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256 : i64} :
         tensor<1x6144x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>
         -> tensor<1x6144x1x1xf16>
 

@@ -70,6 +70,7 @@ mlir::LogicalResult MoveThroughActivationOp<ConcreteOp>::matchAndRewrite(IE::Sha
     mlir::IRMapping mapper;
     mapper.map(concreteOp->getOperand(0), newShapeCastOp.getResult());
     auto newOp = rewriter.clone(*concreteOp, mapper);
+    extendOpLoc(newOp, "shape_in");
     vpux::inferReturnTypes(newOp, vpux::InferShapedTypeMode::SHAPE);
 
     rewriter.replaceOp(origOp, newOp->getResults());
@@ -158,6 +159,7 @@ mlir::LogicalResult MoveThroughPoolOp<PoolingOp>::matchAndRewrite(IE::ShapeCastO
     mlir::IRMapping mapper;
     mapper.map(poolingOp->getOperand(0), newShapeCastOp.getResult());
     auto newOp = rewriter.clone(*poolingOp, mapper);
+    extendOpLoc(newOp, "shape_in");
     vpux::inferReturnTypes(newOp, vpux::InferShapedTypeMode::SHAPE);
 
     rewriter.replaceOp(origOp, newOp->getResults());
@@ -273,6 +275,7 @@ mlir::LogicalResult MoveThroughEltwiseOp<EltwiseOp>::matchAndRewrite(IE::ShapeCa
     mlir::IRMapping mapper;
     mapper.map(eltwiseOp->getOperands(), newInputValues);
     auto newOp = rewriter.clone(*eltwiseOp, mapper);
+    extendOpLoc(newOp, "shape_in");
     vpux::inferReturnTypes(newOp, vpux::InferShapedTypeMode::SHAPE);
 
     rewriter.replaceOp(origOp, newOp->getResults());
@@ -339,7 +342,7 @@ mlir::LogicalResult MoveThroughMVNOp::matchAndRewrite(IE::ShapeCastOp origOp, ml
             IE::ShapeCastOp::create(rewriter, origOp.getLoc(), preShapeCastOp.getResult(), origOp.getShapeAttr());
 
     // Create new MVNOp
-    auto newMvnOp = IE::MVNOp::create(rewriter, mvnOp->getLoc(), newShapeCastOp.getResult(),
+    auto newMvnOp = IE::MVNOp::create(rewriter, takeOpLoc(mvnOp, "mvn_in"), newShapeCastOp.getResult(),
                                       mlir::BoolAttr::get(getContext(), isAcrossChannels),
                                       mvnOp.getNormalizeVarianceAttr(), mvnOp.getEpsAttr());
 
@@ -437,12 +440,12 @@ mlir::LogicalResult MoveThroughConvBasedOp<ConvBasedOp>::matchAndRewrite(IE::Sha
             ShapeCast
         */
         SmallVector<mlir::Value> inputs;
-        for (auto input : userEltwiseOp->getOperands()) {
+        for (auto [inputIdx, input] : userEltwiseOp->getOperands() | indexed) {
             if (input == origOp.getResult()) {
                 inputs.push_back(inputOp->getResult(0));
             } else {
                 auto newShapeCastOp = IE::ShapeCastOp::create(
-                        rewriter, origOpLoc, input,
+                        rewriter, appendLoc(origOpLoc, "shapecast_in_{0}", inputIdx), input,
                         getIntArrayAttr(rewriter.getContext(), getShape(inputOp->getResult(0))));
                 inputs.push_back(newShapeCastOp.getResult());
             }
@@ -450,12 +453,12 @@ mlir::LogicalResult MoveThroughConvBasedOp<ConvBasedOp>::matchAndRewrite(IE::Sha
 
         const auto outType = mlir::cast<vpux::NDTypeInterface>(userEltwiseOp.getType());
         const auto newType = outType.changeShape(getShape(inputs[0]));
-        auto newAddOp = IE::AddOp::create(rewriter, origOpLoc, newType, inputs[0], inputs[1],
+        auto newAddOp = IE::AddOp::create(rewriter, userEltwiseOp->getLoc(), newType, inputs[0], inputs[1],
                                           userEltwiseOp.getAutoBroadcastAttr(), userEltwiseOp.getPostOpAttr(),
                                           userEltwiseOp.getClampAttr(), nullptr, nullptr);
 
         auto newOutShapeCastOp =
-                IE::ShapeCastOp::create(rewriter, origOpLoc, newAddOp.getResult(),
+                IE::ShapeCastOp::create(rewriter, appendLoc(origOpLoc, "shapecast_out"), newAddOp.getResult(),
                                         getIntArrayAttr(rewriter.getContext(), getShape(userEltwiseOp.getResult())));
         rewriter.replaceOp(userEltwiseOp, newOutShapeCastOp.getResult());
 
@@ -564,13 +567,13 @@ mlir::LogicalResult MoveThroughSoftmax::matchAndRewrite(IE::SoftMaxOp origOp, ml
                                   origOp.getDstElemTypeAttr(), origOp.getMaskAwareAttr());
 
     // Reconstruct ShapeCast after Softmax
-    auto newShapeCastOp = IE::ShapeCastOp::create(rewriter, shapeCastOp.getLoc(), newSoftmaxOp.getOutput(),
-                                                  shapeCastOp.getShapeAttr());
+    auto newShapeCastOp = IE::ShapeCastOp::create(rewriter, takeOpLoc(shapeCastOp, "shapecast_out"),
+                                                  newSoftmaxOp.getOutput(), shapeCastOp.getShapeAttr());
 
     if (permuteCastOp) {
         // Reconstruct PermuteCast after ShapeCast
         auto newPermuteCastOp =
-                IE::PermuteCastOp::create(rewriter, permuteCastOp.getLoc(), newShapeCastOp.getResult(),
+                IE::PermuteCastOp::create(rewriter, takeOpLoc(permuteCastOp, "permute_out"), newShapeCastOp.getResult(),
                                           permuteCastOp.getDstOrderAttr(), permuteCastOp.getMemPermAttr());
         origOp.replaceAllUsesWith(newPermuteCastOp.getOutput());
     } else {

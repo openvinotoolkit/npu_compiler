@@ -312,7 +312,7 @@ func.func @FuseConvWithQuantizedTanhTest(%input: tensor<1x16x16x16xf16>) -> tens
     %out_high = const.Declare tensor<1x1x1x1xf16> = dense<1.0> : tensor<1x1x1x1xf16>
     %fake_quant = IE.FakeQuantize(%tanh, %in_low, %in_high, %out_low, %out_high)
         {
-            auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i64
+            auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256 : i64
         } :
         tensor<1x16x16x16xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<1x16x16x16xf16>
 
@@ -356,13 +356,13 @@ func.func @DontFuseConvWithPerChannelQuantizedTanhTest(%input: tensor<1x16x16x16
 
     %fake_quant_pt = IE.FakeQuantize(%tanh, %in_low_pt, %in_high_pt, %in_high_pt, %in_high_pt)
         {
-            auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i64
+            auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256 : i64
         } :
         tensor<1x16x16x16xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<1x16x16x16xf16>
 
     %fake_quant_pc = IE.FakeQuantize(%tanh, %in_low_pt, %in_high_pt, %out_low_pc, %out_high_pc)
         {
-            auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i64
+            auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256 : i64
         } :
         tensor<1x16x16x16xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x16x1x1xf16>, tensor<1x16x1x1xf16> -> tensor<1x16x16x16xf16>
 

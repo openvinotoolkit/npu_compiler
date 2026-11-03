@@ -1014,3 +1014,299 @@ func.func @HandleLargerKernelsAvgPoolWithStaticScalePaddingNeededOneDim(%arg0 : 
     // CHECK-SAME:      strides = [1, 1]
     // CHECK-SAME:      : tensor<1x128x1x10xf16> -> tensor<1x128x1x1xf16>
 }
+
+// -----
+
+// Kernel size equals stride size and there is no padding, so every output position reads a
+// disjoint 16x16 patch: the convolution folds into SpaceToDepth plus a 1x1 convolution.
+
+// CHECK-LABEL: @SpaceToDepthLargeConv
+// CHECK-SAME:  [[INPUT:%.+]]: tensor<1x3x224x224xf16>
+// CHECK-SAME:  [[FILTER:%.+]]: tensor<768x3x16x16xf16>
+// CHECK-SAME:  [[BIAS:%.+]]: tensor<1x768x1x1xf16>
+func.func @SpaceToDepthLargeConv(%arg0: tensor<1x3x224x224xf16>, %arg1: tensor<768x3x16x16xf16>, %arg2: tensor<1x768x1x1xf16>) -> tensor<1x768x14x14xf16> {
+    %conv = IE.Convolution(%arg0, %arg1, %arg2) {
+        dilations = [1, 1],
+        pads_begin = [0, 0],
+        pads_end = [0, 0],
+        strides = [16, 16]
+    } : tensor<1x3x224x224xf16>, tensor<768x3x16x16xf16>, tensor<1x768x1x1xf16> -> tensor<1x768x14x14xf16>
+
+    return %conv : tensor<1x768x14x14xf16>
+
+    // CHECK-NOT:   IE.Slice
+    // CHECK-NOT:   IE.Add
+    // CHECK:   [[SPACE_TO_DEPTH:%.+]] = IE.SpaceToDepthOp([[INPUT]]) {block_size = 16 : i64, mode = #IE.space_to_depth_mode<DEPTH_FIRST>} : tensor<1x3x224x224xf16> -> tensor<1x768x14x14xf16>
+    // CHECK:   [[RESHAPE_FILTER:%.+]] = IE.Reshape([[FILTER]]) {shape_value = [768, 768, 1, 1]} : tensor<768x3x16x16xf16> -> tensor<768x768x1x1xf16>
+    // CHECK:   [[CONV:%.+]] = IE.Convolution([[SPACE_TO_DEPTH]], [[RESHAPE_FILTER]], [[BIAS]]) {dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]} : tensor<1x768x14x14xf16>, tensor<768x768x1x1xf16>, tensor<1x768x1x1xf16> -> tensor<1x768x14x14xf16>
+    // CHECK:   return [[CONV]] : tensor<1x768x14x14xf16>
+}
+
+// -----
+
+// IC*KY*KX (3*17*17 = 867) is not aligned to the channel alignment requirement, so a later pass
+// (ExpandActivationChannels) will need to pad it up. The fold still applies here: profiling showed
+// this SpaceToDepth-based form outperforms the Slice/Add fallback even with that extra padding cost.
+
+// CHECK-LABEL: @SpaceToDepthLargeConvUnalignedChannels
+// CHECK-SAME:  [[INPUT:%.+]]: tensor<1x3x272x272xf16>
+// CHECK-SAME:  [[FILTER:%.+]]: tensor<1024x3x17x17xf16>
+func.func @SpaceToDepthLargeConvUnalignedChannels(%arg0: tensor<1x3x272x272xf16>, %arg1: tensor<1024x3x17x17xf16>) -> tensor<1x1024x16x16xf16> {
+    %conv = IE.Convolution(%arg0, %arg1) {
+        dilations = [1, 1],
+        pads_begin = [0, 0],
+        pads_end = [0, 0],
+        strides = [17, 17]
+    } : tensor<1x3x272x272xf16>, tensor<1024x3x17x17xf16> -> tensor<1x1024x16x16xf16>
+
+    return %conv : tensor<1x1024x16x16xf16>
+
+    // CHECK-NOT:   IE.Slice
+    // CHECK-NOT:   IE.Add
+    // CHECK:   [[SPACE_TO_DEPTH:%.+]] = IE.SpaceToDepthOp([[INPUT]]) {block_size = 17 : i64, mode = #IE.space_to_depth_mode<DEPTH_FIRST>} : tensor<1x3x272x272xf16> -> tensor<1x867x16x16xf16>
+    // CHECK:   [[RESHAPE_FILTER:%.+]] = IE.Reshape([[FILTER]]) {shape_value = [1024, 867, 1, 1]} : tensor<1024x3x17x17xf16> -> tensor<1024x867x1x1xf16>
+    // CHECK:   [[CONV:%.+]] = IE.Convolution([[SPACE_TO_DEPTH]], [[RESHAPE_FILTER]]) {dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]} : tensor<1x867x16x16xf16>, tensor<1024x867x1x1xf16> -> tensor<1x1024x16x16xf16>
+    // CHECK:   return [[CONV]] : tensor<1x1024x16x16xf16>
+}
+
+// -----
+
+!qElemType = !quant.uniform<u8:f16, 0.0078431372549019607:128>
+!qElemType1 = !quant.uniform<i8<-127:127>:f16:0, {0.001:0, 0.002:0, 0.003:0, 0.004:0}>
+
+// The filter reshape keeps OC as the outermost dimension, so a per-output-channel quantized
+// filter keeps its scales aligned.
+
+// CHECK-LABEL: @SpaceToDepthLargeConvPerAxisQuantFilter
+// CHECK-SAME:  [[INPUT:%.+]]: tensor<1x3x224x224x!qElemType>
+// CHECK-SAME:  [[FILTER:%.+]]: tensor<4x3x16x16x!qElemType1>
+func.func @SpaceToDepthLargeConvPerAxisQuantFilter(%arg0: tensor<1x3x224x224x!qElemType>, %arg1: tensor<4x3x16x16x!qElemType1>) -> tensor<1x4x14x14x!qElemType> {
+    %conv = IE.Convolution(%arg0, %arg1) {
+        dilations = [1, 1],
+        pads_begin = [0, 0],
+        pads_end = [0, 0],
+        strides = [16, 16]
+    } : tensor<1x3x224x224x!qElemType>, tensor<4x3x16x16x!qElemType1> -> tensor<1x4x14x14x!qElemType>
+
+    return %conv : tensor<1x4x14x14x!qElemType>
+
+    // CHECK:   [[SPACE_TO_DEPTH:%.+]] = IE.SpaceToDepthOp([[INPUT]]) {block_size = 16 : i64, mode = #IE.space_to_depth_mode<DEPTH_FIRST>} : tensor<1x3x224x224x!qElemType> -> tensor<1x768x14x14x!qElemType>
+    // CHECK:   [[RESHAPE_FILTER:%.+]] = IE.Reshape([[FILTER]]) {shape_value = [4, 768, 1, 1]} : tensor<4x3x16x16x!qElemType1> -> tensor<4x768x1x1x!qElemType1>
+    // CHECK:   [[CONV:%.+]] = IE.Convolution([[SPACE_TO_DEPTH]], [[RESHAPE_FILTER]]) {dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]} : tensor<1x768x14x14x!qElemType>, tensor<4x768x1x1x!qElemType1> -> tensor<1x4x14x14x!qElemType>
+    // CHECK:   return [[CONV]] : tensor<1x4x14x14x!qElemType>
+}
+
+// -----
+
+!qElemType = !quant.uniform<u8:f16, 0.0078431372549019607:128>
+!qElemType1 = !quant.uniform<i8<-127:127>:f16:1, {0.001:0, 0.002:0, 0.003:0}>
+
+// Mixed precision: quantized input with FP16 output. The new 1x1 convolution must keep the FP16 output type.
+
+// CHECK-LABEL: @SpaceToDepthLargeConvMixedPrecision
+// CHECK-SAME:  [[INPUT:%.+]]: tensor<1x3x224x224x!qElemType>
+// CHECK-SAME:  [[FILTER:%.+]]: tensor<4x3x16x16xf16>
+func.func @SpaceToDepthLargeConvMixedPrecision(%arg0: tensor<1x3x224x224x!qElemType>, %arg1: tensor<4x3x16x16xf16>) -> tensor<1x4x14x14xf16> {
+    %conv = IE.Convolution(%arg0, %arg1) {
+        dilations = [1, 1],
+        pads_begin = [0, 0],
+        pads_end = [0, 0],
+        strides = [16, 16]
+    } : tensor<1x3x224x224x!qElemType>, tensor<4x3x16x16xf16> -> tensor<1x4x14x14xf16>
+
+    return %conv : tensor<1x4x14x14xf16>
+
+    // CHECK:   [[SPACE_TO_DEPTH:%.+]] = IE.SpaceToDepthOp([[INPUT]]) {block_size = 16 : i64, mode = #IE.space_to_depth_mode<DEPTH_FIRST>} : tensor<1x3x224x224x!qElemType> -> tensor<1x768x14x14x!qElemType>
+    // CHECK:   [[RESHAPE_FILTER:%.+]] = IE.Reshape([[FILTER]]) {shape_value = [4, 768, 1, 1]} : tensor<4x3x16x16xf16> -> tensor<4x768x1x1xf16>
+    // CHECK:   [[CONV:%.+]] = IE.Convolution([[SPACE_TO_DEPTH]], [[RESHAPE_FILTER]]) {dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]} : tensor<1x768x14x14x!qElemType>, tensor<4x768x1x1xf16> -> tensor<1x4x14x14xf16>
+    // CHECK:   return [[CONV]] : tensor<1x4x14x14xf16>
+}
+
+// -----
+
+!qElemType = !quant.uniform<u8:f16, 0.0078431372549019607:128>
+!qElemType1 = !quant.uniform<i8<-127:127>:f16:1, {0.001:0, 0.002:0, 0.003:0}>
+
+// Quantization over IC cannot be preserved when the filter is reshaped to merge IC and KY/KX.
+
+// CHECK-LABEL: @SpaceToDepthLargeConvNonOutputAxisQuantFilter
+// CHECK-SAME:  [[INPUT:%.+]]: tensor<1x3x224x224x!qElemType>
+// CHECK-SAME:  [[FILTER:%.+]]: tensor<4x3x16x16x!qElemType1>
+func.func @SpaceToDepthLargeConvNonOutputAxisQuantFilter(%arg0: tensor<1x3x224x224x!qElemType>, %arg1: tensor<4x3x16x16x!qElemType1>) -> tensor<1x4x14x14x!qElemType> {
+    %conv = IE.Convolution(%arg0, %arg1) {
+        dilations = [1, 1],
+        pads_begin = [0, 0],
+        pads_end = [0, 0],
+        strides = [16, 16]
+    } : tensor<1x3x224x224x!qElemType>, tensor<4x3x16x16x!qElemType1> -> tensor<1x4x14x14x!qElemType>
+
+    return %conv : tensor<1x4x14x14x!qElemType>
+
+    // CHECK-NOT:   IE.SpaceToDepthOp
+}
+
+// -----
+
+#OYXI = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+
+// DEPTH_FIRST consumes flattened filter data in OIYX order. A filter with another physical order
+// needs a reorder before flattening, so this rewrite must not apply.
+
+// CHECK-LABEL: @SpaceToDepthLargeConvNonOIYXFilter
+func.func @SpaceToDepthLargeConvNonOIYXFilter(%arg0: tensor<1x3x224x224xf16>, %arg1: tensor<16x3x16x16xf16, {order = #OYXI}>) -> tensor<1x16x14x14xf16> {
+    %conv = IE.Convolution(%arg0, %arg1) {
+        dilations = [1, 1],
+        pads_begin = [0, 0],
+        pads_end = [0, 0],
+        strides = [16, 16]
+    } : tensor<1x3x224x224xf16>, tensor<16x3x16x16xf16, {order = #OYXI}> -> tensor<1x16x14x14xf16>
+
+    return %conv : tensor<1x16x14x14xf16>
+
+    // CHECK-NOT: IE.SpaceToDepthOp
+}
+
+// -----
+
+// Stride is smaller than the kernel, so the patches overlap and the fold does not apply:
+// the kernel is still split into slices recombined by Adds.
+
+// CHECK-LABEL: @SpaceToDepthLargeConvStrideNotEqualKernel
+func.func @SpaceToDepthLargeConvStrideNotEqualKernel(%arg0: tensor<1x3x40x40xf16>, %arg1: tensor<16x3x16x16xf16>) -> tensor<1x16x4x4xf16> {
+    %conv = IE.Convolution(%arg0, %arg1) {
+        dilations = [1, 1],
+        pads_begin = [0, 0],
+        pads_end = [0, 0],
+        strides = [8, 8]
+    } : tensor<1x3x40x40xf16>, tensor<16x3x16x16xf16> -> tensor<1x16x4x4xf16>
+
+    return %conv : tensor<1x16x4x4xf16>
+
+    // CHECK-NOT:   IE.SpaceToDepthOp
+    // CHECK:       IE.Add
+}
+
+// -----
+
+// The input is not an exact multiple of the kernel: the convolution ignores the partial
+// trailing patch but SpaceToDepth would keep it, so the fold does not apply.
+
+// CHECK-LABEL: @SpaceToDepthLargeConvInputNotDivisible
+func.func @SpaceToDepthLargeConvInputNotDivisible(%arg0: tensor<1x3x230x230xf16>, %arg1: tensor<16x3x16x16xf16>) -> tensor<1x16x14x14xf16> {
+    %conv = IE.Convolution(%arg0, %arg1) {
+        dilations = [1, 1],
+        pads_begin = [0, 0],
+        pads_end = [0, 0],
+        strides = [16, 16]
+    } : tensor<1x3x230x230xf16>, tensor<16x3x16x16xf16> -> tensor<1x16x14x14xf16>
+
+    return %conv : tensor<1x16x14x14xf16>
+
+    // CHECK-NOT:   IE.SpaceToDepthOp
+    // CHECK:       IE.Add
+}
+
+// -----
+
+// SpaceToDepth uses a single block size for both spatial dimensions, so a non-square
+// kernel cannot be folded even though it equals the stride.
+
+// CHECK-LABEL: @SpaceToDepthLargeConvNonSquareKernel
+func.func @SpaceToDepthLargeConvNonSquareKernel(%arg0: tensor<1x3x32x64xf16>, %arg1: tensor<16x3x16x32xf16>) -> tensor<1x16x2x2xf16> {
+    %conv = IE.Convolution(%arg0, %arg1) {
+        dilations = [1, 1],
+        pads_begin = [0, 0],
+        pads_end = [0, 0],
+        strides = [16, 32]
+    } : tensor<1x3x32x64xf16>, tensor<16x3x16x32xf16> -> tensor<1x16x2x2xf16>
+
+    return %conv : tensor<1x16x2x2xf16>
+
+    // CHECK-NOT:   IE.SpaceToDepthOp
+}
+
+// -----
+
+// Padding makes the patches overlap the input border, so the fold does not apply.
+
+// CHECK-LABEL: @SpaceToDepthLargeConvWithPadding
+func.func @SpaceToDepthLargeConvWithPadding(%arg0: tensor<1x3x224x224xf16>, %arg1: tensor<16x3x16x16xf16>) -> tensor<1x16x15x15xf16> {
+    %conv = IE.Convolution(%arg0, %arg1) {
+        dilations = [1, 1],
+        pads_begin = [8, 8],
+        pads_end = [8, 8],
+        strides = [16, 16]
+    } : tensor<1x3x224x224xf16>, tensor<16x3x16x16xf16> -> tensor<1x16x15x15xf16>
+
+    return %conv : tensor<1x16x15x15xf16>
+
+    // CHECK-NOT:   IE.SpaceToDepthOp
+}
+
+// -----
+
+// The kernel fits the DPU limit. Activation-channel expansion handles the low IC without introducing
+// an activation-sized SpaceToDepth DMA.
+
+// CHECK-LABEL: @SpaceToDepthSmallKernelUnalignedChannels
+// CHECK-SAME:  [[INPUT:%.+]]: tensor<1x3x32x32xf16>
+// CHECK-SAME:  [[FILTER:%.+]]: tensor<16x3x8x8xf16>
+func.func @SpaceToDepthSmallKernelUnalignedChannels(%arg0: tensor<1x3x32x32xf16>, %arg1: tensor<16x3x8x8xf16>) -> tensor<1x16x4x4xf16> {
+    %conv = IE.Convolution(%arg0, %arg1) {
+        dilations = [1, 1],
+        pads_begin = [0, 0],
+        pads_end = [0, 0],
+        strides = [8, 8]
+    } : tensor<1x3x32x32xf16>, tensor<16x3x8x8xf16> -> tensor<1x16x4x4xf16>
+
+    return %conv : tensor<1x16x4x4xf16>
+
+    // CHECK-NOT:   IE.SpaceToDepthOp
+    // CHECK:   [[CONV:%.+]] = IE.Convolution([[INPUT]], [[FILTER]])
+    // CHECK-SAME:      strides = [8, 8]
+    // CHECK:   return [[CONV]] : tensor<1x16x4x4xf16>
+}
+
+// -----
+
+// The kernel fits the DPU limit and IC is already aligned, so the convolution runs at full channel
+// utilization and the gather would only add cost.
+
+// CHECK-LABEL: @SpaceToDepthSmallKernelAlignedChannels
+func.func @SpaceToDepthSmallKernelAlignedChannels(%arg0: tensor<1x32x32x32xf16>, %arg1: tensor<16x32x8x8xf16>) -> tensor<1x16x4x4xf16> {
+    %conv = IE.Convolution(%arg0, %arg1) {
+        dilations = [1, 1],
+        pads_begin = [0, 0],
+        pads_end = [0, 0],
+        strides = [8, 8]
+    } : tensor<1x32x32x32xf16>, tensor<16x32x8x8xf16> -> tensor<1x16x4x4xf16>
+
+    return %conv : tensor<1x16x4x4xf16>
+
+    // CHECK-NOT:   IE.SpaceToDepthOp
+    // CHECK:       [[CONV:%.+]] = IE.Convolution
+    // CHECK-SAME:      strides = [8, 8]
+    // CHECK:       return [[CONV]] : tensor<1x16x4x4xf16>
+}
+
+// -----
+
+// A 2x2 patch over IC=3 only reaches 12 channels, still below the alignment, so the gather would
+// not buy back any DPU throughput.
+
+// CHECK-LABEL: @SpaceToDepthSmallKernelStillUnaligned
+func.func @SpaceToDepthSmallKernelStillUnaligned(%arg0: tensor<1x3x32x32xf16>, %arg1: tensor<16x3x2x2xf16>) -> tensor<1x16x16x16xf16> {
+    %conv = IE.Convolution(%arg0, %arg1) {
+        dilations = [1, 1],
+        pads_begin = [0, 0],
+        pads_end = [0, 0],
+        strides = [2, 2]
+    } : tensor<1x3x32x32xf16>, tensor<16x3x2x2xf16> -> tensor<1x16x16x16xf16>
+
+    return %conv : tensor<1x16x16x16xf16>
+
+    // CHECK-NOT:   IE.SpaceToDepthOp
+    // CHECK:       [[CONV:%.+]] = IE.Convolution
+    // CHECK-SAME:      strides = [2, 2]
+    // CHECK:       return [[CONV]] : tensor<1x16x16x16xf16>
+}

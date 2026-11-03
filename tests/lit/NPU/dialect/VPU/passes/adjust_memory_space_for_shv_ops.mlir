@@ -333,3 +333,4 @@ func.func @SingleGenericSwLayerTooLargeForCMXCaseA(%input: tensor<1x128x50x50xf1
     // CHECK-SAME:   -> tensor<1x128x75x75xf16>
     // CHECK:      return [[COPY_DDR]]
 }
+

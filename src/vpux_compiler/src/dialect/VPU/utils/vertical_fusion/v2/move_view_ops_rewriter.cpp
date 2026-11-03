@@ -4,6 +4,7 @@
 //
 
 #include "vpux/compiler/dialect/VPU/utils/vertical_fusion/v2/move_view_ops_rewriter.hpp"
+#include <numeric>
 #include <queue>
 #include "vpux/compiler/dialect/IE/utils/slice_utils.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/shape_manipulation.hpp"
@@ -11,6 +12,7 @@
 #include "vpux/compiler/dialect/VPU/utils/hash_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/sw_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/tile_utils.hpp"
+#include "vpux/compiler/dialect/VPU/utils/vertical_fusion/v2/vertical_fusion_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/vertical_fusion/vertical_fusion_utils.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
 
@@ -25,6 +27,8 @@ mlir::LogicalResult MoveViewOpsRewriter::matchAndRewrite(VPU::VerticalFusionOp v
         return mlir::failure();
     }
 
+    auto tilingStrategy = parseIntArrayAttr<int64_t>(vfOp.getTilingStrategy());
+
     auto isOpWeightsFromVFOperandIndex = [](mlir::Operation* op, size_t operandIdx) -> bool {
         auto nceOp = mlir::dyn_cast<VPU::NCEOpInterface>(op);
         if (nceOp == nullptr) {
@@ -36,23 +40,35 @@ mlir::LogicalResult MoveViewOpsRewriter::matchAndRewrite(VPU::VerticalFusionOp v
         return false;
     };
 
-    auto isParentVFOpCompatible = [](VPU::VerticalFusionOp parentVFOp,
-                                     ArrayRef<VPU::TilingViewLikeOpInterface> viewOpChain,
-                                     bool isWeightsOperand) -> bool {
+    auto isParentVFOpCompatible = [&vfOp, &tilingStrategy](VPU::VerticalFusionOp parentVFOp,
+                                                           ArrayRef<VPU::TilingViewLikeOpInterface> viewOpChain,
+                                                           bool isWeightsOperand) -> bool {
         if (!parentVFOp) {
             return false;
         }
         auto parentTilingStrategy = parseIntArrayAttr<int64_t>(parentVFOp.getTilingStrategy());
         auto parentTilingDims = getNonOneDim(ShapeRef(parentTilingStrategy));
+        auto currentTilingDims = getNonOneDim(ShapeRef(tilingStrategy));
         // parentTilingDims are in the view op's input space, but isSupportedTilingDim expects
         // output space dims. Use backInferTilingDim to generically find which output dims
         // correspond to the parent's tiling dims, without op-specific special casing.
+
+        auto parentInnerOp = (*parentVFOp.getBody()->getOps<VPU::VerticalFusionOpInterface>().begin()).getOperation();
+        auto currentInnerOp = (*vfOp.getBody()->getOps<VPU::VerticalFusionOpInterface>().begin()).getOperation();
+        auto parentSwOp = mlir::dyn_cast<VPU::SWOpInterface>(parentInnerOp);
+        auto currentSwOp = mlir::dyn_cast<VPU::SWOpInterface>(currentInnerOp);
+
+        // The check for the current tiling dim is due to the lacking support for the VF loop scheduling. Bad scheduling
+        // is observed for some VF pattern like {SWOp0} -> {NCEOp1}, where there is no tiling on both ops.
+        const auto canBePipelined = parentSwOp != nullptr && !parentSwOp.supportLoweringAsDMA() &&
+                                    currentSwOp == nullptr && !currentTilingDims.empty();
         for (auto viewOp : viewOpChain | reversed) {
             if (parentTilingDims.empty()) {
-                // Allow empty parent tiling only for NCE weights. Their tiling is derived from the consumer NCE
-                // output-channel split, and backUserTileInfo recomputes weights MC dims instead of reusing
-                // activation-output dims.
-                if (!isWeightsOperand) {
+                // Allow empty parent tiling for NCE weights and pipeline case.
+                // For weights, their tiling is derived from the consumer NCE output-channel split, and backUserTileInfo
+                // recomputes weights MC dims instead of reusing activation-output dims.
+                // For pipeline, the two ops can be fused regardless of the single layer tiling strategy
+                if (!isWeightsOperand && !canBePipelined) {
                     return false;
                 }
                 auto inferredTilingStrategy = viewOp.inferTilingStrategy(parentTilingStrategy);
@@ -192,6 +208,105 @@ mlir::LogicalResult MoveViewOpsRewriter::matchAndRewrite(VPU::VerticalFusionOp v
         return std::nullopt;
     };
 
+    // Get the NCE op's (begin, end) padding on a spatial dim, if it pads that dim.
+    auto getPaddedDimInfo = [](VPU::NCEOpInterface nceOp, Dim dim) -> std::optional<std::pair<int64_t, int64_t>> {
+        if (mlir::cast<vpux::NDTypeInterface>(nceOp->getResult(0).getType()).getRank() != 4 || !isSpatialDim(dim)) {
+            return std::nullopt;
+        }
+        auto pad = nceOp.getPad();
+        if (pad == nullptr) {
+            return std::nullopt;
+        }
+        const int64_t padBegin = dim == Dims4D::Act::H ? pad.getTop().getValue().getSExtValue()
+                                                       : pad.getLeft().getValue().getSExtValue();
+        const int64_t padEnd = dim == Dims4D::Act::H ? pad.getBottom().getValue().getSExtValue()
+                                                     : pad.getRight().getValue().getSExtValue();
+        if (padBegin == 0 && padEnd == 0) {
+            return std::nullopt;
+        }
+        return std::make_pair(padBegin, padEnd);
+    };
+
+    auto forwardDimThroughChain = [](Dim dim, ArrayRef<VPU::TilingViewLikeOpInterface> viewLikeOpChain,
+                                     size_t startIdx) -> std::optional<Dim> {
+        for (size_t i = startIdx; i-- > 0;) {
+            VPU::TilingViewLikeOpInterface viewOp = viewLikeOpChain[i];
+            auto forwardedDims = viewOp.inferTilingDim(dim);
+            if (forwardedDims.size() != 1) {
+                return std::nullopt;
+            }
+            dim = forwardedDims.front();
+        }
+        return dim;
+    };
+
+    // Prove, from the NCE op's padding and the view op's reshape ratio (reshapeGranule = outSize /
+    // gcd(inSize, outSize)), that no split count could ever produce tiles all satisfying the view
+    // op's size-divisibility restriction.
+    // `fillDividedTiles` only ever produces two distinct output sizes overall, with role (first/interior/last)
+    // assignment determined purely by tile position. Any two boundary tiles' input-size difference is `padBegin -
+    // padEnd`; when an interior tile (unaffected by padding) is instead compared against a boundary tile, both
+    // `padBegin` and `padEnd` must independently vanish -- so proving infeasibility reduces to checking those three
+    // deltas.
+    auto isProvenInfeasibleByPadding = [](int64_t padBegin, int64_t padEnd, int64_t reshapeGranule) -> bool {
+        if (padBegin == padEnd) {
+            return false;
+        }
+        auto isMultipleOfGranule = [reshapeGranule](int64_t delta) {
+            return delta % reshapeGranule == 0;
+        };
+        return !(isMultipleOfGranule(padBegin - padEnd) ||
+                 (isMultipleOfGranule(padBegin) && isMultipleOfGranule(padEnd)));
+    };
+
+    // Reject the move if viewOp's own reshape ratio on its single restricted dim, combined with the padding on the
+    // corresponding dim of the VF body's first op, makes every possible split count provably infeasible. This must
+    // be checked independently of vfOp's current tiling strategy.
+    auto isReshapeInfeasibleByPadding =
+            [&](VPU::NCEOpInterface firstInnerNceOp, bool isWeightsOperand, VPU::TilingViewLikeOpInterface viewOp,
+                ArrayRef<VPU::TilingViewLikeOpInterface> viewOpChain, size_t viewOpIdx) -> bool {
+        if (firstInnerNceOp == nullptr || isWeightsOperand) {
+            return false;
+        }
+
+        // Make sure only 1 dim can be tiled and it is restricted
+        const auto nonOneDims = getNonOneDim(getShape(viewOp->getResult(0)));
+        std::optional<Dim> restrictedDim;
+        for (auto candidate : nonOneDims) {
+            if (!viewOp.isSupportedTilingDim({candidate})) {
+                continue;
+            }
+            if (restrictedDim.has_value()) {
+                return false;
+            }
+            restrictedDim = candidate;
+        }
+        if (!restrictedDim.has_value() || !viewOp.isSupportedTilingDimWithRestrictions({restrictedDim.value()})) {
+            return false;
+        }
+
+        const auto inDim = viewOp.backInferTilingDim(restrictedDim.value());
+        const auto viewOpInSize = getShape(viewOp->getOperand(0))[inDim];
+        const auto viewOpOutSize = getShape(viewOp->getResult(0))[restrictedDim.value()];
+        const int64_t reshapeGranule = viewOpOutSize / std::gcd(viewOpInSize, viewOpOutSize);
+        if (reshapeGranule <= 1) {
+            return false;
+        }
+
+        auto forwardedDim = forwardDimThroughChain(restrictedDim.value(), viewOpChain, viewOpIdx);
+        if (!forwardedDim.has_value()) {
+            return false;
+        }
+
+        auto padInfo = getPaddedDimInfo(firstInnerNceOp, forwardedDim.value());
+        if (!padInfo.has_value()) {
+            return false;
+        }
+
+        auto [padBegin, padEnd] = padInfo.value();
+        return isProvenInfeasibleByPadding(padBegin, padEnd, reshapeGranule);
+    };
+
     auto isUserStrategyCompatible = [](mlir::Operation* userOp, VPU::TilingViewLikeOpInterface viewOp,
                                        const WorkItem& userTileInfo, bool hasMCStrategy,
                                        std::optional<DimArr> nextTilingDims) -> bool {
@@ -272,19 +387,19 @@ mlir::LogicalResult MoveViewOpsRewriter::matchAndRewrite(VPU::VerticalFusionOp v
         return true;
     };
 
-    auto tilingStrategy = parseIntArrayAttr<int64_t>(vfOp.getTilingStrategy());
-
     auto* lastInnerOp = vfOp.getBody()->getTerminator()->getPrevNode();
     auto lastTilingBuilderOp = mlir::dyn_cast_or_null<VPU::TilingBuilderOpInterface>(lastInnerOp);
     if (lastTilingBuilderOp == nullptr) {
         return mlir::failure();
     }
+
     auto lastOutTiles = fillDividedTiles(lastInnerOp, ShapeRef(tilingStrategy), getShape(lastInnerOp->getResult(0)));
     if (mlir::failed(lastOutTiles)) {
         return mlir::failure();
     }
     auto lastClusteredOp = mlir::dyn_cast_or_null<VPU::ClusteredOpInterface>(lastInnerOp);
     const bool hasMCStrategy = lastClusteredOp != nullptr && lastClusteredOp.getMultiClusterStrategy().has_value();
+    auto firstInnerNceOp = mlir::dyn_cast<VPU::NCEOpInterface>(vfOp.getFirstInnerTaskOp());
 
     for (auto vfOperand : vfOp->getOperands() | indexed) {
         auto parentOp = vfOperand.value().getDefiningOp<VPU::TilingViewLikeOpInterface>();
@@ -394,6 +509,12 @@ mlir::LogicalResult MoveViewOpsRewriter::matchAndRewrite(VPU::VerticalFusionOp v
                 // the multi-cluster tiling dim, there is an copy optimization to only keep CMX2CMX copy between those
                 // two ops.
                 if (!isSizeChangedOpCompatible(currentViewOp, hasMCStrategy, userTileInfo.value())) {
+                    isValid = false;
+                    break;
+                }
+
+                if (isReshapeInfeasibleByPadding(firstInnerNceOp, isWeightsOperand, currentViewOp, viewLikeOpChain,
+                                                 viewOpIt.index())) {
                     isValid = false;
                     break;
                 }

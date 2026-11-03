@@ -334,8 +334,8 @@ mlir::LogicalResult GroupsToAttr::matchAndRewrite(IE::GroupConvolutionOp convOp,
             auto newOutputHigh = getNewShapeValue(weightsFQ.getOutputHigh(), "out_high");
 
             newFilter = IE::FakeQuantizeOp::create(rewriter, weightsFQ->getLoc(), newWeights, newInputLow, newInputHigh,
-                                                   newOutputLow, newOutputHigh, weightsFQ.getLevelsAttr(),
-                                                   weightsFQ.getLowFpTypeAttr(), weightsFQ.getAutoBroadcastAttr())
+                                                   newOutputLow, newOutputHigh, weightsFQ.getLevelsOrLowFpTypeAttr(),
+                                                   weightsFQ.getAutoBroadcastAttr())
                                 .getOutput();
         }
     } else {

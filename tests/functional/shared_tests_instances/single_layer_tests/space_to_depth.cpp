@@ -24,7 +24,14 @@ class SpaceToDepthLayerTestCommon : public SpaceToDepthLayerTest, virtual public
     }
 };
 
+class SpaceToDepthLayerTest_NPU3720 : public SpaceToDepthLayerTestCommon {};
+
 TEST_P(SpaceToDepthLayerTestCommon, NPU3720_HW) {
+    setDefaultHardwareMode();
+    run(Platform::NPU3720);
+}
+
+TEST_P(SpaceToDepthLayerTest_NPU3720, HW) {
     setDefaultHardwareMode();
     run(Platform::NPU3720);
 }
@@ -62,6 +69,7 @@ TEST_P(SpaceToDepthLayerTestCommon, NPU5020_SW) {
 }  // namespace test
 }  // namespace ov
 
+using ov::test::SpaceToDepthLayerTest_NPU3720;
 using ov::test::SpaceToDepthLayerTestCommon;
 
 namespace {
@@ -90,5 +98,29 @@ INSTANTIATE_TEST_SUITE_P(smoke_precommit_SpaceToDepthBS2, SpaceToDepthLayerTestC
 
 INSTANTIATE_TEST_SUITE_P(smoke_precommit_SpaceToDepthBS3, SpaceToDepthLayerTestCommon, SpaceToDepthBS3_PRECOMMIT,
                          SpaceToDepthLayerTestCommon::getTestCaseName);
+
+// DEPTH_FIRST with N=1 lowers to the NCHW->NHWC SpaceToDepth DMA on NPU3720; N>1 must fall back.
+const auto makeSpaceToDepthDepthFirstParams = [](std::vector<std::vector<ov::Shape>> shapes, size_t blockSize) {
+    return ::testing::Combine(::testing::ValuesIn(ov::test::static_shapes_to_test_representation(shapes)),
+                              ::testing::Values(ov::element::f16, ov::element::u8),
+                              ::testing::Values(ov::op::v0::SpaceToDepth::SpaceToDepthMode::DEPTH_FIRST),
+                              ::testing::Values(blockSize), ::testing::Values(test_utils::TARGET_DEVICE));
+};
+
+INSTANTIATE_TEST_SUITE_P(smoke_SpaceToDepth_DepthFirst_BS2, SpaceToDepthLayerTest_NPU3720,
+                         makeSpaceToDepthDepthFirstParams({{{1, 16, 32, 48}}, {{2, 3, 16, 16}}}, 2),
+                         SpaceToDepthLayerTest_NPU3720::getTestCaseName);
+
+INSTANTIATE_TEST_SUITE_P(smoke_SpaceToDepth_DepthFirst_BS3, SpaceToDepthLayerTest_NPU3720,
+                         makeSpaceToDepthDepthFirstParams({{{1, 5, 12, 18}}}, 3),
+                         SpaceToDepthLayerTest_NPU3720::getTestCaseName);
+
+INSTANTIATE_TEST_SUITE_P(smoke_SpaceToDepth_DepthFirst_BS4, SpaceToDepthLayerTest_NPU3720,
+                         makeSpaceToDepthDepthFirstParams({{{1, 3, 64, 160}}, {{2, 3, 32, 32}}}, 4),
+                         SpaceToDepthLayerTest_NPU3720::getTestCaseName);
+
+INSTANTIATE_TEST_SUITE_P(smoke_SpaceToDepth_DepthFirst_BS16, SpaceToDepthLayerTest_NPU3720,
+                         makeSpaceToDepthDepthFirstParams({{{1, 3, 224, 224}}, {{1, 1, 16, 64}}}, 16),
+                         SpaceToDepthLayerTest_NPU3720::getTestCaseName);
 
 }  // namespace

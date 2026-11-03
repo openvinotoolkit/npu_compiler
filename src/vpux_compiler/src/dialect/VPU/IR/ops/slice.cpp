@@ -346,11 +346,11 @@ bool vpux::VPU::SliceOp::isVFSupported() {
         return false;
     }
     auto parentOp = getInput().getDefiningOp();
-    if (parentOp != nullptr && !VPU::opHasAccurateCost(parentOp)) {
+    if (parentOp != nullptr && !VPU::isViewOpSupportedForVF(parentOp, std::nullopt)) {
         return false;
     }
-    auto userOp = *getOutput().user_begin();
-    return VPU::opHasAccurateCost(userOp);
+    auto& use = *getOutput().use_begin();
+    return VPU::isViewOpSupportedForVF(use.getOwner(), use.getOperandNumber());
 }
 
 //

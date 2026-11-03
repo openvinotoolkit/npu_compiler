@@ -102,7 +102,7 @@ module @ScaleShiftSubgraph {
         %cst_1 = const.Declare tensor<1x1x1x1xf32> = dense<2.0362618> : tensor<1x1x1x1xf32>
         %cst_2 = const.Declare tensor<1x1x1x1xf32> = dense<-2.05229545> : tensor<1x1x1x1xf32>
         %cst_3 = const.Declare tensor<1x1x1x1xf32> = dense<2.0362618> : tensor<1x1x1x1xf32>
-        %0 = IE.FakeQuantize(%arg, %cst_0, %cst_1, %cst_2, %cst_3) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i64} : tensor<1x256x20x20xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32> -> tensor<1x256x20x20xf32>
+        %0 = IE.FakeQuantize(%arg, %cst_0, %cst_1, %cst_2, %cst_3) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256 : i64} : tensor<1x256x20x20xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32> -> tensor<1x256x20x20xf32>
 
         %1 = IE.Concat(%0, %0) {per_axis = #IE.Concat<axis = 1 : i64>} : tensor<1x256x20x20xf32>, tensor<1x256x20x20xf32> -> tensor<1x512x20x20xf32>
 
@@ -119,7 +119,7 @@ module @ScaleShiftSubgraph {
         %cst_8 = const.Declare tensor<1x1x1x1xf32> = dense<6.07727957> : tensor<1x1x1x1xf32>
         %cst_9 = const.Declare tensor<1x1x1x1xf32> = dense<-6.12513208> : tensor<1x1x1x1xf32>
         %cst_10 = const.Declare tensor<1x1x1x1xf32> = dense<6.07727957> : tensor<1x1x1x1xf32>
-        %5 = IE.FakeQuantize(%4, %cst_7, %cst_8, %cst_9, %cst_10) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i64} : tensor<1x512x20x20xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32> -> tensor<1x512x20x20xf32>
+        %5 = IE.FakeQuantize(%4, %cst_7, %cst_8, %cst_9, %cst_10) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256 : i64} : tensor<1x512x20x20xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32> -> tensor<1x512x20x20xf32>
 
         return %5 : tensor<1x512x20x20xf32>
 
@@ -131,8 +131,8 @@ module @ScaleShiftSubgraph {
         // CHECK-SAME:      weights([[weight_0:%.+]] : memref<512x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>)
         // CHECK-SAME:      weight_table([[weight_table_0:%.+]] : memref<512x1x1x4xsi32, [@CMX_NN, 0]>)
         // CHECK-SAME:      parent_input([[parent_input_0:%.+]] : !VPUIP.DistributedBuffer<1x512x20x20xf16, #NHWC, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64}>)
-        // CHECK-SAME:      parent_output([[parent_output_0:%.+]] : !VPUIP.DistributedBuffer<1x512x20x20x!qElemType, #NHWC, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64}>)
-        // CHECK-SAME:      outputs([[output_0:%.+]] : memref<1x512x10x20x!qElemType, {order = #NHWC}, [@CMX_NN, 0]>) -> memref<1x512x10x20x!qElemType, {order = #NHWC}, [@CMX_NN, 0]> variants : {
+        // CHECK-SAME:      parent_output([[parent_output_0:%.+]] : !VPUIP.DistributedBuffer<1x512x20x20x!qElemType, {order = #NHWC, swizzlingScheme = #VPUIP.SwizzlingSchemeAttr<key = 5 : i64, sizeAlignment = 512 : i64>}, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64}>)
+        // CHECK-SAME:      outputs([[output_0:%.+]] : memref<1x512x10x20x!qElemType, {order = #NHWC, swizzlingScheme = #VPUIP.SwizzlingSchemeAttr<key = 5 : i64, sizeAlignment = 512 : i64>}, [@CMX_NN, 0]>) -> memref<1x512x10x20x!qElemType, {order = #NHWC, swizzlingScheme = #VPUIP.SwizzlingSchemeAttr<key = 5 : i64, sizeAlignment = 512 : i64>}, [@CMX_NN, 0]> variants : {
         // CHECK:               DPUTask
         // CHECK:               DPUTask
         // CHECK:               DPUTask
@@ -150,8 +150,8 @@ module @ScaleShiftSubgraph {
         // CHECK-SAME:      weights([[weight_1:%.+]] : memref<512x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 1]>)
         // CHECK-SAME:      weight_table([[weight_table_1:%.+]] : memref<512x1x1x4xsi32, [@CMX_NN, 1]>)
         // CHECK-SAME:      parent_input([[parent_input_0:%.+]] : !VPUIP.DistributedBuffer<1x512x20x20xf16, #NHWC, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64}>)
-        // CHECK-SAME:      parent_output([[parent_output_0:%.+]] : !VPUIP.DistributedBuffer<1x512x20x20x!qElemType, #NHWC, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64}>)
-        // CHECK-SAME:      outputs([[output_1:%.+]] : memref<1x512x10x20x!qElemType, {order = #NHWC}, [@CMX_NN, 1]>) -> memref<1x512x10x20x!qElemType, {order = #NHWC}, [@CMX_NN, 1]> variants : {
+        // CHECK-SAME:      parent_output([[parent_output_0:%.+]] : !VPUIP.DistributedBuffer<1x512x20x20x!qElemType, {order = #NHWC, swizzlingScheme = #VPUIP.SwizzlingSchemeAttr<key = 5 : i64, sizeAlignment = 512 : i64>}, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64}>)
+        // CHECK-SAME:      outputs([[output_1:%.+]] : memref<1x512x10x20x!qElemType, {order = #NHWC, swizzlingScheme = #VPUIP.SwizzlingSchemeAttr<key = 5 : i64, sizeAlignment = 512 : i64>}, [@CMX_NN, 1]>) -> memref<1x512x10x20x!qElemType, {order = #NHWC, swizzlingScheme = #VPUIP.SwizzlingSchemeAttr<key = 5 : i64, sizeAlignment = 512 : i64>}, [@CMX_NN, 1]> variants : {
         // CHECK:               DPUTask
         // CHECK:               DPUTask
         // CHECK:               DPUTask

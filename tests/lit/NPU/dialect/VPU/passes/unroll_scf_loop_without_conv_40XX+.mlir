@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-// RUN: vpux-opt --split-input-file --init-compiler="platform=%platform% compilation-mode=HostCompile allow-custom-values=true" --unroll-scf-loop="loop-unroll-factor=1,1,2,1 enable-cascaded-unrolling=false" --canonicalize %s | FileCheck %s
+// RUN: vpux-opt --split-input-file --init-compiler="platform=%platform% compilation-mode=HostCompile_Interpreter allow-custom-values=true" --unroll-scf-loop="loop-unroll-factor=1,1,2,1 enable-cascaded-unrolling=false" --canonicalize %s | FileCheck %s
 // REQUIRES: platform-NPU4000 || platform-NPU5010
 
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
@@ -117,7 +117,7 @@ module @StaticEltwiseNHWC {
     DataInfo "output" : tensor<1x16x720x?xf16>
   }
 
-  // CHECK:    func.func @merged_vpu_func_0([[ARG0:%.+]]: tensor<1x16x200x1000xf16, {order = #NHWC}> {func.dynamicStrides = true}, [[ARG1:%.+]]: tensor<1x16x200x1000xf16, {order = #NHWC}> {func.dynamicStrides = true}) -> (tensor<1x16x200x1000xf16, {order = #NHWC}> {func.dynamicStrides = true}) {
+  // CHECK:    func.func private @merged_vpu_func_0([[ARG0:%.+]]: tensor<1x16x200x1000xf16, {order = #NHWC}> {func.dynamicStrides = true}, [[ARG1:%.+]]: tensor<1x16x200x1000xf16, {order = #NHWC}> {func.dynamicStrides = true}) -> (tensor<1x16x200x1000xf16, {order = #NHWC}> {func.dynamicStrides = true}) {
   // CHECK:      [[SLICE0:%.+]] = VPU.Slice [[ARG0]] [0, 0, 0, 0] [1, 16, 100, 1000] : tensor<1x16x200x1000xf16, {order = #NHWC}> to tensor<1x16x100x1000xf16, {order = #NHWC}>
   // CHECK:      [[SLICE2:%.+]] = VPU.Slice [[ARG1]] [0, 0, 0, 0] [1, 16, 100, 1000] : tensor<1x16x200x1000xf16, {order = #NHWC}> to tensor<1x16x100x1000xf16, {order = #NHWC}>
   // CHECK:      [[ELTWISE0:%.+]] = VPU.NCE.Eltwise([[SLICE0]], [[SLICE2]])
@@ -203,7 +203,7 @@ module @StaticEltwiseNHWC {
 
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
-// CHECK:       func.func @merged_vpu_func_1([[INPUT:%.+]]: tensor<1x4x8x16xf16>)
+// CHECK:       func.func private @merged_vpu_func_1([[INPUT:%.+]]: tensor<1x4x8x16xf16>)
 // CHECK-SAME:    -> tensor<1x4x8x16xf16>
 // CHECK-DAG:   [[SLICE_FIRST:%.+]] = VPU.Slice [[INPUT]] [0, 0, 0, 0] [1, 4, 4, 16]
 // CHECK:       VPU.PermuteCast

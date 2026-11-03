@@ -29,8 +29,8 @@ func.func @main(%input: tensor<1x1x4096xf32>) -> tensor<1x1x1xf32> {
 
     return %sqrt : tensor<1x1x1xf32>
 
-    // CHECK:   [[IN_CONVERT:%.+]] = IE.Convert([[INPUT]]) {dstElemType = f32} : tensor<1x1x4096xf16> -> tensor<1x1x4096xf32>
     // CHECK:   [[CST:%.+]] = const.Declare tensor<1x1x1xf32> = dense<1.000000e+00> : tensor<1x1x1xf32>
+    // CHECK:   [[IN_CONVERT:%.+]] = IE.Convert([[INPUT]]) {dstElemType = f32} : tensor<1x1x4096xf16> -> tensor<1x1x4096xf32>
     // CHECK:   [[REDUCE_MEAN:%.+]] = IE.ReduceMean([[IN_CONVERT]]) {axes_value = [2], keep_dims} : tensor<1x1x4096xf32> -> tensor<1x1x1xf32>
     // CHECK:   [[ADD:%.+]] = IE.Add([[REDUCE_MEAN]], [[CST]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x1xf32>, tensor<1x1x1xf32> -> tensor<1x1x1xf32>
     // CHECK:   [[SQRT:%.+]] = IE.Sqrt([[ADD]]) : tensor<1x1x1xf32> -> tensor<1x1x1xf32>

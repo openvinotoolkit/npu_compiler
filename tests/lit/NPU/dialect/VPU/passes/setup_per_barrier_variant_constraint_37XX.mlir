@@ -22,4 +22,3 @@ module @mainModule attributes { config.platform = #config.platform<NPU3720> } {
 // CHECK: config.Option @config.MetadataMaxInvariantCount : 32
 // CHECK: config.Option @config.MetadataMaxKernelInvocationCount : 64
 // CHECK: config.Option @config.MetadataMaxKernelRangeCount : 32
-// CHECK-NOT: config.Option @config.MetadataMaxMediaCount : 4

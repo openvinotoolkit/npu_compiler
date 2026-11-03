@@ -90,6 +90,8 @@ INSTANTIATE_TEST_SUITE_P(smoke_GatedDeltaNet, GatedDeltaNetLayerTest,
                                            GatedDeltaNetParams{Batch{1}, SeqLen{16}, QkHeads{2}, VHeads{4},
                                                                QkHeadSize{16}, VHeadSize{16}, Fuse{false}},
                                            GatedDeltaNetParams{Batch{1}, SeqLen{8}, QkHeads{2}, VHeads{2},
+                                                               QkHeadSize{16}, VHeadSize{16}, Fuse{true}},
+                                           GatedDeltaNetParams{Batch{1}, SeqLen{1}, QkHeads{2}, VHeads{4},
                                                                QkHeadSize{16}, VHeadSize{16}, Fuse{true}}),
                          PrintTestCaseName());
 
@@ -135,6 +137,8 @@ INSTANTIATE_TEST_SUITE_P(GatedDeltaNet_MCSeq, GatedDeltaNetLayerTest,
 
 INSTANTIATE_TEST_SUITE_P(GatedDeltaNet_Decode, GatedDeltaNetLayerTest,
                          ::testing::Values(GatedDeltaNetParams{Batch{1}, SeqLen{1}, QkHeads{16}, VHeads{16},
+                                                               QkHeadSize{128}, VHeadSize{128}, Fuse{true}},
+                                           GatedDeltaNetParams{Batch{1}, SeqLen{1}, QkHeads{16}, VHeads{32},
                                                                QkHeadSize{128}, VHeadSize{128}, Fuse{true}}),
                          PrintTestCaseName());
 

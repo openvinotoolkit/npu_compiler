@@ -7,7 +7,7 @@
 
 #pragma once
 
-#include "npu_driver_compiler.h"
+#include "compatibility/npu_driver_compiler.h"
 #include "vpux/utils/ov/config.hpp"
 
 #include "openvino/core/extension.hpp"

@@ -37,7 +37,7 @@ func.func @ConvertTransposedConv2DToConv2DFQFilterFQParamsReused(%input: tensor<
 
     %weights_fq = IE.FakeQuantize(%weights, %weights_low, %weights_high, %weights_low, %weights_high) {
         auto_broadcast = #IE.auto_broadcast_type<NUMPY>,
-        levels = 256 : i64
+        levels_or_low_fp_type = 256 : i64
     } : tensor<16x32x2x2xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<16x32x2x2xf16>
 
     %output = IE.TransposedConvolution(%input, %weights_fq) {strides = [2, 2], pads_begin = [0, 0], pads_end = [0, 0], dilations = [1, 1], operandSegmentSizes = array<i32: 1, 1, 0, 0>, spatial_output_padding = [0, 0]} : tensor<1x32x23x30xf16>, tensor<16x32x2x2xf16> -> tensor<1x16x46x60xf16>
@@ -76,7 +76,7 @@ func.func @ConvertTransposedConv2DToConv2DFQFilterFQParamsUnique(%input: tensor<
 
     %weights_fq = IE.FakeQuantize(%weights, %weights_input_low, %weights_input_high, %weights_output_low, %weights_output_high) {
         auto_broadcast = #IE.auto_broadcast_type<NUMPY>,
-        levels = 256 : i64
+        levels_or_low_fp_type = 256 : i64
     } : tensor<16x32x2x2xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<16x32x2x2xf16>
 
     %output = IE.TransposedConvolution(%input, %weights_fq) {strides = [2, 2], pads_begin = [0, 0], pads_end = [0, 0], dilations = [1, 1], operandSegmentSizes = array<i32: 1, 1, 0, 0>, spatial_output_padding = [0, 0]} : tensor<1x32x23x30xf16>, tensor<16x32x2x2xf16> -> tensor<1x16x46x60xf16>
@@ -125,7 +125,7 @@ func.func @ConvertTransposedConv2DToConv2DNonConstFilter(%input0: tensor<1x16x30
 
     %fq_input = IE.FakeQuantize(%conv1, %cst_0, %cst_1, %cst_0, %cst_1) {
                 auto_broadcast = #IE.auto_broadcast_type<NUMPY>,
-                levels = 256 : i64
+                levels_or_low_fp_type = 256 : i64
             } : tensor<1x16x30x30xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<1x16x30x30xf16>
 
     // transposed conv weights
@@ -133,7 +133,7 @@ func.func @ConvertTransposedConv2DToConv2DNonConstFilter(%input0: tensor<1x16x30
     %cst_3 = const.Declare tensor<1x1x1x1xf16> = dense<1.000000e+00> : tensor<1x1x1x1xf16>
     %fq_weights = IE.FakeQuantize(%input1, %cst_2, %cst_3, %cst_2, %cst_3) {
                     auto_broadcast = #IE.auto_broadcast_type<NUMPY>,
-                    levels = 256 : i64
+                    levels_or_low_fp_type = 256 : i64
                 } : tensor<16x1x16x16xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<16x1x16x16xf16>
 
     // transposed conv

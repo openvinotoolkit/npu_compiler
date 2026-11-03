@@ -22,6 +22,14 @@
 #include <mlir/IR/Operation.h>
 #include <mlir/Interfaces/SideEffectInterfaces.h>
 
+namespace vpux {
+
+// Marks an operation as a DMA task in backend dialects.
+template <typename ConcreteOp>
+class DMAOpTrait : public mlir::OpTrait::TraitBase<ConcreteOp, DMAOpTrait> {};
+
+}  // namespace vpux
+
 //
 // Generated
 //

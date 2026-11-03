@@ -286,12 +286,6 @@ public:
 
 mlir::LogicalResult ConvertInputToFP16::matchAndRewrite(IE::InterpolateOp op, mlir::PatternRewriter& rewriter) const {
     const auto inputType = mlir::cast<mlir::ShapedType>(op.getInput().getType()).getElementType();
-    const auto arch = config::getArch(op);
-
-    // VPU4000-M2I does not support C-minor FP16
-    if (arch >= config::ArchKind::NPU40XX && (config::getCompilationMode(op) != config::CompilationMode::ReferenceSW)) {
-        return mlir::failure();
-    }
 
     if (inputType.isUnsignedInteger(8)) {
         auto convertOpBefore =

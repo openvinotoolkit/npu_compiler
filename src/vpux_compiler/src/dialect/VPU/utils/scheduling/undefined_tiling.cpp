@@ -11,6 +11,7 @@
 #include <algorithm>
 #include <limits>
 #include <map>
+#include <optional>
 #include <set>
 #include <unordered_map>
 #include <unordered_set>
@@ -255,9 +256,9 @@ std::pair<vpux::AddressType, SharedBufferIds> reserveGloballySharedBuffers(const
     return {availableMemory, sharedBuffers};
 }
 
-void reserveDataUpdateInputBuffers(const ValueOrderedSet& dataUpdateInputBuffers,
+bool reserveDataUpdateInputBuffers(const ValueOrderedSet& dataUpdateInputBuffers,
                                    const BufferInfoCache& bufferInfoCache, vpux::AddressType& availableMemory,
-                                   SharedBufferIds& sharedBuffers) {
+                                   SharedBufferIds& sharedBuffers, const Logger& log) {
     for (const auto& buffer : dataUpdateInputBuffers) {
         const auto bufferIdIt = bufferInfoCache.bufferIds.find(buffer);
         VPUX_THROW_UNLESS(bufferIdIt != bufferInfoCache.bufferIds.end(),
@@ -269,12 +270,15 @@ void reserveDataUpdateInputBuffers(const ValueOrderedSet& dataUpdateInputBuffers
 
         const auto rawSize = bufferInfoCache.buffers[bufferId].rawSize;
         const auto rawAlignment = bufferInfoCache.buffers[bufferId].rawAlignment;
-        VPUX_THROW_UNLESS(rawSize <= availableMemory,
-                          "Insufficient CMX for DATA_UPDATE input {0}: requested={1}, available={2}", bufferId, rawSize,
-                          availableMemory);
+        if (rawSize > availableMemory) {
+            log.trace("Insufficient CMX for DATA_UPDATE input buffer {0}: requested={1}, available={2}", bufferId,
+                      rawSize, availableMemory);
+            return false;
+        }
         availableMemory -= rawSize;
         availableMemory = alignValDown(availableMemory, rawAlignment);
     }
+    return true;
 }
 
 OperandAllocationOrder getOperandAllocationOrder(const FrequencyTable& frequencyTable) {
@@ -297,12 +301,13 @@ OperandAllocationOrder getOperandAllocationOrder(const FrequencyTable& frequency
     return operandReloads;
 }
 
-ComputeOpAllocationMap getMemoryAllocations(const ComputeOpBuffers& computeOpBuffers,
-                                            const SharedBufferIds& sharedBuffers,
-                                            const OperandAllocationOrder& operandAllocationOrder,
-                                            const OperandSlotRequirements& operandSlotRequirements,
-                                            vpux::AddressType availableMemory, vpux::AddressType& usedMemory,
-                                            vpux::AddressType& baseAlignment) {
+std::optional<ComputeOpAllocationMap> getMemoryAllocations(const ComputeOpBuffers& computeOpBuffers,
+                                                           const SharedBufferIds& sharedBuffers,
+                                                           const OperandAllocationOrder& operandAllocationOrder,
+                                                           const OperandSlotRequirements& operandSlotRequirements,
+                                                           vpux::AddressType availableMemory,
+                                                           vpux::AddressType& usedMemory,
+                                                           vpux::AddressType& baseAlignment, Logger log) {
     // Allocate local buffers using two-tier behavior:
     //  1) PIPELINING-like reuse when slots remain valid/alive.
     //  2) PREFETCHING fallback by reusing oldest allocation for the same operand on overflow.
@@ -337,6 +342,7 @@ ComputeOpAllocationMap getMemoryAllocations(const ComputeOpBuffers& computeOpBuf
         VPUX_THROW_UNLESS(operandAllocationOrder.size() == usedBuffers.size(), "Inconsistent allocation order");
 
         for (const auto& [operandIdx, _] : operandAllocationOrder) {
+            const auto& currentUsedBuffers = usedBuffers;
             const auto bufferId = usedBuffers[operandIdx];
             if (sharedBuffers.count(bufferId) > 0) {
                 continue;
@@ -362,14 +368,23 @@ ComputeOpAllocationMap getMemoryAllocations(const ComputeOpBuffers& computeOpBuf
 
             if (end > availableMemory || reachedMemoryLimit || operandAllocations[operandIdx].size() > 1) {
                 // Memory exhausted, already hit limit, or operand already has two slots:
-                // reuse the oldest allocation slot for this operand.
+                // reuse a slot that is not needed by the current compute op.
                 if (end > availableMemory) {
                     reachedMemoryLimit = true;
                 }
-                VPUX_THROW_WHEN(operandAllocations[operandIdx].empty(),
-                                "No previous allocation to overwrite for operand {0}", operandIdx);
-                const auto [oldBufferId, oldAddress] = operandAllocations[operandIdx].front();
-                operandAllocations[operandIdx].erase(operandAllocations[operandIdx].begin());
+                auto reusableSlot =
+                        std::find_if(operandAllocations[operandIdx].begin(), operandAllocations[operandIdx].end(),
+                                     [&](const SlotEntry& slot) {
+                                         return llvm::find(currentUsedBuffers, slot.first) == currentUsedBuffers.end();
+                                     });
+                if (reusableSlot == operandAllocations[operandIdx].end()) {
+                    log.trace("Unable to reuse operand {0}: all allocation slots are used by current compute op ({1}, "
+                              "{2})",
+                              operandIdx, computeOpKey.iterationIdx, computeOpKey.computeOpIdx);
+                    return std::nullopt;
+                }
+                const auto [oldBufferId, oldAddress] = *reusableSlot;
+                operandAllocations[operandIdx].erase(reusableSlot);
                 begin = oldAddress.first;
                 end = oldAddress.second;
                 VPUX_THROW_UNLESS(aliveBuffers.count(oldBufferId) > 0,
@@ -732,7 +747,11 @@ LoopScheduleResult UndefinedTiling::getScheduleStrategy(const ComputeRegion& loo
     auto [availableMemory, sharedBuffers] =
             reserveGloballySharedBuffers(frequencyTable, computeOpCount, memorySize, bufferInfoCache);
     const auto dataUpdateInputBuffers = collectDataUpdateInputBuffers(schedulingLoop);
-    reserveDataUpdateInputBuffers(dataUpdateInputBuffers, bufferInfoCache, availableMemory, sharedBuffers);
+
+    if (!reserveDataUpdateInputBuffers(dataUpdateInputBuffers, bufferInfoCache, availableMemory, sharedBuffers, _log)) {
+        return {/*schedule=*/{}, /*reservedSize=*/0, /*sharedExternalBuffers=*/{},
+                /*baseAlignment=*/vpux::DEFAULT_CMX_ALIGNMENT};
+    }
     _log.trace("Reserved shared buffers: sharedCount={0}, availableMemory={1}", sharedBuffers.size(), availableMemory);
 
     // Allocate operands in ascending reload count.
@@ -752,10 +771,14 @@ LoopScheduleResult UndefinedTiling::getScheduleStrategy(const ComputeRegion& loo
     vpux::AddressType baseAlignment = vpux::DEFAULT_CMX_ALIGNMENT;
     const auto memoryAllocations =
             getMemoryAllocations(computeOpBuffers, sharedBuffers, operandAllocationOrder, operandSlotRequirements,
-                                 availableMemory, usedMemory, baseAlignment);
+                                 availableMemory, usedMemory, baseAlignment, _log);
+    if (!memoryAllocations.has_value()) {
+        return {/*schedule=*/{}, /*reservedSize=*/0, /*sharedExternalBuffers=*/{},
+                /*baseAlignment=*/vpux::DEFAULT_CMX_ALIGNMENT};
+    }
 
     auto predefinedSchedule =
-            buildPredefinedSchedule(schedulingLoop, memoryAllocations, sharedBuffers, bufferInfoCache);
+            buildPredefinedSchedule(schedulingLoop, *memoryAllocations, sharedBuffers, bufferInfoCache);
 
     ValueOrderedSet sharedExternalBuffers;
     for (auto bufferId : sharedBuffers) {

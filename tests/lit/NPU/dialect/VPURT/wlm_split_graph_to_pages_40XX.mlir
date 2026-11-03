@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-// RUN: vpux-opt --split-input-file --init-compiler="platform=%platform%" --wlm-split-graph-to-pages="num-barriers=4" %s | FileCheck %s
+// RUN: vpux-opt --split-input-file --init-compiler="platform=%platform% workload-management-mode=PWLM_V0_1_PAGES" --wlm-split-graph-to-pages="num-barriers=4" %s | FileCheck %s
 // REQUIRES: platform-NPU4000
 
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>

@@ -132,7 +132,7 @@ SmallVector<NDTypeInterface> VFConfig::getOperationTypes(mlir::Operation* operat
     VPUX_THROW_WHEN(llvm::find(getVFOperations(), operation) == _vfOps.end(), "Cannot find operation {0} in VF {1}",
                     *operation, _subgraph);
 
-    auto origShape = Shape(getShape(operation->getResult(0)));
+    auto origShape = Shape(getBoundedShape(operation->getResult(0)));
     if (_tilesCache.find(operation) == _tilesCache.end()) {
         auto strategy = getMultiClusterStrategyFromOp(operation);
         _tilesCache[operation][origShape] = getTileTypes(operation, TileInfo(origShape), strategy);

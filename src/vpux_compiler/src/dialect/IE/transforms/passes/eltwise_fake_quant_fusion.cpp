@@ -181,9 +181,10 @@ mlir::LogicalResult EltwiseFakeQuantizeFusion<ConcreteOp>::matchAndRewrite(IE::F
         auto concreteOutLowValue = concreteFQOutLowContentAttr.fold().template getSplatValue<float>();
         auto concreteOutHighValue = concreteFQOutHighContentAttr.fold().template getSplatValue<float>();
 
-        if (const auto levels = scalarInputFqOp.getLevels()) {
+        const auto levelsOrLowFpType = scalarInputFqOp.getLevelsOrLowFpTypeAttr();
+        if (const auto levels = mlir::dyn_cast<mlir::IntegerAttr>(levelsOrLowFpType)) {
             scalarConstantValue = fakeQuantize(scalarConstantValue, concreteInLowValue, concreteInHighValue,
-                                               concreteOutLowValue, concreteOutHighValue, *levels);
+                                               concreteOutLowValue, concreteOutHighValue, levels.getInt());
         } else {
             _log.nest().trace("FakeQuantize without levels at '{0}'", scalarInputFqOp->getLoc());
             return mlir::failure();
@@ -259,7 +260,7 @@ mlir::LogicalResult EltwiseFakeQuantizeFusion<ConcreteOp>::matchAndRewrite(IE::F
 
     rewriter.replaceOpWithNewOp<IE::FakeQuantizeOp>(fakeQuantizeOp, nonScalarInput, newInLowConst, newInHighConst,
                                                     fakeQuantizeOp.getOutputLow(), fakeQuantizeOp.getOutputHigh(),
-                                                    fakeQuantizeOp.getLevelsAttr(), fakeQuantizeOp.getLowFpTypeAttr(),
+                                                    fakeQuantizeOp.getLevelsOrLowFpTypeAttr(),
                                                     fakeQuantizeOp.getAutoBroadcastAttr());
     return mlir::success();
 }

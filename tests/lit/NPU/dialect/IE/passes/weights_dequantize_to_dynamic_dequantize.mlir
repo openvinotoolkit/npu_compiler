@@ -31,7 +31,7 @@ func.func @WeightsMultToDynamicDequantizePerChannel(%input: tensor<1x4x28x28xf32
   %cst_1 = const.Declare tensor<4x1x1x1xf32> = dense<[[[[0.00294781756]]], [[[0.00312666874]]], [[[0.00260377093]]], [[[0.00269700377]]]]> : tensor<4x1x1x1xf32>
   %cst_2 = const.Declare tensor<1x1x1x1xf32> = dense<0.407326102> : tensor<1x1x1x1xf32>
   %cst_3 = const.Declare tensor<1x1x1x1xf32> = dense<-0.273143411> : tensor<1x1x1x1xf32>
-  %0 = IE.FakeQuantize(%input, %cst_3, %cst_2, %cst_3, %cst_2) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i64} : tensor<1x4x28x28xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32> -> tensor<1x4x28x28xf32>
+  %0 = IE.FakeQuantize(%input, %cst_3, %cst_2, %cst_3, %cst_2) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256 : i64} : tensor<1x4x28x28xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32> -> tensor<1x4x28x28xf32>
   %1 = IE.Multiply(%cst_0, %cst_1) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<4x4x3x3xf32>, tensor<4x1x1x1xf32> -> tensor<4x4x3x3xf32>
   %2 = IE.Convolution(%0, %1) {dilations = [1, 1], pads_begin = [1, 1], pads_end = [1, 1], strides = [1, 1]} : tensor<1x4x28x28xf32>, tensor<4x4x3x3xf32> -> tensor<1x4x28x28xf32>
   return %2 : tensor<1x4x28x28xf32>
@@ -45,7 +45,7 @@ func.func @WeightsMultToDynamicDequantizePerChannel(%input: tensor<1x4x28x28xf32
 
   // CHECK: [[DDQ:%.+]] = IE.DynamicDequantize([[WT_RAW]], [[SCALE]]) {dstElemType = f32, vpux.weights_import_dyn_dequant} : tensor<4x4x3x3xsi8>, tensor<4x1x1x1xf32> -> tensor<4x4x3x3xf32>
   // CHECK: [[ACT_FQ:%.+]] = IE.FakeQuantize([[INPUT]], [[ACT_LOW]], [[ACT_HIGH]], [[ACT_LOW]], [[ACT_HIGH]])
-  // CHECK-SAME: {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i64}
+  // CHECK-SAME: {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256 : i64}
   // CHECK: [[CONV:%.+]] = IE.Convolution([[ACT_FQ]], [[DDQ]])
   // CHECK: return [[CONV]]
 }
@@ -60,7 +60,7 @@ func.func @WeightsMultSubToDynamicDequantize(%input: tensor<1x16x32x32xf32>) -> 
   %cst_2 = const.Declare tensor<16x1x1x1xf32> = dense<[[[[27]]], [[[25]]], [[[39]]], [[[22]]], [[[27]]], [[[25]]], [[[21]]], [[[27]]], [[[31]]], [[[29]]], [[[42]]], [[[27]]], [[[27]]], [[[28]]], [[[33]]], [[[33]]]]> : tensor<16x1x1x1xsi8>, [#const.CastElemType<f32>]
   %cst_3 = const.Declare tensor<1x1x1x1xf32> = dense<2.500000e+01> : tensor<1x1x1x1xf32>
   %cst_4 = const.Declare tensor<1x1x1x1xf32> = dense<0.0566197559> : tensor<1x1x1x1xf32>
-  %0 = IE.FakeQuantize(%input, %cst_1, %cst_0, %cst_1, %cst_0) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i64} : tensor<1x16x32x32xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32> -> tensor<1x16x32x32xf32>
+  %0 = IE.FakeQuantize(%input, %cst_1, %cst_0, %cst_1, %cst_0) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256 : i64} : tensor<1x16x32x32xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32> -> tensor<1x16x32x32xf32>
   %1 = IE.Subtract(%cst_2, %cst_3) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<16x1x1x1xf32>, tensor<1x1x1x1xf32> -> tensor<16x1x1x1xf32>
   %2 = IE.Multiply(%1, %cst_4) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<16x1x1x1xf32>, tensor<1x1x1x1xf32> -> tensor<16x1x1x1xf32>
   %3 = IE.GroupConvolution(%0, %2) {dilations = [1, 1], groups = 16 : i64, pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]} : tensor<1x16x32x32xf32>, tensor<16x1x1x1xf32> -> tensor<1x16x32x32xf32>
@@ -77,7 +77,7 @@ func.func @WeightsMultSubToDynamicDequantize(%input: tensor<1x16x32x32xf32>) -> 
   // CHECK-NOT: IE.Subtract
   // CHECK-NOT: IE.Multiply
   // CHECK:     [[ACT_FQ:%.+]] = IE.FakeQuantize([[INPUT]], [[ACT_LOW]], [[ACT_HIGH]], [[ACT_LOW]], [[ACT_HIGH]])
-  // CHECK-SAME: {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i64}
+  // CHECK-SAME: {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256 : i64}
   // CHECK:     IE.GroupConvolution([[ACT_FQ]], [[DDQ]])
 }
 
@@ -463,6 +463,32 @@ func.func @WeightsMultToDynamicDequantizeU2TernaryWeights(%input: tensor<1x1x28x
 
 // -----
 
+// CHECK-LABEL: @WeightsMultSubToDynamicDequantizeU2MultiToken
+// CHECK-SAME:      [[INPUT:%.+]]: tensor<16x2xf16>
+func.func @WeightsMultSubToDynamicDequantizeU2MultiToken(%input: tensor<16x2xf16>) -> tensor<16x4xf16> {
+  %cst_0 = const.Declare tensor<4x2xf16> = dense<[[0, 1], [2, 3], [1, 2], [0, 3]]> : tensor<4x2xui2>,
+    [
+      #const.ConvertElemType<ui8>,
+      #const.CastElemType<f16>
+    ]
+  %cst_1 = const.Declare tensor<4x1xf16> = dense<[[1.0], [1.0], [1.0], [1.0]]> : tensor<4x1xf16>
+  %cst_2 = const.Declare tensor<4x1xf16> = dense<[[0.00294781756], [0.00312666874], [0.00260377093], [0.00269700377]]> : tensor<4x1xf16>
+  %0 = IE.Subtract(%cst_0, %cst_1) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<4x2xf16>, tensor<4x1xf16> -> tensor<4x2xf16>
+  %1 = IE.Multiply(%0, %cst_2) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<4x2xf16>, tensor<4x1xf16> -> tensor<4x2xf16>
+  %2 = IE.FullyConnected(%input, %1) : tensor<16x2xf16>, tensor<4x2xf16> -> tensor<16x4xf16>
+  return %2 : tensor<16x4xf16>
+
+  // CHECK-DAG: [[SCALE:%.+]] = const.Declare tensor<4x1xf16> = dense<[
+  // CHECK-DAG: [[WT_RAW:%.+]] = const.Declare tensor<4x2xui2> = dense<[
+  // CHECK-DAG: [[ZP:%.+]] = const.Declare tensor<4x1xui2> = dense<1.000000e+00>
+
+  // CHECK: [[DDQ:%.+]] = IE.DynamicDequantize([[WT_RAW]], [[SCALE]], [[ZP]]) {dstElemType = f16, vpux.weights_import_dyn_dequant} : tensor<4x2xui2>, tensor<4x1xf16>, tensor<4x1xui2> -> tensor<4x2xf16>
+  // CHECK: [[FC:%.+]] = IE.FullyConnected([[INPUT]], [[DDQ]])
+  // CHECK: return [[FC]]
+}
+
+// -----
+
 // CHECK-LABEL: @WeightsUI8MultToDynamicDequantize
 // CHECK-SAME:      [[INPUT:%.+]]: tensor<1x4x28x28xf32>
 func.func @WeightsUI8MultToDynamicDequantize(%input: tensor<1x4x28x28xf32>) -> tensor<1x4x28x28xf32> {
@@ -470,7 +496,7 @@ func.func @WeightsUI8MultToDynamicDequantize(%input: tensor<1x4x28x28xf32>) -> t
   %cst_1 = const.Declare tensor<4x1x1x1xf32> = dense<[[[[0.00294781756]]], [[[0.00312666874]]], [[[0.00260377093]]], [[[0.00269700377]]]]> : tensor<4x1x1x1xf32>
   %cst_2 = const.Declare tensor<1x1x1x1xf32> = dense<0.407326102> : tensor<1x1x1x1xf32>
   %cst_3 = const.Declare tensor<1x1x1x1xf32> = dense<-0.273143411> : tensor<1x1x1x1xf32>
-  %0 = IE.FakeQuantize(%input, %cst_3, %cst_2, %cst_3, %cst_2) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i64} : tensor<1x4x28x28xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32> -> tensor<1x4x28x28xf32>
+  %0 = IE.FakeQuantize(%input, %cst_3, %cst_2, %cst_3, %cst_2) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256 : i64} : tensor<1x4x28x28xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32> -> tensor<1x4x28x28xf32>
   %1 = IE.Multiply(%cst_0, %cst_1) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<4x4x3x3xf32>, tensor<4x1x1x1xf32> -> tensor<4x4x3x3xf32>
   %2 = IE.Convolution(%0, %1) {dilations = [1, 1], pads_begin = [1, 1], pads_end = [1, 1], strides = [1, 1]} : tensor<1x4x28x28xf32>, tensor<4x4x3x3xf32> -> tensor<1x4x28x28xf32>
   return %2 : tensor<1x4x28x28xf32>
@@ -484,7 +510,7 @@ func.func @WeightsUI8MultToDynamicDequantize(%input: tensor<1x4x28x28xf32>) -> t
 
   // CHECK: [[DDQ:%.+]] = IE.DynamicDequantize([[WT_RAW]], [[SCALE]]) {dstElemType = f32, vpux.weights_import_dyn_dequant} : tensor<4x4x3x3xui8>, tensor<4x1x1x1xf32> -> tensor<4x4x3x3xf32>
   // CHECK: [[ACT_FQ:%.+]] = IE.FakeQuantize([[INPUT]], [[ACT_LOW]], [[ACT_HIGH]], [[ACT_LOW]], [[ACT_HIGH]])
-  // CHECK-SAME: {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i64}
+  // CHECK-SAME: {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256 : i64}
   // CHECK: [[CONV:%.+]] = IE.Convolution([[ACT_FQ]], [[DDQ]])
   // CHECK: return [[CONV]]
 }
@@ -539,7 +565,7 @@ func.func @WeightsUI8MultSubToDynamicDequantize(%input: tensor<1x16x32x32xf32>) 
   %cst_2 = const.Declare tensor<16x1x1x1xf32> = dense<[[[[27]]], [[[25]]], [[[39]]], [[[22]]], [[[27]]], [[[25]]], [[[21]]], [[[27]]], [[[31]]], [[[29]]], [[[42]]], [[[27]]], [[[27]]], [[[28]]], [[[33]]], [[[33]]]]> : tensor<16x1x1x1xui8>, [#const.CastElemType<f32>]
   %cst_3 = const.Declare tensor<1x1x1x1xf32> = dense<2.500000e+01> : tensor<1x1x1x1xf32>
   %cst_4 = const.Declare tensor<1x1x1x1xf32> = dense<0.0566197559> : tensor<1x1x1x1xf32>
-  %0 = IE.FakeQuantize(%input, %cst_1, %cst_0, %cst_1, %cst_0) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i64} : tensor<1x16x32x32xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32> -> tensor<1x16x32x32xf32>
+  %0 = IE.FakeQuantize(%input, %cst_1, %cst_0, %cst_1, %cst_0) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256 : i64} : tensor<1x16x32x32xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32> -> tensor<1x16x32x32xf32>
   %1 = IE.Subtract(%cst_2, %cst_3) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<16x1x1x1xf32>, tensor<1x1x1x1xf32> -> tensor<16x1x1x1xf32>
   %2 = IE.Multiply(%1, %cst_4) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<16x1x1x1xf32>, tensor<1x1x1x1xf32> -> tensor<16x1x1x1xf32>
   %3 = IE.GroupConvolution(%0, %2) {dilations = [1, 1], groups = 16 : i64, pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]} : tensor<1x16x32x32xf32>, tensor<16x1x1x1xf32> -> tensor<1x16x32x32xf32>
@@ -554,7 +580,7 @@ func.func @WeightsUI8MultSubToDynamicDequantize(%input: tensor<1x16x32x32xf32>) 
 
   // CHECK: [[DDQ:%.+]] = IE.DynamicDequantize([[WT_RAW]], [[SCALE]], [[ZP]]) {dstElemType = f32, vpux.weights_import_dyn_dequant} : tensor<16x1x1x1xui8>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xui8> -> tensor<16x1x1x1xf32>
   // CHECK: [[ACT_FQ:%.+]] = IE.FakeQuantize([[INPUT]], [[ACT_LOW]], [[ACT_HIGH]], [[ACT_LOW]], [[ACT_HIGH]])
-  // CHECK-SAME: {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i64}
+  // CHECK-SAME: {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256 : i64}
   // CHECK: [[GRUP_CONV:%.+]] = IE.GroupConvolution([[ACT_FQ]], [[DDQ]])
   // CHECK: return [[GRUP_CONV]]
 }
@@ -677,8 +703,8 @@ func.func @DontReconvertWeightsAlreadyDynamicDequantize(%input: tensor<4x4x3x3xf
 // -----
 
 // CHECK-LABEL: @U2WeightsConstPrefillPatternToDynamicDequantize
-// CHECK-SAME:      [[ACT:%.+]]: tensor<1x3x4xf32>
-func.func @U2WeightsConstPrefillPatternToDynamicDequantize(%act : tensor<1x3x4xf32>) -> tensor<1x3x4xf32> {
+// CHECK-SAME:      [[ACT:%.+]]: tensor<1x32x4xf32>
+func.func @U2WeightsConstPrefillPatternToDynamicDequantize(%act : tensor<1x32x4xf32>) -> tensor<1x32x4xf32> {
   %weights = const.Declare tensor<4x2x2xf16> = dense_resource<weights_blob> : tensor<16xui2>, [#const.ConvertElemType<ui8>, #const.Reshape<[4, 2, 2]>, #const.CastElemType<f16>]
   %scale = const.Declare tensor<4x2x1xf16> = dense<[0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8]> : tensor<8xf16>, [#const.Reshape<[4, 2, 1]>]
   %shift = const.Declare tensor<4x2x1xf16> = dense_resource<shift_blob> : tensor<8xui2>, [#const.ConvertElemType<ui8>, #const.Reshape<[4, 2, 1]>, #const.CastElemType<f16>]
@@ -687,10 +713,10 @@ func.func @U2WeightsConstPrefillPatternToDynamicDequantize(%act : tensor<1x3x4xf
   %2 = IE.Multiply(%1, %scale) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<4x2x2xf16>, tensor<4x2x1xf16> -> tensor<4x2x2xf16>
   %3 = IE.AffineReshape(%2) {dim_mapping = [[0], [1], [1]], shape_value = [4, 4]} : tensor<4x2x2xf16> -> tensor<4x4xf16>
   %4 = IE.Convert(%3) {dstElemType = f32} : tensor<4x4xf16> -> tensor<4x4xf32>
-  %5 = IE.Reshape(%act) {shape_value = [3, 4]} : tensor<1x3x4xf32> -> tensor<3x4xf32>
-  %6 = IE.FullyConnected(%5, %4) : tensor<3x4xf32>, tensor<4x4xf32> -> tensor<3x4xf32>
-  %7 = IE.Reshape(%6) {shape_value = [1, 3, 4]} : tensor<3x4xf32> -> tensor<1x3x4xf32>
-  return %7 : tensor<1x3x4xf32>
+  %5 = IE.Reshape(%act) {shape_value = [32, 4]} : tensor<1x32x4xf32> -> tensor<32x4xf32>
+  %6 = IE.FullyConnected(%5, %4) : tensor<32x4xf32>, tensor<4x4xf32> -> tensor<32x4xf32>
+  %7 = IE.Reshape(%6) {shape_value = [1, 32, 4]} : tensor<32x4xf32> -> tensor<1x32x4xf32>
+  return %7 : tensor<1x32x4xf32>
 
   // CHECK-DAG: [[SCALE:%.+]] = const.Declare tensor<4x2x1xf16>
   // CHECK-SAME{LITERAL}: dense<[9.997550e-02, 1.999510e-01, 3.000490e-01, 3.999020e-01, 5.000000e-01, 6.000980e-01, 7.001950e-01, 7.998050e-01]>
@@ -701,9 +727,9 @@ func.func @U2WeightsConstPrefillPatternToDynamicDequantize(%act : tensor<1x3x4xf
   // CHECK: [[DDQ:%.+]] = IE.DynamicDequantize([[WT_RAW]], [[SCALE]], [[ZP]]) {dstElemType = f16} : tensor<4x2x2xui2>, tensor<4x2x1xf16>, tensor<4x2x1xui2> -> tensor<4x2x2xf16>
   // CHECK: [[RESHAPE_1:%.+]] = IE.AffineReshape([[DDQ]])
   // CHECK: [[CONVERT:%.+]] = IE.Convert([[RESHAPE_1]]) {dstElemType = f32} : tensor<4x4xf16> -> tensor<4x4xf32>
-  // CHECK: [[RESHAPE_2:%.+]] = IE.Reshape([[ACT]]) {shape_value = [3, 4]} : tensor<1x3x4xf32> -> tensor<3x4xf32>
-  // CHECK: [[FC:%.+]] = IE.FullyConnected([[RESHAPE_2]], [[CONVERT]]) : tensor<3x4xf32>, tensor<4x4xf32> -> tensor<3x4xf32>
-  // CHECK: [[RESHAPE_3:%.+]] = IE.Reshape([[FC]]) {shape_value = [1, 3, 4]} : tensor<3x4xf32> -> tensor<1x3x4xf32>
+  // CHECK: [[RESHAPE_2:%.+]] = IE.Reshape([[ACT]]) {shape_value = [32, 4]} : tensor<1x32x4xf32> -> tensor<32x4xf32>
+  // CHECK: [[FC:%.+]] = IE.FullyConnected([[RESHAPE_2]], [[CONVERT]]) : tensor<32x4xf32>, tensor<4x4xf32> -> tensor<32x4xf32>
+  // CHECK: [[RESHAPE_3:%.+]] = IE.Reshape([[FC]]) {shape_value = [1, 32, 4]} : tensor<32x4xf32> -> tensor<1x32x4xf32>
   // CHECK: return [[RESHAPE_3]]
 }
 
@@ -1186,19 +1212,19 @@ func.func @BlockArgPerGroupScaleExtraConvertToDynamicDequantize(%input: tensor<1
 // -----
 
 // CHECK-LABEL: @DontBlockArgPrefillPatternToDynamicDequantize
-// CHECK-SAME:      [[INPUT:%.+]]: tensor<1x3x4xf32>
+// CHECK-SAME:      [[INPUT:%.+]]: tensor<1x32x4xf32>
 // CHECK-SAME:      [[WEIGHTS:%.+]]: tensor<4x2x2xui2>
-func.func @DontBlockArgPrefillPatternToDynamicDequantize(%input: tensor<1x3x4xf32>, %weights: tensor<4x2x2xui2>) -> tensor<3x4xf32> {
+func.func @DontBlockArgPrefillPatternToDynamicDequantize(%input: tensor<1x32x4xf32>, %weights: tensor<4x2x2xui2>) -> tensor<32x4xf32> {
   %scale = const.Declare tensor<4x2x1xf16> = dense<[9.997550e-02, 1.999510e-01, 3.000490e-01, 3.999020e-01, 5.000000e-01, 6.000980e-01, 7.001950e-01, 7.998050e-01]> : tensor<8xf16>, [#const.Reshape<[4, 2, 1]>]
 
   %0 = IE.Convert(%weights) {dstElemType = f16} : tensor<4x2x2xui2> -> tensor<4x2x2xf16>
   %1 = IE.Multiply(%0, %scale) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<4x2x2xf16>, tensor<4x2x1xf16> -> tensor<4x2x2xf16>
   %2 = IE.AffineReshape(%1) {dim_mapping = [[0], [1], [1]], shape_value = [4, 4]} : tensor<4x2x2xf16> -> tensor<4x4xf16>
   %3 = IE.Convert(%2) {dstElemType = f32} : tensor<4x4xf16> -> tensor<4x4xf32>
-  %4 = IE.Reshape(%input) {shape_value = [3, 4]} : tensor<1x3x4xf32> -> tensor<3x4xf32>
-  %5 = IE.MatMul(%4, %3) {transpose_b} : tensor<3x4xf32>, tensor<4x4xf32> -> tensor<3x4xf32>
+  %4 = IE.Reshape(%input) {shape_value = [32, 4]} : tensor<1x32x4xf32> -> tensor<32x4xf32>
+  %5 = IE.MatMul(%4, %3) {transpose_b} : tensor<32x4xf32>, tensor<4x4xf32> -> tensor<32x4xf32>
 
-  return %5 : tensor<3x4xf32>
+  return %5 : tensor<32x4xf32>
 
   // CHECK-NOT: vpux.weights_import_dyn_dequant
   // CHECK: [[SCALE:%.+]] = const.Declare tensor<4x2x1xf16>

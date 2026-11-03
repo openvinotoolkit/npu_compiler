@@ -24,13 +24,17 @@ mlir::FailureOr<VPU::DistributionInfo> applyPermutationOnDistributionInfo(
 // Helper for outlined-function flow: dynamic dims are tracked outside the function,
 // while an input VPU.PermuteCast may appear inside the outlined function body.
 // Remaps external dynamic dims to the layout used after that input PermuteCast.
-// Current limitation: when there are multiple tensor inputs and at least one has
-// an input VPU.PermuteCast, this utility returns failure.
-// Reason: mapping becomes ambiguous because different inputs can have different
-// permute chains, so external dynamic dims may map to different internal axes.
-// The utility currently supports only the single-tensor-input case where the
-// remapping path is deterministic.
-mlir::FailureOr<SmallVector<Dim>> remapDimsThroughInputPermuteCast(mlir::func::FuncOp funcOp, ArrayRef<Dim> inputDims);
+// Supported cases are:
+//   1) any number of tensor inputs without input VPU.PermuteCast,
+//   2) any number of tensor inputs with input VPU.PermuteCast, provided all of
+//      them perform the same permutation, or
+//   3) all tensor inputs except one are consumed by compatible PermuteCast ops
+//      with the same parameters, and the remaining tensor input is the shared-weights
+//      input
+// Any mixed pattern outside these cases remains unsupported because the mapping
+// from external dynamic dims to internal axes becomes ambiguous.
+mlir::FailureOr<SmallVector<Dim>> remapDimsThroughInputPermuteCast(mlir::func::FuncOp funcOp, ArrayRef<Dim> inputDims,
+                                                                   mlir::func::CallOp callOp = nullptr);
 
 template <typename T, std::enable_if_t<or_<std::is_same<VPU::DistributedTensorType, T>,
                                            std::is_same<VPUIP::DistributedBufferType, T>>::value,

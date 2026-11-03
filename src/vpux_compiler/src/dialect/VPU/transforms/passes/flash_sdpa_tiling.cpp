@@ -4,12 +4,14 @@
 //
 
 #include <llvm/ADT/STLExtras.h>
+#include <llvm/ADT/SetVector.h>
 #include <mlir/IR/BuiltinAttributes.h>
 #include <mlir/IR/Value.h>
 #include <mlir/Transforms/WalkPatternRewriteDriver.h>
 #include <limits>
 #include <map>
 #include <optional>
+#include <set>
 #include <vpux/utils/core/error.hpp>
 #include "vpux/compiler/core/tiling.hpp"
 #include "vpux/compiler/dialect/VPU/IR/attributes.hpp"
@@ -100,6 +102,8 @@ private:
 constexpr int64_t NUM_BUFFERS_WITH_ATTENTION_MASK = 14;
 // Operand index of the optional attention mask, the last operand when present.
 constexpr int64_t ATTENTION_MASK_BUFFER_INDEX = 10;
+constexpr llvm::StringLiteral HEAD_TILE_INDEX_ATTR_NAME = "head_tile_index";
+constexpr llvm::StringLiteral ORIGINAL_TILING_LOOP_INDEX_ATTR_NAME = "flash_sdpa_original_tiling_loop_index";
 
 // Operand indices that are pipelined (double-buffered) across Q-tile operations.
 // These buffers change between consecutive Q tiles within a KV block and need
@@ -384,7 +388,8 @@ std::optional<FlashSDPATilingStrategy> estimateTiling(VPU::FlashSDPAOp origOp, L
 }
 
 mlir::LogicalResult applyTileStrategyFlashSDPA(VPU::TilingBuilderOpInterface origOp, const OutputTiling& tiles,
-                                               mlir::RewriterBase& rewriter, Logger log) {
+                                               mlir::RewriterBase& rewriter, Logger log,
+                                               llvm::StringRef tileIndexAttrName = {}) {
     const auto results = origOp->getResults();
 
     auto resultTileValues = SmallVector<SmallVector<mlir::Value>>(results.size());
@@ -427,6 +432,15 @@ mlir::LogicalResult applyTileStrategyFlashSDPA(VPU::TilingBuilderOpInterface ori
 
         auto* tiledOp = rewriter.clone(*origOp, mapper);
         tiledOp->setLoc(tileLoc);
+        if (auto headTileIndex = origOp->getAttr(HEAD_TILE_INDEX_ATTR_NAME)) {
+            tiledOp->setAttr(HEAD_TILE_INDEX_ATTR_NAME, headTileIndex);
+        }
+        if (auto originalLoopIndex = origOp->getAttr(ORIGINAL_TILING_LOOP_INDEX_ATTR_NAME)) {
+            tiledOp->setAttr(ORIGINAL_TILING_LOOP_INDEX_ATTR_NAME, originalLoopIndex);
+        }
+        if (!tileIndexAttrName.empty()) {
+            tiledOp->setAttr(tileIndexAttrName, getIntAttr(tiledOp->getContext(), tileIndex));
+        }
 
         auto tiledBuilderOp = mlir::dyn_cast<VPU::TilingBuilderOpInterface>(tiledOp);
         VPUX_THROW_WHEN(tiledBuilderOp == nullptr, "Operation '{0}' doesn't implement TilingBuilderOpInterface",
@@ -445,7 +459,12 @@ mlir::LogicalResult applyTileStrategyFlashSDPA(VPU::TilingBuilderOpInterface ori
 
         copyLoopAttributes(origOp, tiledOp);
         if (tiledOp->hasAttr(TILING_LOOP_INDEX_ATTR_NAME) || tiledOp->hasAttr(VF_LOOP_INDEX_ATTR_NAME)) {
-            tiledOp->setAttr(LOOP_TILE_COORD, getTileCoordinateAttr(origOp->getContext(), tileCoordinates[tileIndex]));
+            auto loopTileCoordinate = tileCoordinates[tileIndex];
+            if (auto headTileIndex = origOp->getAttrOfType<mlir::IntegerAttr>(HEAD_TILE_INDEX_ATTR_NAME)) {
+                loopTileCoordinate.values.insert(loopTileCoordinate.values.begin(),
+                                                 {Dims4D::Act::C, headTileIndex.getInt()});
+            }
+            tiledOp->setAttr(LOOP_TILE_COORD, getTileCoordinateAttr(origOp->getContext(), loopTileCoordinate));
         }
 
         for (const auto i : irange(results.size())) {
@@ -484,8 +503,8 @@ mlir::LogicalResult applyTileStrategyFlashSDPA(VPU::TilingBuilderOpInterface ori
 }
 
 // Estimate the tiling strategy once and stamp it onto the op as three transient
-// attributes (head_tile_size, kv_num_tiles, q_num_tiles). The head rewriter tiles
-// heads first, then the KV rewriter unrolls, then the query-seq rewriter tiles last.
+// attributes (head_tile_size, kv_num_tiles, q_num_tiles). The rewriters run heads,
+// then KV, then Query sequence so the Q-tile loop is innermost.
 mlir::LogicalResult annotateTilingStrategy(VPU::FlashSDPAOp op, Logger log) {
     auto resultShape = getShape(op.getResult(0));
     if (resultShape.size() < 2) {
@@ -568,7 +587,8 @@ mlir::LogicalResult FlashSDPAHeadTilingRewrite::matchAndRewrite(VPU::FlashSDPAOp
     VPUX_THROW_WHEN(tilingBuilder == nullptr, "Operation '{0}' doesn't implement TilingBuilderOpInterface",
                     origOp->getName());
 
-    auto result = applyTileStrategyFlashSDPA(tilingBuilder, firstOutputTilesList, rewriter, log);
+    auto result =
+            applyTileStrategyFlashSDPA(tilingBuilder, firstOutputTilesList, rewriter, log, HEAD_TILE_INDEX_ATTR_NAME);
     if (mlir::failed(result)) {
         return errorAt(origOp, "Failed to rewrite original operation with the head-tiled one");
     }
@@ -592,7 +612,11 @@ mlir::LogicalResult FlashSDPAQuerySeqTilingRewrite::matchAndRewrite(VPU::FlashSD
     rewriter.modifyOpInPlace(origOp, [&] {
         origOp->removeAttr(Q_NUM_TILES_ATTR_NAME);
         if (querySeqTiles <= 1 && origOp->hasAttr(TILING_LOOP_INDEX_ATTR_NAME)) {
-            origOp->setAttr(LOOP_TILE_COORD, getTileCoordinateAttr(origOp->getContext(), {}));
+            TileCoordinate loopTileCoordinate;
+            if (auto headTileIndex = origOp->getAttrOfType<mlir::IntegerAttr>(HEAD_TILE_INDEX_ATTR_NAME)) {
+                loopTileCoordinate.values.emplace_back(Dims4D::Act::C, headTileIndex.getInt());
+            }
+            origOp->setAttr(LOOP_TILE_COORD, getTileCoordinateAttr(origOp->getContext(), loopTileCoordinate));
         }
     });
 
@@ -723,6 +747,12 @@ mlir::LogicalResult FlashSDPAKVUnrollRewrite::matchAndRewrite(VPU::FlashSDPAOp o
         if (auto qAttr = origOp->getAttr(Q_NUM_TILES_ATTR_NAME)) {
             tiledOp->setAttr(Q_NUM_TILES_ATTR_NAME, qAttr);
         }
+        if (auto headTileIndex = origOp->getAttr(HEAD_TILE_INDEX_ATTR_NAME)) {
+            tiledOp->setAttr(HEAD_TILE_INDEX_ATTR_NAME, headTileIndex);
+        }
+        if (auto originalLoopIndex = origOp->getAttr(ORIGINAL_TILING_LOOP_INDEX_ATTR_NAME)) {
+            tiledOp->setAttr(ORIGINAL_TILING_LOOP_INDEX_ATTR_NAME, originalLoopIndex);
+        }
 
         copyLoopAttributes(origOp, tiledOp.getOperation());
         log.trace("Unrolled {0} - {1}", tiledOp->getName(), tiledOp->getResult(0));
@@ -776,9 +806,363 @@ void FlashSDPATiling::applyQuerySeqTilingPatterns(mlir::Operation* func) {
     mlir::walkAndApplyPatterns(func, std::move(patterns));
 }
 
+std::optional<int64_t> getLoopIndexValue(mlir::Operation* op) {
+    if (auto loopIndex = op->getAttrOfType<TilingLoopIndexAttr>(TILING_LOOP_INDEX_ATTR_NAME)) {
+        return mlir::cast<mlir::IntegerAttr>(loopIndex).getInt();
+    }
+    return std::nullopt;
+}
+
+void assignLoopIndexPerHeadTile(mlir::Operation* func, llvm::function_ref<int64_t()> allocateLoopIndex,
+                                const std::set<int64_t>& preassignedLoopIndices) {
+    std::map<int64_t, std::map<int64_t, SmallVector<VPU::FlashSDPAOp>>> headTilesByLoopIndex;
+    func->walk([&](VPU::FlashSDPAOp flashSdpa) {
+        auto loopIndex = getLoopIndexValue(flashSdpa.getOperation());
+        auto headTileIndex = flashSdpa->getAttrOfType<mlir::IntegerAttr>(HEAD_TILE_INDEX_ATTR_NAME);
+        if (!loopIndex.has_value() || headTileIndex == nullptr) {
+            return;
+        }
+        headTilesByLoopIndex[*loopIndex][headTileIndex.getInt()].push_back(flashSdpa);
+    });
+
+    for (auto& [originalLoopIndex, headTiles] : headTilesByLoopIndex) {
+        if (preassignedLoopIndices.count(originalLoopIndex) != 0) {
+            continue;
+        }
+
+        bool useOriginalLoopIndex = true;
+        for (auto& [headTileIndex, headTileOps] : headTiles) {
+            (void)headTileIndex;
+            const auto loopIndex = useOriginalLoopIndex ? originalLoopIndex : allocateLoopIndex();
+            useOriginalLoopIndex = false;
+            for (auto flashSdpa : headTileOps) {
+                flashSdpa->setAttr(ORIGINAL_TILING_LOOP_INDEX_ATTR_NAME,
+                                   TilingLoopIndexAttr::get(flashSdpa->getContext(), originalLoopIndex));
+                flashSdpa->setAttr(TILING_LOOP_INDEX_ATTR_NAME,
+                                   TilingLoopIndexAttr::get(flashSdpa->getContext(), loopIndex));
+            }
+        }
+    }
+}
+
+std::optional<std::pair<mlir::Value, SmallVector<int64_t>>> matchConcatInputForSlice(VPU::SliceOp sliceOp,
+                                                                                     VPU::ConcatOp concatOp) {
+    if (!concatOp.getStaticOffsets().has_value()) {
+        return std::nullopt;
+    }
+    if (auto strides = concatOp.getStrides();
+        strides.has_value() && !llvm::all_of(parseIntArrayAttr<int64_t>(strides.value()), [](int64_t stride) {
+            return stride == 1;
+        })) {
+        return std::nullopt;
+    }
+
+    const auto concatOffsets = parseIntArrayOfArrayAttr<int64_t>(concatOp.getStaticOffsets().value());
+    const auto sliceOffsets = parseIntArrayAttr<int64_t>(sliceOp.getStaticOffsets());
+    const auto sliceSizes = parseIntArrayAttr<int64_t>(sliceOp.getStaticSizes());
+
+    for (const auto& [input, inputOffset] : llvm::zip(concatOp.getInputs(), concatOffsets)) {
+        const auto inputShape = getShape(input).raw();
+        bool isSubTensor = true;
+        for (const auto dim : irange(sliceOffsets.size())) {
+            if ((sliceOffsets[dim] < inputOffset[dim]) ||
+                (inputOffset[dim] + inputShape[dim] < sliceOffsets[dim] + sliceSizes[dim])) {
+                isSubTensor = false;
+                break;
+            }
+        }
+
+        if (!isSubTensor) {
+            continue;
+        }
+
+        auto remappedOffsets = sliceOffsets;
+        for (const auto dim : irange(remappedOffsets.size())) {
+            remappedOffsets[dim] -= inputOffset[dim];
+        }
+
+        return std::pair{input, remappedOffsets};
+    }
+
+    return std::nullopt;
+}
+
+VPU::ConcatOp findConcatThroughViewLikeChain(mlir::Value value) {
+    auto current = value;
+    while (auto* defOp = current.getDefiningOp()) {
+        if (auto concat = mlir::dyn_cast<VPU::ConcatOp>(defOp)) {
+            return concat.getResult().getType() == value.getType() ? concat : nullptr;
+        }
+
+        if (mlir::isa<VPU::ViewLikeOpInterface>(defOp)) {
+            current = defOp->getOperand(0);
+            continue;
+        }
+
+        break;
+    }
+
+    return nullptr;
+}
+
+bool bypassRunningStateSliceFromConcat(VPU::FlashSDPAOp flashSdpa, int64_t operandIndex) {
+    auto operand = flashSdpa->getOperand(operandIndex);
+    auto sliceOp = operand.getDefiningOp<VPU::SliceOp>();
+    if (sliceOp == nullptr) {
+        return false;
+    }
+
+    auto concatOp = sliceOp.getSource().getDefiningOp<VPU::ConcatOp>();
+    if (concatOp == nullptr) {
+        concatOp = findConcatThroughViewLikeChain(sliceOp.getSource());
+    }
+    if (concatOp == nullptr) {
+        return false;
+    }
+
+    auto remappedInput = matchConcatInputForSlice(sliceOp, concatOp);
+    if (remappedInput.has_value()) {
+        const auto source = remappedInput->first;
+        auto* sourceOp = source.getDefiningOp();
+        if (sourceOp != nullptr && sourceOp->getBlock() == flashSdpa->getBlock() &&
+            !sourceOp->isBeforeInBlock(flashSdpa.getOperation())) {
+            return false;
+        }
+
+        const auto& remappedOffsets = remappedInput->second;
+        const auto sliceSizes = parseIntArrayAttr<int64_t>(sliceOp.getStaticSizes());
+        const auto sourceShape = getShape(source).raw();
+
+        bool isIdentitySlice = true;
+        for (const auto dim : irange(remappedOffsets.size())) {
+            if (remappedOffsets[dim] != 0 || sliceSizes[dim] != sourceShape[dim]) {
+                isIdentitySlice = false;
+                break;
+            }
+        }
+
+        mlir::Value newOperand = source;
+        if (!isIdentitySlice) {
+            mlir::OpBuilder builder(flashSdpa);
+            builder.setInsertionPoint(flashSdpa);
+            newOperand = VPU::SliceOp::create(builder, appendLoc(sliceOp.getLoc(), "bypass_concat"), source,
+                                              getIntArrayAttr(builder.getContext(), remappedOffsets),
+                                              getIntArrayAttr(builder.getContext(), sliceSizes));
+        } else if (source.getType() != operand.getType()) {
+            return false;
+        }
+
+        flashSdpa->setOperand(operandIndex, newOperand);
+        return true;
+    }
+
+    return false;
+}
+
+void normalizeRunningStateDependencies(mlir::Operation* func) {
+    constexpr int64_t INPUT_RUNNING_OUTPUT_INDEX = 7;
+    constexpr int64_t INPUT_RUNNING_MAX_INDEX = 8;
+    constexpr int64_t INPUT_RUNNING_SUM_INDEX = 9;
+
+    func->walk([&](VPU::FlashSDPAOp flash) {
+        bypassRunningStateSliceFromConcat(flash, INPUT_RUNNING_OUTPUT_INDEX);
+        bypassRunningStateSliceFromConcat(flash, INPUT_RUNNING_MAX_INDEX);
+        bypassRunningStateSliceFromConcat(flash, INPUT_RUNNING_SUM_INDEX);
+    });
+}
+
+void eraseDeadConcatViewChains(mlir::Operation* func) {
+    auto isErasableAuxOp = [](mlir::Operation* op) {
+        if (mlir::isa<VPU::ConcatOp, VPU::SliceOp>(op)) {
+            return true;
+        }
+        return mlir::isa<VPU::ViewLikeOpInterface>(op);
+    };
+
+    llvm::SmallSetVector<mlir::Operation*, 32> worklist;
+
+    auto enqueueIfCandidate = [&](mlir::Operation* op) {
+        if (op == nullptr || !isErasableAuxOp(op)) {
+            return;
+        }
+        worklist.insert(op);
+    };
+
+    func->walk([&](mlir::Operation* op) {
+        enqueueIfCandidate(op);
+    });
+
+    while (!worklist.empty()) {
+        auto* op = worklist.back();
+        worklist.pop_back();
+
+        if (!llvm::all_of(op->getResults(), [](mlir::Value result) {
+                return result.use_empty();
+            })) {
+            continue;
+        }
+
+        SmallVector<mlir::Operation*> operandDefs;
+        operandDefs.reserve(op->getNumOperands());
+        for (auto operand : op->getOperands()) {
+            if (auto* defOp = operand.getDefiningOp()) {
+                operandDefs.push_back(defOp);
+            }
+        }
+
+        op->erase();
+
+        // Some producers may become dead after this erase; revisit only impacted ops.
+        for (auto* defOp : operandDefs) {
+            enqueueIfCandidate(defOp);
+        }
+    }
+}
+
+void reorderFlashSDPAByHeadGroup(mlir::Operation* func) {
+    func->walk([&](mlir::Block* block) {
+        auto getHeadGroup = [](VPU::FlashSDPAOp op) -> int64_t {
+            if (auto headAttr = op->getAttrOfType<mlir::IntegerAttr>(HEAD_TILE_INDEX_ATTR_NAME)) {
+                return headAttr.getInt();
+            }
+            return 0;
+        };
+
+        auto isRunningStateRoot = [&](VPU::FlashSDPAOp op, const SmallVector<VPU::FlashSDPAOp>& headOps) {
+            const auto isProducedInHeadGroup = [&](mlir::Value value) {
+                auto* definingOp = value.getDefiningOp();
+                while (definingOp != nullptr && mlir::isa<VPU::ViewLikeOpInterface>(definingOp)) {
+                    definingOp = definingOp->getOperand(0).getDefiningOp();
+                }
+
+                return llvm::any_of(headOps, [&](VPU::FlashSDPAOp headOp) {
+                    return definingOp == headOp.getOperation();
+                });
+            };
+
+            return !isProducedInHeadGroup(op.getInputRunningOutput()) &&
+                   !isProducedInHeadGroup(op.getInputRunningMax()) && !isProducedInHeadGroup(op.getInputRunningSum());
+        };
+
+        // Reorder independently for each original tiling loop index, because
+        // all FlashSDPA ops in one such group originate from the same pre-tiling
+        // FlashSDPA and should execute as head-major KV chains.
+        std::map<int64_t, SmallVector<VPU::FlashSDPAOp>> orderedByLoopGroup;
+        for (auto& op : *block) {
+            auto flash = mlir::dyn_cast<VPU::FlashSDPAOp>(op);
+            if (flash == nullptr || flash->getAttrOfType<mlir::IntegerAttr>(HEAD_TILE_INDEX_ATTR_NAME) == nullptr) {
+                continue;
+            }
+            auto loop = flash->getAttrOfType<TilingLoopIndexAttr>(ORIGINAL_TILING_LOOP_INDEX_ATTR_NAME);
+            if (loop == nullptr) {
+                loop = flash->getAttrOfType<TilingLoopIndexAttr>(TILING_LOOP_INDEX_ATTR_NAME);
+            }
+            if (loop == nullptr) {
+                continue;
+            }
+            orderedByLoopGroup[mlir::cast<mlir::IntegerAttr>(loop).getInt()].push_back(flash);
+        }
+
+        for (auto& [loopGroup, ordered] : orderedByLoopGroup) {
+            (void)loopGroup;
+
+            if (ordered.size() < 2) {
+                continue;
+            }
+
+            auto insertionPoint = ordered.back()->getNextNode();
+            if (insertionPoint == nullptr) {
+                continue;
+            }
+
+            std::map<int64_t, SmallVector<VPU::FlashSDPAOp>> headOpsByGroup;
+            for (auto flash : ordered) {
+                headOpsByGroup[getHeadGroup(flash)].push_back(flash);
+            }
+
+            if (headOpsByGroup.size() < 2) {
+                continue;
+            }
+
+            // Query tiling duplicates is_head across independent Q-tile chains.
+            // Derive roots from the running-state edges instead of the flag.
+            const bool hasHeadGroupWithoutRoot = llvm::any_of(headOpsByGroup, [&](const auto& entry) {
+                return llvm::none_of(entry.second, [&](VPU::FlashSDPAOp op) {
+                    return isRunningStateRoot(op, entry.second);
+                });
+            });
+            if (hasHeadGroupWithoutRoot) {
+                continue;
+            }
+
+            // Keep the smallest head group in place and move all other head
+            // groups to the end of this loop group in ascending-head order.
+            const auto primaryHead = headOpsByGroup.begin()->first;
+            auto* target = insertionPoint;
+            for (auto& [head, headOps] : llvm::reverse(headOpsByGroup)) {
+                if (head == primaryHead) {
+                    continue;
+                }
+
+                auto& currentHeadOps = headOps;
+
+                auto isCurrentHeadOp = [&](mlir::Operation* candidate) {
+                    return llvm::any_of(currentHeadOps, [&](VPU::FlashSDPAOp flash) {
+                        return flash.getOperation() == candidate;
+                    });
+                };
+
+                auto canMoveBeforeInsertionPoint = [&](mlir::Operation* op, mlir::Operation* target) {
+                    for (auto operand : op->getOperands()) {
+                        auto* defOp = operand.getDefiningOp();
+                        if (defOp == nullptr || defOp->getBlock() != block) {
+                            continue;
+                        }
+                        if (!defOp->isBeforeInBlock(target)) {
+                            return false;
+                        }
+                    }
+
+                    for (auto result : op->getResults()) {
+                        for (auto user : result.getUsers()) {
+                            if (user->getBlock() != block || user == op) {
+                                continue;
+                            }
+                            if (user->isBeforeInBlock(target) && !isCurrentHeadOp(user)) {
+                                return false;
+                            }
+                        }
+                    }
+
+                    return true;
+                };
+
+                // Move from tail to head so internal head-chain order is preserved
+                // and same-head users stay after their definitions.
+                for (auto flash : llvm::reverse(currentHeadOps)) {
+                    auto* op = flash.getOperation();
+                    if (target == nullptr || op == target) {
+                        continue;
+                    }
+                    if (!canMoveBeforeInsertionPoint(op, target)) {
+                        break;
+                    }
+                    op->moveBefore(target);
+                    target = op;
+                }
+            }
+        }
+    });
+
+    func->walk([](VPU::FlashSDPAOp flashSdpa) {
+        flashSdpa->removeAttr(HEAD_TILE_INDEX_ATTR_NAME);
+        flashSdpa->removeAttr(ORIGINAL_TILING_LOOP_INDEX_ATTR_NAME);
+    });
+}
+
 void FlashSDPATiling::safeRunOnFunc() {
     auto func = getOperation();
-    auto module = func->getParentOfType<mlir::ModuleOp>();
+    LoopIndexAllocator loopIndexAllocator(func);
 
     // 1) Annotate every FlashSDPA with head_tile_size + kv_num_tiles + q_num_tiles.
     //    Each rewriter consumes its own attribute and propagates the rest.
@@ -793,34 +1177,38 @@ void FlashSDPATiling::safeRunOnFunc() {
         return;
     }
 
-    // 2) Mark each operation with a tiling loop index for loop-allocation scheduling.
-    //    Use a module-wide index when the function belongs to a module.
-    //    Isolated function tests have no module, so retain the original local counter.
-    func->walk([module, tilingIndex = 0ll](VPU::FlashSDPAOp flashSdpa) mutable {
-        const auto loopIndex = module != nullptr ? getNextTilingLoopIndex(module) : tilingIndex++;
-        flashSdpa->setAttr(TILING_LOOP_INDEX_ATTR_NAME, TilingLoopIndexAttr::get(flashSdpa->getContext(), loopIndex));
+    // 2) Mark operations without an existing loop index for loop-allocation scheduling.
+    auto preassignedLoopIndices = std::set<int64_t>{};
+    func->walk([&preassignedLoopIndices](mlir::Operation* op) {
+        if (auto loopIndex = getLoopIndexValue(op)) {
+            preassignedLoopIndices.insert(*loopIndex);
+        }
+    });
+    auto allocateLoopIndex = [&loopIndexAllocator]() {
+        return loopIndexAllocator.getNextTilingLoopIndex();
+    };
+    func->walk([&](VPU::FlashSDPAOp flashSdpa) {
+        if (!flashSdpa->hasAttr(TILING_LOOP_INDEX_ATTR_NAME)) {
+            flashSdpa->setAttr(TILING_LOOP_INDEX_ATTR_NAME,
+                               TilingLoopIndexAttr::get(flashSdpa->getContext(), allocateLoopIndex()));
+        }
     });
 
-    // 3) Three-phase tiling producing {Heads, sSL, tSL} execution order:
-    //    - Heads: outermost, independent tiles (Concat)
-    //    - sSL (KV blocks): middle, sequential chain via running state
-    //    - tSL (query seq): innermost, pipelined within each KV block
+    // 3) Tile heads, then KV, then Query sequence. Q tiles are innermost, matching the
+    //    CMX reservation for pipelining consecutive Q tiles within one KV block.
     applyHeadTilingPatterns(func);
+    // Give each head tile its own loop region so loop allocation can pipeline its KV and Q tiles independently.
+    assignLoopIndexPerHeadTile(func, allocateLoopIndex, preassignedLoopIndices);
     applyKVUnrollPatterns(func);
-
-    // Re-assign loop indices after KV unrolling so that each KV-block op receives a
-    // unique index. Q-tiles created in the next phase inherit this index via
-    // copyLoopAttributes, which lets the scheduler identify which Q-tiles belong to the
-    // same pipeline loop (those within one KV block) versus sequential KV-block chains.
-    // Without this, all Q-tiles from all KV blocks share the pre-tiling index, so the
-    // scheduler cannot isolate the correct pipeline group for double-buffering.
-    // Use the same module-wide versus isolated-function fallback as the first assignment.
-    func->walk([module, tilingIndex = 0ll](VPU::FlashSDPAOp flashSdpa) mutable {
-        const auto loopIndex = module != nullptr ? getNextTilingLoopIndex(module) : tilingIndex++;
-        flashSdpa->setAttr(TILING_LOOP_INDEX_ATTR_NAME, TilingLoopIndexAttr::get(flashSdpa->getContext(), loopIndex));
-    });
-
     applyQuerySeqTilingPatterns(func);
+
+    // Head tiling can route KV-chain running state through concat/view/slice operations.
+    // For example, concat(H0/KV0, H1/KV0) -> slice -> H0/KV1 becomes H0/KV0 -> H0/KV1.
+    // Erase the now-dead auxiliary chains, then reorder KV0/H0, KV0/H1, KV1/H0, KV1/H1
+    // into head-major H0/KV0, H0/KV1, H1/KV0, H1/KV1 for scheduling.
+    normalizeRunningStateDependencies(func);
+    eraseDeadConcatViewChains(func);
+    reorderFlashSDPAByHeadGroup(func);
 }
 
 }  // namespace

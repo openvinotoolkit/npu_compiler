@@ -4,11 +4,11 @@
 //
 
 #include "vpux/compiler/dialect/IE/utils/fake_quantize_utils.hpp"
-
 #include "vpux/compiler/core/types/quantile_types/types.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/convolution.hpp"
 #include "vpux/compiler/dialect/IE/utils/broadcast_utils.hpp"
 #include "vpux/compiler/dialect/IE/utils/shape_infer.hpp"
+#include "vpux/compiler/dialect/IE/utils/token_length_regime_utils.hpp"
 #include "vpux/compiler/dialect/const/utils/utils.hpp"
 #include "vpux/compiler/utils/loop.hpp"
 #include "vpux/compiler/utils/quantization.hpp"
@@ -566,7 +566,7 @@ bool WeightsDequantizeStructureInfo::hasShift() const {
     return shift != nullptr;
 }
 
-bool WeightsDequantizeStructureInfo::isKVcachedPattern() const {
+bool WeightsDequantizeStructureInfo::isDataBoundPattern() const {
     auto lastOp = getLastOp();
     while (mlir::isa<IE::MultiplyOp, IE::SubtractOp, IE::ConvertOp, IE::AffineReshapeOp, IE::ReshapeOp,
                      IE::TransposeOp>(lastOp)) {
@@ -578,12 +578,7 @@ bool WeightsDequantizeStructureInfo::isKVcachedPattern() const {
     }
 
     if (mlir::isa<IE::MatMulOp, IE::FullyConnectedOp>(lastOp)) {
-        const auto countNonTrivialDims = [](const auto& shape) {
-            return std::count_if(shape.begin(), shape.end(), [](const auto& d) {
-                return d != 1;
-            });
-        };
-        return countNonTrivialDims(getShape(lastOp->getOperand(0))) == 1;
+        return IE::isDataBoundTokenDim(lastOp).value_or(false);
     }
 
     if (mlir::isa<IE::ConvolutionOp>(lastOp)) {

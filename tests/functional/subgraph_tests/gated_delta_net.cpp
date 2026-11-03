@@ -361,6 +361,7 @@ TEST_P(GatedDeltaNetSubgraphTest_NPU5010, TestKindSubgraph) {
 const std::vector<GatedDeltaNetSubgraphParams> gatedDeltaNetSubgraphCases = {
         {1, 16, 2, 2, 16, 16, ov::element::f16},   {1, 16, 2, 2, 64, 128, ov::element::f16},
         {1, 16, 2, 4, 16, 16, ov::element::f16},   {2, 8, 2, 2, 16, 16, ov::element::f16},
+        {1, 2, 2, 2, 128, 128, ov::element::f16},  {1, 190, 2, 2, 128, 128, ov::element::f16},
         {1, 16, 2, 2, 128, 128, ov::element::f32},
 };
 

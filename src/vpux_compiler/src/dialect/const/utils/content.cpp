@@ -235,13 +235,11 @@ void vpux::Const::Content::fillWithZero() {
 
     if (auto perAxisQuantizedType =
                 mlir::dyn_cast_if_present<mlir::quant::UniformQuantizedPerAxisType>(getType().getElementType())) {
-        VPUX_THROW_UNLESS(perAxisQuantizedType.getQuantizedDimension() == 0,
-                          "Only per-channel quantization is supported");
-
         // Treat quantile storage type case
         const auto res = fillQuantileTypeWithZero(perAxisQuantizedType);
         if (res.failed()) {
-            // If storage type is not quantile, fill with zero points per channel
+            // If storage type is not quantile, fill each element with the zero point of the quantize axis it belongs
+            // to.
             const auto outShape = getType().getShape();
             const auto order = getType().getDimsOrder();
             const auto outMemShape = order.toMemoryOrder(outShape);
@@ -253,10 +251,12 @@ void vpux::Const::Content::fillWithZero() {
             const auto H = outShape[Dims4D::Filter::KY];
             const auto W = outShape[Dims4D::Filter::KX];
 
+            const auto quantDim = perAxisQuantizedType.getQuantizedDimension();
             const auto zeroPoints = perAxisQuantizedType.getZeroPoints();
             loop_4d(LoopExecPolicy::Parallel, getType().getContext(), OC, IC, H, W,
                     [&](int64_t i, int64_t ic, int64_t h, int64_t w) {
-                        const auto zp = zeroPoints[i];
+                        const std::array<int64_t, 4> idx = {i, ic, h, w};
+                        const auto zp = zeroPoints[idx.at(quantDim)];
 
                         const auto fillChannel = [&](auto buffer) {
                             using BufferType = std::decay_t<decltype(buffer)>;

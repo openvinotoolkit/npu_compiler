@@ -62,10 +62,10 @@ func.func @DilatedGroupConvConvertWithQuantized(%arg0: tensor<1x1344x33x33xf32>)
             pads_end_value = [0, 0, 3, 3]
         } : tensor<1x1344x33x33xf32> -> tensor<4x1344x19x19xf32>
     %1 = IE.FakeQuantize(%0, %cst, %cst_0, %cst, %cst_0) {
-            auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i64
+            auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256 : i64
         } : tensor<4x1344x19x19xf32>, tensor<1x1344x1x1xf32>, tensor<1x1344x1x1xf32>, tensor<1x1344x1x1xf32>, tensor<1x1344x1x1xf32> -> tensor<4x1344x19x19xf32>
     %2 = IE.FakeQuantize(%cst_1, %cst_2, %cst_3, %cst_4, %cst_5) {
-            auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 255 : i64
+            auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 255 : i64
         } : tensor<1344x1x3x3xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1344x1x1x1xf32>, tensor<1344x1x1x1xf32> -> tensor<1344x1x3x3xf32>
     %3 = IE.GroupConvolution(%1, %2) {
             dilations = [1, 1], groups = 1344 : i64,
@@ -92,10 +92,10 @@ func.func @DilatedGroupConvConvertWithQuantized(%arg0: tensor<1x1344x33x33xf32>)
     // CHECK-DAG:   [[CST_5:%.+]] = const.Declare tensor<1344x1x1x1xf32> = dense<1.000000e+00> : tensor<1344x1x1x1xf32>
 
     // CHECK:       [[INPUT_FQ:%.+]] = IE.FakeQuantize([[INPUT_DATA]], [[CST]], [[CST_0]], [[CST]], [[CST_0]]) {
-    // CHECK-SAME:          auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i64
+    // CHECK-SAME:          auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256 : i64
     // CHECK-SAME:      } : tensor<1x1344x33x33xf32>, tensor<1x1344x1x1xf32>, tensor<1x1344x1x1xf32>, tensor<1x1344x1x1xf32>, tensor<1x1344x1x1xf32> -> tensor<1x1344x33x33xf32>
     // CHECK:       [[WEIGHTS_FQ:%.+]] = IE.FakeQuantize([[CST_1]], [[CST_2]], [[CST_3]], [[CST_4]], [[CST_5]]) {
-    // CHECK-SAME:          auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 255 : i64
+    // CHECK-SAME:          auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 255 : i64
     // CHECK-SAME:      } : tensor<1344x1x3x3xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1344x1x1x1xf32>, tensor<1344x1x1x1xf32> -> tensor<1344x1x3x3xf32>
 
     // CHECK:       [[GROUP_CONV:%.+]] = IE.GroupConvolution([[INPUT_FQ]], [[WEIGHTS_FQ]]) {
@@ -210,10 +210,10 @@ func.func @DilatedConvConvertWithQuantized(%arg0: tensor<1x16x33x33xf32>) -> ten
             pads_end_value = [0, 0, 3, 3]
         } : tensor<1x16x33x33xf32> -> tensor<4x16x19x19xf32>
     %1 = IE.FakeQuantize(%0, %cst, %cst_0, %cst, %cst_0) {
-            auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i64
+            auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256 : i64
         } : tensor<4x16x19x19xf32>, tensor<1x16x1x1xf32>, tensor<1x16x1x1xf32>, tensor<1x16x1x1xf32>, tensor<1x16x1x1xf32> -> tensor<4x16x19x19xf32>
     %2 = IE.FakeQuantize(%cst_1, %cst_2, %cst_3, %cst_4, %cst_5) {
-            auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 255 : i64
+            auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 255 : i64
         } : tensor<16x16x3x3xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<16x1x1x1xf32>, tensor<16x1x1x1xf32> -> tensor<16x16x3x3xf32>
     %3 = IE.Convolution(%1, %2) {
             dilations = [1, 1], strides = [1, 1],
@@ -240,10 +240,10 @@ func.func @DilatedConvConvertWithQuantized(%arg0: tensor<1x16x33x33xf32>) -> ten
     // CHECK-DAG:   [[CST_5:%.+]] = const.Declare tensor<16x1x1x1xf32> = dense<1.000000e+00> : tensor<16x1x1x1xf32>
 
     // CHECK:       [[INPUT_FQ:%.+]] = IE.FakeQuantize([[INPUT_DATA]], [[CST]], [[CST_0]], [[CST]], [[CST_0]]) {
-    // CHECK-SAME:          auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i64
+    // CHECK-SAME:          auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256 : i64
     // CHECK-SAME:      } : tensor<1x16x33x33xf32>, tensor<1x16x1x1xf32>, tensor<1x16x1x1xf32>, tensor<1x16x1x1xf32>, tensor<1x16x1x1xf32> -> tensor<1x16x33x33xf32>
     // CHECK:       [[WEIGHTS_FQ:%.+]] = IE.FakeQuantize([[CST_1]], [[CST_2]], [[CST_3]], [[CST_4]], [[CST_5]]) {
-    // CHECK-SAME:          auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 255 : i64
+    // CHECK-SAME:          auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 255 : i64
     // CHECK-SAME:      } : tensor<16x16x3x3xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<16x1x1x1xf32>, tensor<16x1x1x1xf32> -> tensor<16x16x3x3xf32>
 
     // CHECK:       [[GROUP_CONV:%.+]] = IE.Convolution([[INPUT_FQ]], [[WEIGHTS_FQ]]) {

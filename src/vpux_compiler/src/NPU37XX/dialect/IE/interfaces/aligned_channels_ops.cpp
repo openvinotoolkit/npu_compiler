@@ -116,6 +116,7 @@ void vpux::IE::arch37xx::registerAlignedChannelsOpInterfaces(mlir::DialectRegist
         IE::TransposedConvolutionOp::attachInterface<AlignedChannelsOpModel<IE::TransposedConvolutionOp>>(*ctx);
         IE::PadOp::attachInterface<AlignedChannelsOpModel<IE::PadOp>>(*ctx);
         IE::MatMulOp::attachInterface<AlignedChannelsOpModel<IE::MatMulOp>>(*ctx);
+        IE::FullyConnectedOp::attachInterface<AlignedChannelsOpModel<IE::FullyConnectedOp>>(*ctx);
         IE::SoftMaxOp::attachInterface<AlignedChannelsOpModel<IE::SoftMaxOp>>(*ctx);
         IE::AttentionOp::attachInterface<AlignedChannelsOpModel<IE::AttentionOp>>(*ctx);
         IE::FlashSDPAOp::attachInterface<AlignedChannelsOpModel<IE::FlashSDPAOp>>(*ctx);

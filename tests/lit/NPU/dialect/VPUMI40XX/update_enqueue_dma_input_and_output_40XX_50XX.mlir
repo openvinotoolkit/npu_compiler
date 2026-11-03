@@ -28,7 +28,6 @@ module @UpdateEnqueueDMAOpsDPU attributes {config.compilationMode = #config.comp
     config.ExecutorResource 2 of @SHAVE_ACT
     config.ExecutorResource 1 of @DPU
   }
-  config.ExecutorResource 1 of @M2I
   config.ExecutorResource 1 of @DMA_NN
   config.MemoryResource 67108864000 bytes of @DDR {config.bandwidth = 64 : i64, config.derateFactor = 6.000000e-01 : f64}
   net.NetworkInfo entryPoint : @main inputsInfo : {
@@ -92,7 +91,7 @@ module @UpdateEnqueueDMAOpsDPU attributes {config.compilationMode = #config.comp
     %34 = VPUMI40XX.NNDMA <{port = 0 : i64, wlmPage = 0 : i64}> inputs(%4 : memref<1x16x14x14xf16, [@CMX_NN, 0]>) outputs(%1 : memref<1x16x14x14xf16, @DDR>) waits(%13 : !VPURegMapped.Index<0:0:3>) updates(%14 : !VPURegMapped.Index<0:0:4>) start_after(5) clean_after(4) acceleration_mode(<DISABLE>) -> !VPURegMapped.Index<0:1:0>
 
     %35 = VPURegMapped.Enqueue (%29 -> %29 : <0:0:0> -> <0:0:0>) -> !VPURegMapped.Index<0:0:0> {taskType = #VPURegMapped.task_type<DMA>}
-    %36 = VPUMI40XX.MappedInference dmas((%29, %34) : (!VPURegMapped.Index<0:0:0>, !VPURegMapped.Index<0:1:0>)) invariants(%19 : !VPURegMapped.Index<0:0:0>) variants(%21 : !VPURegMapped.Index<0:0:0>) barriers(%10 : !VPURegMapped.Index<0:0:0>) workItemTasks(%35 : !VPURegMapped.Index<0:0:0>) dmaCount([[6, 1]]) invariantCount([2]) variantCount([2]) actKernelRangesCount([[0, 0]]) actKernelInvocationsCount([[0, 0]]) mediaCount(0) barrierCount(5) workItemCount(1) -> !VPURegMapped.Index<0:0:0>
+    %36 = VPUMI40XX.MappedInference dmas((%29, %34) : (!VPURegMapped.Index<0:0:0>, !VPURegMapped.Index<0:1:0>)) invariants(%19 : !VPURegMapped.Index<0:0:0>) variants(%21 : !VPURegMapped.Index<0:0:0>) barriers(%10 : !VPURegMapped.Index<0:0:0>) workItemTasks(%35 : !VPURegMapped.Index<0:0:0>) dmaCount([[6, 1]]) invariantCount([2]) variantCount([2]) actKernelRangesCount([[0, 0]]) actKernelInvocationsCount([[0, 0]]) barrierCount(5) workItemCount(1) -> !VPURegMapped.Index<0:0:0>
     return %arg1 : memref<1x16x14x14xf16, @DDR>
   }
 }
@@ -134,7 +133,6 @@ module @UpdateEnqueueDMAOpsSHV attributes {config.compilationMode = #config.comp
     config.ExecutorResource 2 of @SHAVE_ACT
     config.ExecutorResource 1 of @DPU
   }
-  config.ExecutorResource 1 of @M2I
   config.ExecutorResource 1 of @DMA_NN
   config.MemoryResource 67108864000 bytes of @DDR {config.bandwidth = 64 : i64, config.derateFactor = 6.000000e-01 : f64}
   net.NetworkInfo entryPoint : @main inputsInfo : {
@@ -214,7 +212,7 @@ module @UpdateEnqueueDMAOpsSHV attributes {config.compilationMode = #config.comp
     %49 = VPURegMapped.Enqueue (%36 -> %36 : <0:0:0> -> <0:0:0>) -> !VPURegMapped.Index<0:0:0> {taskType = #VPURegMapped.task_type<DMA>}
     %50 = VPURegMapped.Enqueue previousTaskIdx(%49 : !VPURegMapped.Index<0:0:0>) (%41 -> %41 : <0:1:0> -> <0:1:0>) -> !VPURegMapped.Index<0:0:1> {taskType = #VPURegMapped.task_type<DMA>}
 
-    %52 = VPUMI40XX.MappedInference {workloadManagementBarrierProgrammingMode = #VPURegMapped.workload_management_barrier_programming_mode<ALL_BARRIER_DMAS_SCHEDULED>} dmas((%36, %41) : (!VPURegMapped.Index<0:0:0>, !VPURegMapped.Index<0:1:0>)) actKernelRanges((%28) : (!VPURegMapped.Index<0:0:0>)) actKernelInvocations((%30) : (!VPURegMapped.Index<0:0:0>)) barriers(%20 : !VPURegMapped.Index<0:0:0>) workItemTasks(%49 : !VPURegMapped.Index<0:0:0>) bootstrapBarriers(%45 : !VPURegMapped.Index<0:0:0>) actShaveRt(%44 : !VPURegMapped.Index<0:0:0>) dmaHwpBase(%5 : memref<16xui32, [@CMX_NN, 0]>) dmaCount([[6, 2]]) invariantCount([0]) variantCount([0]) actKernelRangesCount([[2, 0]]) actKernelInvocationsCount([[2, 0]]) mediaCount(0) barrierCount(4) workItemCount(2) bootstrapBarriersCount(4) bootstrapWorkItemsCount(2) -> !VPURegMapped.Index<0:0:0>
+    %52 = VPUMI40XX.MappedInference {workloadManagementBarrierProgrammingMode = #VPURegMapped.workload_management_barrier_programming_mode<ALL_BARRIER_DMAS_SCHEDULED>} dmas((%36, %41) : (!VPURegMapped.Index<0:0:0>, !VPURegMapped.Index<0:1:0>)) actKernelRanges((%28) : (!VPURegMapped.Index<0:0:0>)) actKernelInvocations((%30) : (!VPURegMapped.Index<0:0:0>)) barriers(%20 : !VPURegMapped.Index<0:0:0>) workItemTasks(%49 : !VPURegMapped.Index<0:0:0>) bootstrapBarriers(%45 : !VPURegMapped.Index<0:0:0>) actShaveRt(%44 : !VPURegMapped.Index<0:0:0>) dmaHwpBase(%5 : memref<16xui32, [@CMX_NN, 0]>) dmaCount([[6, 2]]) invariantCount([0]) variantCount([0]) actKernelRangesCount([[2, 0]]) actKernelInvocationsCount([[2, 0]]) barrierCount(4) workItemCount(2) bootstrapBarriersCount(4) bootstrapWorkItemsCount(2) -> !VPURegMapped.Index<0:0:0>
     return %arg1 : memref<1x1000x1x1xf16, @DDR>
   }
 }

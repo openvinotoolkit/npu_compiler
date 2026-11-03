@@ -12,6 +12,7 @@
 #include "vpux/compiler/dialect/VPU/IR/ops/data_type.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/eltwise.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/image.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/internal.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/normalization.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/pooling.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/recurrent.hpp"
@@ -22,7 +23,7 @@ namespace vpux {
 namespace VPU {
 
 VPU::DistributionMode getSWInputTensorDistributionMode(VPU::ClusteredOpInterface clusteredOp,
-                                                       VPU::MultiClusterStrategy strategy, mlir::Value operand,
+                                                       VPU::MultiClusterStrategy strategy, mlir::OpOperand& operand,
                                                        vpux::NDTypeInterface inputType);
 
 // General method of SW to get input tensor distribution mode
@@ -75,7 +76,7 @@ VPU::DistributionMode getSWInputTensorDistributionMode(VPU::RMSOp op, VPU::Multi
 VPU::DistributionMode getSWInputTensorDistributionMode(VPU::RoPEOp op, VPU::MultiClusterStrategy strategy,
                                                        mlir::Value operand);
 VPU::DistributionMode getSWInputTensorDistributionMode(VPU::SDPAOp op, VPU::MultiClusterStrategy strategy,
-                                                       mlir::Value operand);
+                                                       mlir::OpOperand& operand);
 VPU::DistributionMode getSWInputTensorDistributionMode(VPU::AttentionOp op, VPU::MultiClusterStrategy strategy,
                                                        mlir::Value operand);
 VPU::DistributionMode getSWInputTensorDistributionMode(VPU::ReverseOp op, VPU::MultiClusterStrategy strategy);
@@ -103,7 +104,7 @@ VPU::DistributionMode getSWInputTensorDistributionMode(VPU::ScatterElementsUpdat
 
 SmallVector<int64_t> getSWInputTensorNumTiles(VPU::ClusteredOpInterface clusteredOp,
                                               int64_t numClustersAvailableForCompilation,
-                                              VPU::MultiClusterStrategy strategy, mlir::Value operand,
+                                              VPU::MultiClusterStrategy strategy, mlir::OpOperand& operand,
                                               vpux::NDTypeInterface inputType);
 // General method of SW to get input tensor number tiles
 // For these SW Op, there are no specific inputs like 'auto_broadcast' or 'attribution'.
@@ -160,7 +161,7 @@ SmallVector<int64_t> getSWInputTensorNumTiles(VPU::RMSOp op, int64_t numClusters
 SmallVector<int64_t> getSWInputTensorNumTiles(VPU::RoPEOp op, int64_t numClustersAvailableForCompilation,
                                               VPU::MultiClusterStrategy strategy, mlir::Value operand);
 SmallVector<int64_t> getSWInputTensorNumTiles(VPU::SDPAOp op, int64_t numClustersAvailableForCompilation,
-                                              VPU::MultiClusterStrategy strategy, mlir::Value operand,
+                                              VPU::MultiClusterStrategy strategy, mlir::OpOperand& operand,
                                               vpux::NDTypeInterface inputType);
 SmallVector<int64_t> getSWInputTensorNumTiles(VPU::AttentionOp op, int64_t numClustersAvailableForCompilation,
                                               VPU::MultiClusterStrategy strategy, mlir::Value operand,
@@ -209,8 +210,8 @@ bool isSWOpAndNeedsAlignment(mlir::Operation* op);
 std::optional<SmallVector<int64_t>> getSWAlignment(mlir::Operation* op, ShapeRef divisors, ShapeRef shape,
                                                    bool enableOptimizationAlignment = true);
 
-// Check if the op has accurate VPUNN cost
-bool opHasAccurateCost(mlir::Operation* op);
+// Check if a view op can be fused with an adjacent op; operandNumber is absent when checking the parent
+bool isViewOpSupportedForVF(mlir::Operation* op, std::optional<unsigned> operandNumber);
 
 // Check if DepthToSpace satisfies the condition of optimal SW implementation
 bool satisfiesOptimizedDepthToSpace(VPU::DepthToSpaceOp d2sOp, config::ArchKind arch);

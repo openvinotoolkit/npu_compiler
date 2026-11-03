@@ -5,6 +5,7 @@
 
 //
 
+#include "vpux/utils/core/algo.hpp"
 #include "vpux/utils/core/small_vector.hpp"
 
 #include <gtest/gtest.h>
@@ -92,4 +93,18 @@ TEST(MLIR_SmallVectorTest, Swap) {
         EXPECT_EQ(vec1[i], 5 - i) << i;
         EXPECT_EQ(vec2[i], i) << i;
     }
+}
+
+TEST(MLIR_SmallVectorTest, BroadcastRepeatsValues) {
+    SmallVector<int> values = {1, 2};
+
+    broadcast(values, 6);
+
+    EXPECT_EQ(values, (SmallVector<int>{1, 2, 1, 2, 1, 2}));
+}
+
+TEST(MLIR_SmallVectorTest, BroadcastThrowsForNonDivisibleSize) {
+    SmallVector<int> values = {1, 2};
+
+    EXPECT_THROW(broadcast(values, 5), vpux::Exception);
 }

@@ -109,16 +109,16 @@ mlir::FailureOr<float> getConstSplatValue(Const::DeclareOp constOp, IE::Multiply
     const auto outLowVal = outLowSplat.value();
     const auto outHighVal = outHighSplat.value();
 
-    if (!fqOp.getLevels().has_value()) {
+    const auto levels = fqOp.getLevels();
+    if (!levels.has_value()) {
         return mlir::failure();
     }
-    const auto levels = fqOp.getLevels().value();
 
     auto constSplatValue = vpux::Const::template getSplatValue<float>(constOp);
     if (mlir::failed(constSplatValue)) {
         return mlir::failure();
     }
-    return vpux::fakeQuantize(constSplatValue.value(), inLowVal, inHighVal, outLowVal, outHighVal, levels);
+    return vpux::fakeQuantize(constSplatValue.value(), inLowVal, inHighVal, outLowVal, outHighVal, levels.value());
 }
 
 Const::DeclareOp getRescaledConst(Const::DeclareOp constOp, mlir::PatternRewriter& rewriter,
@@ -134,8 +134,8 @@ IE::FakeQuantizeOp getRescaledFQ(IE::FakeQuantizeOp fqOp, Const::DeclareOp outpu
     auto newOutputLow = getRescaledConst(outputLowConstOp, rewriter, constSplatValue);
     auto newOutputHigh = getRescaledConst(outputHighConstOp, rewriter, constSplatValue);
     return IE::FakeQuantizeOp::create(rewriter, fqOp->getLoc(), fqOp.getType(), fqOp.getInput(), fqOp.getInputLow(),
-                                      fqOp.getInputHigh(), newOutputLow, newOutputHigh, fqOp.getLevelsAttr(),
-                                      fqOp.getLowFpTypeAttr(), fqOp.getAutoBroadcastAttr());
+                                      fqOp.getInputHigh(), newOutputLow, newOutputHigh, fqOp.getLevelsOrLowFpTypeAttr(),
+                                      fqOp.getAutoBroadcastAttr());
 };
 
 // E#122893: consider moving this rewriter into

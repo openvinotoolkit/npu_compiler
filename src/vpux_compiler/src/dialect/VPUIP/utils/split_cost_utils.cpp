@@ -23,7 +23,7 @@ int64_t VPUIP::computeSplitCost(mlir::MLIRContext* ctx, const WorkloadSplit& spl
     // split to produce more small and valid workloads
     const auto& strategyFactory = VPU::getVPUStrategyFactory(ctx);
     const auto supportedChannelsDW = strategyFactory->getSupportedChannelsDW();
-    auto correctDepthwiseWorkloadChannel = [=](const WorkloadTile& wl) {
+    auto correctDepthwiseWorkloadChannel = [supportedChannelsDW](const WorkloadTile& wl) {
         auto wlChannel = std::get<0>(wl).shape[Dims4D::Act::C];
         SmallVector<int64_t> validWorkloadChannels;
         std::vector<WorkloadTile> newWorkloads;

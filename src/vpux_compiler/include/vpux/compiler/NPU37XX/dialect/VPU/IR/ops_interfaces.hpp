@@ -12,6 +12,7 @@ void registerLayerWithPermuteInterfaceForIE(mlir::DialectRegistry& registry);
 void registerLayoutInfoOpInterfaces(mlir::DialectRegistry& registry);
 void registerDDRAccessOpModelInterface(mlir::DialectRegistry& registry);
 void registerNCEOpInterface(mlir::DialectRegistry& registry);
+void registerCommonNCEOpInterfaces(mlir::DialectRegistry& registry);
 void registerClusterBroadcastingOpInterfaces(mlir::DialectRegistry& registry);
 void registerUnrollBatchOpInterfaces(mlir::DialectRegistry& registry);
 void registerICostModelUtilsInterface(mlir::DialectRegistry& registry);

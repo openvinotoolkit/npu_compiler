@@ -410,6 +410,52 @@ func.func @Fuse_Attention_GQA(%arg0: tensor<1x32x1024x64xf16>, %arg1: tensor<1x8
 
 // -----
 
+// CHECK-LABEL: @Fuse_Attention_GQA_WithBatchOnlyMask
+// CHECK-SAME:  ([[ARG0:%.+]]: tensor<2x32x16x8xf16>, [[ARG1:%.+]]: tensor<2x8x16x8xf16>, [[ARG2:%.+]]: tensor<2x8x16x8xf16>, [[MASK:%.+]]: tensor<2x1x16x16xi8>)
+func.func @Fuse_Attention_GQA_WithBatchOnlyMask(%arg0: tensor<2x32x16x8xf16>, %arg1: tensor<2x8x16x8xf16>, %arg2: tensor<2x8x16x8xf16>, %mask: tensor<2x1x16x16xi8>) -> tensor<2x32x16x8xf16> {
+  %cst = const.Declare tensor<1xf32> = dense<0.3535533905932738> : tensor<1xf32>
+  %0 = IE.SDPA(%arg0, %arg1, %arg2, %mask, %cst) {operandSegmentSizes = array<i32: 1, 1, 1, 1, 1, 0>} : tensor<2x32x16x8xf16>, tensor<2x8x16x8xf16>, tensor<2x8x16x8xf16>, tensor<2x1x16x16xi8>, tensor<1xf32> -> tensor<2x32x16x8xf16>
+  return %0 : tensor<2x32x16x8xf16>
+
+  // CHECK-DAG: [[SCALE:%.+]] = const.Declare tensor<1xf32>
+  // CHECK-DAG: [[TRANS_V:%.+]] = IE.Transpose([[ARG2]]) {order_value = #NCWH} : tensor<2x8x16x8xf16> -> tensor<2x8x8x16xf16>
+  // CHECK-DAG: [[RESHAPE_Q:%.+]] = IE.Reshape([[ARG0]]) {shape_value = [16, 4, 16, 8]} : tensor<2x32x16x8xf16> -> tensor<16x4x16x8xf16>
+  // CHECK-DAG: [[RESHAPE_K:%.+]] = IE.AffineReshape([[ARG1]]) {{.*}}shape_value = [16, 1, 16, 8]{{.*}} : tensor<2x8x16x8xf16> -> tensor<16x1x16x8xf16>
+  // CHECK-DAG: [[RESHAPE_V:%.+]] = IE.AffineReshape([[TRANS_V]]) {{.*}}shape_value = [16, 1, 8, 16]{{.*}} : tensor<2x8x8x16xf16> -> tensor<16x1x8x16xf16>
+  // CHECK-DAG: [[MASK_5D:%.+]] = IE.AffineReshape([[MASK]]) {{.*}}shape_value = [2, 1, 1, 16, 16]{{.*}} : tensor<2x1x16x16xi8> -> tensor<2x1x1x16x16xi8>
+  // CHECK-DAG: [[MASK_BROADCAST_SHAPE:%.+]] = const.Declare tensor<5xsi32> = dense<[2, 8, 1, 16, 16]>
+  // CHECK-DAG: [[MASK_BROADCAST:%.+]] = IE.Broadcast([[MASK_5D]], [[MASK_BROADCAST_SHAPE]]) {mode = #IE.broadcast_type<BIDIRECTIONAL>} : tensor<2x1x1x16x16xi8>, tensor<5xsi32> -> tensor<2x8x1x16x16xi8>
+  // CHECK-DAG: [[RESHAPE_MASK:%.+]] = IE.AffineReshape([[MASK_BROADCAST]]) {dim_mapping = {{\[}}[0], [0], [1], [2], [3]{{\]}}, shape_value = [16, 1, 16, 16]} : tensor<2x8x1x16x16xi8> -> tensor<16x1x16x16xi8>
+  // CHECK: [[ATTENTION:%.+]] = IE.Attention([[RESHAPE_Q]], [[RESHAPE_K]], [[RESHAPE_V]], [[RESHAPE_MASK]], [[SCALE]]) {operandSegmentSizes = array<i32: 1, 1, 1, 1, 1, 0, 0>} : tensor<16x4x16x8xf16>, tensor<16x1x16x8xf16>, tensor<16x1x8x16xf16>, tensor<16x1x16x16xi8>, tensor<1xf32> -> tensor<16x4x16x8xf16>
+  // CHECK: [[RESHAPE_BACK:%.+]] = IE.Reshape([[ATTENTION]]) {shape_value = [2, 32, 16, 8]} : tensor<16x4x16x8xf16> -> tensor<2x32x16x8xf16>
+  // CHECK: return [[RESHAPE_BACK]]
+}
+
+// -----
+
+// CHECK-LABEL: @Fuse_Attention_GQA_WithBatchOnlySink
+// CHECK-SAME:  ([[ARG0:%.+]]: tensor<2x32x16x8xf16>, [[ARG1:%.+]]: tensor<2x8x16x8xf16>, [[ARG2:%.+]]: tensor<2x8x16x8xf16>, [[SINK:%.+]]: tensor<2x1x1x1xf16>)
+func.func @Fuse_Attention_GQA_WithBatchOnlySink(%arg0: tensor<2x32x16x8xf16>, %arg1: tensor<2x8x16x8xf16>, %arg2: tensor<2x8x16x8xf16>, %sink: tensor<2x1x1x1xf16>) -> tensor<2x32x16x8xf16> {
+  %cst = const.Declare tensor<1xf32> = dense<0.3535533905932738> : tensor<1xf32>
+  %0 = IE.SDPA(%arg0, %arg1, %arg2, %cst, %sink) {operandSegmentSizes = array<i32: 1, 1, 1, 0, 1, 1>} : tensor<2x32x16x8xf16>, tensor<2x8x16x8xf16>, tensor<2x8x16x8xf16>, tensor<1xf32>, tensor<2x1x1x1xf16> -> tensor<2x32x16x8xf16>
+  return %0 : tensor<2x32x16x8xf16>
+
+  // CHECK-DAG: [[SCALE:%.+]] = const.Declare tensor<1xf32>
+  // CHECK-DAG: [[TRANS_V:%.+]] = IE.Transpose([[ARG2]]) {order_value = #NCWH} : tensor<2x8x16x8xf16> -> tensor<2x8x8x16xf16>
+  // CHECK-DAG: [[RESHAPE_Q:%.+]] = IE.Reshape([[ARG0]]) {shape_value = [16, 4, 16, 8]} : tensor<2x32x16x8xf16> -> tensor<16x4x16x8xf16>
+  // CHECK-DAG: [[RESHAPE_K:%.+]] = IE.AffineReshape([[ARG1]]) {{.*}}shape_value = [16, 1, 16, 8]{{.*}} : tensor<2x8x16x8xf16> -> tensor<16x1x16x8xf16>
+  // CHECK-DAG: [[RESHAPE_V:%.+]] = IE.AffineReshape([[TRANS_V]]) {{.*}}shape_value = [16, 1, 8, 16]{{.*}} : tensor<2x8x8x16xf16> -> tensor<16x1x8x16xf16>
+  // CHECK-DAG: [[SINK_5D:%.+]] = IE.AffineReshape([[SINK]]) {{.*}}shape_value = [2, 1, 1, 1, 1]{{.*}} : tensor<2x1x1x1xf16> -> tensor<2x1x1x1x1xf16>
+  // CHECK-DAG: [[SINK_BROADCAST_SHAPE:%.+]] = const.Declare tensor<5xsi32> = dense<[2, 8, 1, 1, 1]>
+  // CHECK-DAG: [[SINK_BROADCAST:%.+]] = IE.Broadcast([[SINK_5D]], [[SINK_BROADCAST_SHAPE]]) {mode = #IE.broadcast_type<BIDIRECTIONAL>} : tensor<2x1x1x1x1xf16>, tensor<5xsi32> -> tensor<2x8x1x1x1xf16>
+  // CHECK-DAG: [[RESHAPE_SINK:%.+]] = IE.AffineReshape([[SINK_BROADCAST]]) {dim_mapping = {{\[}}[0], [0], [1], [2], [3]{{\]}}, shape_value = [16, 1, 1, 1]} : tensor<2x8x1x1x1xf16> -> tensor<16x1x1x1xf16>
+  // CHECK: [[ATTENTION:%.+]] = IE.Attention([[RESHAPE_Q]], [[RESHAPE_K]], [[RESHAPE_V]], [[SCALE]], [[RESHAPE_SINK]]) {operandSegmentSizes = array<i32: 1, 1, 1, 0, 1, 1, 0>} : tensor<16x4x16x8xf16>, tensor<16x1x16x8xf16>, tensor<16x1x8x16xf16>, tensor<1xf32>, tensor<16x1x1x1xf16> -> tensor<16x4x16x8xf16>
+  // CHECK: [[RESHAPE_BACK:%.+]] = IE.Reshape([[ATTENTION]]) {shape_value = [2, 32, 16, 8]} : tensor<16x4x16x8xf16> -> tensor<2x32x16x8xf16>
+  // CHECK: return [[RESHAPE_BACK]]
+}
+
+// -----
+
 // Negative case: an MQA shape that is NOT in ALLOWED_MQA_FOLD_SHAPES must be
 // left unchanged (no Reshape on Q, AttentionOp keeps its qHeads dimension).
 

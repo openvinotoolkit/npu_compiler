@@ -17,6 +17,13 @@ repos:
         exclude: 'thirdparty/.*|sw_runtime_kernels/.*'
         require_serial: false
         additional_dependencies: ['clang-format==18.1.8']
+    -   id: markdownlint
+        name: markdownlint
+        entry: markdownlint
+        language: node
+        types: [markdown]
+        args: ["--fix"]
+        additional_dependencies: ['markdownlint-cli@0.49.1']
 
 -   repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v5.0.0

@@ -94,6 +94,8 @@ add_npu_library(npu_compiler_npu50xx
         cost_model_data_5_2
         cost_model_cache_data_5_2
 )
+enable_lto_if_possible(npu_compiler_npu50xx)
+
 
 target_compile_definitions(npu_compiler_npu50xx PRIVATE VPUX_BUILTIN_PRECOMPUTED_STRATEGY_TABLE_5_1)
 add_dependencies(npu_compiler_npu50xx precomputed_strategy_table_builtin_5_1)

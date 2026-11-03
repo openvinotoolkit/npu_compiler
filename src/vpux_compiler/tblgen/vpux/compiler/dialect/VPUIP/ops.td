@@ -261,7 +261,8 @@ def VPUIP_GatherDMAOp :
         OptionalAttr<IntAttr>:$dmaHwpId,
 
         OptionalAttr<VPUIP_DmaProfilingMetadataAttr>:$profilingMetadata,
-        OptionalAttr<VPUIP_GatherAddressingMode>:$addressingMode
+        OptionalAttr<VPUIP_GatherAddressingModeAttr>:$addressingMode,
+        OptionalAttr<VPUIP_GatherListOOBModeAttr>:$listOOBMode
     );
 
     let results = (outs
@@ -288,7 +289,13 @@ def VPUIP_GatherDMAOp :
             (ins "mlir::Value":$input, "mlir::Value":$indices, "mlir::Value":$outputBuff,
                  "int64_t":$elementSize, "int64_t":$padding,
                  "int64_t":$port, "VPUIP::GatherAddressingMode":$addressingMode)
-        >
+        >,
+        OpBuilder<
+            (ins "mlir::Value":$input, "mlir::Value":$indices, "mlir::Value":$outputBuff,
+                 "int64_t":$elementSize, "int64_t":$padding,
+                 "int64_t":$port, "VPUIP::GatherAddressingMode":$addressingMode,
+                 "VPUIP::GatherListOOBMode":$listOOBMode)
+        >,
     ];
 
     let extraClassDeclaration = [{

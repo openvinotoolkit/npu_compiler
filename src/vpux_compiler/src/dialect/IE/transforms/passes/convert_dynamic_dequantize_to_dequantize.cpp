@@ -4,8 +4,8 @@
 //
 
 #include <mlir/Transforms/DialectConversion.h>
-#include "vpux/compiler/dialect/IE/IR/dialect.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/convolution.hpp"
+#include "vpux/compiler/dialect/IE/IR/ops/data_movement.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
 #include "vpux/compiler/dialect/IE/utils/fake_quantize_utils.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
@@ -56,6 +56,23 @@ private:
     Logger _log;
 };
 
+// Returns the operation that ultimately produces 'input', looking through at most one
+// IE::SliceOp - e.g. inserted by MoveSliceBeforeDynamicDequantize to split a fused tensor into
+// per-consumer chunks.
+mlir::Operation* getProducerThroughSlice(mlir::Value input) {
+    auto* producer = input.getDefiningOp();
+    if (auto sliceOp = mlir::dyn_cast_if_present<IE::SliceOp>(producer)) {
+        producer = sliceOp.getSource().getDefiningOp();
+    }
+    return producer;
+}
+
+// Returns true when 'input' is safe to reinterpret with a rescaled quantized type: it must
+// originate from either an IE::QuantizeCastOp, optionally with a single IE::SliceOp in between.
+bool isRescalableQuantizedInput(mlir::Value input) {
+    return mlir::isa_and_present<IE::QuantizeCastOp>(getProducerThroughSlice(input));
+}
+
 bool isOptimizableDynamicDequantizeOp(IE::DynamicDequantizeOp origOp) {
     // Only handle DynamicDequantize with runtime (non-constant) scale.
     // Const-scale cases are handled by the downstream pipeline natively via DynamicDequantize.
@@ -89,8 +106,7 @@ bool isOptimizableDynamicDequantizeOp(IE::DynamicDequantizeOp origOp) {
     bool isNF4Quantized = mlir::isa<vpux::type::NF4Type>(quantStorageType);
 
     if (isNF4Quantized || quantStorageType.isInteger(8) || isLowFpType(quantStorageType)) {
-        auto quantCastOp = origOp.getInput().getDefiningOp<IE::QuantizeCastOp>();
-        if (quantCastOp == nullptr) {
+        if (!isRescalableQuantizedInput(origOp.getInput())) {
             return false;
         }
     }
@@ -99,7 +115,7 @@ bool isOptimizableDynamicDequantizeOp(IE::DynamicDequantizeOp origOp) {
 
 // Reshape from 1x32x64 to 32x64 or from 32x1x64 to 32x64
 bool isSqueezeLikeReshape(mlir::Operation* operation) {
-    if (!mlir::isa_and_nonnull<IE::ReshapeOp, IE::AffineReshapeOp>(operation)) {
+    if (!mlir::isa_and_present<IE::ReshapeOp, IE::AffineReshapeOp>(operation)) {
         return false;
     }
     SmallVector<int64_t> inShape(getShape(operation->getOperand(0)).raw());
@@ -394,8 +410,8 @@ mlir::LogicalResult ConvertDynamicDequantizeToDequantize::matchAndRewrite(IE::Dy
         } else {
             const auto descaler = 1.f / rescaler;
             _log.trace("rescaler = {0} < 1.f, rescaling with descaler: {1}", rescaler, descaler);
-            auto quantCastOp = origOp.getInput().getDefiningOp<IE::QuantizeCastOp>();
             mlir::quant::QuantizedType quantTypeRescaled = nullptr;
+            auto directQuantCastOp = origOp.getInput().getDefiningOp<IE::QuantizeCastOp>();
             if (isNF4Quantized) {
                 if (const auto quantileTypeStorage =
                             mlir::dyn_cast<mlir::quant::QuantileType>(uniformType.getStorageType())) {
@@ -410,10 +426,30 @@ mlir::LogicalResult ConvertDynamicDequantizeToDequantize::matchAndRewrite(IE::Dy
                         /*zp=*/0, /*min=*/uniformType.getStorageTypeMin(),
                         /*max=*/uniformType.getStorageTypeMax());
             }
-            auto quantCastOpRescaled =
-                    IE::QuantizeCastOp::create(rewriter, appendLoc(origOp->getLoc(), "quant_cast_i8_with_rescaler"),
-                                               quantCastOp.getInput(), quantTypeRescaled);
-            rewriter.replaceOp(quantCastOp, quantCastOpRescaled.getOutput());
+            // Recast origOp's own (possibly already-sliced) input in place with the rescaled type,
+            // instead of rewriting the shared upstream producer: that producer may feed multiple
+            // DynamicDequantize ops (e.g. per-chunk Slices inserted by
+            // MoveSliceBeforeDynamicDequantize), so only origOp's own input operand is rewired here.
+            // When the direct producer is already an IE.QuantizeCast, build the new cast from its
+            // input (not its output), so the rescaled cast bypasses it instead of chaining on top of
+            // it. This lets the old cast be dropped by local DCE when origOp was its only user,
+            // yielding a single fused QuantizeCast instead of two.
+            auto quantCastOpRescaled = IE::QuantizeCastOp::create(
+                    rewriter, appendLoc(origOp->getLoc(), "quant_cast_i8_with_rescaler"),
+                    directQuantCastOp != nullptr ? directQuantCastOp.getInput() : origOp.getInput(), quantTypeRescaled);
+
+            // If the direct producer is a QuantizeCastOp, replace it with the new one.
+            if (directQuantCastOp != nullptr) {
+                rewriter.replaceUsesWithIf(directQuantCastOp.getOutput(), quantCastOpRescaled.getOutput(),
+                                           [&](mlir::OpOperand& opOperand) {
+                                               return opOperand.getOwner() == origOp;
+                                           });
+            } else {
+                // Otherwise, add the new QuantizeCast between the origOp and its producer
+                rewriter.modifyOpInPlace(origOp, [&] {
+                    origOp.getInputMutable().assign(quantCastOpRescaled.getOutput());
+                });
+            }
 
             const auto descalerBaseType =
                     mlir::RankedTensorType::get({1}, mlir::Float16Type::get(uniformType.getContext()));

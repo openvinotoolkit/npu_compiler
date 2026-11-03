@@ -28,6 +28,17 @@ constexpr int64_t GDN_CHUNK = 64;
 constexpr int64_t GDN_NUM_DPU_DESCRIPTORS = 6;
 constexpr int64_t GDN_MAX_WEIGHT_TABLE_N = 128;
 
+// Placeholder scratch size for the decode-mode kernel (seq_len == 1). The
+// gated_delta_net_decode kernel is pure shave code that keeps all working
+// state on the stack — it does not touch the auxiliary buffer at all. The
+// scratch is still a mandatory op operand (ODS, kernel ABI inputs[6]), so it
+// cannot be dropped; it only needs a small, non-zero, alignment-friendly
+// placeholder. One CMX line (64B) is chosen so downstream CMX budgeting sees
+// ~0 impact while every code path that inspects the type (verify(), lowering,
+// bufferization) still sees a well-formed non-empty tensor (0 bytes could hit
+// empty-buffer asserts in the alloc/distribution pipeline).
+constexpr int64_t GDN_DECODE_SCRATCH_BYTES = 64;
+
 mlir::Type getAuxiliaryBufferType(mlir::ModuleOp moduleOp, mlir::Value query, mlir::Value value) {
     const auto qType = mlir::cast<vpux::NDTypeInterface>(query.getType());
     const auto vType = mlir::cast<vpux::NDTypeInterface>(value.getType());
@@ -38,6 +49,23 @@ mlir::Type getAuxiliaryBufferType(mlir::ModuleOp moduleOp, mlir::Value query, ml
 
     if (mlir::ShapedType::isDynamic(D) || mlir::ShapedType::isDynamic(Dv) || arch == config::ArchKind::UNKNOWN) {
         return mlir::RankedTensorType::get({1, 1, 1, 1}, getUInt8Type(query.getContext()));
+    }
+
+    // Decode mode: when seq_len == 1 the runtime dispatches to
+    // gated_delta_net_decode, a pure-shave kernel that keeps every working
+    // buffer on the stack and never touches this auxiliary buffer. Advertise
+    // a minimal placeholder (see GDN_DECODE_SCRATCH_BYTES) so downstream CMX
+    // budgeting reflects the real footprint — this frees ~900KB of CMX per
+    // layer and typically eliminates the head-axis tiling the compiler was
+    // otherwise forced to add. Guarded on a 4D shape: the builder runs before
+    // verify()'s rank check, so a malformed non-4D query must not index past
+    // raw() at the C axis (it falls through to the prefill sizing below).
+    const auto qShape = qType.getShape();
+    if (qShape.size() == 4) {
+        const auto seqLen = qShape.raw()[Dims4D::Act::C.ind()];
+        if (!mlir::ShapedType::isDynamic(seqLen) && seqLen == 1) {
+            return mlir::RankedTensorType::get({1, 1, 1, GDN_DECODE_SCRATCH_BYTES}, getUInt8Type(query.getContext()));
+        }
     }
 
     const int64_t fp32WorkBytes = (Dv * D + 2 * C * D + 2 * C * Dv + 2 * C * C) * static_cast<int64_t>(sizeof(float));

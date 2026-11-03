@@ -24,7 +24,8 @@ void NNDMAOp::build(mlir::OpBuilder& odsBuilder, mlir::OperationState& odsState,
           dma_descriptor, 0, nullptr, 0, nullptr, /*enqueue_target_barrier*/ nullptr,
           /*wlmPage*/ nullptr,
           /*physicalBarrierRangeAttr*/ nullptr, /*enqueueDMAAttr*/ nullptr, /*fetchDMAAttr*/ nullptr,
-          /*addressingMode*/ nullptr, /*skipDmaAttr*/ nullptr, /*task_dyn_id*/ nullptr,
+          /*addressingMode*/ nullptr, /*listOOBMode*/ nullptr, /*skipDmaAttr*/ nullptr,
+          /*task_dyn_id*/ nullptr,
           /*dynamic_sequence_length_buff*/ nullptr);
 }
 
@@ -43,7 +44,8 @@ void NNDMAOp::build(mlir::OpBuilder& odsBuilder, mlir::OperationState& odsState,
           dma_descriptor, dma_hwp_id, profilingMetadata, allow_different_in_out_shapes, indices, enqueueBarrier,
           wlmPage,
           /*physicalBarrierRangeAttr*/ nullptr, /*enqueueDMAAttr*/ nullptr, /*fetchDMAAttr*/ nullptr,
-          /*addressingMode*/ nullptr, /*skipDmaAttr*/ nullptr, /*task_dyn_id*/ nullptr,
+          /*addressingMode*/ nullptr, /*listOOBMode*/ nullptr, /*skipDmaAttr*/ nullptr,
+          /*task_dyn_id*/ nullptr,
           /*dynamic_sequence_length_buff*/ nullptr);
 }
 
@@ -62,7 +64,7 @@ void NNDMAOp::build(mlir::OpBuilder& odsBuilder, mlir::OperationState& odsState,
           dma_encoding_algo, act_compression_size_entry, act_compression_sparsity_map, dma_transaction, dma_descriptor,
           dma_hwp_id, profilingMetadata, allow_different_in_out_shapes, indices, enqueueBarrier, wlmPage,
           /*physicalBarrierRangeAttr*/ nullptr, /*enqueueDMAAttr*/ nullptr, /*fetchDMAAttr*/ nullptr,
-          /*addressingMode*/ nullptr, /*skipDmaAttr*/ nullptr, /*task_dyn_id*/ nullptr,
+          /*addressingMode*/ nullptr, /*listOOBMode*/ nullptr, /*skipDmaAttr*/ nullptr, /*task_dyn_id*/ nullptr,
           /*dynamic_sequence_length_buff*/ nullptr);
 }
 
@@ -82,7 +84,8 @@ void NNDMAOp::build(mlir::OpBuilder& odsBuilder, mlir::OperationState& odsState,
           dma_descriptor, dma_hwp_id, profilingMetadata, allow_different_in_out_shapes, indices, enqueueBarrier,
           wlmPage,
           /*physicalBarrierRangeAttr*/ nullptr, /*enqueueDMAAttr*/ nullptr, /*fetchDMAAttr*/ nullptr,
-          /*addressingMode*/ nullptr, /*skipDmaAttr*/ nullptr, task_dyn_id, dynamic_sequence_length_buff);
+          /*addressingMode*/ nullptr, /*listOOBMode*/ nullptr, /*skipDmaAttr*/ nullptr, task_dyn_id,
+          dynamic_sequence_length_buff);
 }
 
 mlir::LogicalResult NNDMAOp::verify() {

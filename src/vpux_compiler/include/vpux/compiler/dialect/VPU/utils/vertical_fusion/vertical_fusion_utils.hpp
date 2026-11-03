@@ -8,6 +8,7 @@
 #include "vpux/compiler/dialect/VPU/IR/ops/internal.hpp"
 #include "vpux/compiler/dialect/VPU/utils/vertical_fusion/vertical_fusion_pipeline_container.hpp"
 #include "vpux/compiler/dialect/VPU/utils/vertical_fusion/vertical_fusion_storage.hpp"
+#include "vpux/compiler/utils/options.hpp"
 
 namespace vpux {
 namespace VPU {
@@ -128,6 +129,9 @@ mlir::FailureOr<SmallVector<ResultType>> backInferVFTiling(
 // For DMA ops with different source memory kind, if the HW supports VPUIP.ChannelType, the spilling read and write ops
 // can be overlapped
 bool spillingCopyOpsCanBeOverlapped(config::ArchKind arch);
+
+// Select the objective of VF merging from the module-level power-optimized configuration
+VFMergeCostMode getVFMergeCostMode(mlir::Operation* op);
 
 // Check if the op is tiled or not
 bool isOpTiled(mlir::Operation* op);

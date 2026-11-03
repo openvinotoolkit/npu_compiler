@@ -51,8 +51,8 @@ mlir::FailureOr<GroupQuantCorrectionPatternOps> matchGroupQuantCorrectionPattern
     if (wdInfo.getDynamicScale() == nullptr || wdInfo.getDynamicShift() == nullptr) {
         return matchFailed(log, rewriter, origOp, "Failed to find dynamic scale and shift.");
     }
-    if (!wdInfo.isKVcachedPattern() || !IE::getTrueElemType(origOp).isUnsignedInteger(2)) {
-        return matchFailed(log, rewriter, origOp, "Fusion is supported only for ui2 kvcached pattern.");
+    if (!IE::getTrueElemType(origOp).isUnsignedInteger(2)) {
+        return matchFailed(log, rewriter, origOp, "Fusion is supported only for ui2 weights.");
     }
     const auto dynamicShiftElemType = mlir::cast<NDTypeInterface>(wdInfo.getDynamicShift().getType()).getElementType();
     if (!dynamicShiftElemType.isUnsignedInteger(2)) {
@@ -104,12 +104,13 @@ mlir::FailureOr<GroupQuantCorrectionPatternOps> matchGroupQuantCorrectionPattern
         return matchFailed(log, rewriter, origOp, "MatMul was not found");
     }
 
-    return GroupQuantCorrectionPatternOps{mlir::cast<IE::MatMulOp>(currentOp),
-                                          wdInfo.getDynamicScale(),
-                                          wdInfo.getDynamicShift(),
-                                          numGroups,
-                                          groupSize,
-                                          outChannels};
+    auto matMulOp = mlir::cast<IE::MatMulOp>(currentOp);
+    if (getShape(matMulOp.getInput1()).totalSize() != numGroups * groupSize) {
+        return matchFailed(log, rewriter, origOp, "Fusion requires a single-token activation.");
+    }
+
+    return GroupQuantCorrectionPatternOps{
+            matMulOp, wdInfo.getDynamicScale(), wdInfo.getDynamicShift(), numGroups, groupSize, outChannels};
 }
 
 //

@@ -63,8 +63,8 @@ void getFakeQuantParams(vpux::NDTypeInterface qType, int64_t& levels, mlir::Rank
                         mlir::DenseElementsAttr& rMinAttr, mlir::DenseElementsAttr& rMaxAttr);
 
 mlir::quant::QuantizedType getQuantizedType(const Const::ContentAttr& lowConst, const Const::ContentAttr& highConst,
-                                            std::optional<int64_t> levels, std::optional<mlir::Type> lowFpType,
-                                            mlir::FloatType expressedType, bool isSigned, mlir::Location loc,
+                                            mlir::Attribute levelsOrLowFpAttribute, mlir::FloatType expressedType,
+                                            bool isSigned, mlir::Location loc,
                                             IE::AutoBroadcastType broadcast = IE::AutoBroadcastType::NONE_OR_EXPLICIT,
                                             bool ignoreZPCheck = false, const Logger& log = Logger::global());
 
@@ -81,17 +81,21 @@ mlir::quant::QuantizedType keepZeroScaleForConstDequant(mlir::quant::QuantizedTy
 // Check whether the given FQ input and output range constants can convert to a valid signed QuantizedType.
 bool canConvertToSignedQuantizedType(const Const::ContentAttr& inLowConst, const Const::ContentAttr& inHighConst,
                                      const Const::ContentAttr& outLowConst, const Const::ContentAttr& outHighConst,
-                                     std::optional<int64_t> levels, std::optional<mlir::Type> lowFpType,
+                                     mlir::Attribute levelsOrLowFpType,
                                      IE::AutoBroadcastType broadcast = IE::AutoBroadcastType::NONE_OR_EXPLICIT,
                                      const Logger& log = Logger::global());
 
 mlir::FailureOr<int32_t> getQuantizedDimension(ShapeRef lowShape, ShapeRef highShape, IE::AutoBroadcastType broadcast,
                                                mlir::Location loc, const Logger& log);
 
+bool isValidToPropagateQuantize(mlir::Operation* op, bool seOpsEnabled, mlir::Type& quantizedElemType, Logger log);
+
 mlir::FailureOr<std::tuple<SmallVector<double>, SmallVector<int64_t>>> getScalesAndZeroPointsFromContentAttr(
         const Const::ContentAttr& lowContentAttr, const Const::ContentAttr& highContentAttr,
-        IE::AutoBroadcastType broadcast, const std::optional<int64_t> levels, const std::optional<mlir::Type> lowFpType,
-        bool isSigned, const Logger& log = Logger::global());
+        IE::AutoBroadcastType broadcast, const mlir::Attribute levelsOrLowFpType, bool isSigned,
+        const Logger& log = Logger::global());
+
+bool canActivationMatchSignedWaiWeight(IE::FakeQuantizeOp fqOp, const Logger& log = Logger::global());
 
 //
 // Precise scales/zero-points carried on weights FakeQuantize ops.
@@ -227,6 +231,12 @@ mlir::FailureOr<double> getQuantizedSplatConstant(mlir::Value input);
 int64_t getMaximumQuantizationLevels(int64_t currentLevels, mlir::Operation* op);
 
 bool isNCEOpCandidatesWithWeights(mlir::Operation* op);
+// Walk up an NCE op's filter operand through view-like/quant ops to the
+// originating BlockArgument (weights as input) or Const::DeclareOp (weights as const). Returns
+// failure when neither is found (no WAI nor WAC), or when the op has no filter operand.
+mlir::FailureOr<mlir::Value> findNCEOpWeightsAsInputOrConst(mlir::Operation* op,
+                                                            mlir::quant::QuantizedType* firstQuantType = nullptr,
+                                                            IE::DynamicDequantizeOp* dynamicDequantizeOp = nullptr);
 bool keepIntTypeForSIWeightsAsInputOrConst(mlir::Operation* op, const IConvertWeightsToUnsignedStrategy* strategy);
 bool isQuantizationSupported(IE::QuantizeOp quantizeOp, mlir::Operation* mainOp,
                              IE::TypeComparisonMode elemComparisonMode);

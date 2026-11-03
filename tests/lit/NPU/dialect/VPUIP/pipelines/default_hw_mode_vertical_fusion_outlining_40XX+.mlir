@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-// RUN: vpux-opt --split-input-file --init-compiler="platform=%platform% compilation-mode=DefaultHW allow-custom-values=true" --mlir-elide-elementsattrs-if-larger 8 --default-hw-mode-vpuip %s | FileCheck %s
+// RUN: vpux-opt --split-input-file --init-compiler="platform=%platform% compilation-mode=DefaultHW allow-custom-values=true workload-management-mode=FWLM_V1_PAGES" --mlir-elide-elementsattrs-if-larger 8 --default-hw-mode-vpuip %s | FileCheck %s
 // REQUIRES: platform-NPU4000 || platform-NPU5010
 
 #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
@@ -73,8 +73,8 @@ module @VerticalFusionOutlining attributes {config.compilationMode = #config.com
     // CHECK: VPUIP.NNDMA <{{.+}}> inputs([[DDR2]] {{.+}} outputs([[CMX0]]
     // CHECK: VPUIP.NNDMA <{{.+}}> inputs([[DDR3]] {{.+}} outputs([[CMX1]]
 
-    // CHECK: VPUIP.SW.Kernel {resultSegmentSizes = array<i32: 1, 0, 0>} @VPU.SW::@builtin_SoftMax inputs([[CMX4]] as {{[^:]+}}: memref<1x16x64x128xf16, {order = #NHWC, strides = [262144, 1, 2048, 16]}, [@CMX_NN, 0]>) outputs([[CMX5]] as {{[^:]+}}: memref<1x16x64x128xf16, {order = #NHWC, strides = [262144, 1, 2048, 16]}, [@CMX_NN, 0]>) on tile 0 -> memref<1x16x64x128xf16, {order = #NHWC, strides = [262144, 1, 2048, 16]}, [@CMX_NN, 0]>
-    // CHECK: VPUIP.SW.Kernel {resultSegmentSizes = array<i32: 1, 0, 0>} @VPU.SW::@builtin_SoftMax inputs([[CMX6]] as {{[^:]+}}: memref<1x16x64x128xf16, {order = #NHWC, strides = [262144, 1, 2048, 16]}, [@CMX_NN, 0]>) outputs([[CMX7]] as {{[^:]+}}: memref<1x16x64x128xf16, {order = #NHWC, strides = [262144, 1, 2048, 16]}, [@CMX_NN, 0]>) on tile 0 -> memref<1x16x64x128xf16, {order = #NHWC, strides = [262144, 1, 2048, 16]}, [@CMX_NN, 0]>
+    // CHECK: VPUIP.SW.Kernel {resultSegmentSizes = array<i32: 1, 0, 0>} @VPU.SW::@builtin_SoftMax inputs([[CMX4]] as {{[^:]+}}: memref<1x16x64x128xf16, {order = #NHWC, strides = [262144, 1, 2048, 16]}, [@CMX_NN, 0]>) outputs([[CMX5]] as {{[^:]+}}: memref<1x16x64x128xf16, {order = #NHWC, strides = [262144, 1, 2048, 16]}, [@CMX_NN, 0]>) on tile 0 list 0 -> memref<1x16x64x128xf16, {order = #NHWC, strides = [262144, 1, 2048, 16]}, [@CMX_NN, 0]>
+    // CHECK: VPUIP.SW.Kernel {resultSegmentSizes = array<i32: 1, 0, 0>} @VPU.SW::@builtin_SoftMax inputs([[CMX6]] as {{[^:]+}}: memref<1x16x64x128xf16, {order = #NHWC, strides = [262144, 1, 2048, 16]}, [@CMX_NN, 0]>) outputs([[CMX7]] as {{[^:]+}}: memref<1x16x64x128xf16, {order = #NHWC, strides = [262144, 1, 2048, 16]}, [@CMX_NN, 0]>) on tile 0 list 1 -> memref<1x16x64x128xf16, {order = #NHWC, strides = [262144, 1, 2048, 16]}, [@CMX_NN, 0]>
 
     // CHECK: VPUIP.NNDMA <{{.+}}> inputs([[CMX2]] {{.+}} outputs([[NET_OUT0]]
     // CHECK: VPUIP.NNDMA <{{.+}}> inputs([[CMX3]] {{.+}} outputs([[NET_OUT1]]

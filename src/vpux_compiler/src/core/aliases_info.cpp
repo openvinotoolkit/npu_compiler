@@ -232,12 +232,12 @@ void AliasesInfoBase::visitOp(mlir::Operation* op, bool ignoreInnerRegions = fal
                                         addAlias(innerResults[i], outerResults[i]);
                                     }
                                 }
-
-                                _log = _log.unnest();
                             }
                         }
                     }
                 }
+
+                _log = _log.unnest();
             })
             .Case<mlir::async::AwaitOp>([&](mlir::async::AwaitOp waitOp) {
                 _log.trace("Got 'async.await' Operation at '{0}'", waitOp->getLoc());
@@ -292,9 +292,16 @@ ValueSourceInfo::ValueSourceInfo(mlir::Value val): AliasesInfoBase(Logger::globa
     std::queue<mlir::Value> q;
     q.push(val);
 
+    // An in-place operation whose output buffer is a loop iteration argument makes the alias chain cyclic
+    mlir::DenseSet<mlir::Value> visited;
+
     while (!q.empty()) {
         auto currVal = q.front();
         q.pop();
+
+        if (!visited.insert(currVal).second) {
+            continue;
+        }
 
         auto currOp = currVal.getDefiningOp();
         if (currOp == nullptr) {
@@ -336,9 +343,17 @@ void ValueSourceInfo::addAlias(mlir::Value source, mlir::Value alias) {
 void ValueSourceInfo::updateRoots(mlir::Value val) {
     std::stack<mlir::Value> s;
     s.push(val);
+
+    mlir::DenseSet<mlir::Value> visited;
+
     while (!s.empty()) {
         auto key = s.top();
         s.pop();
+
+        if (!visited.insert(key).second) {
+            continue;
+        }
+
         const auto sources = getSources(key);
         if (sources.size() == 1 && *sources.begin() == nullptr) {
             uniqueAppend(_roots, val, key);

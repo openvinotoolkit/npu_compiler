@@ -13,6 +13,7 @@
 #include "vpux/compiler/dialect/IE/utils/dynamic_dequantize_utils.hpp"
 #include "vpux/compiler/dialect/IE/utils/quantization.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_invariant.hpp"
+#include "vpux/compiler/dialect/config/IR/resources.hpp"
 #include "vpux/compiler/dialect/const/utils/utils.hpp"
 #include "vpux/compiler/utils/quantization.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
@@ -403,7 +404,7 @@ bool MergeFullyConnectedWithWeightsAsConstant::validateUnrolledMatMulBranch(
         auto outLowConstAttr = outLowConst.getContentAttr();
         auto outHighConstAttr = outHighConst.getContentAttr();
         auto scalesAndZeroPoints = IE::getScalesAndZeroPointsFromContentAttr(
-                outLowConstAttr, outHighConstAttr, fq.getAutoBroadcast(), fq.getLevels(), nullptr,
+                outLowConstAttr, outHighConstAttr, fq.getAutoBroadcast(), fq.getLevelsOrLowFpTypeAttr(),
                 Const::hasNegativeValues(inLowConst.getContent()), _log);
         if (mlir::failed(scalesAndZeroPoints)) {
             return mlir::failure();
@@ -537,9 +538,9 @@ mlir::Value MergeFullyConnectedWithWeightsAsConstant::buildNewMatMulWeights(Arra
     mlir::OpBuilder::InsertionGuard guard(rewriter);
     rewriter.setInsertionPointAfterValue(firstFq);
     auto newFakeQuantizedLoc = appendLoc(firstFq.getLoc(), "fused_{0}", batchIdx);
-    auto newFakeQuantizedOp = IE::FakeQuantizeOp::create(rewriter, newFakeQuantizedLoc, newFQInput, newInLow, newInHigh,
-                                                         newOutLow, newOutHigh, firstFq.getLevelsAttr(),
-                                                         firstFq.getLowFpTypeAttr(), firstFq.getAutoBroadcastAttr());
+    auto newFakeQuantizedOp =
+            IE::FakeQuantizeOp::create(rewriter, newFakeQuantizedLoc, newFQInput, newInLow, newInHigh, newOutLow,
+                                       newOutHigh, firstFq.getLevelsOrLowFpTypeAttr(), firstFq.getAutoBroadcastAttr());
     return newFakeQuantizedOp.getResult();
 }
 
@@ -1453,6 +1454,10 @@ mlir::Value MergeFullyConnectedForDQPatternWithDynDequantize::buildNewMatMulWeig
         dequantizeOp.getDefiningOp()->setAttr(IE::SYNTHETIC_DYN_DEQUANT_ATTR,
                                               existingDynDequant->getAttr(IE::SYNTHETIC_DYN_DEQUANT_ATTR));
     }
+    if (existingDynDequant->hasAttr(IE::WEIGHTS_IMPORT_DYN_DEQUANT_ATTR)) {
+        dequantizeOp.getDefiningOp()->setAttr(IE::WEIGHTS_IMPORT_DYN_DEQUANT_ATTR,
+                                              existingDynDequant->getAttr(IE::WEIGHTS_IMPORT_DYN_DEQUANT_ATTR));
+    }
 
     auto outShape = getShape(dequantizeOp);
     SmallVector<int64_t> newWeightsShape{outShape[Dim(0)] * outShape[Dim(1)], outShape[Dim(2)]};
@@ -1519,11 +1524,17 @@ void MergeFullyConnectedPass::safeRunOnFunc() {
     auto& ctx = getContext();
     auto func = getOperation();
 
+    bool mergeUnrolledMatmulForLargeOC = _mergeUnrolledMatmulForLargeOC;
+    if (mergeUnrolledMatmulForLargeOC && config::getNumOfTiles(func) == 1) {
+        _log.trace("Single tile: disable merging unrolled MatMul for large OC to avoid compute-bound regression");
+        mergeUnrolledMatmulForLargeOC = false;
+    }
+
     mlir::RewritePatternSet patterns(&ctx);
-    patterns.add<MergeFullyConnectedWithWeightsAsConstant>(&ctx, _mergeUnrolledMatmulForLargeOC, _log);
-    patterns.add<MergeFullyConnectedForDQPatternWithConvert>(&ctx, _mergeUnrolledMatmulForLargeOC, _log);
-    patterns.add<MergeFullyConnectedForDQPatternWithDequantize>(&ctx, _mergeUnrolledMatmulForLargeOC, _log);
-    patterns.add<MergeFullyConnectedForDQPatternWithDynDequantize>(&ctx, _mergeUnrolledMatmulForLargeOC, _log);
+    patterns.add<MergeFullyConnectedWithWeightsAsConstant>(&ctx, mergeUnrolledMatmulForLargeOC, _log);
+    patterns.add<MergeFullyConnectedForDQPatternWithConvert>(&ctx, mergeUnrolledMatmulForLargeOC, _log);
+    patterns.add<MergeFullyConnectedForDQPatternWithDequantize>(&ctx, mergeUnrolledMatmulForLargeOC, _log);
+    patterns.add<MergeFullyConnectedForDQPatternWithDynDequantize>(&ctx, mergeUnrolledMatmulForLargeOC, _log);
     if (mlir::failed(mlir::applyPatternsGreedily(func, std::move(patterns), getDefaultGreedyRewriteConfig()))) {
         signalPassFailure();
     }

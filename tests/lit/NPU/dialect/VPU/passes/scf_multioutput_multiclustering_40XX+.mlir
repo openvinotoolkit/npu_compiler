@@ -1,5 +1,5 @@
 //
-// Copyright (C) 2026 Intel Corporation.
+// Copyright (C) 2026 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -61,15 +61,15 @@ func.func @MCLSTMGatesSplitOverHeight(
 //CHECK-NEXT:      [[EMPTY1:%.+]] = tensor.empty() : tensor<1x1x32x128xf16>
 //CHECK-NEXT:      [[FOR1:%.+]]:2 = scf.forall ([[IDX1:%.+]]) = (0) to (32) step (6) shared_outs([[ACC2:%.+]] = [[EMPTY1]], [[ACC3:%.+]] = [[EMPTY1]]) -> (tensor<1x1x32x128xf16>, tensor<1x1x32x128xf16>) {
 //CHECK-NEXT:           [[MIN:%.+]] = affine.min #map([[IDX1]])
-//CHECK-NEXT:           [[EXTRACT2:%.+]] = tensor.extract_slice [[EXTRACT0]][0, 0, [[IDX1]], 0] [1, 1, [[MIN]], 512] [1, 1, 1, 1] : tensor<1x1x32x512xf16> to tensor<1x1x?x512xf16, {bounds = #const.OpaqueI64Elements<[1, 1, 32, 512]> : tensor<4xsi64>, order = #NCHW}>
-//CHECK-NEXT:           [[EXTRACT3:%.+]] = tensor.extract_slice [[EXTRACT1]][0, 0, [[IDX1]], 0] [1, 1, [[MIN]], 128] [1, 1, 1, 1] : tensor<1x1x32x128xf16> to tensor<1x1x?x128xf16, {bounds = #const.OpaqueI64Elements<[1, 1, 32, 128]> : tensor<4xsi64>, order = #NCHW}>
-//CHECK-NEXT:           [[H:%.+]], [[C:%.+]] = VPU.LSTMGates([[EXTRACT2]], [[EXTRACT3]]) : tensor<1x1x?x512xf16, {bounds = #const.OpaqueI64Elements<[1, 1, 32, 512]> : tensor<4xsi64>, order = #NCHW}>, tensor<1x1x?x128xf16, {bounds = #const.OpaqueI64Elements<[1, 1, 32, 128]> : tensor<4xsi64>, order = #NCHW}>
-//CHECK-SAME:               -> tensor<1x1x?x128xf16, {bounds = #const.OpaqueI64Elements<[1, 1, 32, 128]> : tensor<4xsi64>, order = #NCHW}>, tensor<1x1x?x128xf16, {bounds = #const.OpaqueI64Elements<[1, 1, 32, 128]> : tensor<4xsi64>, order = #NCHW}>
+//CHECK-NEXT:           [[EXTRACT2:%.+]] = tensor.extract_slice [[EXTRACT0]][0, 0, [[IDX1]], 0] [1, 1, [[MIN]], 512] [1, 1, 1, 1] : tensor<1x1x32x512xf16> to tensor<1x1x?x512xf16, {bounds = #const.OpaqueI64Elements<[1, 1, 6, 512]> : tensor<4xsi64>, order = #NCHW}>
+//CHECK-NEXT:           [[EXTRACT3:%.+]] = tensor.extract_slice [[EXTRACT1]][0, 0, [[IDX1]], 0] [1, 1, [[MIN]], 128] [1, 1, 1, 1] : tensor<1x1x32x128xf16> to tensor<1x1x?x128xf16, {bounds = #const.OpaqueI64Elements<[1, 1, 6, 128]> : tensor<4xsi64>, order = #NCHW}>
+//CHECK-NEXT:           [[H:%.+]], [[C:%.+]] = VPU.LSTMGates([[EXTRACT2]], [[EXTRACT3]]) : tensor<1x1x?x512xf16, {bounds = #const.OpaqueI64Elements<[1, 1, 6, 512]> : tensor<4xsi64>, order = #NCHW}>, tensor<1x1x?x128xf16, {bounds = #const.OpaqueI64Elements<[1, 1, 6, 128]> : tensor<4xsi64>, order = #NCHW}>
+//CHECK-SAME:               -> tensor<1x1x?x128xf16, {bounds = #const.OpaqueI64Elements<[1, 1, 6, 128]> : tensor<4xsi64>, order = #NCHW}>, tensor<1x1x?x128xf16, {bounds = #const.OpaqueI64Elements<[1, 1, 6, 128]> : tensor<4xsi64>, order = #NCHW}>
 //CHECK-NEXT:           scf.forall.in_parallel {
 //CHECK-NEXT:                   tensor.parallel_insert_slice [[H]] into [[ACC2]][0, 0, [[IDX1]], 0] [1, 1, [[MIN]], 128] [1, 1, 1, 1]
-//CHECK-SAME:                       : tensor<1x1x?x128xf16, {bounds = #const.OpaqueI64Elements<[1, 1, 32, 128]> : tensor<4xsi64>, order = #NCHW}> into tensor<1x1x32x128xf16>
+//CHECK-SAME:                       : tensor<1x1x?x128xf16, {bounds = #const.OpaqueI64Elements<[1, 1, 6, 128]> : tensor<4xsi64>, order = #NCHW}> into tensor<1x1x32x128xf16>
 //CHECK-NEXT:                   tensor.parallel_insert_slice [[C]] into [[ACC3]][0, 0, [[IDX1]], 0] [1, 1, [[MIN]], 128] [1, 1, 1, 1]
-//CHECK-SAME:                       : tensor<1x1x?x128xf16, {bounds = #const.OpaqueI64Elements<[1, 1, 32, 128]> : tensor<4xsi64>, order = #NCHW}> into tensor<1x1x32x128xf16>
+//CHECK-SAME:                       : tensor<1x1x?x128xf16, {bounds = #const.OpaqueI64Elements<[1, 1, 6, 128]> : tensor<4xsi64>, order = #NCHW}> into tensor<1x1x32x128xf16>
 //CHECK-NEXT:           }
 //CHECK-NEXT:      }
 //CHECK-NEXT:      [[INSERT0:%.+]] = tensor.insert_slice [[FOR1]]#0 into [[ACC0]][0, 0, [[IDX0]], 0] [1, 1, 32, 128] [1, 1, 1, 1] : tensor<1x1x32x128xf16> into tensor<1x1x128x128xf16>
@@ -219,14 +219,14 @@ func.func @MCTopKSplitOverHeight(
 //CHECK-NEXT:       [[EMPTY4:%.+]] = tensor.empty() : tensor<1x8x32x128xsi32>
 //CHECK-NEXT:       [[FOR1:%.+]]:2 = scf.forall ([[IDX1:%.+]]) = (0) to (32) step (6) shared_outs([[ACC2:%.+]] = [[EMPTY3]], [[ACC3:%.+]] = [[EMPTY4]]) -> (tensor<1x8x32x128xf32>, tensor<1x8x32x128xsi32>) {
 //CHECK-NEXT:           [[MIN:%.+]] = affine.min #map([[IDX1]])
-//CHECK-NEXT:           [[EXTRACT1:%.+]] = tensor.extract_slice [[EXTRACT0]][0, 0, [[IDX1]], 0] [1, 64, [[MIN]], 128] [1, 1, 1, 1] : tensor<1x64x32x128xf32> to tensor<1x64x?x128xf32, {bounds = #const.OpaqueI64Elements<[1, 64, 32, 128]> : tensor<4xsi64>, order = #NCHW}>
-//CHECK-NEXT:           [[V:%.+]], [[S:%.+]] = VPU.TopK([[EXTRACT1]], [[EMPTY0]]) {axis = 1 : i64, element_type = si32, k_value = 8 : i64, mode = #IE.topk_mode<MAX>, sort = #IE.topk_sort_type<SORT_INDICES>} : tensor<1x64x?x128xf32, {bounds = #const.OpaqueI64Elements<[1, 64, 32, 128]> : tensor<4xsi64>, order = #NCHW}>, tensor<1x1x1x1024xui8>
-//CHECK-SAME:               -> tensor<1x8x?x128xf32, {bounds = #const.OpaqueI64Elements<[1, 8, 32, 128]> : tensor<4xsi64>, order = #NCHW}>, tensor<1x8x?x128xsi32, {bounds = #const.OpaqueI64Elements<[1, 8, 32, 128]> : tensor<4xsi64>, order = #NCHW}>
+//CHECK-NEXT:           [[EXTRACT1:%.+]] = tensor.extract_slice [[EXTRACT0]][0, 0, [[IDX1]], 0] [1, 64, [[MIN]], 128] [1, 1, 1, 1] : tensor<1x64x32x128xf32> to tensor<1x64x?x128xf32, {bounds = #const.OpaqueI64Elements<[1, 64, 6, 128]> : tensor<4xsi64>, order = #NCHW}>
+//CHECK-NEXT:           [[V:%.+]], [[S:%.+]] = VPU.TopK([[EXTRACT1]], [[EMPTY0]]) {axis = 1 : i64, element_type = si32, k_value = 8 : i64, mode = #IE.topk_mode<MAX>, sort = #IE.topk_sort_type<SORT_INDICES>} : tensor<1x64x?x128xf32, {bounds = #const.OpaqueI64Elements<[1, 64, 6, 128]> : tensor<4xsi64>, order = #NCHW}>, tensor<1x1x1x1024xui8>
+//CHECK-SAME:               -> tensor<1x8x?x128xf32, {bounds = #const.OpaqueI64Elements<[1, 8, 6, 128]> : tensor<4xsi64>, order = #NCHW}>, tensor<1x8x?x128xsi32, {bounds = #const.OpaqueI64Elements<[1, 8, 6, 128]> : tensor<4xsi64>, order = #NCHW}>
 //CHECK-NEXT:           scf.forall.in_parallel {
 //CHECK-NEXT:                   tensor.parallel_insert_slice [[V]] into [[ACC2]][0, 0, [[IDX1]], 0] [1, 8, [[MIN]], 128] [1, 1, 1, 1]
-//CHECK-SAME:                       : tensor<1x8x?x128xf32, {bounds = #const.OpaqueI64Elements<[1, 8, 32, 128]> : tensor<4xsi64>, order = #NCHW}> into tensor<1x8x32x128xf32>
+//CHECK-SAME:                       : tensor<1x8x?x128xf32, {bounds = #const.OpaqueI64Elements<[1, 8, 6, 128]> : tensor<4xsi64>, order = #NCHW}> into tensor<1x8x32x128xf32>
 //CHECK-NEXT:                   tensor.parallel_insert_slice [[S]] into [[ACC3]][0, 0, [[IDX1]], 0] [1, 8, [[MIN]], 128] [1, 1, 1, 1]
-//CHECK-SAME:                       : tensor<1x8x?x128xsi32, {bounds = #const.OpaqueI64Elements<[1, 8, 32, 128]> : tensor<4xsi64>, order = #NCHW}> into tensor<1x8x32x128xsi32>
+//CHECK-SAME:                       : tensor<1x8x?x128xsi32, {bounds = #const.OpaqueI64Elements<[1, 8, 6, 128]> : tensor<4xsi64>, order = #NCHW}> into tensor<1x8x32x128xsi32>
 //CHECK-NEXT:           }
 //CHECK-NEXT:      }
 //CHECK-NEXT:      [[INSERT0:%.+]] = tensor.insert_slice [[FOR1]]#0 into [[ACC0]][0, 0, [[IDX0]], 0] [1, 8, 32, 128] [1, 1, 1, 1] : tensor<1x8x32x128xf32> into tensor<1x8x128x128xf32>
@@ -298,14 +298,14 @@ func.func @MCTopKLargeShape(
 //CHECK-NEXT:       [[EMPTY4:%.+]] = tensor.empty() : tensor<1x1x1024x4096xsi32>
 //CHECK-NEXT:       [[FOR1:%.+]]:2 = scf.forall ([[IDX1:%.+]]) = (0) to (1024) step (171) shared_outs([[ACC2:%.+]] = [[EMPTY3]], [[ACC3:%.+]] = [[EMPTY4]]) -> (tensor<1x1x1024x4096xf32>, tensor<1x1x1024x4096xsi32>) {
 //CHECK-NEXT:           [[MIN:%.+]] = affine.min #map([[IDX1]])
-//CHECK-NEXT:           [[EXTRACT1:%.+]] = tensor.extract_slice [[EXTRACT0]][0, 0, [[IDX1]], 0] [1, 512, [[MIN]], 4096] [1, 1, 1, 1] : tensor<1x512x1024x4096xf32> to tensor<1x512x?x4096xf32, {bounds = #const.OpaqueI64Elements<[1, 512, 1024, 4096]> : tensor<4xsi64>, order = #NCHW}>
-//CHECK-NEXT:           [[V:%.+]], [[S:%.+]] = VPU.TopK([[EXTRACT1]], [[EMPTY0]]) {axis = 1 : i64, element_type = si32, k_value = 1 : i64, mode = #IE.topk_mode<MAX>, sort = #IE.topk_sort_type<SORT_INDICES>} : tensor<1x512x?x4096xf32, {bounds = #const.OpaqueI64Elements<[1, 512, 1024, 4096]> : tensor<4xsi64>, order = #NCHW}>, tensor<1x1x1x8192xui8>
-//CHECK-SAME:               -> tensor<1x1x?x4096xf32, {bounds = #const.OpaqueI64Elements<[1, 1, 1024, 4096]> : tensor<4xsi64>, order = #NCHW}>, tensor<1x1x?x4096xsi32, {bounds = #const.OpaqueI64Elements<[1, 1, 1024, 4096]> : tensor<4xsi64>, order = #NCHW}>
+//CHECK-NEXT:           [[EXTRACT1:%.+]] = tensor.extract_slice [[EXTRACT0]][0, 0, [[IDX1]], 0] [1, 512, [[MIN]], 4096] [1, 1, 1, 1] : tensor<1x512x1024x4096xf32> to tensor<1x512x?x4096xf32, {bounds = #const.OpaqueI64Elements<[1, 512, 171, 4096]> : tensor<4xsi64>, order = #NCHW}>
+//CHECK-NEXT:           [[V:%.+]], [[S:%.+]] = VPU.TopK([[EXTRACT1]], [[EMPTY0]]) {axis = 1 : i64, element_type = si32, k_value = 1 : i64, mode = #IE.topk_mode<MAX>, sort = #IE.topk_sort_type<SORT_INDICES>} : tensor<1x512x?x4096xf32, {bounds = #const.OpaqueI64Elements<[1, 512, 171, 4096]> : tensor<4xsi64>, order = #NCHW}>, tensor<1x1x1x8192xui8>
+//CHECK-SAME:               -> tensor<1x1x?x4096xf32, {bounds = #const.OpaqueI64Elements<[1, 1, 171, 4096]> : tensor<4xsi64>, order = #NCHW}>, tensor<1x1x?x4096xsi32, {bounds = #const.OpaqueI64Elements<[1, 1, 171, 4096]> : tensor<4xsi64>, order = #NCHW}>
 //CHECK-NEXT:           scf.forall.in_parallel {
 //CHECK-NEXT:                   tensor.parallel_insert_slice [[V]] into [[ACC2]][0, 0, [[IDX1]], 0] [1, 1, [[MIN]], 4096] [1, 1, 1, 1]
-//CHECK-SAME:                       : tensor<1x1x?x4096xf32, {bounds = #const.OpaqueI64Elements<[1, 1, 1024, 4096]> : tensor<4xsi64>, order = #NCHW}> into tensor<1x1x1024x4096xf32>
+//CHECK-SAME:                       : tensor<1x1x?x4096xf32, {bounds = #const.OpaqueI64Elements<[1, 1, 171, 4096]> : tensor<4xsi64>, order = #NCHW}> into tensor<1x1x1024x4096xf32>
 //CHECK-NEXT:                   tensor.parallel_insert_slice [[S]] into [[ACC3]][0, 0, [[IDX1]], 0] [1, 1, [[MIN]], 4096] [1, 1, 1, 1]
-//CHECK-SAME:                       : tensor<1x1x?x4096xsi32, {bounds = #const.OpaqueI64Elements<[1, 1, 1024, 4096]> : tensor<4xsi64>, order = #NCHW}> into tensor<1x1x1024x4096xsi32>
+//CHECK-SAME:                       : tensor<1x1x?x4096xsi32, {bounds = #const.OpaqueI64Elements<[1, 1, 171, 4096]> : tensor<4xsi64>, order = #NCHW}> into tensor<1x1x1024x4096xsi32>
 //CHECK-NEXT:           }
 //CHECK-NEXT:      }
 //CHECK-NEXT:      [[INSERT0:%.+]] = tensor.insert_slice [[FOR1]]#0 into [[ACC0]][0, 0, [[IDX0]], 0] [1, 1, 1024, 4096] [1, 1, 1, 1] : tensor<1x1x1024x4096xf32> into tensor<1x1x4096x4096xf32>

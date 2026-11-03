@@ -12,14 +12,14 @@ func.func @LegalizeDilatedConvolution(%arg0: tensor<1x2x16x16xf32>) -> tensor<1x
     %input_low = const.Declare tensor<f32> = dense<0.0> : tensor<f32>
     %input_high = const.Declare tensor<f32> = dense<255.0> : tensor<f32>
     %0 = IE.FakeQuantize(%arg0, %input_low, %input_high, %input_low, %input_high)
-        { auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 } :
+        { auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256 } :
         tensor<1x2x16x16xf32>, tensor<f32>, tensor<f32>, tensor<f32>, tensor<f32> -> tensor<1x2x16x16xf32>
 
     %weights_low = const.Declare tensor<f32> = dense<1.0> : tensor<f32>
     %weights_high = const.Declare tensor<f32> = dense<10.0> : tensor<f32>
     %weights = const.Declare tensor<8x2x3x3xf32> = dense<5.0> : tensor<8x2x3x3xf32>
     %1 = IE.FakeQuantize(%weights, %weights_low, %weights_high, %weights_low, %weights_high)
-        { auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 255 } :
+        { auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 255 } :
         tensor<8x2x3x3xf32>, tensor<f32>, tensor<f32>, tensor<f32>, tensor<f32> -> tensor<8x2x3x3xf32>
 
     %2 = IE.Convolution(%0, %1)
@@ -35,12 +35,12 @@ func.func @LegalizeDilatedConvolution(%arg0: tensor<1x2x16x16xf32>) -> tensor<1x
 
     // CHECK-DAG: [[MIN_IN:%.+]] = const.Declare tensor<f32> = dense<0.000000e+00> : tensor<f32>
     // CHECK-DAG: [[MAX_IN:%.+]] = const.Declare tensor<f32> = dense<2.550000e+02> : tensor<f32>
-    // CHECK: [[FQ0:%.+]] = IE.FakeQuantize([[INPUT]], [[MIN_IN]], [[MAX_IN]], [[MIN_IN]], [[MAX_IN]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i64} : tensor<1x2x16x16xf32>, tensor<f32>, tensor<f32>, tensor<f32>, tensor<f32> -> tensor<1x2x16x16xf32>
+    // CHECK: [[FQ0:%.+]] = IE.FakeQuantize([[INPUT]], [[MIN_IN]], [[MAX_IN]], [[MIN_IN]], [[MAX_IN]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256 : i64} : tensor<1x2x16x16xf32>, tensor<f32>, tensor<f32>, tensor<f32>, tensor<f32> -> tensor<1x2x16x16xf32>
 
     // CHECK-DAG: [[MIN_WEIGHTS:%.+]] = const.Declare tensor<f32> = dense<1.000000e+00> : tensor<f32>
     // CHECK-DAG: [[MAX_WEIGHTS:%.+]] = const.Declare tensor<f32> = dense<1.000000e+01> : tensor<f32>
     // CHECK-DAG: [[FILTERS:%.+]] = const.Declare tensor<8x2x3x3xf32> = dense<5.000000e+00> : tensor<8x2x3x3xf32>
-    // CHECK: [[FQ1:%.+]] = IE.FakeQuantize([[FILTERS]], [[MIN_WEIGHTS]], [[MAX_WEIGHTS]], [[MIN_WEIGHTS]], [[MAX_WEIGHTS]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 255 : i64} : tensor<8x2x3x3xf32>, tensor<f32>, tensor<f32>, tensor<f32>, tensor<f32> -> tensor<8x2x3x3xf32>
+    // CHECK: [[FQ1:%.+]] = IE.FakeQuantize([[FILTERS]], [[MIN_WEIGHTS]], [[MAX_WEIGHTS]], [[MIN_WEIGHTS]], [[MAX_WEIGHTS]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 255 : i64} : tensor<8x2x3x3xf32>, tensor<f32>, tensor<f32>, tensor<f32>, tensor<f32> -> tensor<8x2x3x3xf32>
 
     // CHECK: [[EXPAND_DILATED:%.+]] = IE.ExpandDilated([[FQ1]]) {dilations = [2, 2]} : tensor<8x2x3x3xf32> -> tensor<8x2x5x5xf32>
 

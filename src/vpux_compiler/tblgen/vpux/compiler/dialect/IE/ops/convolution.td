@@ -206,6 +206,41 @@ def IE_FullyConnectedOp :
     );
 
     let hasCanonicalizer = 1;
+
+    // Needed for LayerWithPostOpInterface, however
+    // FullyConnected will never reach the stage of the pipeline
+    // where fusing post ops actually happens.
+    // Should be removed once unification with MatMul op happens.
+    // Ticket: E#234211
+    let extraClassDeclaration = [{
+        vpux::IE::PostOpAttr getPostOpAttr() const {
+            return nullptr;
+        }
+
+        void setPostOpAttr(vpux::IE::PostOpAttr) const {
+            return;
+        }
+
+        void removePostOpAttr() const {
+            return;
+        }
+
+        void setClampAttr(mlir::DictionaryAttr) const {
+            return;
+        }
+
+        mlir::DictionaryAttr getClampAttr() const {
+            return nullptr;
+        }
+
+        std::optional<mlir::DictionaryAttr> getClamp() const {
+            return std::nullopt;
+        }
+
+        void removeClampAttr() const {
+            return;
+        }
+    }] # baseExtraClassDeclaration;
 }
 
 def IE_GroupConvolutionOp :
@@ -361,15 +396,54 @@ def IE_MatMulOp :
         IE_LayerOp<
             "MatMul",
             [
+                AttrSizedOperandSegments,
                 DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface, ["reifyResultShapes"]>,
                 DeclareOpInterfaceMethods<StaticShapeOpInterface>
             ]
         > {
     let summary = "InferenceEngine MatMul layer";
 
+    let description = [{
+        Computes `output = post_op(clamp(op(input1) x op(W)))`, where `op` is a transpose of the two innermost
+        axes if `transpose_a` / `transpose_b` is set, and the leading axes are batch axes.
+
+        By default `W = input2`. The optional `scale` and `zero_points` operands turn `input2` into quantized
+        weights that are dequantized by the operation itself, which is equivalent to feeding the MatMul with the
+        result of IE.DynamicDequantize:
+
+            W = (input2 - zero_points) * scale
+
+        Each of the two is optional on its own: without `scale` the multiplication is skipped (as if it were 1),
+        without `zero_points` the subtraction is skipped (as if it were 0).
+
+        - The dequantization is applied to `input2` as it is stored, i.e. before `transpose_b`. `scale` and
+          `zero_points` hold one value per output channel of the MatMul (the last axis of the result, which is
+          the second to last axis of `input2` if `transpose_b` is set and the last one otherwise) or a single
+          value for all of them. The value of an output channel is shared by every batch / group of `input2`.
+        - When both are provided, `scale` and `zero_points` must have the same shape. Canonical form is `[OC, 1, ..., 1]` for one value
+          per output channel and `[1, ..., 1]` for a single value, also for whichever of the two is provided alone (for example, `[OC, 1]` for rank-2 and
+          `[OC, 1, 1, 1]` for rank-4). Elements are indexed by output channel regardless of encoding; this is not
+          a NumPy broadcast against `input2`.
+        - `post_op` and `clamp` act on the dequantized result, after the accumulation.
+        - `bias` is optional and independent of `scale` / `zero_points`.
+        - The optional operands are positional and always in the order `bias`, `scale`, `zero_points`. As for
+          IE.Convolution, an absent operand is skipped with an empty slot in the custom assembly format:
+          `IE.MatMul(%in1, %in2, , %scale)` has a `scale` but no `bias`.
+
+        The verifier checks the element type of `zero_points`, that `scale` and `zero_points` have the same shape
+        when both are provided and, where dimensions are static, that this shape is `[OC, 1, ..., 1]` or
+        `[1, ..., 1]`, and that `bias` is 4D. It does not check that the values are constant. Producers must
+        respect the rules above, and every consumer that cannot honour them has to leave the operation untouched
+        rather than ignore the operands: e.g. conversion to FullyConnected / Convolution and the generic
+        IE -> VPU rewrite do not match a MatMul that carries `scale`, `zero_points` or `bias`.
+    }];
+
     let arguments = (ins
         RankedTensorOf<[F16, F32, F64, SI32, quant_QuantizedType]>:$input1,
         RankedTensorOf<[F16, F32, F64, SI32, quant_QuantizedType]>:$input2,
+        Optional<RankedTensorOf<[F16, F32, F64, SI32]>>:$bias,
+        Optional<RankedTensorOf<[F16, F32, F8E8M0FNU, F8E5M2, F8E4M3FN]>>:$scale,
+        Optional<RankedTensorOf<[AnyInteger, F8E4M3FN, F8E5M2, F4E2M1FN]>>:$zero_points,
 
         UnitAttr:$transpose_a,
         UnitAttr:$transpose_b,
@@ -382,7 +456,19 @@ def IE_MatMulOp :
         RankedTensorOf<[F16, F32, F64, SI32, quant_QuantizedType]>:$output
     );
 
+    let assemblyFormat = [{
+        `(`
+            $input1 `,`
+            $input2
+            (`,` $bias^)?
+            (`,` $scale^)?
+            (`,` $zero_points^)?
+        `)`
+        attr-dict `:` type(operands) `->` type(results)
+    }];
+
     let hasCanonicalizer = 1;
+    let hasVerifier = 1;
 
     let elemComparisonModes = [IE_TypeComparisonMode_ALLOW_MIXED_PRECISION, IE_TypeComparisonMode_ALLOW_DIFFERENT_QUANT];
 

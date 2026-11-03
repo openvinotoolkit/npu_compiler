@@ -119,7 +119,7 @@ void VPUIP::arch37xx::ClusterSWRewriter::matchAndRewrite(VPUIP::SwKernelOp swTas
         }
     }
 
-    auto getPerClusterTileInfo = [&numClusters](ShapeRef shape, ShapeRef offset, std::optional<int64_t> tileDim) {
+    auto getPerClusterTileInfo = [numClusters](ShapeRef shape, ShapeRef offset, std::optional<int64_t> tileDim) {
         Shape axis(shape.size(), 1);
         if (tileDim.has_value()) {
             axis[Dim(tileDim.value())] = numClusters;
@@ -148,10 +148,12 @@ void VPUIP::arch37xx::ClusterSWRewriter::matchAndRewrite(VPUIP::SwKernelOp swTas
         return false;
     };
 
+    const bool isJitKernel = VPUIP::isJitKernelOp(swTask);
     auto needUpdateAttrs = inDistributionMode == VPU::DistributionMode::OVERLAPPED ||
                            kernelEntryName == "lstm_sequence" || kernelEntryName == "lstm_dpu" ||
                            kernelEntryName == "max_pool8" || isDequantizeTiledOverQuantAxis() ||
-                           (inDistributionMode == VPU::DistributionMode::SEGMENTED && kernelEntryName == "gatherND");
+                           (inDistributionMode == VPU::DistributionMode::SEGMENTED && kernelEntryName == "gatherND") ||
+                           (outDistributionMode != VPU::DistributionMode::DUPLICATED && isJitKernel);
 
     if (needUpdateAttrs) {
         auto outTileIndex = VPUIP::getTilingDimIndex(outputType);
@@ -266,21 +268,25 @@ void VPUIP::arch37xx::ClusterSWRewriter::matchAndRewrite(VPUIP::SwKernelOp swTas
         VPUIP::createRuntimeKernelDefinition(_module, _log.nest());
 
         auto module = swTask->getParentOfType<mlir::ModuleOp>();
-        auto kernelFunc = module.lookupSymbol<mlir::func::FuncOp>(swTask.getKernelFunctionAttr());
-        VPUX_THROW_UNLESS(kernelFunc, "Invalid function call : '{0}', undefined kernel name",
+        auto kernelFuncOp =
+                isJitKernel ? nullptr : module.lookupSymbol<mlir::func::FuncOp>(swTask.getKernelFunctionAttr());
+        VPUX_THROW_UNLESS(isJitKernel || kernelFuncOp, "Invalid function call : '{0}', undefined kernel name",
                           swTask.getKernelFunctionAttr());
 
-        const auto kernelCode = kernelFunc->getAttrOfType<mlir::StringAttr>("VPU.kernel_code");
-        const auto kernelEntryPoint = kernelFunc->getAttrOfType<mlir::StringAttr>("VPU.kernel_entry");
-        auto kernelName = kernelFunc->getAttrOfType<mlir::StringAttr>("VPU.kernel_name");
-        if (kernelName == nullptr) {
-            kernelName = kernelFunc->getAttrOfType<mlir::StringAttr>("VPU.kernel_entry");
-        }
-
-        auto newOperands = kernelFunc.getName();
-
-        auto builtInFunction = VPUIP::createBuiltInFunction(_module, newOperands, inputTypes, kernelEntryPoint,
-                                                            kernelCode, kernelName, _log);
+        const auto builtInFunction = [&]() -> mlir::SymbolRefAttr {
+            if (isJitKernel) {
+                // JIT-compiled kernel: reuse existing symbol ref directly
+                return swTask.getKernelFunction();
+            }
+            const auto kernelCode = kernelFuncOp->getAttrOfType<mlir::StringAttr>("VPU.kernel_code");
+            const auto kernelEntryPoint = kernelFuncOp->getAttrOfType<mlir::StringAttr>("VPU.kernel_entry");
+            auto kernelName = kernelFuncOp->getAttrOfType<mlir::StringAttr>("VPU.kernel_name");
+            if (kernelName == nullptr) {
+                kernelName = kernelEntryPoint;
+            }
+            return VPUIP::createBuiltInFunction(_module, kernelFuncOp.getName(), inputTypes, kernelEntryPoint,
+                                                kernelCode, kernelName, _log);
+        }();
 
         VPUIP::SwKernelOp newTask = [&] {
             if (isDynamic) {
@@ -296,6 +302,8 @@ void VPUIP::arch37xx::ClusterSWRewriter::matchAndRewrite(VPUIP::SwKernelOp swTas
                     outputBuffs[clusterId], profilingData, builtInFunction, getIntAttr(builder, clusterId),
                     swTask.getInputStridesAttr(), swTask.getOutputStridesAttr());
         }();
+        VPUIP::copyCustomKernelAttributes(swTask, newTask);
+
         // update listIndex attribute
         if (swTask.getListIndex().has_value()) {
             newTask.setListIndexAttr(listIndexAttr);

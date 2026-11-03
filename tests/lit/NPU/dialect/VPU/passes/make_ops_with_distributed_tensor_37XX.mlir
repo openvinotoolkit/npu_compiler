@@ -624,3 +624,27 @@ func.func @SWEltwiseNeedAlignmentSOW(%arg0: tensor<1x2x1x255xf16>, %arg1: tensor
     // CHECK-SAME:  -> tensor<1x2x1x255xf16>
     // CHECK:     return [[OUT]] : tensor<1x2x1x255xf16>
 }
+
+// -----
+
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+
+// OneHot replaces the C-axis placeholder with depth and must not split that axis.
+// SplitOverHeight is valid because the input is distributed along H instead.
+// CHECK-LABEL: func.func @OneHotAxisCWithSOH
+// CHECK-SAME:    ([[INPUT:%.+]]: tensor<1x1x16x1xsi32>) -> tensor<1x5x16x1xf16>
+func.func @OneHotAxisCWithSOH(%arg0: tensor<1x1x16x1xsi32>) -> tensor<1x5x16x1xf16> {
+    %0 = VPU.OneHot(%arg0) {axis = 1 : i64, depth = 5 : i64, mode = #IE.one_hot_mode<IGNORE_NEGATIVE>,
+                            multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
+                            off_value = 0.000000e+00 : f64, on_value = 1.000000e+00 : f64, outputType = f16,
+                            rank_expanded = true} : tensor<1x1x16x1xsi32> -> tensor<1x5x16x1xf16>
+    return %0 : tensor<1x5x16x1xf16>
+
+    // CHECK:           [[INPUT_DIST:%.+]] = VPU.UnrolledType([[INPUT]] : tensor<1x1x16x1xsi32>)
+    // CHECK-SAME{LITERAL}: -> !VPU.DistributedTensor<1x1x16x1xsi32, #NCHW, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64}>
+    // CHECK:           [[ONEHOT:%.+]] = VPU.OneHot([[INPUT_DIST]])
+    // CHECK-SAME{LITERAL}: -> !VPU.DistributedTensor<1x5x16x1xf16, #NCHW, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64}>
+    // CHECK:           [[OUT:%.+]] = VPU.UnrolledType([[ONEHOT]]
+    // CHECK-SAME{LITERAL}: -> tensor<1x5x16x1xf16>
+    // CHECK:           return [[OUT]] : tensor<1x5x16x1xf16>
+}

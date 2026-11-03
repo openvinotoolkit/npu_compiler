@@ -5,7 +5,8 @@
 
 #pragma once
 
-#include "vpux/compiler/core/attributes/shape.hpp"
+#include <mlir/IR/Operation.h>
+#include <optional>
 
 namespace vpux {
 namespace IE {
@@ -19,7 +20,7 @@ constexpr int64_t DECODE_MAX_TOKEN_LENGTH = 16;
 // (KV-cache with token length 1, or speculative decoding with token length up to DECODE_MAX_TOKEN_LENGTH).
 // A dynamic leading dimension is treated as NOT data bound, so callers keep their default (prefill) behavior
 // instead of accidentally triggering decode-only optimizations on unknown token lengths.
-bool isDataBoundTokenDim(vpux::ShapeRef outShape);
+std::optional<bool> isDataBoundTokenDim(mlir::Operation* matmulOp);
 
 }  // namespace IE
 }  // namespace vpux

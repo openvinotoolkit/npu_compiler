@@ -15,6 +15,7 @@
 #include "vpux/compiler/dialect/IE/IR/ops/normalization.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/pooling.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/recurrent.hpp"
+#include "vpux/compiler/dialect/IE/IR/ops/reduce.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/shape_manipulation.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/specialized.hpp"
 
@@ -200,6 +201,22 @@ public:
 
 public:
     mlir::LogicalResult matchAndRewrite(IE::PadOp origOp, mlir::PatternRewriter& rewriter) const final;
+
+private:
+    Logger _log;
+};
+
+//
+// ReduceMeanRewrite
+//
+
+class ReduceMeanRewrite final : public mlir::OpRewritePattern<IE::ReduceMeanOp> {
+public:
+    ReduceMeanRewrite(mlir::MLIRContext* ctx, Logger log): mlir::OpRewritePattern<IE::ReduceMeanOp>(ctx), _log(log) {
+    }
+
+public:
+    mlir::LogicalResult matchAndRewrite(IE::ReduceMeanOp origOp, mlir::PatternRewriter& rewriter) const final;
 
 private:
     Logger _log;
@@ -553,6 +570,23 @@ public:
 
 public:
     mlir::LogicalResult matchAndRewrite(IE::FlashSDPAOp origOp, mlir::PatternRewriter& rewriter) const final;
+
+private:
+    Logger _log;
+};
+
+//
+// AttentionDMARewrite
+//
+
+class AttentionDMARewrite final : public mlir::OpRewritePattern<IE::AttentionDMAOp> {
+public:
+    AttentionDMARewrite(mlir::MLIRContext* ctx, Logger log)
+            : mlir::OpRewritePattern<IE::AttentionDMAOp>(ctx), _log(log) {
+    }
+
+public:
+    mlir::LogicalResult matchAndRewrite(IE::AttentionDMAOp origOp, mlir::PatternRewriter& rewriter) const final;
 
 private:
     Logger _log;

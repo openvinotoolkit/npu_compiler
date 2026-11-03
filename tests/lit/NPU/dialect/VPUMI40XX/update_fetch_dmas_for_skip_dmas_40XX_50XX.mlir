@@ -29,13 +29,11 @@ module @Activation attributes {config.compilationMode = #config.compilation_mode
     config.Option @config.MetadataMaxKernelInvocationCount : 32 : ui64
     config.Option @config.MetadataMaxKernelRangeCount : 32 : ui64
     config.Option @config.MetadataMaxDMACount : 80 : ui64
-    config.Option @config.MetadataMaxMediaCount : 4 : ui64
     config.Option @config.TaskBinarySizeDPUInvariant : 352 : ui64
     config.Option @config.TaskBinarySizeDPUVariant : 224 : ui64
     config.Option @config.TaskBinarySizeActKernelInvocation : 96 : ui64
     config.Option @config.TaskBinarySizeActKernelRange : 40 : ui64
     config.Option @config.TaskBinarySizeDMA : 224 : ui64
-    config.Option @config.TaskBinarySizeM2I : 240 : ui64
   }
   config.Resources {activity_factor = 0.000000e+00 : f64} 1 of @NCE at 2.100000e+03 MHz {
     config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
@@ -43,7 +41,6 @@ module @Activation attributes {config.compilationMode = #config.compilation_mode
     config.ExecutorResource 1 of @DPU
   }
   config.Resources 1 of @global {
-    config.ExecutorResource 1 of @M2I
     config.ExecutorResource 1 of @DMA_NN
     config.MemoryResource 67108864000 bytes of @DDR {config.bandwidth = 64 : i64, config.derateFactor = 6.000000e-01 : f64}
   }
@@ -162,7 +159,7 @@ module @Activation attributes {config.compilationMode = #config.compilation_mode
     %202 = VPUMI40XX.ActShaveRt kernel("nnActEntry") -> !VPURegMapped.Index<0:0:0>
     %203 = VPURegMapped.Enqueue (%168 -> %198 : <0:0:0> -> <0:0:18>) -> !VPURegMapped.Index<0:0:0> {taskType = #VPURegMapped.task_type<DMA>}
     %205 = VPURegMapped.Enqueue previousTaskIdx(%203 : !VPURegMapped.Index<0:0:0>) (%191 -> %196 : <0:1:0> -> <0:1:3>) -> !VPURegMapped.Index<0:0:2> {taskType = #VPURegMapped.task_type<DMA>}
-    %206 = VPUMI40XX.MappedInference dmas((%168, %191) : (!VPURegMapped.Index<0:0:0>, !VPURegMapped.Index<0:1:0>)) actKernelRanges((%100, %166) : (!VPURegMapped.Index<0:0:0>, !VPURegMapped.Index<0:1:0>)) actKernelInvocations((%101, %167) : (!VPURegMapped.Index<0:0:0>, !VPURegMapped.Index<0:1:0>)) barriers(%31 : !VPURegMapped.Index<0:0:0>) workItemTasks(%203 : !VPURegMapped.Index<0:0:0>) actShaveRt(%202 : !VPURegMapped.Index<0:0:0>) dmaCount([[19, 4], [2, 0]]) invariantCount([0]) variantCount([0]) actKernelRangesCount([[1, 1]]) actKernelInvocationsCount([[1, 1]]) mediaCount(0) barrierCount(5) workItemCount(3) bootstrapWorkItemsCount(3) finalBarrierId(4) -> !VPURegMapped.Index<0:0:0>
+    %206 = VPUMI40XX.MappedInference dmas((%168, %191) : (!VPURegMapped.Index<0:0:0>, !VPURegMapped.Index<0:1:0>)) actKernelRanges((%100, %166) : (!VPURegMapped.Index<0:0:0>, !VPURegMapped.Index<0:1:0>)) actKernelInvocations((%101, %167) : (!VPURegMapped.Index<0:0:0>, !VPURegMapped.Index<0:1:0>)) barriers(%31 : !VPURegMapped.Index<0:0:0>) workItemTasks(%203 : !VPURegMapped.Index<0:0:0>) actShaveRt(%202 : !VPURegMapped.Index<0:0:0>) dmaCount([[19, 4], [2, 0]]) invariantCount([0]) variantCount([0]) actKernelRangesCount([[1, 1]]) actKernelInvocationsCount([[1, 1]]) barrierCount(5) workItemCount(3) bootstrapWorkItemsCount(3) finalBarrierId(4) -> !VPURegMapped.Index<0:0:0>
     VPUMI40XX.OpRanges types([#VPURegMapped.task_type<DMA>, #VPURegMapped.task_type<DMA>, #VPURegMapped.task_type<ActKernelRange>, #VPURegMapped.task_type<ActKernelInvocation>, #VPURegMapped.task_type<ActKernelRange>, #VPURegMapped.task_type<ActKernelInvocation>]) begins(%168, %191, %100, %101, %166, %167 : !VPURegMapped.Index<0:0:0>, !VPURegMapped.Index<0:1:0>, !VPURegMapped.Index<0:0:0>, !VPURegMapped.Index<0:0:0>, !VPURegMapped.Index<0:1:0>, !VPURegMapped.Index<0:1:0>) ends(%198, %196, %100, %101, %166, %167 : !VPURegMapped.Index<0:0:18>, !VPURegMapped.Index<0:1:3>, !VPURegMapped.Index<0:0:0>, !VPURegMapped.Index<0:0:0>, !VPURegMapped.Index<0:1:0>, !VPURegMapped.Index<0:1:0>)
   }
 

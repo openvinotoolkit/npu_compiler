@@ -3,8 +3,8 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-// RUN: vpux-opt --mlir-elide-elementsattrs-if-larger=8 --init-compiler="platform=%platform% compilation-mode=HostCompile allow-custom-values=true" --scf-ops-outlining %s | FileCheck %s --check-prefix=DISABLED
-// RUN: vpux-opt --mlir-elide-elementsattrs-if-larger=8 --init-compiler="platform=%platform% compilation-mode=HostCompile allow-custom-values=true" --scf-ops-outlining="weights-extraction=true" %s | FileCheck %s --check-prefix=ENABLED
+// RUN: vpux-opt --mlir-elide-elementsattrs-if-larger=8 --init-compiler="platform=%platform% compilation-mode=HostCompile_Interpreter allow-custom-values=true" --scf-ops-outlining %s | FileCheck %s --check-prefix=DISABLED
+// RUN: vpux-opt --mlir-elide-elementsattrs-if-larger=8 --init-compiler="platform=%platform% compilation-mode=HostCompile_Interpreter allow-custom-values=true" --scf-ops-outlining="weights-extraction=true" %s | FileCheck %s --check-prefix=ENABLED
 // REQUIRES: platform-NPU4000
 
 {-#

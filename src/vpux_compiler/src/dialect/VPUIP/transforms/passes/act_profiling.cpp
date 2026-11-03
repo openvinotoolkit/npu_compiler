@@ -309,6 +309,7 @@ void ActShaveProfilingPass::safeRunOnModule() {
         auto newSwTask = VPUIP::SwKernelOp::create(builder, swTask->getLoc(), swTask, profDataAlloc->getResult(0));
         newSwTask.getProfilingDataMutable().assign(profDataAlloc->getResult(0));
         newSwTask.getRegion().takeBody(swTask.getRegion());
+        VPUIP::copyCustomKernelAttributes(swTask, newSwTask);
 
         if (swTask->hasAttr(VPUIP::LOGICAL_TASK_INDEX_ATTR_NAME)) {
             auto logicalIndex = swTask->getAttr(VPUIP::LOGICAL_TASK_INDEX_ATTR_NAME);

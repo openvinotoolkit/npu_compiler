@@ -11,7 +11,6 @@
 #include <mlir/IR/Value.h>
 
 #include <optional>
-#include <tuple>
 
 namespace mlir {
 class PatternRewriter;
@@ -26,13 +25,23 @@ namespace ShaveCodeGen {
 /// @param typeConvertedOperand - the original operand converted to identity layout
 ///        and with normalized element types.
 /// @param rewriter - the current PatternRewriter
-/// @param padding - optional attribute for an array of integers, expressing the padding
-///        in the original operands order.
+/// @param padding - the per-dimension padding amounts, in the original operand's order.
 /// @return If no padding is present returns the type-converted operand, otherwise
 ///        emits operations to remove the padding from the type-converted operand
 ///        and returns the result
 mlir::Value removePadding(mlir::Value operand, mlir::Value typeConvertedOperand, mlir::PatternRewriter& rewriter,
-                          std::optional<mlir::ArrayAttr> padding = std::nullopt);
+                          llvm::ArrayRef<int64_t> padding);
+
+/// @brief Add the zero-filled padding (if any) back onto the unpadded equivalent of the result
+/// @param result - the original (padded) op result. Provides the padded shape and the
+///        dims order the padding is expressed in.
+/// @param unpaddedResult - the computed result, in identity layout and without padding.
+/// @param rewriter - the current PatternRewriter
+/// @param padding - the per-dimension padding amounts, in the original result's order.
+/// @return If no padding is present returns unpaddedResult, otherwise emits a tensor.pad
+///        filling the padded region with zeros and returns its result.
+mlir::Value addPadding(mlir::Value result, mlir::Value unpaddedResult, mlir::PatternRewriter& rewriter,
+                       llvm::ArrayRef<int64_t> padding);
 
 /// @brief Get the element type of a linalg-compatible tensor for the input type.
 /// @param ty - the input tensor type
@@ -57,15 +66,5 @@ mlir::RankedTensorType getUnpaddedTensorType(mlir::RankedTensorType type, mlir::
 /// @return - the equivalent memory-ordered type
 mlir::RankedTensorType normalizeType(mlir::RankedTensorType type);
 
-/// @brief Creates a tensor of the specified shape as a slice extracted from the start of a larger tensor filled with
-/// zeros. The post-bufferization effect is that the extracted slice is zero-padded to large type. All tensor types are
-/// expected to have an identity layout.
-/// @param loc - the location information
-/// @param sliceShape - the slice shape
-/// @param allocType - the type of the larger zero-filled tensor
-/// @param rewriter - the rewriter used to emit the operations
-/// @return a tuple of the extracted slice and the zero-filled tensor
-std::tuple<mlir::Value, mlir::Value> emitTensorSlice(mlir::Location loc, llvm::SmallVectorImpl<int64_t>& sliceShape,
-                                                     mlir::RankedTensorType allocType, mlir::PatternRewriter& rewriter);
 }  // namespace ShaveCodeGen
 }  // namespace vpux

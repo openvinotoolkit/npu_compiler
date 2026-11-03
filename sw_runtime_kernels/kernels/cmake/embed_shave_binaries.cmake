@@ -5,10 +5,9 @@
 
 # Creates C resources file from files in given directory
 function(create_resources dir output mapname extension)
-    # Create empty output file
-    file(WRITE ${output} "")
-
-    file(WRITE ${output}
+    # Build whole content in memory and write it to file in one shot.
+    # Avoids potential lock conflicts with external processes (e.g. antivirus scanner)
+    string(CONCAT file_contents
         "#include <utility>\n"
         "#include <unordered_map>\n"
         "#include <cstdint>\n"
@@ -32,15 +31,14 @@ function(create_resources dir output mapname extension)
         string(LENGTH "${filedata}" hex_string_length)
         if(${hex_string_length} GREATER 0)
             string(REGEX REPLACE "([0-9a-f][0-9a-f])" "0x\\1," filedata ${filedata})
-            # Append data to output file
-            file(APPEND ${output} "static const uint8_t ${filename}[] = {${filedata}};\n")
+            string(APPEND file_contents "static const uint8_t ${filename}[] = {${filedata}};\n")
             string(APPEND map_sym "{\"${filename}\", {${filename}, sizeof(${filename})}},\n")
         endif()
     endforeach()
 
-    string(APPEND map_sym "}\;\n")
-    file(APPEND ${output} "} // namespace\n")
-    file(APPEND ${output} ${map_sym})
+    string(APPEND map_sym "};\n")
+    string(APPEND file_contents "} // namespace\n" "${map_sym}")
+    file(WRITE ${output} "${file_contents}")
 endfunction()
 
 # Embed all the binaries from act_shave_bin folder into generated_shave_binary_resources.cpp

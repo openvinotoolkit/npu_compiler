@@ -645,6 +645,7 @@ func.func @main(%in: !act_type_DDR, %out: !act_type_DDR) -> !act_type_DDR {
 !act_type_DDR = memref<1x32x48x64xf16, {order = #NHWC}>
 !act_type_CMX = memref<1x32x48x64xf16, {order = #NHWC, strides = #strides}, [@CMX_NN, 0]>
 !act_type_CMX_2 = memref<1x1x1x98304xf16, {order = #NHWC}, [@CMX_NN, 0]>
+!act_type_CMX_small = memref<1x32x44x64xf16, {order = #NHWC, strides = #strides}, [@CMX_NN, 0]>
 !act_master_type_CMX = memref<1x64x48x64xf16, {order = #NHWC, strides = #strides}, [@CMX_NN, 0]>
 !act_type = tensor<1x32x48x64xf16>
 !wt_type = tensor<16x1x1x4xsi32>
@@ -684,7 +685,7 @@ func.func @main(%in: !act_type_DDR, %out: !act_type_DDR) -> !act_type_DDR {
     %buf0 = memref.alloc() : !act_type_CMX
     %buf1 = memref.alloc() : !act_type_CMX
     %buf2 = memref.alloc() : !act_type_CMX
-    %buf3 = memref.alloc() : !act_type_CMX
+    %buf3 = memref.alloc() : !act_type_CMX_small
     %buf4 = memref.alloc() : !act_type_CMX
     %buf5 = memref.alloc() : !act_type_CMX
     %buf6 = memref.alloc() : !act_type_CMX
@@ -742,17 +743,17 @@ func.func @main(%in: !act_type_DDR, %out: !act_type_DDR) -> !act_type_DDR {
     }
 
     %t4, %r4 = async.execute [%t3, %t2] (%r3 as %arg0 : !async.value<!act_type_CMX>, %r2 as %arg1 : !async.value<!act_type_CMX>)
-            -> !async.value<!act_type_CMX>
+            -> !async.value<!act_type_CMX_small>
                 attributes {VPUIP.executor = @SHAVE_ACT, "my-async-deps-index" = 5 : i64, "async-deps-index" = 5 : i64} {
         %0 = VPUIP.SW.Kernel {resultSegmentSizes = array<i32: 1, 0, 0>}
-            @VPU.SW::@builtin_TanhOp inputs(%arg0 as %arg2: !act_type_CMX, %arg1 as %arg3: !act_type_CMX) outputs(%buf3 as %arg4: !act_type_CMX) on tile 0 -> !act_type_CMX  {
-                VPUIP.SW.Kernel.run {attrs = [0]}(%arg2, %arg3, %arg4) : !act_type_CMX, !act_type_CMX, !act_type_CMX
+            @VPU.SW::@builtin_TanhOp inputs(%arg0 as %arg2: !act_type_CMX, %arg1 as %arg3: !act_type_CMX) outputs(%buf3 as %arg4: !act_type_CMX_small) on tile 0 -> !act_type_CMX_small  {
+                VPUIP.SW.Kernel.run {attrs = [0]}(%arg2, %arg3, %arg4) : !act_type_CMX, !act_type_CMX, !act_type_CMX_small
             }
-        async.yield %0 : !act_type_CMX
+        async.yield %0 : !act_type_CMX_small
     }
 
     // operation that is using buffer that will be spilled through result of async exec op
-    %t5, %r5 = async.execute [%t1, %t4] (%r1 as %arg0 : !async.value<!act_type_CMX>, %r4 as %arg1 : !async.value<!act_type_CMX>)
+    %t5, %r5 = async.execute [%t1, %t4] (%r1 as %arg0 : !async.value<!act_type_CMX>, %r4 as %arg1 : !async.value<!act_type_CMX_small>)
             -> !async.value<!act_type_CMX>
                 attributes {VPUIP.executor = @SHAVE_ACT, "my-async-deps-index" = 6 : i64, "async-deps-index" = 6 : i64} {
         %0 = VPUIP.SW.Kernel {resultSegmentSizes = array<i32: 1, 0, 0>}
@@ -830,31 +831,31 @@ func.func @main(%in: !act_type_DDR, %out: !act_type_DDR) -> !act_type_DDR {
     // CHECK-SAME:      outputs([[BUF_SPILL_WRITE0]] : memref<1x32x48x64xf16, {order = #NHWC, strides = [196608, 1, 4096, 64]}, @DDR>)
 
     // CHECK:       [[T5:%.+]], [[R5:%.+]] = async.execute
+    // CHECK:       VPUIP.NNDMA
+    // CHECK-SAME:      spillId = 1
+    // CHECK-SAME:      outputs([[BUF_SPILL_WRITE1]] : memref<1x64x48x64xf16, {order = #NHWC}, @DDR>)
+
+    // CHECK:       [[T6:%.+]], [[R6:%.+]] = async.execute
+    // CHECK:       VPUIP.NNDMA
+
+    // CHECK:       [[T7:%.+]], [[R7:%.+]] = async.execute
     // CHECK-SAME:      ([[R4]] as [[ARG0:%.+]]: !async.value<memref<1x32x48x64xf16, {order = #NHWC, strides = [196608, 1, 4096, 64]}, @DDR>>
     // CHECK:       VPUIP.NNDMA
     // CHECK-SAME:      spillId = 0
     // CHECK-SAME:      inputs([[ARG0]] : memref<1x32x48x64xf16, {order = #NHWC, strides = [196608, 1, 4096, 64]}, @DDR>) outputs([[BUF_SPILL_READ0]] : memref<1x32x48x64xf16, {order = #NHWC, strides = [196608, 1, 4096, 64]}, [@CMX_NN, 0]>)
 
-    // CHECK:       [[T6:%.+]], [[R6:%.+]] = async.execute
-    // CHECK:       VPUIP.NNDMA
-    // CHECK-SAME:      spillId = 1
-    // CHECK-SAME:      outputs([[BUF_SPILL_WRITE1]] : memref<1x64x48x64xf16, {order = #NHWC}, @DDR>)
-
-    // CHECK:       [[T7:%.+]], [[R7:%.+]] = async.execute
-    // CHECK:       VPUIP.NNDMA
-
     // CHECK:       [[T8:%.+]], [[R8:%.+]] = async.execute
     // CHECK:       VPUIP.SW.Kernel
 
     // CHECK:       [[T9:%.+]], [[R9:%.+]] = async.execute
-    // CHECK-SAME:      ([[R6]] as [[ARG0:%.+]]: !async.value<memref<1x64x48x64xf16, {order = #NHWC}, @DDR>>
+    // CHECK-SAME:      ([[R5]] as [[ARG1:%.+]]: !async.value<memref<1x64x48x64xf16, {order = #NHWC}, @DDR>>
     // CHECK:       VPUIP.NNDMA
     // CHECK-SAME:      spillId = 1
-    // CHECK-SAME:      inputs([[ARG0]] : memref<1x64x48x64xf16, {order = #NHWC}, @DDR>) outputs([[BUF_SPILL_READ1]] : memref<1x64x48x64xf16, {order = #NHWC, strides = [196608, 1, 4096, 64]}, [@CMX_NN, 0]>)
+    // CHECK-SAME:      inputs([[ARG1]] : memref<1x64x48x64xf16, {order = #NHWC}, @DDR>) outputs([[BUF_SPILL_READ1]] : memref<1x64x48x64xf16, {order = #NHWC, strides = [196608, 1, 4096, 64]}, [@CMX_NN, 0]>)
 
     // CHECK:       [[T10:%.+]], [[R10:%.+]] = async.execute
-    // CHECK-SAME:      ([[R9]] as [[ARG1:%.+]]: !async.value<memref<1x64x48x64xf16, {order = #NHWC, strides = [196608, 1, 4096, 64]}, [@CMX_NN, 0]>>
-    // CHECK:       [[SUBVIEW_0:%.+]] = VPUIP.SubView [[ARG1]] [0, 0, 0, 0] [1, 32, 48, 64] : memref<1x64x48x64xf16, {order = #NHWC, strides = [196608, 1, 4096, 64]}, [@CMX_NN, 0]> to memref<1x32x48x64xf16, {order = #NHWC, strides = [196608, 1, 4096, 64]}, [@CMX_NN, 0]>
+    // CHECK-SAME:      ([[R9]] as [[ARG2:%.+]]: !async.value<memref<1x64x48x64xf16, {order = #NHWC, strides = [196608, 1, 4096, 64]}, [@CMX_NN, 0]>>
+    // CHECK:       [[SUBVIEW_0:%.+]] = VPUIP.SubView [[ARG2]] [0, 0, 0, 0] [1, 32, 48, 64] : memref<1x64x48x64xf16, {order = #NHWC, strides = [196608, 1, 4096, 64]}, [@CMX_NN, 0]> to memref<1x32x48x64xf16, {order = #NHWC, strides = [196608, 1, 4096, 64]}, [@CMX_NN, 0]>
     // CHECK:       [[VIEW_0:%.+]] = VPUIP.ViewOp [[SUBVIEW_0]]
     // CHECK:       [[VIEW_1:%.+]] = VPUIP.ViewOp [[VIEW_0]]
     // CHECK:       VPUIP.SW.Kernel
@@ -866,12 +867,12 @@ func.func @main(%in: !act_type_DDR, %out: !act_type_DDR) -> !act_type_DDR {
     // CHECK-SAME:      inputs([[SUBVIEW_1]]
 
     // CHECK:       [[T12:%.+]], [[R12:%.+]] = async.execute
-    // CHECK-SAME:      ([[R9]] as [[ARG2:%.+]]: !async.value<memref<1x64x48x64xf16, {order = #NHWC, strides = [196608, 1, 4096, 64]}, [@CMX_NN, 0]>>
-    // CHECK:       [[SUBVIEW_2:%.+]] = VPUIP.SubView [[ARG2]] [0, 32, 0, 0] [1, 32, 48, 64] : memref<1x64x48x64xf16, {order = #NHWC, strides = [196608, 1, 4096, 64]}, [@CMX_NN, 0]> to memref<1x32x48x64xf16, {order = #NHWC, strides = [196608, 1, 4096, 64]}, [@CMX_NN, 0]>
+    // CHECK-SAME:      ([[R9]] as [[ARG3:%.+]]: !async.value<memref<1x64x48x64xf16, {order = #NHWC, strides = [196608, 1, 4096, 64]}, [@CMX_NN, 0]>>
+    // CHECK:       [[SUBVIEW_2:%.+]] = VPUIP.SubView [[ARG3]] [0, 32, 0, 0] [1, 32, 48, 64] : memref<1x64x48x64xf16, {order = #NHWC, strides = [196608, 1, 4096, 64]}, [@CMX_NN, 0]> to memref<1x32x48x64xf16, {order = #NHWC, strides = [196608, 1, 4096, 64]}, [@CMX_NN, 0]>
     // CHECK:       VPUIP.SW.Kernel
     // CHECK-SAME:      inputs([[SUBVIEW_2]]
 
-    // CHECK:       [[T12:%.+]], [[R12:%.+]] = async.execute
+    // CHECK:       [[T13:%.+]], [[R13:%.+]] = async.execute
     // CHECK:       VPUIP.NNDMA
 }
 

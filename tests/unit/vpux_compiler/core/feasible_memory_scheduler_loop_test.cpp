@@ -9,6 +9,7 @@
 #include "vpux/compiler/core/async_deps_info.hpp"
 #include "vpux/compiler/core/feasible_memory_scheduler.hpp"
 #include "vpux/compiler/core/linear_scan_handler.hpp"
+#include "vpux/compiler/core/schedule_builder_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/cost_model/cost_model.hpp"
 #include "vpux/compiler/dialect/VPU/utils/manual_strategy_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/scheduling/loop_schedule_utils.hpp"
@@ -16,6 +17,7 @@
 #include "vpux/compiler/dialect/VPUIP/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPUIP/transforms/passes.hpp"
 #include "vpux/compiler/dialect/VPUIP/utils/async_dialect_utils.hpp"
+#include "vpux/compiler/dialect/VPUIP/utils/sw_utils.hpp"
 #include "vpux/compiler/utils/hw_settings.hpp"
 
 #include "../common/nce_utils.hpp"
@@ -446,6 +448,91 @@ mlir::OwningOpRef<mlir::ModuleOp> createGatherDMATiledModule(mlir::MLIRContext* 
     return module;
 }
 
+// Create an IR of pattern:
+//  %shave = SW.Kernel(%buf0)
+//  %gather_dma = DMA input(%buf0) output(%buf1)
+//  %loop_region global_deps (%gather_dma)
+// To test when the gather DMA is tiling loop's global dependency and the indice buffer is spilled,
+// the scheduler could correctly schedule and allocate the spilled buffer and loop region
+mlir::OwningOpRef<mlir::ModuleOp> createParaformerGatherTilingModule(mlir::MLIRContext* ctx) {
+    constexpr llvm::StringLiteral inputIR = R"MLIR(
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+
+module @paraformer_gather_tiling attributes {config.compilationMode = #config.compilation_mode<DefaultHW>, config.platform = #config.platform<NPU5010>} {
+func.func @main(%hotword: memref<1x1x100x10xf16, @DDR>, %embedding: memref<8404x512xf16, @DDR>, %weights_144: memref<144x512x1x1xf16, {order = #NHWC}, @DDR>, %weights_32: memref<32x512x1x1xf16, {order = #NHWC}, @DDR>, %wt_144: memref<144x1x1x4xsi32, @DDR>, %wt_32: memref<32x1x1x4xsi32, @DDR>, %output_144: memref<1x144x125x8xf16, {order = #NHWC}, @DDR>, %output_32: memref<1x32x125x8xf16, {order = #NHWC}, @DDR>) {
+  %hotword_cmx = memref.alloc() : memref<1x1x100x10xf16, [@CMX_NN, 0]>
+  %hotword_copy = VPUIP.NNDMA inputs(%hotword : memref<1x1x100x10xf16, @DDR>) outputs(%hotword_cmx : memref<1x1x100x10xf16, [@CMX_NN, 0]>) -> memref<1x1x100x10xf16, [@CMX_NN, 0]>
+  %indices_i32 = memref.alloc() : memref<1x1x100x10xsi32, [@CMX_NN, 0]>
+  %indices_convert_i32 = VPUIP.SW.Kernel {resultSegmentSizes = array<i32: 1, 0, 0>} @VPU.SW::@builtin_Convert inputs(%hotword_copy as %input: memref<1x1x100x10xf16, [@CMX_NN, 0]>) outputs(%indices_i32 as %output: memref<1x1x100x10xsi32, [@CMX_NN, 0]>) on tile 0 -> memref<1x1x100x10xsi32, [@CMX_NN, 0]> {
+    VPUIP.SW.Kernel.run(%input, %output) : memref<1x1x100x10xf16, [@CMX_NN, 0]>, memref<1x1x100x10xsi32, [@CMX_NN, 0]>
+  }
+  %indices_reshaped = VPUIP.GenericReshape inputs(%indices_convert_i32 : memref<1x1x100x10xsi32, [@CMX_NN, 0]>) -> memref<1000x1xsi32, [@CMX_NN, 0]>
+  %indices_i64 = memref.alloc() : memref<1000x1xi64, [@CMX_NN, 0]>
+  %indices_convert = VPUIP.SW.Kernel {resultSegmentSizes = array<i32: 1, 0, 0>} @VPU.SW::@builtin_Convert inputs(%indices_reshaped as %input: memref<1000x1xsi32, [@CMX_NN, 0]>) outputs(%indices_i64 as %output: memref<1000x1xi64, [@CMX_NN, 0]>) on tile 0 -> memref<1000x1xi64, [@CMX_NN, 0]> {
+  VPUIP.SW.Kernel.run(%input, %output) : memref<1000x1xsi32, [@CMX_NN, 0]>, memref<1000x1xi64, [@CMX_NN, 0]>
+  }
+  %gather_cmx = memref.alloc() : memref<1000x512xf16, [@CMX_NN, 0]>
+  %gather = VPUIP.GatherDMA <{addressingMode = #VPUIP.gather_addressing_mode<INDEXED>, elementSize = 0 : i64, padding = 0 : i64, port = 0 : i64}> inputs(%embedding : memref<8404x512xf16, @DDR>) indices(%indices_convert : memref<1000x1xi64, [@CMX_NN, 0]>) outputs(%gather_cmx : memref<1000x512xf16, [@CMX_NN, 0]>) -> memref<1000x512xf16, [@CMX_NN, 0]>
+  %gather_reshaped = VPUIP.GenericReshape inputs(%gather : memref<1000x512xf16, [@CMX_NN, 0]>) -> memref<1x512x125x8xf16, {order = #NHWC}, [@CMX_NN, 0]>
+  return
+}
+}
+ )MLIR";
+
+    auto module = mlir::parseSourceString<mlir::ModuleOp>(inputIR, ctx);
+    if (!module) {
+        return module;
+    }
+
+    auto func = module->lookupSymbol<mlir::func::FuncOp>("main");
+    auto* entryBlock = &func.front();
+    mlir::OpBuilder builder(ctx);
+    builder.setInsertionPoint(entryBlock->getTerminator());
+
+    mlir::Value gatherInput;
+    func.walk([&](VPUIP::GenericReshapeOp reshape) {
+        gatherInput = reshape.getOutput();
+    });
+
+    const auto loc = mlir::UnknownLoc::get(ctx);
+    const auto cmxSpace = vpux::IndexedSymbolAttr::get(ctx, stringifyEnum(VPU::MemoryKind::CMX_NN), 0);
+    const auto f16Type = mlir::Float16Type::get(ctx);
+    const auto i32Type = builder.getIntegerType(32, true);
+    constexpr int64_t kLoopIterations = 15;
+    constexpr int64_t kTileHeight = 125;
+    constexpr int64_t kTileWidth = 8;
+
+    for (int64_t iteration = 0; iteration < kLoopIterations; ++iteration) {
+        const auto tileChannels = iteration == kLoopIterations - 1 ? 32 : 144;
+        auto weightsCMX = mlir::memref::AllocOp::create(
+                builder, loc, vpux::getMemRefType({tileChannels, 512, 1, 1}, f16Type, DimsOrder::NHWC, cmxSpace));
+        auto weightTableCMX = mlir::memref::AllocOp::create(
+                builder, loc, vpux::getMemRefType({tileChannels, 1, 1, 4}, i32Type, DimsOrder::NCHW, cmxSpace));
+        auto outputCMX = mlir::memref::AllocOp::create(
+                builder, loc,
+                vpux::getMemRefType({1, tileChannels, kTileHeight, kTileWidth}, f16Type, DimsOrder::NHWC, cmxSpace));
+        auto nceOp = createNCEClusterTaskOp(builder, ctx, loc, /*kernel=*/1, /*padding=*/0, /*stride=*/1, gatherInput,
+                                            weightsCMX.getResult(), weightTableCMX.getResult(), outputCMX.getResult(),
+                                            createMPEEngineAttr(ctx, config::Platform::NPU5010));
+        nceOp->setAttr(TILING_LOOP_INDEX_ATTR_NAME, builder.getI64IntegerAttr(0));
+        auto& dpuTaskRegion = nceOp.getVariants();
+        builder.setInsertionPointToStart(&dpuTaskRegion.front());
+        createDPUTaskOp(builder, {0, 0, 0}, {kTileWidth - 1, kTileHeight - 1, tileChannels - 1});
+        builder.setInsertionPointAfter(nceOp);
+    }
+
+    mlir::PassManager pm(ctx);
+    VPUIP::buildAsyncSchedulingPipeline(pm);
+    if (mlir::failed(pm.run(func))) {
+        return {};
+    }
+    func.walk([&](mlir::async::ExecuteOp execOp) {
+        execOp->setAttr("cycleCost", builder.getI64IntegerAttr(1000));
+    });
+
+    return module;
+}
+
 TEST_F(MLIR_FeasibleMemorySchedulerLoop, ScheduleLoopRegionTilingCH_2x5) {
     // A single convolutional layer with tiling over C and H [1, 2, 5, 1]
     // This creates a 2x5 tiling pattern (2 tiles in H dimension, 5 tiles in C dimension)
@@ -633,6 +720,67 @@ TEST_F(MLIR_FeasibleMemorySchedulerLoop, ScheduleLoopRegionWithGatherDMA) {
         }
     }
     EXPECT_EQ(scheduledLoopGatherDMAOpCount, NUM_ITER);
+}
+
+// Test when the gather DMA is tiling loop's global dependency and the indice buffer is spilled,
+// the scheduler could correctly schedule and allocate the spilled buffer and loop region
+TEST_F(MLIR_FeasibleMemorySchedulerLoop, ScheduleLoopRegionRestoresSpilledShaveIndices) {
+    const auto platform = config::Platform::NPU5010;
+    const auto arch = config::getArch(platform);
+    VPU::initializeSingletons(registry, platform);
+
+    mlir::MLIRContext ctx(registry);
+    ctx.loadDialect<vpux::VPU::VPUDialect>();
+    ctx.loadDialect<vpux::VPUIP::VPUIPDialect>();
+
+    auto module = createParaformerGatherTilingModule(&ctx);
+    ASSERT_TRUE(module);
+    ASSERT_TRUE(module->verify().succeeded());
+
+    auto func = module->lookupSymbol<mlir::func::FuncOp>("main");
+    ASSERT_TRUE(func != nullptr);
+
+    auto log = vpux::Logger::global();
+    auto aliasesInfo = AliasesInfoMemType<VPU::MemoryKind::CMX_NN>{func};
+    auto liveRangeInfo = MemLiveRangeInfoMemType<VPU::MemoryKind::CMX_NN>{func, aliasesInfo};
+    AsyncDepsInfo depsInfo{func};
+
+    auto computeRegionVec = getComputeRegionsFromAsyncExec(aliasesInfo, depsInfo, log);
+    size_t tilingLoopCount = 0;
+    for (const auto& region : computeRegionVec) {
+        if (region.getLoopType() == LoopType::None) {
+            continue;
+        }
+        EXPECT_EQ(region.schedulingLoop->loopBodies.size(), 15u);
+        ++tilingLoopCount;
+    }
+    ASSERT_EQ(tilingLoopCount, 1u);
+
+    constexpr vpux::AddressType availableCMXSize = 1473536;
+    LinearScan<mlir::Value, LinearScanHandler> scan(availableCMXSize, {},
+                                                    static_cast<vpux::AddressType>(vpux::DEFAULT_CMX_ALIGNMENT));
+    auto costModel = VPU::CostModelConfig::createCostModel(&ctx);
+    auto scheduleState = VPU::generateLoopSchedules(computeRegionVec, availableCMXSize,
+                                                    /*enableVfUndefinedScheduler=*/false, log);
+    FeasibleMemoryScheduler scheduler(VPU::MemoryKind::CMX_NN, VPU::MemoryKind::DDR, liveRangeInfo, depsInfo, log, scan,
+                                      arch, VPUNN::VPUDevice::NPU_5_0, costModel, /*nceClusterCount=*/3,
+                                      /*dmaCount=*/2, /*enableScheduleStatistics=*/false,
+                                      /*optimizeFragmentation=*/false, /*activelySpillForPrefetching=*/false,
+                                      std::move(scheduleState), std::move(computeRegionVec));
+    FeasibleMemoryScheduler::ScheduledOpInfoVec scheduledOps;
+    ASSERT_NO_THROW(scheduledOps = scheduler.generateSchedule());
+
+    size_t spilledShaveIndicesWrites = 0;
+    size_t spilledShaveIndicesReads = 0;
+    for (const auto& scheduledOp : scheduledOps) {
+        if (scheduledOp.op_ != 2) {
+            continue;
+        }
+        spilledShaveIndicesWrites += scheduledOp.isSpillWrite();
+        spilledShaveIndicesReads += scheduledOp.isSpillRead();
+    }
+    EXPECT_EQ(spilledShaveIndicesWrites, 1u);
+    EXPECT_EQ(spilledShaveIndicesReads, 1u);
 }
 
 TEST_F(MLIR_FeasibleMemorySchedulerLoop, ScheduleLoopRegionTilingCH_WithDdr2DdrConsumer) {
@@ -1278,6 +1426,68 @@ func.func @main(%arg0: !in_act_ddr, %arg1: !out_act_ddr) -> !out_act_ddr attribu
     EXPECT_TRUE(testAccessor2.verifyLoopInputAddress());
 }
 
+TEST_F(MLIR_FeasibleMemorySchedulerLoop, GroupVfOpsByDependencies) {
+    mlir::MLIRContext ctx(registry);
+    ctx.loadDialect<mlir::async::AsyncDialect>();
+
+    constexpr StringLiteral inputIR = R"(
+        module {
+            func.func @main() {
+                %0 = async.execute { async.yield }
+                %1 = async.execute { async.yield }
+                %2 = async.execute { async.yield }
+                %3 = async.execute { async.yield }
+                %4 = async.execute { async.yield }
+                %5 = async.execute { async.yield }
+                %6 = async.execute { async.yield }
+                %7 = async.execute { async.yield }
+                %8 = async.execute { async.yield }
+                %9 = async.execute { async.yield }
+                %10 = async.execute { async.yield }
+                %11 = async.execute { async.yield }
+                return
+            }
+        }
+    )";
+
+    auto module = mlir::parseSourceString<mlir::ModuleOp>(inputIR, &ctx);
+    ASSERT_TRUE(module.get() != nullptr);
+    auto func = module->lookupSymbol<mlir::func::FuncOp>("main");
+    ASSERT_TRUE(func != nullptr);
+
+    AsyncDepsInfo depsInfo(func);
+    depsInfo.addDependency(0, 1);
+    depsInfo.addDependency(1, 2);
+    depsInfo.addDependency(3, 4);
+    depsInfo.addDependency(4, 5);
+    depsInfo.addDependency(6, 7);
+    depsInfo.addDependency(7, 8);
+    depsInfo.addDependency(9, 10);
+    depsInfo.addDependency(10, 11);
+
+    // Model the four dependency chains that must become four scheduler iterations:
+    //
+    //   Tile 0: 0:SHV ----> 1:DPU ---->  2:DPU
+    //   Tile 1: 3:SHV ----> 4:DPU ---->  5:DPU
+    //   Tile 2: 6:SHV ----> 7:DPU ---->  8:DPU
+    //   Tile 3: 9:SHV ----> 10:DPU ----> 11:DPU
+    //
+    // Give every operation a different operation-local tile-index group. The scheduler must ignore those group
+    // boundaries where dependencies cross them and reconstruct the four chains above.
+    llvm::DenseMap<size_t, SmallVector<size_t>> loopOps = {
+            {20, {0}}, {21, {1}}, {22, {2}}, {30, {3}}, {31, {4}},  {32, {5}},
+            {40, {6}}, {41, {7}}, {42, {8}}, {50, {9}}, {51, {10}}, {52, {11}},
+    };
+
+    groupVfOpsByDependencies(loopOps, depsInfo);
+
+    ASSERT_EQ(loopOps.size(), 4);
+    EXPECT_EQ(loopOps.at(0), SmallVector<size_t>({0, 1, 2}));
+    EXPECT_EQ(loopOps.at(1), SmallVector<size_t>({3, 4, 5}));
+    EXPECT_EQ(loopOps.at(2), SmallVector<size_t>({6, 7, 8}));
+    EXPECT_EQ(loopOps.at(3), SmallVector<size_t>({9, 10, 11}));
+}
+
 // Verifies that when the CMX budget for persistent buffers is tight, only the largest
 // shared weight is admitted as PERSISTENT (part of sharedExternalBuffers), while the
 // smaller shared weight is downgraded to TEMPORARY
@@ -1870,4 +2080,371 @@ func.func @main(%arg0: !in_act_ddr, %arg1: !out_act_ddr) -> !out_act_ddr attribu
             << "Loop-owned CMX2CMX DMA at op idx " << cmx2cmxOpIdx
             << " was removed from _readyDMAOps by scheduleComputeOps(); it must remain there so "
                "scheduleLoopRegions() can still schedule it as LOOP_OP";
+}
+
+// Test-only attribute used to locate DPU1/SHV/DPU2 ops in the scheduled output below
+// (0=DPU1, 1=SHV, 2=DPU2); baked into the IR parsed by the test.
+namespace DpuShvDpuVfLoopIR {
+constexpr llvm::StringLiteral kStageMarkerAttrName = "test_stage_marker";
+}  // namespace DpuShvDpuVfLoopIR
+
+// Real FeasibleMemoryScheduler replay of a 3-iteration DPU->SHAVE->DPU VF loop:
+//   - VF_PIPELINING selection is proven by the bank-alternating addresses below (only that
+//     recipe alternates odd/even iteration bank offsets).
+//   - replay addresses follow Bank A (iter0), Bank B (iter1), Bank A (iter2).
+//   - every scheduled resource address is CMX-alignment aligned.
+//   - every loop op is scheduled exactly once, with no spills.
+//
+// IR structure (3-iteration VF loop, each iteration is DPU -> SHAVE -> DPU):
+//   VF Loop Region 0, iterations 0, 1 and 2 (in order), each with:
+//     OP - weights1/weightsTable1 DMA (DDR->CMX, fresh per-iteration)
+//     OP - COMPUTE_OP (DPU1, tagged test_stage_marker=0)
+//     OP - DATA_OUT (CMX->DDR scratch)
+//     OP - shvBias DMA (DDR->CMX, fresh per-iteration)
+//     OP - COMPUTE_OP (SHAVE_ACT "copy" kernel, tagged test_stage_marker=1)
+//     OP - DATA_OUT (CMX->DDR scratch)
+//     OP - weights2/weightsTable2 DMA (DDR->CMX, fresh per-iteration)
+//     OP - COMPUTE_OP (DPU2, tagged test_stage_marker=2)
+//     OP - DATA_OUT (CMX->DDR, concatenated into the real output)
+TEST_F(MLIR_FeasibleMemorySchedulerLoop, ScheduleVfLoopRegionDpuShvDpuPipelining) {
+    constexpr llvm::StringLiteral inputIRPart1 = R"(
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+module attributes {config.platform = #config.platform<NPU5010>} {
+  VPURT.SW.Runtime entryPoint : @VPU.SW::@runtime stack_configuration : [4096]
+  module @VPU.SW {
+    func.func nested @builtin_copy_dpu_shv_dpu_test(memref<*xf16, [@CMX_NN, 0]>, memref<*xf16, [@CMX_NN, 0]>, memref<*xf16, [@CMX_NN, 0]>) attributes {VPU.kernel_code = "copy.cpp", VPU.kernel_entry = "copy", VPU.kernel_name = "copy", VPU.task_type = @COMPUTE}
+    func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"}
+  }
+  func.func @main(%arg0: memref<1x16x4x4xf16, {order = #NHWC}, [@DDR, 0]>, %arg1: memref<1x48x4x4xf16, {order = #NHWC}, [@DDR, 0]>) -> memref<1x48x4x4xf16, {order = #NHWC}, [@DDR, 0]> {
+    %cst = const.Declare memref<1x16x4x4xf16, {order = #NHWC}, [@DDR, 0]> = dense<1.000000e+00> : tensor<1x16x4x4xf16>, [#const.CastElemType<f16>, #const.Reorder<#NHWC>]
+    %cst_0 = const.Declare memref<16x1x1x4xsi32, [@DDR, 0]> = dense<1> : tensor<16x1x1x4xsi32>
+    %cst_1 = const.Declare memref<16x16x1x1xf16, {order = #NHWC}, [@DDR, 0]> = dense<1.000000e+00> : tensor<16x16x1x1xf16>, [#const.CastElemType<f16>, #const.Reorder<#NHWC>]
+    %alloc = memref.alloc() : memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>
+    %alloc_2 = memref.alloc() : memref<16x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>
+    %alloc_3 = memref.alloc() : memref<16x1x1x4xsi32, [@CMX_NN, 0]>
+    %alloc_4 = memref.alloc() : memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>
+    %alloc_5 = memref.alloc() : memref<1x16x4x4xf16, {order = #NHWC}, [@DDR, 0]>
+    %alloc_6 = memref.alloc() : memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>
+    %alloc_7 = memref.alloc() : memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>
+    %alloc_8 = memref.alloc() : memref<1x16x4x4xf16, {order = #NHWC}, [@DDR, 0]>
+    %alloc_9 = memref.alloc() : memref<16x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>
+    %alloc_10 = memref.alloc() : memref<16x1x1x4xsi32, [@CMX_NN, 0]>
+    %alloc_11 = memref.alloc() : memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>
+    %alloc_12 = memref.alloc() : memref<16x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>
+    %alloc_13 = memref.alloc() : memref<16x1x1x4xsi32, [@CMX_NN, 0]>
+    %alloc_14 = memref.alloc() : memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>
+    %alloc_15 = memref.alloc() : memref<1x16x4x4xf16, {order = #NHWC}, [@DDR, 0]>
+    %alloc_16 = memref.alloc() : memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>
+    %alloc_17 = memref.alloc() : memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>
+    %alloc_18 = memref.alloc() : memref<1x16x4x4xf16, {order = #NHWC}, [@DDR, 0]>
+    %alloc_19 = memref.alloc() : memref<16x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>
+    %alloc_20 = memref.alloc() : memref<16x1x1x4xsi32, [@CMX_NN, 0]>
+    %alloc_21 = memref.alloc() : memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>
+    %alloc_22 = memref.alloc() : memref<16x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>
+    %alloc_23 = memref.alloc() : memref<16x1x1x4xsi32, [@CMX_NN, 0]>
+    %alloc_24 = memref.alloc() : memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>
+    %alloc_25 = memref.alloc() : memref<1x16x4x4xf16, {order = #NHWC}, [@DDR, 0]>
+    %alloc_26 = memref.alloc() : memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>
+    %alloc_27 = memref.alloc() : memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>
+    %alloc_28 = memref.alloc() : memref<1x16x4x4xf16, {order = #NHWC}, [@DDR, 0]>
+    %alloc_29 = memref.alloc() : memref<16x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>
+    %alloc_30 = memref.alloc() : memref<16x1x1x4xsi32, [@CMX_NN, 0]>
+    %alloc_31 = memref.alloc() : memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>
+    %token, %bodyResults = async.execute -> !async.value<memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>> attributes {VPUIP.executor = @DMA_NN, "async-deps-index" = 0 : i64, cycleCost = 1000 : i64} {
+      %4 = VPUIP.NNDMA  inputs(%arg0 : memref<1x16x4x4xf16, {order = #NHWC}, [@DDR, 0]>) outputs(%alloc : memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>) -> memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>
+      async.yield %4 : memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>
+    }
+    %token_32, %bodyResults_33 = async.execute -> !async.value<memref<16x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>> attributes {VPUIP.executor = @DMA_NN, "async-deps-index" = 1 : i64, cycleCost = 1000 : i64} {
+      %4 = VPUIP.NNDMA  inputs(%cst_1 : memref<16x16x1x1xf16, {order = #NHWC}, [@DDR, 0]>) outputs(%alloc_2 : memref<16x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>) -> memref<16x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>
+      async.yield %4 : memref<16x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>
+    }
+    %token_34, %bodyResults_35 = async.execute -> !async.value<memref<16x1x1x4xsi32, [@CMX_NN, 0]>> attributes {VPUIP.executor = @DMA_NN, "async-deps-index" = 2 : i64, cycleCost = 1000 : i64} {
+      %4 = VPUIP.NNDMA  inputs(%cst_0 : memref<16x1x1x4xsi32, [@DDR, 0]>) outputs(%alloc_3 : memref<16x1x1x4xsi32, [@CMX_NN, 0]>) -> memref<16x1x1x4xsi32, [@CMX_NN, 0]>
+      async.yield %4 : memref<16x1x1x4xsi32, [@CMX_NN, 0]>
+    }
+    %token_36, %bodyResults_37 = async.execute [%token, %token_32, %token_34] (%bodyResults as %arg2: !async.value<memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>>, %bodyResults_33 as %arg3: !async.value<memref<16x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>>, %bodyResults_35 as %arg4: !async.value<memref<16x1x1x4xsi32, [@CMX_NN, 0]>>) -> !async.value<memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>> attributes {VPUIP.executor = @DPU, "async-deps-index" = 3 : i64, cycleCost = 1000 : i64} {
+      %4 = VPUIP.NCEClusterTask {test_stage_marker = 0 : i64, vf_loop_index = 0 : i64, vf_loop_tile_index = 0 : i64} <{kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [1, 1], kernel_strides = [1, 1], mpe_engine = #VPU.MPEEngine37XX<mode = <SCL>>, resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>, task_type = #VPUIP.nce_task_type<CONV>}> input(%arg2 : memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>) weights(%arg3 : memref<16x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>) weight_table(%arg4 : memref<16x1x1x4xsi32, [@CMX_NN, 0]>) parent_input(%arg2 : memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>) parent_output(%alloc_4 : memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>) outputs(%alloc_4 : memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>) -> memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]> variants : {
+        DPUTask {mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, outEnd = [3, 3, 15], outStart = [0, 0, 0], pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>}
+      } PPE : {
+      }
+      async.yield %4 : memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>
+    }
+    %token_38, %bodyResults_39 = async.execute [%token_36] (%bodyResults_37 as %arg2: !async.value<memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>>) -> !async.value<memref<1x16x4x4xf16, {order = #NHWC}, [@DDR, 0]>> attributes {VPUIP.executor = @DMA_NN, "async-deps-index" = 4 : i64, cycleCost = 1000 : i64} {
+      %4 = VPUIP.NNDMA  inputs(%arg2 : memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>) outputs(%alloc_5 : memref<1x16x4x4xf16, {order = #NHWC}, [@DDR, 0]>) -> memref<1x16x4x4xf16, {order = #NHWC}, [@DDR, 0]>
+      async.yield %4 : memref<1x16x4x4xf16, {order = #NHWC}, [@DDR, 0]>
+    }
+    %token_40, %bodyResults_41 = async.execute -> !async.value<memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>> attributes {VPUIP.executor = @DMA_NN, "async-deps-index" = 5 : i64, cycleCost = 1000 : i64} {
+      %4 = VPUIP.NNDMA  inputs(%cst : memref<1x16x4x4xf16, {order = #NHWC}, [@DDR, 0]>) outputs(%alloc_6 : memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>) -> memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>
+      async.yield %4 : memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>
+    }
+    %token_42, %bodyResults_43 = async.execute [%token_36, %token_40] (%bodyResults_37 as %arg2: !async.value<memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>>, %bodyResults_41 as %arg3: !async.value<memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>>) -> !async.value<memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>> attributes {VPUIP.executor = @SHAVE_ACT, "async-deps-index" = 6 : i64, cycleCost = 1000 : i64} {
+      %results = VPUIP.SW.Kernel {resultSegmentSizes = array<i32: 1, 0, 0>, test_stage_marker = 1 : i64, vf_loop_index = 0 : i64, vf_loop_tile_index = 0 : i64} @VPU.SW::@builtin_copy_dpu_shv_dpu_test inputs(%arg2 as %arg4: memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>, %arg3 as %arg5: memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>) outputs(%alloc_7 as %arg6: memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>) on tile 0 -> memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>{
+        VPUIP.SW.Kernel.run {attrs = [[0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]]}(%arg4, %arg5, %arg6) : memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>, memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>, memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>
+      }
+      async.yield %results : memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>
+    }
+    )";
+
+    constexpr llvm::StringLiteral inputIRPart2 = R"(
+    %token_44, %bodyResults_45 = async.execute [%token_42] (%bodyResults_43 as %arg2: !async.value<memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>>) -> !async.value<memref<1x16x4x4xf16, {order = #NHWC}, [@DDR, 0]>> attributes {VPUIP.executor = @DMA_NN, "async-deps-index" = 7 : i64, cycleCost = 1000 : i64} {
+      %4 = VPUIP.NNDMA  inputs(%arg2 : memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>) outputs(%alloc_8 : memref<1x16x4x4xf16, {order = #NHWC}, [@DDR, 0]>) -> memref<1x16x4x4xf16, {order = #NHWC}, [@DDR, 0]>
+      async.yield %4 : memref<1x16x4x4xf16, {order = #NHWC}, [@DDR, 0]>
+    }
+    %token_46, %bodyResults_47 = async.execute -> !async.value<memref<16x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>> attributes {VPUIP.executor = @DMA_NN, "async-deps-index" = 8 : i64, cycleCost = 1000 : i64} {
+      %4 = VPUIP.NNDMA  inputs(%cst_1 : memref<16x16x1x1xf16, {order = #NHWC}, [@DDR, 0]>) outputs(%alloc_9 : memref<16x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>) -> memref<16x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>
+      async.yield %4 : memref<16x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>
+    }
+    %token_48, %bodyResults_49 = async.execute -> !async.value<memref<16x1x1x4xsi32, [@CMX_NN, 0]>> attributes {VPUIP.executor = @DMA_NN, "async-deps-index" = 9 : i64, cycleCost = 1000 : i64} {
+      %4 = VPUIP.NNDMA  inputs(%cst_0 : memref<16x1x1x4xsi32, [@DDR, 0]>) outputs(%alloc_10 : memref<16x1x1x4xsi32, [@CMX_NN, 0]>) -> memref<16x1x1x4xsi32, [@CMX_NN, 0]>
+      async.yield %4 : memref<16x1x1x4xsi32, [@CMX_NN, 0]>
+    }
+    %token_50, %bodyResults_51 = async.execute [%token_42, %token_46, %token_48] (%bodyResults_43 as %arg2: !async.value<memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>>, %bodyResults_47 as %arg3: !async.value<memref<16x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>>, %bodyResults_49 as %arg4: !async.value<memref<16x1x1x4xsi32, [@CMX_NN, 0]>>) -> !async.value<memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>> attributes {VPUIP.executor = @DPU, "async-deps-index" = 10 : i64, cycleCost = 1000 : i64} {
+      %4 = VPUIP.NCEClusterTask {test_stage_marker = 2 : i64, vf_loop_index = 0 : i64, vf_loop_tile_index = 0 : i64} <{kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [1, 1], kernel_strides = [1, 1], mpe_engine = #VPU.MPEEngine37XX<mode = <SCL>>, resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>, task_type = #VPUIP.nce_task_type<CONV>}> input(%arg2 : memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>) weights(%arg3 : memref<16x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>) weight_table(%arg4 : memref<16x1x1x4xsi32, [@CMX_NN, 0]>) parent_input(%arg2 : memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>) parent_output(%alloc_11 : memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>) outputs(%alloc_11 : memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>) -> memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]> variants : {
+        DPUTask {mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, outEnd = [3, 3, 15], outStart = [0, 0, 0], pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>}
+      } PPE : {
+      }
+      async.yield %4 : memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>
+    }
+    %token_52, %bodyResults_53 = async.execute [%token_50] (%bodyResults_51 as %arg2: !async.value<memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>>) -> !async.value<memref<1x16x4x4xf16, {order = #NHWC, strides = [768, 1, 192, 48]}, [@DDR, 0]>> attributes {VPUIP.executor = @DMA_NN, "async-deps-index" = 11 : i64, cycleCost = 1000 : i64} {
+      %4 = VPUIP.SubView %arg1 [0, 0, 0, 0] [1, 16, 4, 4] : memref<1x48x4x4xf16, {order = #NHWC}, [@DDR, 0]> to memref<1x16x4x4xf16, {order = #NHWC, strides = [768, 1, 192, 48]}, [@DDR, 0]>
+      %5 = VPUIP.NNDMA  inputs(%arg2 : memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>) outputs(%4 : memref<1x16x4x4xf16, {order = #NHWC, strides = [768, 1, 192, 48]}, [@DDR, 0]>) -> memref<1x16x4x4xf16, {order = #NHWC, strides = [768, 1, 192, 48]}, [@DDR, 0]>
+      async.yield %5 : memref<1x16x4x4xf16, {order = #NHWC, strides = [768, 1, 192, 48]}, [@DDR, 0]>
+    }
+
+    %token_54, %bodyResults_55 = async.execute -> !async.value<memref<16x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>> attributes {VPUIP.executor = @DMA_NN, "async-deps-index" = 12 : i64, cycleCost = 1000 : i64} {
+      %4 = VPUIP.NNDMA  inputs(%cst_1 : memref<16x16x1x1xf16, {order = #NHWC}, [@DDR, 0]>) outputs(%alloc_12 : memref<16x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>) -> memref<16x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>
+      async.yield %4 : memref<16x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>
+    }
+    %token_56, %bodyResults_57 = async.execute -> !async.value<memref<16x1x1x4xsi32, [@CMX_NN, 0]>> attributes {VPUIP.executor = @DMA_NN, "async-deps-index" = 13 : i64, cycleCost = 1000 : i64} {
+      %4 = VPUIP.NNDMA  inputs(%cst_0 : memref<16x1x1x4xsi32, [@DDR, 0]>) outputs(%alloc_13 : memref<16x1x1x4xsi32, [@CMX_NN, 0]>) -> memref<16x1x1x4xsi32, [@CMX_NN, 0]>
+      async.yield %4 : memref<16x1x1x4xsi32, [@CMX_NN, 0]>
+    }
+    %token_58, %bodyResults_59 = async.execute [%token, %token_54, %token_56] (%bodyResults as %arg2: !async.value<memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>>, %bodyResults_55 as %arg3: !async.value<memref<16x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>>, %bodyResults_57 as %arg4: !async.value<memref<16x1x1x4xsi32, [@CMX_NN, 0]>>) -> !async.value<memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>> attributes {VPUIP.executor = @DPU, "async-deps-index" = 14 : i64, cycleCost = 1000 : i64} {
+      %4 = VPUIP.NCEClusterTask {test_stage_marker = 0 : i64, vf_loop_index = 0 : i64, vf_loop_tile_index = 1 : i64} <{kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [1, 1], kernel_strides = [1, 1], mpe_engine = #VPU.MPEEngine37XX<mode = <SCL>>, resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>, task_type = #VPUIP.nce_task_type<CONV>}> input(%arg2 : memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>) weights(%arg3 : memref<16x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>) weight_table(%arg4 : memref<16x1x1x4xsi32, [@CMX_NN, 0]>) parent_input(%arg2 : memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>) parent_output(%alloc_14 : memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>) outputs(%alloc_14 : memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>) -> memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]> variants : {
+        DPUTask {mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, outEnd = [3, 3, 15], outStart = [0, 0, 0], pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>}
+      } PPE : {
+      }
+      async.yield %4 : memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>
+    }
+    %token_60, %bodyResults_61 = async.execute [%token_58] (%bodyResults_59 as %arg2: !async.value<memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>>) -> !async.value<memref<1x16x4x4xf16, {order = #NHWC}, [@DDR, 0]>> attributes {VPUIP.executor = @DMA_NN, "async-deps-index" = 15 : i64, cycleCost = 1000 : i64} {
+      %4 = VPUIP.NNDMA  inputs(%arg2 : memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>) outputs(%alloc_15 : memref<1x16x4x4xf16, {order = #NHWC}, [@DDR, 0]>) -> memref<1x16x4x4xf16, {order = #NHWC}, [@DDR, 0]>
+      async.yield %4 : memref<1x16x4x4xf16, {order = #NHWC}, [@DDR, 0]>
+    }
+    %token_62, %bodyResults_63 = async.execute -> !async.value<memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>> attributes {VPUIP.executor = @DMA_NN, "async-deps-index" = 16 : i64, cycleCost = 1000 : i64} {
+      %4 = VPUIP.NNDMA  inputs(%cst : memref<1x16x4x4xf16, {order = #NHWC}, [@DDR, 0]>) outputs(%alloc_16 : memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>) -> memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>
+      async.yield %4 : memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>
+    }
+    %token_64, %bodyResults_65 = async.execute [%token_58, %token_62] (%bodyResults_59 as %arg2: !async.value<memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>>, %bodyResults_63 as %arg3: !async.value<memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>>) -> !async.value<memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>> attributes {VPUIP.executor = @SHAVE_ACT, "async-deps-index" = 17 : i64, cycleCost = 1000 : i64} {
+      %results = VPUIP.SW.Kernel {resultSegmentSizes = array<i32: 1, 0, 0>, test_stage_marker = 1 : i64, vf_loop_index = 0 : i64, vf_loop_tile_index = 1 : i64} @VPU.SW::@builtin_copy_dpu_shv_dpu_test inputs(%arg2 as %arg4: memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>, %arg3 as %arg5: memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>) outputs(%alloc_17 as %arg6: memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>) on tile 0 -> memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>{
+        VPUIP.SW.Kernel.run {attrs = [[0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]]}(%arg4, %arg5, %arg6) : memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>, memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>, memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>
+      }
+      async.yield %results : memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>
+    }
+
+    )";
+
+    constexpr llvm::StringLiteral inputIRPart3 = R"(
+    %token_66, %bodyResults_67 = async.execute [%token_64] (%bodyResults_65 as %arg2: !async.value<memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>>) -> !async.value<memref<1x16x4x4xf16, {order = #NHWC}, [@DDR, 0]>> attributes {VPUIP.executor = @DMA_NN, "async-deps-index" = 18 : i64, cycleCost = 1000 : i64} {
+      %4 = VPUIP.NNDMA  inputs(%arg2 : memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>) outputs(%alloc_18 : memref<1x16x4x4xf16, {order = #NHWC}, [@DDR, 0]>) -> memref<1x16x4x4xf16, {order = #NHWC}, [@DDR, 0]>
+      async.yield %4 : memref<1x16x4x4xf16, {order = #NHWC}, [@DDR, 0]>
+    }
+    %token_68, %bodyResults_69 = async.execute -> !async.value<memref<16x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>> attributes {VPUIP.executor = @DMA_NN, "async-deps-index" = 19 : i64, cycleCost = 1000 : i64} {
+      %4 = VPUIP.NNDMA  inputs(%cst_1 : memref<16x16x1x1xf16, {order = #NHWC}, [@DDR, 0]>) outputs(%alloc_19 : memref<16x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>) -> memref<16x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>
+      async.yield %4 : memref<16x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>
+    }
+    %token_70, %bodyResults_71 = async.execute -> !async.value<memref<16x1x1x4xsi32, [@CMX_NN, 0]>> attributes {VPUIP.executor = @DMA_NN, "async-deps-index" = 20 : i64, cycleCost = 1000 : i64} {
+      %4 = VPUIP.NNDMA  inputs(%cst_0 : memref<16x1x1x4xsi32, [@DDR, 0]>) outputs(%alloc_20 : memref<16x1x1x4xsi32, [@CMX_NN, 0]>) -> memref<16x1x1x4xsi32, [@CMX_NN, 0]>
+      async.yield %4 : memref<16x1x1x4xsi32, [@CMX_NN, 0]>
+    }
+    %token_72, %bodyResults_73 = async.execute [%token_64, %token_68, %token_70] (%bodyResults_65 as %arg2: !async.value<memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>>, %bodyResults_69 as %arg3: !async.value<memref<16x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>>, %bodyResults_71 as %arg4: !async.value<memref<16x1x1x4xsi32, [@CMX_NN, 0]>>) -> !async.value<memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>> attributes {VPUIP.executor = @DPU, "async-deps-index" = 21 : i64, cycleCost = 1000 : i64} {
+      %4 = VPUIP.NCEClusterTask {test_stage_marker = 2 : i64, vf_loop_index = 0 : i64, vf_loop_tile_index = 1 : i64} <{kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [1, 1], kernel_strides = [1, 1], mpe_engine = #VPU.MPEEngine37XX<mode = <SCL>>, resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>, task_type = #VPUIP.nce_task_type<CONV>}> input(%arg2 : memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>) weights(%arg3 : memref<16x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>) weight_table(%arg4 : memref<16x1x1x4xsi32, [@CMX_NN, 0]>) parent_input(%arg2 : memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>) parent_output(%alloc_21 : memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>) outputs(%alloc_21 : memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>) -> memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]> variants : {
+        DPUTask {mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, outEnd = [3, 3, 15], outStart = [0, 0, 0], pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>}
+      } PPE : {
+      }
+      async.yield %4 : memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>
+    }
+    %token_74, %bodyResults_75 = async.execute [%token_72] (%bodyResults_73 as %arg2: !async.value<memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>>) -> !async.value<memref<1x16x4x4xf16, {order = #NHWC, strides = [768, 1, 192, 48]}, [@DDR, 0]>> attributes {VPUIP.executor = @DMA_NN, "async-deps-index" = 22 : i64, cycleCost = 1000 : i64} {
+      %4 = VPUIP.SubView %arg1 [0, 16, 0, 0] [1, 16, 4, 4] : memref<1x48x4x4xf16, {order = #NHWC}, [@DDR, 0]> to memref<1x16x4x4xf16, {order = #NHWC, strides = [768, 1, 192, 48]}, [@DDR, 0]>
+      %5 = VPUIP.NNDMA  inputs(%arg2 : memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>) outputs(%4 : memref<1x16x4x4xf16, {order = #NHWC, strides = [768, 1, 192, 48]}, [@DDR, 0]>) -> memref<1x16x4x4xf16, {order = #NHWC, strides = [768, 1, 192, 48]}, [@DDR, 0]>
+      async.yield %5 : memref<1x16x4x4xf16, {order = #NHWC, strides = [768, 1, 192, 48]}, [@DDR, 0]>
+    }
+    %token_76, %bodyResults_77 = async.execute -> !async.value<memref<16x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>> attributes {VPUIP.executor = @DMA_NN, "async-deps-index" = 23 : i64, cycleCost = 1000 : i64} {
+      %4 = VPUIP.NNDMA  inputs(%cst_1 : memref<16x16x1x1xf16, {order = #NHWC}, [@DDR, 0]>) outputs(%alloc_22 : memref<16x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>) -> memref<16x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>
+      async.yield %4 : memref<16x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>
+    }
+    %token_78, %bodyResults_79 = async.execute -> !async.value<memref<16x1x1x4xsi32, [@CMX_NN, 0]>> attributes {VPUIP.executor = @DMA_NN, "async-deps-index" = 24 : i64, cycleCost = 1000 : i64} {
+      %4 = VPUIP.NNDMA  inputs(%cst_0 : memref<16x1x1x4xsi32, [@DDR, 0]>) outputs(%alloc_23 : memref<16x1x1x4xsi32, [@CMX_NN, 0]>) -> memref<16x1x1x4xsi32, [@CMX_NN, 0]>
+      async.yield %4 : memref<16x1x1x4xsi32, [@CMX_NN, 0]>
+    }
+    %token_80, %bodyResults_81 = async.execute [%token, %token_76, %token_78] (%bodyResults as %arg2: !async.value<memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>>, %bodyResults_77 as %arg3: !async.value<memref<16x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>>, %bodyResults_79 as %arg4: !async.value<memref<16x1x1x4xsi32, [@CMX_NN, 0]>>) -> !async.value<memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>> attributes {VPUIP.executor = @DPU, "async-deps-index" = 25 : i64, cycleCost = 1000 : i64} {
+      %4 = VPUIP.NCEClusterTask {test_stage_marker = 0 : i64, vf_loop_index = 0 : i64, vf_loop_tile_index = 2 : i64} <{kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [1, 1], kernel_strides = [1, 1], mpe_engine = #VPU.MPEEngine37XX<mode = <SCL>>, resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>, task_type = #VPUIP.nce_task_type<CONV>}> input(%arg2 : memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>) weights(%arg3 : memref<16x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>) weight_table(%arg4 : memref<16x1x1x4xsi32, [@CMX_NN, 0]>) parent_input(%arg2 : memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>) parent_output(%alloc_24 : memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>) outputs(%alloc_24 : memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>) -> memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]> variants : {
+        DPUTask {mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, outEnd = [3, 3, 15], outStart = [0, 0, 0], pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>}
+      } PPE : {
+      }
+      async.yield %4 : memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>
+    }
+
+    )";
+
+    constexpr llvm::StringLiteral inputIRPart4 = R"(
+    %token_82, %bodyResults_83 = async.execute [%token_80] (%bodyResults_81 as %arg2: !async.value<memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>>) -> !async.value<memref<1x16x4x4xf16, {order = #NHWC}, [@DDR, 0]>> attributes {VPUIP.executor = @DMA_NN, "async-deps-index" = 26 : i64, cycleCost = 1000 : i64} {
+      %4 = VPUIP.NNDMA  inputs(%arg2 : memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>) outputs(%alloc_25 : memref<1x16x4x4xf16, {order = #NHWC}, [@DDR, 0]>) -> memref<1x16x4x4xf16, {order = #NHWC}, [@DDR, 0]>
+      async.yield %4 : memref<1x16x4x4xf16, {order = #NHWC}, [@DDR, 0]>
+    }
+    %token_84, %bodyResults_85 = async.execute -> !async.value<memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>> attributes {VPUIP.executor = @DMA_NN, "async-deps-index" = 27 : i64, cycleCost = 1000 : i64} {
+      %4 = VPUIP.NNDMA  inputs(%cst : memref<1x16x4x4xf16, {order = #NHWC}, [@DDR, 0]>) outputs(%alloc_26 : memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>) -> memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>
+      async.yield %4 : memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>
+    }
+    %token_86, %bodyResults_87 = async.execute [%token_80, %token_84] (%bodyResults_81 as %arg2: !async.value<memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>>, %bodyResults_85 as %arg3: !async.value<memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>>) -> !async.value<memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>> attributes {VPUIP.executor = @SHAVE_ACT, "async-deps-index" = 28 : i64, cycleCost = 1000 : i64} {
+      %results = VPUIP.SW.Kernel {resultSegmentSizes = array<i32: 1, 0, 0>, test_stage_marker = 1 : i64, vf_loop_index = 0 : i64, vf_loop_tile_index = 2 : i64} @VPU.SW::@builtin_copy_dpu_shv_dpu_test inputs(%arg2 as %arg4: memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>, %arg3 as %arg5: memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>) outputs(%alloc_27 as %arg6: memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>) on tile 0 -> memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>{
+        VPUIP.SW.Kernel.run {attrs = [[0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]]}(%arg4, %arg5, %arg6) : memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>, memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>, memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>
+      }
+      async.yield %results : memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>
+    }
+    %token_88, %bodyResults_89 = async.execute [%token_86] (%bodyResults_87 as %arg2: !async.value<memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>>) -> !async.value<memref<1x16x4x4xf16, {order = #NHWC}, [@DDR, 0]>> attributes {VPUIP.executor = @DMA_NN, "async-deps-index" = 29 : i64, cycleCost = 1000 : i64} {
+      %4 = VPUIP.NNDMA  inputs(%arg2 : memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>) outputs(%alloc_28 : memref<1x16x4x4xf16, {order = #NHWC}, [@DDR, 0]>) -> memref<1x16x4x4xf16, {order = #NHWC}, [@DDR, 0]>
+      async.yield %4 : memref<1x16x4x4xf16, {order = #NHWC}, [@DDR, 0]>
+    }
+    %token_90, %bodyResults_91 = async.execute -> !async.value<memref<16x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>> attributes {VPUIP.executor = @DMA_NN, "async-deps-index" = 30 : i64, cycleCost = 1000 : i64} {
+      %4 = VPUIP.NNDMA  inputs(%cst_1 : memref<16x16x1x1xf16, {order = #NHWC}, [@DDR, 0]>) outputs(%alloc_29 : memref<16x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>) -> memref<16x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>
+      async.yield %4 : memref<16x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>
+    }
+    %token_92, %bodyResults_93 = async.execute -> !async.value<memref<16x1x1x4xsi32, [@CMX_NN, 0]>> attributes {VPUIP.executor = @DMA_NN, "async-deps-index" = 31 : i64, cycleCost = 1000 : i64} {
+      %4 = VPUIP.NNDMA  inputs(%cst_0 : memref<16x1x1x4xsi32, [@DDR, 0]>) outputs(%alloc_30 : memref<16x1x1x4xsi32, [@CMX_NN, 0]>) -> memref<16x1x1x4xsi32, [@CMX_NN, 0]>
+      async.yield %4 : memref<16x1x1x4xsi32, [@CMX_NN, 0]>
+    }
+    %token_94, %bodyResults_95 = async.execute [%token_86, %token_90, %token_92] (%bodyResults_87 as %arg2: !async.value<memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>>, %bodyResults_91 as %arg3: !async.value<memref<16x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>>, %bodyResults_93 as %arg4: !async.value<memref<16x1x1x4xsi32, [@CMX_NN, 0]>>) -> !async.value<memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>> attributes {VPUIP.executor = @DPU, "async-deps-index" = 32 : i64, cycleCost = 1000 : i64} {
+      %4 = VPUIP.NCEClusterTask {test_stage_marker = 2 : i64, vf_loop_index = 0 : i64, vf_loop_tile_index = 2 : i64} <{kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [1, 1], kernel_strides = [1, 1], mpe_engine = #VPU.MPEEngine37XX<mode = <SCL>>, resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>, task_type = #VPUIP.nce_task_type<CONV>}> input(%arg2 : memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>) weights(%arg3 : memref<16x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>) weight_table(%arg4 : memref<16x1x1x4xsi32, [@CMX_NN, 0]>) parent_input(%arg2 : memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>) parent_output(%alloc_31 : memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>) outputs(%alloc_31 : memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>) -> memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]> variants : {
+        DPUTask {mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, outEnd = [3, 3, 15], outStart = [0, 0, 0], pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>}
+      } PPE : {
+      }
+      async.yield %4 : memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>
+    }
+    %token_96, %bodyResults_97 = async.execute [%token_94] (%bodyResults_95 as %arg2: !async.value<memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>>) -> !async.value<memref<1x16x4x4xf16, {order = #NHWC, strides = [768, 1, 192, 48]}, [@DDR, 0]>> attributes {VPUIP.executor = @DMA_NN, "async-deps-index" = 33 : i64, cycleCost = 1000 : i64} {
+      %4 = VPUIP.SubView %arg1 [0, 32, 0, 0] [1, 16, 4, 4] : memref<1x48x4x4xf16, {order = #NHWC}, [@DDR, 0]> to memref<1x16x4x4xf16, {order = #NHWC, strides = [768, 1, 192, 48]}, [@DDR, 0]>
+      %5 = VPUIP.NNDMA  inputs(%arg2 : memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>) outputs(%4 : memref<1x16x4x4xf16, {order = #NHWC, strides = [768, 1, 192, 48]}, [@DDR, 0]>) -> memref<1x16x4x4xf16, {order = #NHWC, strides = [768, 1, 192, 48]}, [@DDR, 0]>
+      async.yield %5 : memref<1x16x4x4xf16, {order = #NHWC, strides = [768, 1, 192, 48]}, [@DDR, 0]>
+    }
+    %0 = async.await %bodyResults_53 : !async.value<memref<1x16x4x4xf16, {order = #NHWC, strides = [768, 1, 192, 48]}, [@DDR, 0]>>
+    %1 = async.await %bodyResults_75 : !async.value<memref<1x16x4x4xf16, {order = #NHWC, strides = [768, 1, 192, 48]}, [@DDR, 0]>>
+    %2 = async.await %bodyResults_97 : !async.value<memref<1x16x4x4xf16, {order = #NHWC, strides = [768, 1, 192, 48]}, [@DDR, 0]>>
+    %3 = VPUIP.ConcatView inputs(%0, %1, %2 : memref<1x16x4x4xf16, {order = #NHWC, strides = [768, 1, 192, 48]}, [@DDR, 0]>, memref<1x16x4x4xf16, {order = #NHWC, strides = [768, 1, 192, 48]}, [@DDR, 0]>, memref<1x16x4x4xf16, {order = #NHWC, strides = [768, 1, 192, 48]}, [@DDR, 0]>) outputs(%arg1 : memref<1x48x4x4xf16, {order = #NHWC}, [@DDR, 0]>) -> memref<1x48x4x4xf16, {order = #NHWC}, [@DDR, 0]>
+    return %3 : memref<1x48x4x4xf16, {order = #NHWC}, [@DDR, 0]>
+  }
+  config.Resources 1 of @NCE {
+    config.ExecutorResource 1 of @SHAVE_ACT
+    config.ExecutorResource 1 of @DPU
+  }
+}
+)";
+
+    const auto platform = config::Platform::NPU5010;
+    VPU::initializeSingletons(registry, platform);
+    mlir::MLIRContext ctx(registry);
+    ctx.loadDialect<vpux::VPU::VPUDialect>();
+
+    constexpr int64_t numIterations = 3;
+    auto module = mlir::parseSourceString<mlir::ModuleOp>(
+            (inputIRPart1 + inputIRPart2 + inputIRPart3 + inputIRPart4).str(), &ctx);
+    ASSERT_TRUE(module.get() != nullptr);
+
+    auto func = module.get().lookupSymbol<mlir::func::FuncOp>("main");
+    ASSERT_TRUE(func != nullptr);
+
+    auto log = vpux::Logger::global();
+    auto aliasesInfo = AliasesInfoMemType<VPU::MemoryKind::CMX_NN>{func};
+    auto liveRangeInfo = MemLiveRangeInfoMemType<VPU::MemoryKind::CMX_NN>{func, aliasesInfo};
+    AsyncDepsInfo depsInfo{func};
+
+    const auto memKind = VPU::MemoryKind::CMX_NN;
+    const auto secondLvlMemKind = VPU::MemoryKind::DDR;
+    const uint64_t alignment = vpux::DEFAULT_CMX_ALIGNMENT;
+    const vpux::AddressType availableCMXSize = 1 << 20;  // generous budget so VF_PIPELINING is feasible
+    LinearScan<mlir::Value, LinearScanHandler> scan(availableCMXSize, {}, alignment);
+
+    const auto arch = config::getArch(platform);
+    const auto vpuDevice = VPUNN::VPUDevice::NPU_5_0;
+    auto costModel = VPU::CostModelConfig::createCostModel(&ctx);
+    const int64_t nceClusterCount = 1;
+    const int64_t dmaCount = 1;
+    const bool enableScheduleStatistics = false;
+    const bool optimizeFragmentation = false;
+    const bool activelySpillForPrefetching = false;
+
+    auto computeRegionVec = getComputeRegionsFromAsyncExec(aliasesInfo, depsInfo, log);
+    const auto vfRegionIt = llvm::find_if(computeRegionVec, [](const ComputeRegion& region) {
+        return region.getLoopType() == LoopType::VF;
+    });
+    ASSERT_NE(vfRegionIt, computeRegionVec.end());
+    ASSERT_EQ(vfRegionIt->schedulingLoop->loopBodies.size(), static_cast<size_t>(numIterations));
+
+    auto computeRegionsSchedule =
+            VPU::generateLoopSchedules(computeRegionVec, availableCMXSize, /*enableVfUndefinedScheduler=*/true, log);
+    ASSERT_EQ(computeRegionsSchedule.scheduleResults.size(), 1u);
+    const auto& vfResult = computeRegionsSchedule.scheduleResults.begin()->second;
+
+    ASSERT_GT(vfResult.reservedSize, 0u);
+    ASSERT_EQ(vfResult.reservedSize % 2, 0u);
+    const vpux::AddressType bankSize = vfResult.reservedSize / 2;
+
+    FeasibleMemoryScheduler scheduler(memKind, secondLvlMemKind, liveRangeInfo, depsInfo, log, scan, arch, vpuDevice,
+                                      costModel, nceClusterCount, dmaCount, enableScheduleStatistics,
+                                      optimizeFragmentation, activelySpillForPrefetching,
+                                      std::move(computeRegionsSchedule), std::move(computeRegionVec));
+    FeasibleMemorySchedulerTest testAccessor(scheduler);
+    scheduler.generateSchedule();
+
+    // Every loop op is scheduled exactly once, and none of them were spilled.
+    llvm::DenseMap<size_t, size_t> loopOpScheduleCount;
+    for (const auto& scheduledOp : testAccessor.getScheduledOps()) {
+        if (!testAccessor.isInLoopRegionInd(scheduledOp.op_)) {
+            continue;
+        }
+        ++loopOpScheduleCount[scheduledOp.op_];
+        EXPECT_FALSE(scheduledOp.isSpillWrite() || scheduledOp.isSpillRead())
+                << "Unexpected spill for loop op " << scheduledOp.op_;
+    }
+    for (const auto& [opIdx, count] : loopOpScheduleCount) {
+        EXPECT_EQ(count, 1u) << "Loop op " << opIdx << " scheduled " << count << " times, expected exactly once";
+    }
+
+    // Every scheduled resource address must be alignment-aligned.
+    for (const auto& scheduledOp : testAccessor.getScheduledOps()) {
+        for (size_t i = 0; i < scheduledOp.numOfOutputResources(); ++i) {
+            if (!scheduledOp.isActiveOutputResource(i)) {
+                continue;
+            }
+            EXPECT_EQ(scheduledOp.beginOutputResource(i) % alignment, 0u)
+                    << "Misaligned output resource on op " << scheduledOp.op_;
+        }
+        for (size_t i = 0; i < scheduledOp.numOfInputResources(); ++i) {
+            if (!scheduledOp.isActiveInputResource(i)) {
+                continue;
+            }
+            EXPECT_EQ(scheduledOp.beginInputResource(i) % alignment, 0u)
+                    << "Misaligned input resource on op " << scheduledOp.op_;
+        }
+    }
+
+    // Bank A/B/A: locate the DPU1 ("stage0") output address per iteration via the
+    // test_stage_marker/vf_loop_tile_index attributes set at IR-construction time.
+    llvm::DenseMap<int64_t, vpux::AddressType> stage0OutAddrByIter;
+    for (const auto& scheduledOp : testAccessor.getScheduledOps()) {
+        if (scheduledOp.numOfOutputResources() == 0 || !scheduledOp.isActiveOutputResource(0)) {
+            continue;
+        }
+        auto execOp = depsInfo.getExecuteOpAtIndex(scheduledOp.op_);
+        for (auto& op : execOp.getBody()->getOperations()) {
+            auto stageAttr = op.getAttrOfType<mlir::IntegerAttr>(DpuShvDpuVfLoopIR::kStageMarkerAttrName);
+            auto tileAttr = op.getAttrOfType<mlir::IntegerAttr>(VF_LOOP_TILE_INDEX_ATTR_NAME);
+            if (stageAttr == nullptr || tileAttr == nullptr || stageAttr.getInt() != 0) {
+                continue;
+            }
+            stage0OutAddrByIter[tileAttr.getInt()] = scheduledOp.beginOutputResource(0);
+        }
+    }
+    ASSERT_EQ(stage0OutAddrByIter.size(), static_cast<size_t>(numIterations));
+    EXPECT_EQ(stage0OutAddrByIter[0], stage0OutAddrByIter[2]) << "Bank A (iter0) should match Bank A (iter2)";
+    EXPECT_EQ(stage0OutAddrByIter[1], stage0OutAddrByIter[0] + bankSize)
+            << "Bank B (iter1) should be bankSize past Bank A";
 }

@@ -8,12 +8,14 @@
 #include <mlir/Support/LLVM.h>
 #include <mlir/Support/LogicalResult.h>
 #include <algorithm>
+#include <climits>
 #include <cmath>
 #include <numeric>
 #include <optional>
 
 #include "vpu/utils.h"
 #include "vpux/compiler/core/attributes/shape.hpp"
+#include "vpux/compiler/core/attributes/stride_reqs.hpp"
 #include "vpux/compiler/core/layers.hpp"
 #include "vpux/compiler/core/tiling.hpp"
 #include "vpux/compiler/dialect/IE/utils/roll_utils.hpp"
@@ -31,6 +33,7 @@
 #include "vpux/compiler/dialect/VPU/utils/multi_cluster_strategy_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_reduce_output_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_utils.hpp"
+#include "vpux/compiler/dialect/VPU/utils/odu_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/op_tiling_cache.hpp"
 #include "vpux/compiler/dialect/VPU/utils/precomputed_strategy_table_cache.hpp"
 #include "vpux/compiler/dialect/VPU/utils/sw_utils.hpp"
@@ -39,7 +42,6 @@
 #include "vpux/compiler/dialect/VPU/utils/vertical_fusion/vertical_fusion_utils.hpp"
 #include "vpux/compiler/dialect/VPUIP/interfaces/nce_invariant.hpp"
 #include "vpux/compiler/dialect/VPUIP/utils/convert_to_dma_utils.hpp"
-#include "vpux/compiler/dialect/config/IR/attributes.hpp"
 #include "vpux/compiler/dialect/config/IR/resources.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
 #include "vpux/compiler/dialect/config/utils/config_option_utils.hpp"
@@ -384,6 +386,9 @@ void alignToOptimizeForBatchedLoadDynamicShape(const vpux::NDTypeInterface& outp
     // unchanged.
     // This is a soft alignment applied early because later passes cannot easily adjust these sizes.
     const int64_t batchedLoadFriendlyInnerStrideSize = (1024_Byte).count();
+    // The 1024 bytes of an inner stride are reached by a narrow tile if the inner dims are wide, e.g. 32 elements for
+    // 32 channels of 1 byte. Such a tile is too narrow to be efficient, so the dim is aligned to the limit of the tile
+    // size, which is the tile size for the dim.
     auto dimOrder = outputType.getDimsOrder();
     auto outputShape = outputType.getShape();
     Logger log = Logger::global().nest("align-for-batched-load");
@@ -400,10 +405,27 @@ void alignToOptimizeForBatchedLoadDynamicShape(const vpux::NDTypeInterface& outp
 
     const int64_t elementTypeSizeInBytes = vpux::getElemTypeSize(outputType).to<Byte>().count();
     const int64_t maxElementsNumber = divUp(batchedLoadFriendlyInnerStrideSize, elementTypeSizeInBytes);
+
+    // The size of a tile of the dim is limited, so the alignment is not larger than the limit: it is the tile size for
+    // the vertical fusion. The limit is rounded down to the required alignment of the dim to be a multiple of it, and
+    // the required alignment itself is kept if it is larger than the limit
+    const auto requiredAlignment = alignment[dimAlignV.ind()];
+    int64_t maxAlignment = std::numeric_limits<int64_t>::max();
+    bool isTileSizeLimited = true;
+    if (dimAlignV == Dims4D::Act::H) {
+        maxAlignment = MAX_DYNAMIC_ALIGNED_TILE_HEIGHT;
+    } else if (dimAlignV == Dims4D::Act::W) {
+        maxAlignment = MAX_DYNAMIC_ALIGNED_TILE_WIDTH;
+    } else {
+        isTileSizeLimited = false;
+    }
+    maxAlignment = maxAlignment < requiredAlignment ? requiredAlignment : alignValDown(maxAlignment, requiredAlignment);
+
     log.trace("Raw innermost dim: {0}, dimAlignV: {1}, dimOrder: {2}", rawInnermostDim, dimAlignV, dimOrder);
     // innermost dim is dynamic and not aligned, so we can do alignment to make it BatchedLoad friendly
     if (rawInnermostDim == dimAlignV || skipInnerStaticDims) {
-        alignment[dimAlignV.ind()] = closestGreaterMultiplier(maxElementsNumber, alignment[dimAlignV.ind()]);
+        alignment[dimAlignV.ind()] =
+                closestGreaterMultiplier(std::min(maxElementsNumber, maxAlignment), requiredAlignment);
         log.trace("Aligning raw innermost dynamic dim {0} to optimize for batched load with factor {1}", dimAlignV,
                   alignment);
         return;
@@ -439,8 +461,12 @@ void alignToOptimizeForBatchedLoadDynamicShape(const vpux::NDTypeInterface& outp
     }
     log.trace("Max elements number: {0}, inner dims size: {1}", maxElementsNumber, innerDimsSize);
     // in this case we can try to avoid tiling along those inner dims of dynamic inner, but overall I guess it's fine.
-    auto factor = divUp(maxElementsNumber, innerDimsSize);
-    alignment[dimAlignV.ind()] = closestGreaterMultiplier(factor, alignment[dimAlignV.ind()]);
+    // The alignment of the dim with the limit is the limit: the heuristic is not larger than it. The other dims are
+    // aligned to the heuristic, which is not less than the limit of the width
+    const auto factor = isTileSizeLimited
+                                ? maxAlignment
+                                : std::max(divUp(maxElementsNumber, innerDimsSize), MAX_DYNAMIC_ALIGNED_TILE_WIDTH);
+    alignment[dimAlignV.ind()] = closestGreaterMultiplier(factor, requiredAlignment);
     log.trace("Alignment for dim {0} set to {1} to optimize for batched load", dimAlignV, alignment);
 }
 
@@ -528,19 +554,49 @@ SmallVector<int64_t> vpux::getAlignment(mlir::Operation* op, const ShapeRef divi
     }
 
     if (mlir::isa<VPU::YuvToRgbOp>(op)) {
-        // Output tile should be aligned to [2, 2] on [H, W] dimensions
-        // Dimensions have [N, H, W, C] physical order
-        // Because after ApplyTiling pass, the layer will be split 2 more times
-        // we should additionally align Multi-Cluster/Multi-Shave tiling dimension
-        // on the number of "Clusters" and SHAVEs
-        auto alignment = SmallVector<int64_t>{1, 2, 2, 1};
+        using namespace Dims4D::Act;
+
+        const auto outputType = mlir::cast<vpux::NDTypeInterface>(op->getResult(0).getType());
+
+        if (!mlir::isa<Core::BoundedTensorType>(outputType)) {
+            // Static-shape YuvToRgb: this path is reached (via fillDividedTiles ->
+            // fillDividedTilesBase) by BOTH static and dynamic tiling validity checks, but
+            // the remapping/W-cap below is only verified against the dynamic/bounded-shape
+            // VF path (getVFSplit). Preserve the original behavior untouched here to avoid
+            // any unverified change to static-shape tiling.
+            auto alignment = SmallVector<int64_t>{1, 1, 2, 2};
+
+            auto mcStrategy = VPU::getMultiClusterStrategyFromOp(op);
+            auto numTotalShaves = config::getTotalNumOfEngines(getModuleOp(op), config::ExecutorKind::SHAVE_ACT);
+            if (mcStrategy == VPU::MultiClusterStrategy::SplitOverKernel) {
+                alignment[C.ind()] *= numTotalShaves;
+            } else if (mcStrategy == VPU::MultiClusterStrategy::SplitOverHeight) {
+                alignment[H.ind()] *= numTotalShaves;
+            }
+
+            return alignment;
+        }
+
+        // Dynamic/bounded-shape YuvToRgb (VF path). YuvToRgb appears in two physical
+        // layouts in this pipeline (see the Case A / Case B comment on
+        // YuvToRgbOp::inferReturnTypes, yuv_to_rgb.cpp:39-58, and the same remapping in
+        // backInferTileInfo/getTilingStrategy/checkStrategyCompatibility) - remap H/W/C
+        // the same way here so this is correct regardless of which layout this particular
+        // op instance is in.
+        const auto dimsOrder = outputType.getDimsOrder();
+        auto alignment = SmallVector<int64_t>(dimsOrder.numDims(), 1);
+        alignment[H.ind()] = 2;
+        // Cap the W tile size for the dynamic-shape VF split (getVFSplit divides the
+        // innermost dynamic dim's bound by this value to get its fixed tile count).
+        // Without this the base value above (1) leaves W effectively uncapped.
+        alignment[W.ind()] = MAX_YUV_TO_RGB_TILE_WIDTH;
 
         auto mcStrategy = VPU::getMultiClusterStrategyFromOp(op);
         auto numTotalShaves = config::getTotalNumOfEngines(getModuleOp(op), config::ExecutorKind::SHAVE_ACT);
         if (mcStrategy == VPU::MultiClusterStrategy::SplitOverKernel) {
-            alignment[Dims4D::Act::C.ind()] *= numTotalShaves;
+            alignment[C.ind()] *= numTotalShaves;
         } else if (mcStrategy == VPU::MultiClusterStrategy::SplitOverHeight) {
-            alignment[Dims4D::Act::H.ind()] *= numTotalShaves;
+            alignment[H.ind()] *= numTotalShaves;
         }
 
         return alignment;
@@ -564,7 +620,7 @@ SmallVector<int64_t> vpux::getAlignment(mlir::Operation* op, const ShapeRef divi
         }
     }
 
-    const auto getSubByteAlignmentFactor = [&op] {
+    const auto getSubByteAlignmentFactor = [op] {
         int64_t alignmentFactor = 1;
 
         auto setFactor = [&alignmentFactor](mlir::Value value) {
@@ -589,7 +645,7 @@ SmallVector<int64_t> vpux::getAlignment(mlir::Operation* op, const ShapeRef divi
 
     if (op->hasTrait<VPU::EltwiseOp>() || mlir::isa<VPU::MemPermuteOp>(op)) {
         if (auto factor = getSubByteAlignmentFactor(); factor > 1) {
-            std::transform(divisors.begin(), divisors.end(), alignment.begin(), [&factor](int x) {
+            std::transform(divisors.begin(), divisors.end(), alignment.begin(), [factor](int x) {
                 return x > 1 ? factor : x;
             });
         }
@@ -2283,8 +2339,9 @@ std::tuple<DimRange, int64_t, int64_t> vpux::inputForOutputDim(const DimRange& o
 
 // @brief Following function computes new strides based on the new tensor shape.
 // @warning The new shape can be a result of tiling or aligning or something else.
-SmallVector<Strides> vpux::adaptStrides(ShapeRef origShape, StridesRef origStrides, ArrayRef<Shape> adaptedShapes,
-                                        const DimsOrder& dimsOrder) {
+mlir::FailureOr<SmallVector<Strides>> vpux::adaptStridesOrFailure(ShapeRef origShape, StridesRef origStrides,
+                                                                  ArrayRef<Shape> adaptedShapes,
+                                                                  const DimsOrder& dimsOrder, LogCb logCb) {
     auto adaptedStrides = SmallVector<Strides>();
     const auto memShape = dimsOrder.toMemoryOrder(origShape);
     const auto memStrides = dimsOrder.toMemoryOrder(origStrides);
@@ -2335,10 +2392,12 @@ SmallVector<Strides> vpux::adaptStrides(ShapeRef origShape, StridesRef origStrid
                 // Without having a solid and functional infrastructure, to do everything in full knowledge
                 // of context it can easily lead to a lot of problems and instabilities in the future.
 
-                VPUX_THROW_WHEN(strideRatio != memShape[MemDim(i + 1)],
-                                "Can't have both stride ratio '{0}' != shape '{1}' and also adapted shape '{2}' on "
-                                "same axis '{3}'.",
-                                strideRatio, memShape[MemDim(i + 1)], adaptedMemShape[MemDim(i + 1)], i + 1);
+                if (strideRatio != memShape[MemDim(i + 1)]) {
+                    logCb(formatv("Can't have both stride ratio '{0}' != shape '{1}' and also adapted shape '{2}' on "
+                                  "same axis '{3}'.",
+                                  strideRatio, memShape[MemDim(i + 1)], adaptedMemShape[MemDim(i + 1)], i + 1));
+                    return mlir::failure();
+                }
                 adaptedStride = adaptedMemShape[MemDim(i + 1)] * prevAdaptedStride;
             }
 
@@ -2348,6 +2407,17 @@ SmallVector<Strides> vpux::adaptStrides(ShapeRef origShape, StridesRef origStrid
     }
 
     return adaptedStrides;
+}
+
+SmallVector<Strides> vpux::adaptStrides(ShapeRef origShape, StridesRef origStrides, ArrayRef<Shape> adaptedShapes,
+                                        const DimsOrder& dimsOrder) {
+    std::string errorMsg;
+    auto adaptedStrides = adaptStridesOrFailure(origShape, origStrides, adaptedShapes, dimsOrder,
+                                                [&](const formatv_object_base& msg) {
+                                                    errorMsg = msg.str();
+                                                });
+    VPUX_THROW_WHEN(mlir::failed(adaptedStrides), "{0}", errorMsg);
+    return adaptedStrides.value();
 }
 
 DimArr vpux::getTileDimOrderND(MemShape memShape, const DimsOrder& dimOrder) {
@@ -2487,6 +2557,15 @@ DimArr getTileDimOrderByShape(mlir::Operation* op, Dim filterDimToCompare, Dim a
 DimArr vpux::stripChannelsDimIfAutopadIsUsed(mlir::Operation* op, DimArr dims) {
     assert((mlir::isa<VPU::NCEDepthConvolutionOp, VPU::NCEMaxPoolOp, VPU::NCEAveragePoolOp, VPU::NCEEltwiseOp>(op)) &&
            "Expected operation to be depthwise / eltwise");
+    // TODO #E171044: There is no clear understanding if autopad and ODU feature are mutually exclusive or not.
+    // For now, we assume that they are mutually exclusive
+    // ODU D2S/S2D fusion intentionally makes input and output channel counts differ (that's the whole
+    // point of the channel<->space reshuffle), so the channel mismatch below is not an autopad signal.
+    // S2D/D2S tiling legality is handled separately.
+    const auto oduScaling = VPU::getODUScaling(op);
+    if (!oduScaling.empty() && !vpux::VPU::isODUScalingNeutral(oduScaling)) {
+        return dims;
+    }
     const auto inputShape = mlir::cast<NDTypeInterface>(op->getOperand(0).getType()).getShape();
     const auto outputShape = mlir::cast<NDTypeInterface>(op->getResult(0).getType()).getShape();
     const auto is5D = outputShape.size() == 5;
@@ -2524,41 +2603,6 @@ DimArr vpux::removeAxes(DimArrRef dims, ArrayRef<int64_t> axes) {
         forbiddenDims.push_back(Dim(axis));
     }
     return removeDims(dims, forbiddenDims);
-}
-
-// E220898: Workaround. Remove the channel dimension from the tiling order for NCE
-// operations that carry a Weight Table when compiling in HostCompile mode.
-// In HostCompile, tiling over channels causes the Weight Table to be sliced per tile by SCF
-// tiling and passed into the outlined compute kernel as a function argument. The subsequent
-// PatchWeightsTable pass can only patch a Weight Table whose buffer originates from a
-// Const::DeclareOp and aborts on a function-argument Weight Table. Forcing spatial (H/W)
-// tiling keeps the Weight Table whole and patchable. DefaultHW is unaffected: it patches the
-// Weight Table as a constant regardless of the split-over-channels strategy.
-// Remove this workaround once PatchWeightsTable supports a function-argument Weight Table.
-DimArr stripChannelsDimForUnsupportedHostCompileWeightsTableTiling(mlir::Operation* op, DimArr dims) {
-    if (!config::isHostCompileMode(op)) {
-        return dims;
-    }
-    auto nceOp = mlir::dyn_cast<VPU::NCEOpInterface>(op);
-    if (nceOp == nullptr) {
-        return dims;
-    }
-    // Match every Weight Table operand that SCF tiling slices over channels (see
-    // VPU::SCFTilingInterface models). Sometimes is stored in the split
-    // format (scale/bias/data_ptr), so the unified getWeightsTableOperand() can be null while
-    // the op still carries a sliceable Weight Table.
-    const auto hasWeightsTable =
-            nceOp.getWeightsTableOperand() != nullptr || nceOp.getWeightTableDataPtrOperand() != nullptr ||
-            nceOp.getWeightTableScaleOperand() != nullptr || nceOp.getWeightTableBiasOperand() != nullptr ||
-            nceOp.getWeightZeroPointsOperand() != nullptr;
-    if (!hasWeightsTable) {
-        return dims;
-    }
-    const auto outputRank = mlir::cast<NDTypeInterface>(op->getResult(0).getType()).getRank();
-    VPUX_THROW_UNLESS(outputRank == 4 || outputRank == 5, "Unsupported output rank '{0}', expected 4 or 5", outputRank);
-    const auto channelDim = outputRank == 5 ? DimsGroups5D::Act::C : Dims4D::Act::C;
-    dims.erase(std::remove(dims.begin(), dims.end(), channelDim), dims.end());
-    return dims;
 }
 
 DimArr vpux::getTileDimOrder(mlir::Operation* op, TilingMode tilingMode, Logger log) {
@@ -2913,7 +2957,12 @@ DimArr vpux::getTileDimOrder(mlir::Operation* op, TilingMode tilingMode, Logger 
                         }
                         return tileDimOrder;
                     })
-                    .Case<VPU::GridSampleOp>([&](mlir::Operation* op) {
+                    .Case<VPU::OneHotOp>([](VPU::OneHotOp oneHotOp) {
+                        const auto outputType = mlir::cast<vpux::NDTypeInterface>(oneHotOp.getOutput().getType());
+                        auto tileDimOrder = getTileDimOrderND(outputType.getMemShape(), outputType.getDimsOrder());
+                        return removeDims(tileDimOrder, {Dim(oneHotOp.getAxis())});
+                    })
+                    .Case<VPU::GridSampleOp>([](mlir::Operation* op) {
                         const auto outputType = mlir::cast<vpux::NDTypeInterface>(op->getResult(0).getType());
                         const auto inputType = mlir::cast<vpux::NDTypeInterface>(op->getOperand(0).getType());
 
@@ -2942,10 +2991,10 @@ DimArr vpux::getTileDimOrder(mlir::Operation* op, TilingMode tilingMode, Logger 
 
                         return tileDimOrder;
                     })
-                    .Case<VPU::GroupQuantCorrectionOp>([&](mlir::Operation*) {
+                    .Case<VPU::GroupQuantCorrectionOp>([](mlir::Operation*) {
                         return DimArr{Dims4D::Act::N, Dims4D::Act::C};
                     })
-                    .Case<VPU::GenericSwLayerOp>([&](mlir::Operation* op) {
+                    .Case<VPU::GenericSwLayerOp>([](mlir::Operation* op) {
                         auto layerOp = mlir::cast<VPU::GenericSwLayerOp>(op);
 
                         if (!layerOp.getTilingProperties().has_value()) {
@@ -2988,12 +3037,10 @@ DimArr vpux::getTileDimOrder(mlir::Operation* op, TilingMode tilingMode, Logger 
                         return returnedTileDimOrder;
                     })
 
-                    .Default([&](mlir::Operation* op) -> DimArr {
+                    .Default([](mlir::Operation* op) -> DimArr {
                         const auto outputType = mlir::cast<vpux::NDTypeInterface>(op->getResult(0).getType());
                         return getTileDimOrderND(getBoundedMemShape(outputType), outputType.getDimsOrder());
                     });
-
-    tileDimOrder = stripChannelsDimForUnsupportedHostCompileWeightsTableTiling(op, std::move(tileDimOrder));
 
     if (useCache) {
         cache.updateDimOrder(opHash, tileDimOrder);
@@ -3006,7 +3053,7 @@ bool vpux::isMultiClusterCompatibleForTiling(mlir::Operation* op, const OutputTi
     VPUX_THROW_WHEN(clusteredOp == nullptr, "Operation '{0}' doesn't implement ClusteredOpInterface", op->getName());
 
     const bool isNCE = mlir::isa<VPU::NCEOpInterface>(op);
-    auto isValidChannelSize = [&](int64_t maxChannelSize) {
+    auto isValidChannelSize = [isNCE, &tiles](int64_t maxChannelSize) {
         if (!isNCE) {
             return true;
         }
@@ -3024,7 +3071,7 @@ bool vpux::isMultiClusterCompatibleForTiling(mlir::Operation* op, const OutputTi
     // to reduce compilation time as isStrategyCompatibleShape only cares about tiled shape
     auto tileCandidates = VPU::getUniqueShapeTilingCandidates(op, tiles, log);
 
-    auto isStrategyCompatibleWithTile = [&](const TileInfo& outputTile) {
+    auto isStrategyCompatibleWithTile = [&clusteredOp, log](const TileInfo& outputTile) {
         return VPU::isStrategyCompatibleShape(clusteredOp, outputTile, clusteredOp.getMultiClusterStrategy().value(),
                                               log);
     };
@@ -3045,6 +3092,34 @@ bool vpux::isMultiClusterCompatibleForTiling(mlir::Operation* op, const OutputTi
 
 // Compute the minimum number of tiles for each dimension to ensure:
 // Dimension sizes after tiling are not larger than the defined limits
+int64_t vpux::getMinNumTilesForMaxDynamicTileSize(mlir::Operation* op, ShapeRef boundedOutputShape, Dim dim) {
+    if (!VPU::hasDynamicDimAlignment(op) || op->getNumResults() == 0) {
+        return 1;
+    }
+    const auto outputType = mlir::dyn_cast<mlir::ShapedType>(op->getResult(0).getType());
+    if (outputType == nullptr || outputType.getRank() != 4 || !outputType.isDynamicDim(dim.ind())) {
+        return 1;
+    }
+
+    int64_t maxTileSize = 0;
+    if (dim == Dims4D::Act::H) {
+        maxTileSize = MAX_DYNAMIC_ALIGNED_TILE_HEIGHT;
+    } else if (dim == Dims4D::Act::W) {
+        maxTileSize = MAX_DYNAMIC_ALIGNED_TILE_WIDTH;
+    } else {
+        return 1;
+    }
+
+    const auto alignment = getAlignment(op, {}, boundedOutputShape, /*canUseDynamicAlignment=*/true)[dim.ind()];
+    if (alignment > maxTileSize) {
+        return 1;
+    }
+    if (alignment > 1) {
+        maxTileSize = alignValDown(maxTileSize, alignment);
+    }
+    return divUp(boundedOutputShape[dim], maxTileSize);
+}
+
 SmallVector<int64_t> vpux::getMinNumTiles(mlir::Operation* op) {
     const auto inputShape = getBoundedShape(op->getOperand(0));
     const auto outputShape = getBoundedShape(op->getResult(0));
@@ -3067,6 +3142,15 @@ SmallVector<int64_t> vpux::getMinNumTiles(mlir::Operation* op) {
                 minNumTiles[i] = std::max(VPU::MIN_REQUIRED_TILES, minNumTiles[i]);
             }
         }
+
+        // The size of a tile is limited, so there are not fewer tiles than the limit needs, if the operation allows
+        if (outputShape.size() == 4) {
+            for (const auto dim : {Dims4D::Act::H, Dims4D::Act::W}) {
+                const auto minTilesForMaxSize = getMinNumTilesForMaxDynamicTileSize(op, outputShape, dim);
+                minNumTiles[dim.ind()] =
+                        std::max(minNumTiles[dim.ind()], std::min(minTilesForMaxSize, maxNumTiles[dim.ind()]));
+            }
+        }
     };
 
     if (!mlir::isa<VPU::NCEOpInterface>(op)) {
@@ -3082,7 +3166,7 @@ SmallVector<int64_t> vpux::getMinNumTiles(mlir::Operation* op) {
     const auto tilingDimCandidates = {dimC, dimW, dimH};
 
     // No minNumTiles if none is larger than VPU_DIMENSION_LIMIT
-    if (llvm::all_of(tilingDimCandidates, [&](Dim dim) {
+    if (llvm::all_of(tilingDimCandidates, [inputShape, outputShape](Dim dim) {
             return inputShape[dim] <= VPU::NCEInvariant::VPU_DIMENSION_LIMIT &&
                    outputShape[dim] <= VPU::NCEInvariant::VPU_DIMENSION_LIMIT;
         })) {
@@ -3144,6 +3228,39 @@ int64_t vpux::getSubByteAlignmentFactor(mlir::Operation* op) {
 
     const auto div = CHAR_BIT / minElemSize;
     return div != 0 ? div : 1;
+}
+
+int64_t vpux::getByteAddressableTileAlignment(mlir::Value value, Dim tileDim) {
+    const auto valueType = mlir::cast<vpux::NDTypeInterface>(value.getType());
+    const auto elemTypeSizeBits = valueType.getElemTypeSize().count();
+    if (elemTypeSizeBits % CHAR_BIT == 0) {
+        return 1;
+    }
+
+    const auto dimOrder = valueType.getDimsOrder();
+    const auto memDim = dimOrder.toMemDim(tileDim);
+    const auto strides = valueType.getStrides();
+    if (!strides.empty()) {
+        const auto bufferStrideTilingDimBits = strides[tileDim].count();
+        if (bufferStrideTilingDimBits % CHAR_BIT == 0) {
+            return 1;
+        }
+        VPUX_THROW_WHEN(!vpux::StrideReqs::compact(valueType.getRank()).checkStrides(valueType),
+                        "Non-contiguous strides must be byte-aligned at '{0}'.", value.getLoc());
+    }
+
+    const auto memShape = dimOrder.toMemoryOrder(valueType.getShape());
+    int64_t strideOnTilingDim = 1;
+    for (auto i = static_cast<size_t>(memDim.ind()) + 1; i < memShape.size(); ++i) {
+        strideOnTilingDim *= memShape[MemDim(i)];
+    }
+
+    const auto bitsPerStep = strideOnTilingDim * elemTypeSizeBits;
+    if (bitsPerStep % CHAR_BIT == 0) {
+        return 1;
+    }
+
+    return CHAR_BIT / std::gcd<int64_t>(bitsPerStep, CHAR_BIT);
 }
 
 void vpux::adjustMaxNumTilesForSubByteAlignment(SmallVector<int64_t>& maxNumTiles, ShapeRef outputShape,

@@ -10,6 +10,7 @@
 #include "vpux/compiler/NPU37XX/dialect/IE/impl/convert_to_mixed_precision_strategy.hpp"
 #include "vpux/compiler/NPU37XX/dialect/IE/impl/expand_activation_channels_strategy.hpp"
 #include "vpux/compiler/NPU37XX/dialect/IE/impl/fuse_convert_to_dpu_checker.hpp"
+#include "vpux/compiler/NPU37XX/dialect/IE/impl/fuse_outstanding_dequant_strategy.hpp"
 #include "vpux/compiler/NPU37XX/dialect/IE/impl/fuse_outstanding_quant_strategy.hpp"
 #include "vpux/compiler/NPU37XX/dialect/IE/impl/fuse_quantized_ops_strategy.hpp"
 #include "vpux/compiler/NPU37XX/dialect/IE/impl/initial_low_precision_transformations_pipeline_strategy.hpp"
@@ -42,6 +43,10 @@ class StrategyFactory40XX : public IE::StrategyFactory {
 
     std::unique_ptr<IGreedilyPassStrategy> getFuseOutstandingQuantStrategy() override {
         return std::make_unique<arch37xx::FuseOutstandingQuantStrategy>();
+    }
+
+    std::unique_ptr<IGreedilyPassStrategy> getFuseOutstandingDequantStrategy() override {
+        return std::make_unique<arch37xx::FuseOutstandingDequantStrategy>();
     }
 
     std::unique_ptr<IExpandActivationChannelsStrategy> getExpandActivationChannelsStrategy(const bool seOpsEnabled,

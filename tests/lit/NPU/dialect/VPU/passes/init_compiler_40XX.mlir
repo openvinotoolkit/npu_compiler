@@ -17,7 +17,6 @@ module @test {
 // CHECK-DAG:    {{  }}}
 
 // CHECK-DAG:    {{  }}config.ExecutorResource 2 of @DMA_NN
-// CHECK-DAG:    {{  }}config.ExecutorResource 1 of @M2I
 // CHECK-DAG:    {{  }}config.Resources 6 of @NCE at 1.850000e+03 MHz {
 // CHECK-DAG:    {{    }}config.ExecutorResource 2 of @SHAVE_ACT
 // CHECK-DAG:    {{    }}config.ExecutorResource 1 of @DPU

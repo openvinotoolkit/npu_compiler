@@ -768,6 +768,10 @@ mlir::LogicalResult UnrollSDPAPattern::unrollAndRearrangePattern(SDPAPattern& pa
         VPUX_THROW_UNLESS(addInputIndex >= 0, "Failed to find Add output in concat inputs");
     }
 
+    const auto needBroadcast = maskValue != nullptr && getShape(addOp.getInputs()[0]) == getShape(maskValue);
+    auto newMaskVect = needBroadcast
+                               ? splitTensor(maskValue, batch, channelDim, rewriter, addOp->getLoc(), "mask_slice")
+                               : SmallVector<mlir::Value>(batch, maskValue);
     for (int64_t i = 0; i < batch; ++i) {
         // Matmul1_split operation
         auto matMul1 = cloneMatMulOp(rewriter, matMulOp, matmulInputQs[i], matmulInputKs[i]);
@@ -777,7 +781,8 @@ mlir::LogicalResult UnrollSDPAPattern::unrollAndRearrangePattern(SDPAPattern& pa
         mlir::Value softmaxInput = matMul1->getResult(0);
         if (addOp != nullptr) {
             auto addNewOp = IE::AddOp::create(
-                    rewriter, appendLoc(addOp->getLoc(), "_add_" + std::to_string(i)), matMul1->getResult(0), maskValue,
+                    rewriter, appendLoc(addOp->getLoc(), "_add_" + std::to_string(i)), matMul1->getResult(0),
+                    newMaskVect[i],
                     /*auto_broadcast=*/
                     IE::AutoBroadcastTypeAttr::get(rewriter.getContext(), IE::AutoBroadcastType::NUMPY), nullptr,
                     nullptr, nullptr, nullptr);

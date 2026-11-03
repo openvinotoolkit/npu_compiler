@@ -8,6 +8,7 @@
 #include "vpux/compiler/dialect/IE/IR/ops/data_movement.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/eltwise.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/reduce.hpp"
+#include "vpux/compiler/dialect/IE/IR/ops/specialized.hpp"
 #include "vpux/compiler/dialect/const/dialect.hpp"
 #include "vpux/compiler/dialect/core/IR/tensor_attr.hpp"
 
@@ -360,4 +361,85 @@ TEST_F(MLIR_IETypeInferenceTest, ReduceMeanOp_BoundsAndLayoutTravelTogether) {
     ASSERT_FALSE(bounds.empty()) << "Expected bounds to be present in TensorAttr";
     SmallVector<int64_t> expectedBounds = {1, 1, 48, 400};
     EXPECT_EQ(bounds.raw(), ArrayRef<int64_t>(expectedBounds));
+}
+
+//
+// TopK
+//
+
+namespace {
+
+IE::TopKOp::Properties createTopKProperties(mlir::MLIRContext* ctx, int64_t axis, int64_t k = -1) {
+    IE::TopKOp::Properties properties{};
+    properties.axis = getIntAttr(ctx, axis);
+    if (k >= 0) {
+        properties.k_value = getIntAttr(ctx, k);
+    }
+    properties.mode = IE::TopKModeAttr::get(ctx, IE::TopKMode::MAX);
+    properties.sort = IE::TopKSortTypeAttr::get(ctx, IE::TopKSortType::SORT_VALUES);
+    properties.element_type = mlir::TypeAttr::get(getSInt32Type(ctx));
+    return properties;
+}
+
+}  // namespace
+
+TEST_F(MLIR_IETypeInferenceTest, TopKOp_RuntimeKUnboundedKeepsOrder) {
+    auto input = createOperand({1, 8, 32, 32}, vpux::DimsOrder::NHWC);
+    input->getResult().setType(mlir::RankedTensorType::get({1, mlir::ShapedType::kDynamic, 32, 32},
+                                                           mlir::Float32Type::get(&ctx),
+                                                           getTensorAttr(&ctx, vpux::DimsOrder::NHWC, nullptr)));
+    auto k = createOperand({1}, vpux::DimsOrder::C);
+
+    auto properties = createTopKProperties(&ctx, 2);
+
+    SmallVector<mlir::ShapedTypeComponents> typeComponents;
+    ASSERT_TRUE(mlir::succeeded(IE::TopKOp::inferReturnTypeComponents(&ctx, builder->getUnknownLoc(),
+                                                                      {input->getResult(), k->getResult()}, {},
+                                                                      &properties, {}, typeComponents)));
+    ASSERT_EQ(typeComponents.size(), 2);
+
+    for (const auto& components : typeComponents) {
+        auto tensorAttr = mlir::dyn_cast_or_null<TensorAttr>(components.getAttribute());
+        ASSERT_TRUE(tensorAttr != nullptr);
+        EXPECT_EQ(tensorAttr.getOrder(), mlir::AffineMapAttr::get(vpux::DimsOrder::NHWC.toAffineMap(&ctx)));
+        EXPECT_TRUE(tensorAttr.getBounds().empty());
+    }
+}
+
+TEST_F(MLIR_IETypeInferenceTest, TopKOp_RuntimeKBoundedKeepsOrderAndBounds) {
+    auto input = createOperand({1, 32, mlir::ShapedType::kDynamic, 16}, vpux::DimsOrder::NHWC, {1, 32, 800, 16});
+    auto k = createOperand({1}, vpux::DimsOrder::C);
+
+    auto properties = createTopKProperties(&ctx, 1);
+
+    SmallVector<mlir::ShapedTypeComponents> typeComponents;
+    ASSERT_TRUE(mlir::succeeded(IE::TopKOp::inferReturnTypeComponents(&ctx, builder->getUnknownLoc(),
+                                                                      {input->getResult(), k->getResult()}, {},
+                                                                      &properties, {}, typeComponents)));
+    ASSERT_EQ(typeComponents.size(), 2);
+
+    for (const auto& components : typeComponents) {
+        auto tensorAttr = mlir::dyn_cast_or_null<TensorAttr>(components.getAttribute());
+        ASSERT_TRUE(tensorAttr != nullptr);
+        EXPECT_EQ(tensorAttr.getOrder(), mlir::AffineMapAttr::get(vpux::DimsOrder::NHWC.toAffineMap(&ctx)));
+        EXPECT_FALSE(tensorAttr.getBounds().empty());
+    }
+}
+
+TEST_F(MLIR_IETypeInferenceTest, TopKOp_StaticKOnBoundedAxisHasNoBounds) {
+    auto input = createOperand({1, 2, 3, mlir::ShapedType::kDynamic}, vpux::DimsOrder::NCHW, {1, 2, 3, 10});
+
+    auto properties = createTopKProperties(&ctx, 3, 5);
+
+    SmallVector<mlir::ShapedTypeComponents> typeComponents;
+    ASSERT_TRUE(mlir::succeeded(IE::TopKOp::inferReturnTypeComponents(
+            &ctx, builder->getUnknownLoc(), {input->getResult()}, {}, &properties, {}, typeComponents)));
+    ASSERT_EQ(typeComponents.size(), 2);
+
+    for (const auto& components : typeComponents) {
+        SmallVector<int64_t> expectedShape{1, 2, 3, 5};
+        EXPECT_EQ(components.getDims(), ArrayRef<int64_t>(expectedShape));
+        auto tensorAttr = mlir::dyn_cast_or_null<TensorAttr>(components.getAttribute());
+        EXPECT_TRUE(tensorAttr == nullptr || tensorAttr.getBounds().empty());
+    }
 }

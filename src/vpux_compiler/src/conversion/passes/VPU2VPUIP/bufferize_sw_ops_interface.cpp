@@ -218,6 +218,7 @@ mlir::LogicalResult vpux::bufferizeSWLayerOp(mlir::RewriterBase& rewriter, mlir:
     }
 
     copyLoopAttributes(op, swKernelOp.getOperation());
+    VPUIP::copyCustomKernelAttributes(op, swKernelOp.getOperation());
     mlir::bufferization::replaceOpWithBufferizedValues(rewriter, op, finalResults);
     return mlir::success();
 }
@@ -260,6 +261,7 @@ mlir::LogicalResult vpux::bufferizeDistributedSWLayerOp(mlir::RewriterBase& rewr
     auto finalResults = SmallVector<mlir::Value>(swKernelOp->getResults().begin(),
                                                  swKernelOp->getResults().begin() + numResultsWithoutAuxBuffers);
     copyLoopAttributes(op, swKernelOp.getOperation());
+    VPUIP::copyCustomKernelAttributes(op, swKernelOp.getOperation());
     mlir::bufferization::replaceOpWithBufferizedValues(rewriter, op, finalResults);
     return mlir::success();
 }
@@ -468,6 +470,7 @@ void vpux::registerSoftwareLayerBufferizableOpInterfaces(mlir::DialectRegistry& 
         VPU::ReduceL1Op::attachInterface<SoftwareLayerOpBufferizeModel<VPU::ReduceL1Op>>(*ctx);
         VPU::ReduceSumOp::attachInterface<SoftwareLayerOpBufferizeModel<VPU::ReduceSumOp>>(*ctx);
         VPU::ReduceMeanOp::attachInterface<SoftwareLayerOpBufferizeModel<VPU::ReduceMeanOp>>(*ctx);
+        VPU::ReduceMeanDMAOp::attachInterface<SoftwareLayerOpBufferizeModel<VPU::ReduceMeanDMAOp>>(*ctx);
         VPU::ReduceLogicalAndOp::attachInterface<SoftwareLayerOpBufferizeModel<VPU::ReduceLogicalAndOp>>(*ctx);
         VPU::ReduceMaxOp::attachInterface<SoftwareLayerOpBufferizeModel<VPU::ReduceMaxOp>>(*ctx);
         VPU::ReduceMinOp::attachInterface<SoftwareLayerOpBufferizeModel<VPU::ReduceMinOp>>(*ctx);
@@ -545,6 +548,8 @@ void vpux::registerSoftwareLayerBufferizableOpInterfaces(mlir::DialectRegistry& 
 
     registry.addExtension(+[](mlir::MLIRContext* ctx, Shave::ShaveDialect*) {
         Shave::ExternalKernelOp::attachInterface<SoftwareLayerOpBufferizeModel<Shave::ExternalKernelOp>>(*ctx);
+        Shave::RepeatedExternalKernelOp::attachInterface<
+                SoftwareLayerOpBufferizeModel<Shave::RepeatedExternalKernelOp>>(*ctx);
     });
 
     mlir::linalg::registerBufferizableOpInterfaceExternalModels(registry);

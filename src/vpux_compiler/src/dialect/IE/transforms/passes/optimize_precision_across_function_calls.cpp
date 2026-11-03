@@ -245,7 +245,7 @@ private:
             if (auto producerCallOp = mlir::dyn_cast<mlir::func::CallOp>(producerOp)) {
                 if (!_callFunction.contains(producerCallOp)) {
                     _log.warning("Call operation {0} at {1} is not tracked in operation cache. Skipping producer",
-                                 (producerCallOp != nullptr) ? producerCallOp->getName().getStringRef().str() : nullptr,
+                                 (producerCallOp != nullptr) ? producerCallOp->getName().getStringRef().str() : "",
                                  (producerCallOp != nullptr) ? producerCallOp->getLoc() : nullptr);
                     continue;
                 }
@@ -281,7 +281,7 @@ private:
                 if (auto userCallOp = mlir::dyn_cast<mlir::func::CallOp>(userOp)) {
                     if (!_callFunction.contains(userCallOp)) {
                         _log.debug("Call operation {0} at {1} is not tracked in operation cache. Skipping user",
-                                   (userCallOp != nullptr) ? userCallOp->getName().getStringRef().str() : nullptr,
+                                   (userCallOp != nullptr) ? userCallOp->getName().getStringRef().str() : "",
                                    (userCallOp != nullptr) ? userCallOp->getLoc() : nullptr);
                         continue;
                     }

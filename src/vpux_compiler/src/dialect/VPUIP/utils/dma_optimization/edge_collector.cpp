@@ -3,6 +3,29 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
+// Summary:
+// - Edge collector reads one VPUIP function and builds small data-flow graphs for DMA
+//   copy optimization. Edge collector does not change IR.
+//
+// - Boundaries: compute ops, function args, constants, allocs, and function
+//   returns. These are the sources and targets of an Edge.
+//
+// - Nodes: Copy, SubView, ConcatView, and simple view-like ops. These are the
+//   editable operations between boundaries.
+//
+// - Grouping algorithm: connected nodes are joined with union-find.
+//   Nodes are connected when data flows from one to another, or
+//   when sibling nodes read the same external source.
+//   Each connected group becomes one Edge.
+//
+// - Edge type: 1 source + 1 target is Normal; 1 source + many targets is
+//   FanOut; many sources + 1 target is FanIn; many sources + many targets is
+//   Many2Many.
+//
+// - LoopRegion: loop regions do not split collection. LoopRegionBuilder gives
+//   loop/tile/port/destination-buffer information, and EdgeCollector attaches
+//   it to normal boundaries and nodes as metadata.
+
 #include "vpux/compiler/dialect/VPUIP/utils/dma_optimization/edge_collector.hpp"
 
 #include "vpux/compiler/dialect/VPU/IR/attributes.hpp"
@@ -72,7 +95,7 @@ struct BoundaryKeyInfo {
 
 struct ResolvedBoundary {
     BoundaryKey key;
-    vpux::VPUIP::EdgeBoundary boundary;
+    vpux::VPUIP::DmaOptimization::EdgeBoundary boundary;
 };
 
 using ResolvedSourceBoundary = ResolvedBoundary;
@@ -92,8 +115,7 @@ BoundaryKey valueBoundaryKey(mlir::Value value) {
 
 }  // namespace
 
-namespace vpux {
-namespace VPUIP {
+namespace vpux::VPUIP::DmaOptimization {
 
 namespace {
 
@@ -101,23 +123,12 @@ namespace {
 // Memory-space helpers
 //===----------------------------------------------------------------------===//
 
-int64_t getMemorySpaceCode(VPU::MemoryKind memoryKind) {
-    switch (memoryKind) {
-    case VPU::MemoryKind::DDR:
-        return kMemSpaceDDR;
-    case VPU::MemoryKind::CMX_NN:
-        return kMemSpaceCMX;
-    default:
-        return -1;
-    }
-}
-
-int64_t getMemorySpaceCode(mlir::Type type) {
+std::optional<VPU::MemoryKind> getMemoryKind(mlir::Type type) {
     auto ndType = mlir::dyn_cast_or_null<vpux::NDTypeInterface>(type);
     if (ndType == nullptr) {
-        return -1;
+        return std::nullopt;
     }
-    return getMemorySpaceCode(ndType.getMemoryKind());
+    return ndType.getMemoryKind();
 }
 
 //===----------------------------------------------------------------------===//
@@ -169,7 +180,6 @@ bool isLayerDataInOperand(mlir::Operation* op, unsigned operandIndex) {
     }
     return false;
 }
-
 bool isNCEDataInOperand(VPUIP::NCEClusterTaskOp nceOp, unsigned operandIndex) {
     const auto containsOperandIndex = [operandIndex](mlir::MutableOperandRange operands) {
         return llvm::any_of(operands, [operandIndex](mlir::OpOperand& operand) {
@@ -214,7 +224,7 @@ bool isDataInOperand(mlir::Operation* op, unsigned operandIndex) {
     if (auto nceOp = mlir::dyn_cast<VPUIP::NCEClusterTaskOp>(op)) {
         return isNCEDataInOperand(nceOp, operandIndex);
     }
-    if (mlir::isa_and_nonnull<VPUIP::LayerOpInterface>(op)) {
+    if (mlir::isa_and_present<VPUIP::LayerOpInterface>(op)) {
         return isLayerDataInOperand(op, operandIndex);
     }
     // Pure view-like ops carry data through their first operand.
@@ -237,6 +247,18 @@ bool isDataFlowResultUse(mlir::Operation* user, unsigned operandIndex, const OpT
     return false;
 }
 
+bool isLayerOutputOperand(mlir::Operation* op, unsigned operandIndex) {
+    if (!mlir::isa_and_present<VPUIP::LayerOpInterface>(op)) {
+        return false;
+    }
+    for (auto& operand : VPUIP::getLayerOutOpOperands(op)) {
+        if (operand.getOperandNumber() == operandIndex) {
+            return true;
+        }
+    }
+    return false;
+}
+
 //===----------------------------------------------------------------------===//
 // Edge boundary resolver
 //===----------------------------------------------------------------------===//
@@ -245,14 +267,13 @@ bool isDataFlowResultUse(mlir::Operation* user, unsigned operandIndex, const OpT
 ///
 /// Edge nodes contain only DMA/view operations. Their external endpoints must
 /// be represented by stable boundaries: compute ops, constants, alloc buffers,
-/// function args/returns, or LoopRegion ports. The resolver hides the IR
+/// or function args/returns. LoopRegionInfo is attached as metadata instead
+/// of becoming hard topology boundaries. The resolver hides the IR
 /// walking needed to find those endpoints:
 /// - producer resolution walks backward through transparent ops and junctions
 ///   until it finds the source boundary for an edge node input;
 /// - consumer resolution maps direct users to target boundaries;
-/// - LoopRegion port maps and LoopRegion output assembly ConcatView chains are
-///   consulted so region crossings become LoopRegion boundaries instead of
-///   ordinary ops.
+/// - LoopRegion maps are consulted only to annotate boundaries/nodes.
 ///
 /// Example:
 ///   compute0 -> Copy -> SubView -> compute1
@@ -261,37 +282,37 @@ bool isDataFlowResultUse(mlir::Operation* user, unsigned operandIndex, const OpT
 /// resolution returns compute1 as the target boundary.
 class EdgeBoundaryResolver {
 public:
-    /// Keeps a reference to LoopRegion cut-point information and caches
-    /// LoopRegion output assembly ops that should resolve as output ports.
     explicit EdgeBoundaryResolver(const LoopRegionBoundaryInfo& boundaries);
 
     /// Resolves the source boundary for a data-in value of an EdgeNode.
-    /// Region crossings must be represented explicitly through LoopRegion
-    /// ports; an internal producer without a port is a builder invariant break.
+    /// LoopRegion participation is attached to the ordinary producer boundary.
     SmallVector<ResolvedSourceBoundary, 2> resolveProducerBoundaries(mlir::Value producerValue) const;
 
     /// Resolves the target boundaries for one use of an EdgeNode result.
-    /// Region crossings must be represented explicitly through LoopRegion
-    /// ports; an internal consumer without a port is a builder invariant break.
+    /// LoopRegion participation is attached to the ordinary consumer boundary.
     SmallVector<ResolvedTargetBoundary, 2> resolveConsumerBoundaries(mlir::Operation* targetOp, unsigned operandIndex,
                                                                      OpTrait targetTrait) const;
 
+    /// Resolves the LoopRegionInfo to attach to one EdgeNode.
+    LoopRegionInfo resolveEdgeNodeLoopRegionInfo(mlir::Operation* op) const;
+
 private:
-    /// Returns a LoopRegion boundary when `value` is registered as a region
-    /// input, output, or destination-buffer port.
-    EdgeBoundary probeLoopRegionPort(mlir::Value value) const;
+    // "Lookup" means reading the direct operation LoopRegionInfo from the
+    // read-only LoopRegionBoundaryInfo built by LoopRegionBuilder. "Resolve"
+    // means selecting one LoopRegionInfo from value, operation, or operand entries.
+    // "Attach" means copying one resolved LoopRegionInfo into EdgeBoundary::loopRegionInfo
+    // or EdgeNode::loopRegionInfo, so later optimizers can read it from Edge.
+    LoopRegionInfo resolveValueLoopRegionInfo(mlir::Value value) const;
+    LoopRegionInfo lookupOperationLoopRegionInfo(mlir::Operation* op) const;
+    EdgeBoundary attachLoopRegionInfoFromValue(EdgeBoundary boundary, mlir::Value value) const;
+    EdgeBoundary attachLoopRegionInfoFromUse(EdgeBoundary boundary, mlir::Operation* targetOp,
+                                             unsigned operandIndex) const;
 
-    /// Returns a LoopRegion output boundary when `op` is part of a cached
-    /// LoopRegion output assembly chain.
-    EdgeBoundary probeLoopRegionOutputAssembly(mlir::Operation* op) const;
-
-    bool isLoopRegionInternalOp(mlir::Operation* op) const;
-
-    /// LoopRegion boundary metadata supplied by LoopRegionBuilder.
+    /// LoopRegionInfo entries supplied by LoopRegionBuilder identify the loop,
+    /// tile, and optional port of a value, operation, or operand.
+    /// EdgeCollector only copies this information to EdgeBoundary/EdgeNode;
+    /// optimizers use them later.
     const LoopRegionBoundaryInfo& _loopRegionBoundaries;
-
-    /// ConcatView op that assembles a LoopRegion output -> output port location.
-    llvm::DenseMap<mlir::Operation*, LoopRegionPortLocation> _loopRegionOutputAssemblyOpToPort;
 };
 
 //===----------------------------------------------------------------------===//
@@ -300,32 +321,153 @@ private:
 
 EdgeBoundaryResolver::EdgeBoundaryResolver(const LoopRegionBoundaryInfo& boundaries)
         : _loopRegionBoundaries(boundaries) {
-    // valueToPort stores the LoopRegion input and output values as logical ports.
-    // So LoopRegion is treated as normal compute op, %Outputs = LoopRegion(%Inputs).
-    for (const auto& valueAndPort : _loopRegionBoundaries.valueToPort) {
-        const auto& portLocation = valueAndPort.second;
-        if (portLocation.portKind != LoopRegionPortKind::Output) {
+}
+
+// Pick the LoopRegion port information for one SSA value.
+// A value can have several LoopRegionInfo entries: a region-level port and tile-level ports.
+// Prefer one clear tile-level port. If several tiles share the same value,
+// keep the region-level port and let the consumer operation provide the tile.
+std::optional<LoopRegionInfo> chooseLoopRegionPortInfo(ArrayRef<LoopRegionInfo> infos,
+                                                       const LoopRegionInfo& operationInfo) {
+    const LoopRegionInfo* portIdentity = nullptr;
+    const LoopRegionInfo* logicalPort = nullptr;
+    const LoopRegionInfo* tilePort = nullptr;
+    bool hasMultipleTilePorts = false;
+
+    for (const auto& info : infos) {
+        if (!info.hasPort || (operationInfo.isValid() && !info.hasSameRegionIdentity(operationInfo))) {
             continue;
         }
-        mlir::Value currentValue = valueAndPort.first;
-        while (currentValue) {
-            auto* definingOp = currentValue.getDefiningOp();
-            if (definingOp == nullptr) {
-                break;
-            }
-            if (mlir::isa<VPUIP::ConcatViewOp>(definingOp)) {
-                _loopRegionOutputAssemblyOpToPort.try_emplace(definingOp, portLocation);
-            }
-            const auto trait = classifyOp(definingOp);
-            if (trait.role == OpTrait::Role::Boundary) {
-                break;
-            }
-            if (definingOp->getNumOperands() == 0) {
-                break;
-            }
-            currentValue = definingOp->getOperand(0);
+
+        if (portIdentity == nullptr) {
+            portIdentity = &info;
+        } else if (!portIdentity->hasSameRegionIdentity(info) || portIdentity->portKind != info.portKind ||
+                   portIdentity->portIdx != info.portIdx) {
+            return std::nullopt;
+        }
+
+        if (!info.hasTileIdentity()) {
+            logicalPort = &info;
+            continue;
+        }
+        if (tilePort != nullptr && !tilePort->hasSameTileIdentity(info)) {
+            hasMultipleTilePorts = true;
+        } else {
+            tilePort = &info;
         }
     }
+
+    if (tilePort != nullptr && !hasMultipleTilePorts) {
+        return *tilePort;
+    }
+    if (logicalPort == nullptr) {
+        return std::nullopt;
+    }
+
+    if (operationInfo.isValid() && logicalPort->hasSameRegionIdentity(operationInfo)) {
+        auto resolved = operationInfo;
+        resolved.hasPort = true;
+        resolved.portKind = logicalPort->portKind;
+        resolved.portIdx = logicalPort->portIdx;
+        return resolved;
+    }
+    return *logicalPort;
+}
+
+LoopRegionInfo EdgeBoundaryResolver::resolveValueLoopRegionInfo(mlir::Value value) const {
+    if (!value) {
+        return {};
+    }
+    auto valueIt = _loopRegionBoundaries.valueToLoopRegions.find(value);
+    auto operationInfo = lookupOperationLoopRegionInfo(value.getDefiningOp());
+    if (valueIt != _loopRegionBoundaries.valueToLoopRegions.end()) {
+        if (auto portInfo = chooseLoopRegionPortInfo(valueIt->second, operationInfo)) {
+            return *portInfo;
+        }
+        if (valueIt->second.size() == 1) {
+            return valueIt->second.front();
+        }
+    }
+    if (operationInfo.isValid()) {
+        return operationInfo;
+    }
+    return {};
+}
+
+LoopRegionInfo EdgeBoundaryResolver::lookupOperationLoopRegionInfo(mlir::Operation* op) const {
+    if (op == nullptr) {
+        return {};
+    }
+    auto opIt = _loopRegionBoundaries.opToLoopRegion.find(op);
+    if (opIt != _loopRegionBoundaries.opToLoopRegion.end()) {
+        return opIt->second;
+    }
+    return {};
+}
+
+LoopRegionInfo EdgeBoundaryResolver::resolveEdgeNodeLoopRegionInfo(mlir::Operation* op) const {
+    if (op == nullptr) {
+        return {};
+    }
+
+    // A result that is a LoopRegion port is the best match, so return it now.
+    // Otherwise, save the first valid result information. Use it only when the
+    // operation itself has no LoopRegionInfo.
+    LoopRegionInfo resultInfo;
+    for (auto result : op->getResults()) {
+        auto info = resolveValueLoopRegionInfo(result);
+        if (info.hasPort) {
+            return info;
+        }
+        if (!resultInfo.isValid() && info.isValid()) {
+            resultInfo = info;
+        }
+    }
+
+    const auto operationInfo = lookupOperationLoopRegionInfo(op);
+    if (operationInfo.isValid()) {
+        return operationInfo;
+    }
+    if (resultInfo.isValid()) {
+        return resultInfo;
+    }
+
+    // No result or operation LoopRegionInfo was found. Check inputs as the last option.
+    for (auto operand : op->getOperands()) {
+        auto info = resolveValueLoopRegionInfo(operand);
+        if (info.isValid()) {
+            return info;
+        }
+    }
+    return {};
+}
+
+EdgeBoundary EdgeBoundaryResolver::attachLoopRegionInfoFromValue(EdgeBoundary boundary, mlir::Value value) const {
+    // Source boundaries are created from a producer value. Copy the information found
+    // for that value onto the boundary.
+    if (!boundary.loopRegionInfo.isValid()) {
+        boundary.loopRegionInfo = resolveValueLoopRegionInfo(value);
+    }
+    return boundary;
+}
+
+EdgeBoundary EdgeBoundaryResolver::attachLoopRegionInfoFromUse(EdgeBoundary boundary, mlir::Operation* targetOp,
+                                                               unsigned operandIndex) const {
+    // Use the exact operand LoopRegionInfo first. The same SSA value can feed several
+    // LoopRegion tiles, so the consumer operand tells which tile this use means.
+    if (!boundary.loopRegionInfo.isValid() && targetOp != nullptr && operandIndex < targetOp->getNumOperands()) {
+        auto& operand = targetOp->getOpOperand(operandIndex);
+        auto operandIt = _loopRegionBoundaries.operandToLoopRegion.find(&operand);
+        if (operandIt != _loopRegionBoundaries.operandToLoopRegion.end()) {
+            boundary.loopRegionInfo = operandIt->second;
+        } else {
+            boundary.loopRegionInfo = resolveValueLoopRegionInfo(operand.get());
+        }
+    }
+    if (!boundary.loopRegionInfo.isValid()) {
+        boundary.loopRegionInfo = lookupOperationLoopRegionInfo(targetOp);
+    }
+    return boundary;
 }
 
 //===----------------------------------------------------------------------===//
@@ -342,22 +484,9 @@ SmallVector<ResolvedSourceBoundary, 2> EdgeBoundaryResolver::resolveProducerBoun
     auto* definingOp = producerValue.getDefiningOp();
     if (definingOp == nullptr) {
         if (auto blockArgument = mlir::dyn_cast<mlir::BlockArgument>(producerValue)) {
-            out.push_back({valueBoundaryKey(producerValue), EdgeBoundary::funcArg(blockArgument)});
+            out.push_back({valueBoundaryKey(producerValue),
+                           attachLoopRegionInfoFromValue(EdgeBoundary::funcArg(blockArgument), producerValue)});
         }
-        return out;
-    }
-
-    // LoopRegion ports are explicit collection boundaries. Prefer them over
-    // looking through region-internal assembly.
-    if (auto boundary = probeLoopRegionPort(producerValue); boundary.kind != EdgeBoundary::Kind::None) {
-        out.push_back({valueBoundaryKey(producerValue), boundary});
-        return out;
-    }
-
-    // Some LoopRegion outputs are assembled by ConcatView chains. Those
-    // assembly ops are logical region ports, not ordinary edge nodes.
-    if (auto boundary = probeLoopRegionOutputAssembly(definingOp); boundary.kind != EdgeBoundary::Kind::None) {
-        out.push_back({valueBoundaryKey(producerValue), boundary});
         return out;
     }
 
@@ -374,24 +503,24 @@ SmallVector<ResolvedSourceBoundary, 2> EdgeBoundaryResolver::resolveProducerBoun
                     resultIdx = opResult.getResultNumber();
                 }
             }
-            out.push_back({valueBoundaryKey(producerValue), EdgeBoundary::computeResult(definingOp, resultIdx)});
+            out.push_back(
+                    {valueBoundaryKey(producerValue),
+                     attachLoopRegionInfoFromValue(EdgeBoundary::computeResult(definingOp, resultIdx), producerValue)});
             return out;
         }
         case EdgeBoundary::Kind::Constant:
-            out.push_back({valueBoundaryKey(producerValue), EdgeBoundary::constant(definingOp)});
+            out.push_back({valueBoundaryKey(producerValue),
+                           attachLoopRegionInfoFromValue(EdgeBoundary::constant(definingOp), producerValue)});
             return out;
         case EdgeBoundary::Kind::AllocBuffer:
-            out.push_back({valueBoundaryKey(producerValue), EdgeBoundary::allocBuffer(definingOp)});
+            out.push_back({valueBoundaryKey(producerValue),
+                           attachLoopRegionInfoFromValue(EdgeBoundary::allocBuffer(definingOp), producerValue)});
             return out;
         default:
             return out;
         }
     case OpTrait::Role::Transparent:
     case OpTrait::Role::Junction:
-        if (isLoopRegionInternalOp(definingOp)) {
-            VPUX_THROW("LoopRegion internal producer at '{0}' reaches a global edge without a LoopRegion port",
-                       definingOp->getLoc());
-        }
         return out;
     case OpTrait::Role::Unknown:
         return out;
@@ -412,7 +541,8 @@ SmallVector<ResolvedTargetBoundary, 2> EdgeBoundaryResolver::resolveConsumerBoun
     }
     if (mlir::isa<mlir::func::ReturnOp>(targetOp)) {
         out.push_back({BoundaryKey{targetOp, static_cast<int32_t>(operandIndex)},
-                       EdgeBoundary::funcReturn(targetOp, operandIndex)});
+                       attachLoopRegionInfoFromUse(EdgeBoundary::funcReturn(targetOp, operandIndex), targetOp,
+                                                   operandIndex)});
         return out;
     }
     if (operandIndex >= targetOp->getNumOperands()) {
@@ -421,62 +551,16 @@ SmallVector<ResolvedTargetBoundary, 2> EdgeBoundaryResolver::resolveConsumerBoun
 
     if (targetTrait.role == OpTrait::Role::Boundary && targetTrait.boundaryKind == EdgeBoundary::Kind::ComputeOp) {
         out.push_back({BoundaryKey{targetOp, static_cast<int32_t>(operandIndex)},
-                       EdgeBoundary::computeOperand(targetOp, operandIndex)});
-        return out;
-    }
-
-    // A direct hit on a cached output assembly op means the edge exits through
-    // a LoopRegion output port rather than a normal consumer op.
-    if (auto boundary = probeLoopRegionOutputAssembly(targetOp); boundary.kind != EdgeBoundary::Kind::None) {
-        out.push_back({BoundaryKey{targetOp, -1}, boundary});
-        return out;
-    }
-
-    const auto targetOperand = targetOp->getOperand(operandIndex);
-    if (auto boundary = probeLoopRegionPort(targetOperand); boundary.kind != EdgeBoundary::Kind::None) {
-        out.push_back({BoundaryKey{targetOp, static_cast<int32_t>(operandIndex)}, boundary});
+                       attachLoopRegionInfoFromUse(EdgeBoundary::computeOperand(targetOp, operandIndex), targetOp,
+                                                   operandIndex)});
         return out;
     }
 
     if (targetTrait.role == OpTrait::Role::Transparent || targetTrait.role == OpTrait::Role::Junction) {
-        if (isLoopRegionInternalOp(targetOp)) {
-            VPUX_THROW("LoopRegion internal consumer at '{0}' is reached from a global edge without a LoopRegion port",
-                       targetOp->getLoc());
-        }
         return out;
     }
 
     return out;
-}
-
-//===----------------------------------------------------------------------===//
-// EdgeBoundaryResolver: LoopRegion probes
-//===----------------------------------------------------------------------===//
-
-EdgeBoundary EdgeBoundaryResolver::probeLoopRegionPort(mlir::Value value) const {
-    if (!value) {
-        return EdgeBoundary::none();
-    }
-    auto portIt = _loopRegionBoundaries.valueToPort.find(value);
-    if (portIt == _loopRegionBoundaries.valueToPort.end()) {
-        return EdgeBoundary::none();
-    }
-    return EdgeBoundary::loopRegion(portIt->second);
-}
-
-bool EdgeBoundaryResolver::isLoopRegionInternalOp(mlir::Operation* op) const {
-    return op != nullptr && _loopRegionBoundaries.internalOps.contains(op);
-}
-
-EdgeBoundary EdgeBoundaryResolver::probeLoopRegionOutputAssembly(mlir::Operation* op) const {
-    if (op == nullptr) {
-        return EdgeBoundary::none();
-    }
-    auto portIt = _loopRegionOutputAssemblyOpToPort.find(op);
-    if (portIt == _loopRegionOutputAssemblyOpToPort.end()) {
-        return EdgeBoundary::none();
-    }
-    return EdgeBoundary::loopRegion(portIt->second);
 }
 
 }  // namespace
@@ -514,11 +598,11 @@ NodeDetails buildNodeDetails(mlir::Operation* op) {
 
     if (op->getNumOperands() > 0) {
         details.inputType = op->getOperand(0).getType();
-        details.srcMemSpace = getMemorySpaceCode(details.inputType);
+        details.srcMemSpace = getMemoryKind(details.inputType);
     }
     if (op->getNumResults() > 0) {
         details.outputType = op->getResult(0).getType();
-        details.dstMemSpace = getMemorySpaceCode(details.outputType);
+        details.dstMemSpace = getMemoryKind(details.outputType);
     }
 
     if (auto copyOp = mlir::dyn_cast<VPUIP::CopyOp>(op)) {
@@ -538,17 +622,6 @@ NodeDetails buildNodeDetails(mlir::Operation* op) {
 }
 
 EdgeCollector::EdgeCollector(Logger log): _log(log) {
-}
-
-//===----------------------------------------------------------------------===//
-// EdgeCollector state helpers
-//===----------------------------------------------------------------------===//
-
-bool EdgeCollector::isInternal(mlir::Operation* op) const {
-    if (_loopRegionBoundaries == nullptr || op == nullptr) {
-        return false;
-    }
-    return _loopRegionBoundaries->internalOps.contains(op);
 }
 
 //===----------------------------------------------------------------------===//
@@ -659,6 +732,59 @@ void appendUniqueLink(SmallVectorImpl<int32_t>& links, llvm::SmallDenseSet<int32
     }
 }
 
+void fillLoopRegionInfos(Edge& edge) {
+    edge.loopRegionInfos.clear();
+
+    auto appendUnique = [&](const LoopRegionInfo& info) {
+        if (info.isValid() && !llvm::is_contained(edge.loopRegionInfos, info)) {
+            edge.loopRegionInfos.push_back(info);
+        }
+    };
+
+    for (const auto& source : edge.sources) {
+        appendUnique(source.loopRegionInfo);
+    }
+    for (const auto& target : edge.targets) {
+        appendUnique(target.loopRegionInfo);
+    }
+    for (const auto& node : edge.nodes) {
+        appendUnique(node.loopRegionInfo);
+    }
+}
+
+void fillInputViewChains(Edge& edge) {
+    for (auto& node : edge.nodes) {
+        if (node.op == nullptr || node.op->getNumOperands() == 0 || node.preds.size() != 1 ||
+            (!node.details.isCopy() && !node.details.isSlice() && !node.details.isViewOp())) {
+            continue;
+        }
+
+        InputViewChain chain;
+        chain.source = node.op->getOperand(0);
+        const auto predecessor = node.preds.front();
+        if (predecessor >= 0) {
+            const auto predecessorIndex = static_cast<size_t>(predecessor);
+            if (predecessorIndex >= edge.nodes.size()) {
+                continue;
+            }
+
+            const auto& predecessorNode = edge.nodes[predecessorIndex];
+            auto* predecessorOp = predecessorNode.op;
+            if (mlir::isa<VPUIP::SubViewOp>(predecessorOp) || isViewLikeOp(predecessorOp)) {
+                if (predecessorOp->getNumOperands() != 1 || predecessorOp->getNumResults() != 1 ||
+                    predecessorOp->getResult(0) != chain.source || !predecessorOp->getRegions().empty() ||
+                    !predecessorNode.details.inputViewChain.has_value()) {
+                    continue;
+                }
+
+                chain = *predecessorNode.details.inputViewChain;
+                chain.views.push_back(predecessorOp);
+            }
+        }
+        node.details.inputViewChain = std::move(chain);
+    }
+}
+
 }  // namespace
 
 //===----------------------------------------------------------------------===//
@@ -669,7 +795,8 @@ void appendUniqueLink(SmallVectorImpl<int32_t>& links, llvm::SmallDenseSet<int32
 //
 // Algorithm:
 // 1. Walk the function and assign every visible edge op a temporary edge index.
-//    LoopRegion-internal ops are skipped because they are collected separately.
+//    LoopRegion-internal ops are ordinary visible edge ops; LoopRegionInfo is
+//    attached as metadata and do not stop traversal.
 // 2. Use connected-component tracking to merge edge indices when two edge ops
 //    touch through data-in operands, or when sibling edge ops read the same
 //    external source value.
@@ -698,7 +825,6 @@ EdgeCollection EdgeCollector::collect(mlir::func::FuncOp func, const LoopRegionB
     _componentParentByEdgeIndex.clear();
     _diagEdgeOps = 0;
     _diagBoundaryOps = 0;
-    _diagSkippedInternal = 0;
     _diagDroppedIncompleteEdges = 0;
     _diagDroppedNoSources = 0;
     _diagDroppedNoTargets = 0;
@@ -711,13 +837,18 @@ EdgeCollection EdgeCollector::collect(mlir::func::FuncOp func, const LoopRegionB
     // Resolve edge component endpoints from SSA values/users to EdgeBoundary objects.
     EdgeBoundaryResolver boundaryResolver(loopRegionBoundaries);
 
+    const auto isResultUseForCollection = [&](mlir::Operation* user, unsigned operandIndex) {
+        const auto userTrait = mlir::isa<mlir::func::ReturnOp>(user) ? OpTrait{} : classifyOp(user);
+        if (isDataFlowResultUse(user, operandIndex, userTrait)) {
+            return true;
+        }
+        return userTrait.role == OpTrait::Role::Boundary && userTrait.boundaryKind == EdgeBoundary::Kind::ComputeOp &&
+               isLayerOutputOperand(user, operandIndex);
+    };
+
     // Step 1: assign edge ids and union adjacent edge ops.
     funcOp->walk([&](mlir::Operation* op) {
         if (op == funcOp) {
-            return;
-        }
-        if (isInternal(op)) {
-            ++_diagSkippedInternal;
             return;
         }
         if (!isEdgeOp(op)) {
@@ -735,7 +866,7 @@ EdgeCollection EdgeCollector::collect(mlir::func::FuncOp func, const LoopRegionB
             }
             const auto operandValue = op->getOperand(operandIndex);
             if (auto* definingOp = operandValue.getDefiningOp()) {
-                if (!isInternal(definingOp) && isEdgeOp(definingOp)) {
+                if (isEdgeOp(definingOp)) {
                     const int32_t producerEdgeIndex = getOrCreateEdgeIndex(definingOp);
                     mergeEdgeComponents(edgeIndex, producerEdgeIndex);
                 }
@@ -745,7 +876,7 @@ EdgeCollection EdgeCollector::collect(mlir::func::FuncOp func, const LoopRegionB
         for (mlir::Value resultValue : op->getResults()) {
             for (mlir::OpOperand& useRef : resultValue.getUses()) {
                 mlir::Operation* user = useRef.getOwner();
-                if (user == nullptr || isInternal(user)) {
+                if (user == nullptr) {
                     continue;
                 }
                 if (isEdgeOp(user) && isDataInOperand(user, useRef.getOperandNumber())) {
@@ -766,7 +897,7 @@ EdgeCollection EdgeCollector::collect(mlir::func::FuncOp func, const LoopRegionB
             const auto operandValue = op->getOperand(operandIndex);
             mlir::Operation* definingOp = operandValue.getDefiningOp();
             // Only merge via shared external (non-EdgeOp) sources.
-            if (definingOp != nullptr && !isInternal(definingOp) && isEdgeOp(definingOp)) {
+            if (isEdgeOp(definingOp)) {
                 continue;
             }
             auto [firstEdgeIt, inserted] =
@@ -778,8 +909,8 @@ EdgeCollection EdgeCollector::collect(mlir::func::FuncOp func, const LoopRegionB
     }
 
     if (_edgeIndexByOp.empty()) {
-        _log.info("[EdgeCollector] funcOp has no EdgeOps (edgeOps={0}, boundaries={1}, skippedInternal={2})",
-                  _diagEdgeOps, _diagBoundaryOps, _diagSkippedInternal);
+        _log.info("[EdgeCollector] funcOp has no EdgeOps (edgeOps={0}, boundaries={1})", _diagEdgeOps,
+                  _diagBoundaryOps);
         return out;
     }
 
@@ -817,6 +948,7 @@ EdgeCollection EdgeCollector::collect(mlir::func::FuncOp func, const LoopRegionB
             EdgeNode node;
             node.op = op;
             node.details = buildNodeDetails(op);
+            node.loopRegionInfo = boundaryResolver.resolveEdgeNodeLoopRegionInfo(op);
             edge.nodes.push_back(std::move(node));
         }
 
@@ -832,7 +964,7 @@ EdgeCollection EdgeCollector::collect(mlir::func::FuncOp func, const LoopRegionB
                 }
                 const auto operandValue = op->getOperand(operandIndex);
                 mlir::Operation* definingOp = operandValue.getDefiningOp();
-                if (definingOp != nullptr && !isInternal(definingOp)) {
+                if (definingOp != nullptr) {
                     auto localNodeIndexIt = localNodeIndexByOp.find(definingOp);
                     if (localNodeIndexIt != localNodeIndexByOp.end()) {
                         appendUniqueLink(node.preds, predLinks, localNodeIndexIt->second);
@@ -858,15 +990,13 @@ EdgeCollection EdgeCollector::collect(mlir::func::FuncOp func, const LoopRegionB
                     }
                     const unsigned targetOperandIndex = useRef.getOperandNumber();
                     const auto userTrait = mlir::isa<mlir::func::ReturnOp>(user) ? OpTrait{} : classifyOp(user);
-                    if (!isDataFlowResultUse(user, targetOperandIndex, userTrait)) {
+                    if (!isResultUseForCollection(user, targetOperandIndex)) {
                         continue;
                     }
-                    if (!isInternal(user)) {
-                        auto localNodeIndexIt = localNodeIndexByOp.find(user);
-                        if (localNodeIndexIt != localNodeIndexByOp.end()) {
-                            appendUniqueLink(node.succs, succLinks, localNodeIndexIt->second);
-                            continue;
-                        }
+                    auto localNodeIndexIt = localNodeIndexByOp.find(user);
+                    if (localNodeIndexIt != localNodeIndexByOp.end()) {
+                        appendUniqueLink(node.succs, succLinks, localNodeIndexIt->second);
+                        continue;
                     }
 
                     for (const auto& resolvedBoundary :
@@ -897,18 +1027,18 @@ EdgeCollection EdgeCollector::collect(mlir::func::FuncOp func, const LoopRegionB
 
         fillBoundaryEntryNodes(edge, edge.sourceEntryNodes);
         fillBoundaryExitNodes(edge, edge.targetExitNodes);
+        fillInputViewChains(edge);
         edge.type = inferEdgeTypeFromBoundaryCounts(edge.sources.size(), edge.targets.size());
+        fillLoopRegionInfos(edge);
 
         out.edges.push_back(std::move(edge));
     }
 
-    _log.info("[EdgeCollector] edgeOps={0} boundaries={1} skippedInternal={2} edges={3} "
-              "droppedIncomplete={4} noSources={5} noTargets={6}",
-              _diagEdgeOps, _diagBoundaryOps, _diagSkippedInternal, out.edges.size(), _diagDroppedIncompleteEdges,
-              _diagDroppedNoSources, _diagDroppedNoTargets);
+    _log.info("[EdgeCollector] edgeOps={0} boundaries={1} edges={2} droppedIncomplete={3} noSources={4} noTargets={5}",
+              _diagEdgeOps, _diagBoundaryOps, out.edges.size(), _diagDroppedIncompleteEdges, _diagDroppedNoSources,
+              _diagDroppedNoTargets);
 
     return out;
 }
 
-}  // namespace VPUIP
-}  // namespace vpux
+}  // namespace vpux::VPUIP::DmaOptimization

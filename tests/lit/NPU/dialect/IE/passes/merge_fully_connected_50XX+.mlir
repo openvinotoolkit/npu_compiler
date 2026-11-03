@@ -5,12 +5,14 @@
 
 // RUN: vpux-opt --split-input-file --init-compiler="platform=%platform%" --merge-fully-connected="merge-unrolled-matmul-for-large-oc=true" %s | FileCheck %s --check-prefix=CHECK-ENABLED
 // RUN: vpux-opt --split-input-file --init-compiler="platform=%platform%" --merge-fully-connected="merge-unrolled-matmul-for-large-oc=false" %s | FileCheck %s --check-prefix=CHECK-DEFAULT
+// RUN: vpux-opt --split-input-file --init-compiler="platform=%platform% num-of-dpu-groups=1" --merge-fully-connected="merge-unrolled-matmul-for-large-oc=true" %s | FileCheck %s --check-prefix=CHECK-DEFAULT
 // REQUIRES: platform-NPU5010
 
 // This test exercises `merge-fully-connected` with `merge-unrolled-matmul-for-large-oc` explicitly enabled and disabled.
 // Each branch has OC = 8320 (> VPU_DIMENSION_LIMIT = 8192).
 // CHECK-ENABLED (option enabled): the branches are merged into a single FullyConnected and the resulting IR stays legal.
 // CHECK-DEFAULT (option disabled): the pass runs with the option explicitly disabled and the branches remain unmerged.
+// CHECK-DEFAULT (single tile, option enabled): num-of-dpu-groups=1 forces the option to false, so the branches remain unmerged.
 
 #HWC = affine_map<(d0, d1, d2) -> (d1, d2, d0)>
 #map = affine_map<(d0, d1, d2) -> (d2, d0, d1)>
@@ -34,14 +36,14 @@ func.func @MergeMatMulLargeOCWithWeightsAsConstant(%arg0: tensor<1x1x256xf16>) -
     %source = IE.AffineReshape(%arg0) {dim_mapping = [[0], [0], [1]], shape_value = [1, 256]} : tensor<1x1x256xf16> -> tensor<1x256xf16>
 
     %in_0 = IE.Slice %source [0, 0] [1, 128] : tensor<1x256xf16> to tensor<1x128xf16>
-    %fq_0 = IE.FakeQuantize(%weights_0, %in_low_0, %in_high_0, %out_low_0, %out_high_0) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 16 : i64} : tensor<1x128x8320xf16>, tensor<1x1x1xf16>, tensor<1x1x1xf16>, tensor<1x1x8320xf16>, tensor<1x1x8320xf16> -> tensor<1x128x8320xf16>
+    %fq_0 = IE.FakeQuantize(%weights_0, %in_low_0, %in_high_0, %out_low_0, %out_high_0) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 16 : i64} : tensor<1x128x8320xf16>, tensor<1x1x1xf16>, tensor<1x1x1xf16>, tensor<1x1x8320xf16>, tensor<1x1x8320xf16> -> tensor<1x128x8320xf16>
     %reshape_0 = IE.Reshape(%fq_0) {shape_value = [128, 8320]} : tensor<1x128x8320xf16> -> tensor<128x8320xf16>
     %transpose_0 = IE.Transpose(%reshape_0) {order_value = affine_map<(d0, d1) -> (d1, d0)>} : tensor<128x8320xf16> -> tensor<8320x128xf16>
     %fc_0 = IE.FullyConnected(%in_0, %transpose_0) : tensor<1x128xf16>, tensor<8320x128xf16> -> tensor<1x8320xf16>
     %out_reshape_0 = IE.Reshape(%fc_0) {shape_value = [1, 1, 1, 8320]} : tensor<1x8320xf16> -> tensor<1x1x1x8320xf16>
 
     %in_1 = IE.Slice %source [0, 128] [1, 128] : tensor<1x256xf16> to tensor<1x128xf16>
-    %fq_1 = IE.FakeQuantize(%weights_1, %in_low_1, %in_high_1, %out_low_1, %out_high_1) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 16 : i64} : tensor<1x128x8320xf16>, tensor<1x1x1xf16>, tensor<1x1x1xf16>, tensor<1x1x8320xf16>, tensor<1x1x8320xf16> -> tensor<1x128x8320xf16>
+    %fq_1 = IE.FakeQuantize(%weights_1, %in_low_1, %in_high_1, %out_low_1, %out_high_1) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 16 : i64} : tensor<1x128x8320xf16>, tensor<1x1x1xf16>, tensor<1x1x1xf16>, tensor<1x1x8320xf16>, tensor<1x1x8320xf16> -> tensor<1x128x8320xf16>
     %reshape_1 = IE.Reshape(%fq_1) {shape_value = [128, 8320]} : tensor<1x128x8320xf16> -> tensor<128x8320xf16>
     %transpose_1 = IE.Transpose(%reshape_1) {order_value = affine_map<(d0, d1) -> (d1, d0)>} : tensor<128x8320xf16> -> tensor<8320x128xf16>
     %fc_1 = IE.FullyConnected(%in_1, %transpose_1) : tensor<1x128xf16>, tensor<8320x128xf16> -> tensor<1x8320xf16>
@@ -76,7 +78,7 @@ func.func @MergeMatMulLargeOCWithWeightsAsConstant(%arg0: tensor<1x1x256xf16>) -
     // CHECK-ENABLED:      [[INPUT_RESHAPE_0:%.+]] = IE.AffineReshape([[INPUT]])
     // CHECK-ENABLED-SAME{LITERAL}:          {dim_mapping = [[0], [0], [1]], shape_value = [1, 256]} : tensor<1x1x256xf16> -> tensor<1x256xf16>
     // CHECK-ENABLED:      [[INPUT_RESHAPE_1:%.+]] = IE.Reshape([[INPUT_RESHAPE_0]]) {shape_value = [2, 128]} : tensor<1x256xf16> -> tensor<2x128xf16>
-    // CHECK-ENABLED:      [[FQ:%.+]] = IE.FakeQuantize([[WEIGHTS_RESHAPE]], [[FQ_INPUT_LOW]], [[FQ_INPUT_HIGH]], [[FQ_OUTPUT_LOW_RESHAPE]], [[FQ_OUTPUT_HIGH_RESHAPE]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 16 : i64} : tensor<16640x128xf16>, tensor<1x1xf16>, tensor<1x1xf16>, tensor<16640x1xf16>, tensor<16640x1xf16> -> tensor<16640x128xf16>
+    // CHECK-ENABLED:      [[FQ:%.+]] = IE.FakeQuantize([[WEIGHTS_RESHAPE]], [[FQ_INPUT_LOW]], [[FQ_INPUT_HIGH]], [[FQ_OUTPUT_LOW_RESHAPE]], [[FQ_OUTPUT_HIGH_RESHAPE]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 16 : i64} : tensor<16640x128xf16>, tensor<1x1xf16>, tensor<1x1xf16>, tensor<16640x1xf16>, tensor<16640x1xf16> -> tensor<16640x128xf16>
     // CHECK-ENABLED:      [[MATMUL:%.+]] = IE.FullyConnected([[INPUT_RESHAPE_1]], [[FQ]]) : tensor<2x128xf16>, tensor<16640x128xf16> -> tensor<2x16640xf16>
     // CHECK-ENABLED:      [[SLICE_0:%.+]] = IE.Slice [[MATMUL]] [0, 0] [1, 8320] : tensor<2x16640xf16> to tensor<1x8320xf16>
     // CHECK-ENABLED:      [[OUT_RESHAPE_0:%.+]] = IE.Reshape([[SLICE_0]]) {shape_value = [1, 1, 1, 8320]} : tensor<1x8320xf16> -> tensor<1x1x1x8320xf16>

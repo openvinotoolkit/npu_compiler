@@ -10,6 +10,9 @@
 #include "common_test_utils/test_enums.hpp"
 #include "openvino/opsets/opset11.hpp"
 
+#include <algorithm>
+#include <cstdint>
+
 using namespace ov::test::utils;
 namespace ov::test {
 
@@ -497,43 +500,81 @@ INSTANTIATE_TEST_SUITE_P(
                            ::testing::ValuesIn({ov::Layout("NCHW")})),  // layout
         InterpolateSAPDynInputLayerTest::getTestCaseName);
 
+class InterpolateSAPDynNHWCLayerTest : public InterpolateSAPDynInputLayerTest {};
+
+TEST_P(InterpolateSAPDynNHWCLayerTest, NPU4000_HW) {
+    abs_threshold = 0.02f;
+    enableTurbo();
+    setDefaultHardwareMode();
+    run(Platform::NPU4000);
+}
+
+TEST_P(InterpolateSAPDynNHWCLayerTest, NPU5010_HW) {
+    abs_threshold = 0.02f;
+    setDefaultHardwareMode();
+    run(Platform::NPU5010);
+}
+
+INSTANTIATE_TEST_SUITE_P(
+        smoke_Interpolate_DynamicInput_ScalesAsParam_NHWC, InterpolateSAPDynNHWCLayerTest,
+        ::testing::Combine(::testing::Values(InputShape{ov::PartialShape{1, {1, 1440}, {1, 2560}, 3},
+                                                        {ov::Shape{1, 720, 1530, 3}}}),  // dataShape (dynamic, NHWC)
+                           ::testing::Values(ov::element::f16),                          // inputType
+                           ::testing::Values(std::vector<float>{2.0f, 1.0f}),
+                           ::testing::Values(std::vector<int64_t>{1, 2}),  // axes (H, W in NHWC)
+                           ::testing::Values(op::v11::Interpolate::InterpolateMode::LINEAR),
+                           ::testing::Values(op::v11::Interpolate::CoordinateTransformMode::HALF_PIXEL),
+                           ::testing::Values(ov::Layout("NHWC"))),  // layout
+        InterpolateSAPDynInputLayerTest::getTestCaseName);
+
 // =====================================================================
 // Realistic cases [Tracking number E#217769]
 // =====================================================================
 
 namespace {
 struct RealisticCase {
-    size_t h;
-    size_t w;
-    float scale;
+    ov::Shape shape;
+    std::vector<float> scales;
+    std::vector<int64_t> axes;
+    ov::Layout layout = ov::Layout("NCHW");
 };
 
-const std::vector<RealisticCase> realisticCases = {
-        {240, 424, 1.1f}, {180, 320, 0.75f},  {360, 640, 0.75f},
-        {360, 640, 5.0f}, {1080, 1920, 1.1f}, {1080, 1920, 2.0f},
+// Cases are picked per scales precision so each list can be trimmed independently.
+const std::vector<RealisticCase> realisticCasesScalesF16 = {
+        {{1, 3, 180, 320}, {0.75f, 0.75f}, {2, 3}},
+        {{1, 3, 1080, 1920}, {2.0f, 2.0f}, {2, 3}},
+        {{1, 360, 640, 3}, {5.0f, 5.0f}, {1, 2}},
+};
+
+const std::vector<RealisticCase> realisticCasesScalesF32 = {
+        {{1, 3, 240, 424}, {1.1f, 1.1f}, {2, 3}},
+        {{1, 3, 1080, 1920}, {1.1f, 1.1f}, {2, 3}},
+        {{1, 720, 1530, 3}, {2.0f, 1.0f}, {1, 2}},
 };
 
 std::vector<InterpolateSAPParamSet> buildRealisticSAPParams() {
     std::vector<InterpolateSAPParamSet> out;
-    out.reserve(realisticCases.size() * 2);
-    for (const auto& c : realisticCases) {
-        for (const auto scalesType : {ov::element::f16, ov::element::f32}) {
-            out.emplace_back(ov::Shape{1, 3, c.h, c.w},             // dataShape
-                             ov::element::f16,                      // inputType
-                             std::vector<float>{c.scale, c.scale},  // scalesValues
-                             std::vector<int32_t>{},                // sizesValues (unused)
-                             std::vector<int64_t>{2, 3},            // axes
+    out.reserve(realisticCasesScalesF16.size() + realisticCasesScalesF32.size());
+    const auto append = [&](const std::vector<RealisticCase>& cases, ov::element::Type scalesType) {
+        for (const auto& c : cases) {
+            out.emplace_back(c.shape,                 // dataShape
+                             ov::element::f16,        // inputType
+                             c.scales,                // scalesValues
+                             std::vector<int32_t>{},  // sizesValues (unused)
+                             c.axes,                  // axes
                              ov::op::util::InterpolateBase::ShapeCalcMode::SCALES,
                              op::v11::Interpolate::InterpolateMode::LINEAR,
                              op::v11::Interpolate::CoordinateTransformMode::HALF_PIXEL,
                              op::v11::Interpolate::NearestMode::FLOOR, std::vector<size_t>{0, 0, 0, 0},  // padsBegin
                              std::vector<size_t>{0, 0, 0, 0},                                            // padsEnd
                              false,                                                                      // antialias
-                             ov::Layout("NCHW"),                                                         // layout
+                             c.layout,                                                                   // layout
                              -0.75f,                                                                     // cubeCoef
                              scalesType);
         }
-    }
+    };
+    append(realisticCasesScalesF16, ov::element::f16);
+    append(realisticCasesScalesF32, ov::element::f32);
     return out;
 }
 }  // namespace

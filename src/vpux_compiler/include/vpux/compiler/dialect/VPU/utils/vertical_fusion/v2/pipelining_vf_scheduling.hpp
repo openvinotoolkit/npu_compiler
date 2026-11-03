@@ -11,7 +11,7 @@ namespace vpux::VPU::VF::v2 {
 /*
   Scheduling scenario for pipelining dpu and act shave operations
 */
-class PipeliningVFScheduling final : public VFScheduling, public IVFPipelinedScheduling<VFConfig> {
+class PipeliningVFScheduling : public VFScheduling, public IVFPipelinedScheduling<VFConfig> {
 public:
     PipeliningVFScheduling(Logger log, bool prefetching, std::shared_ptr<const VFCostStrategy> costStrategy);
 
@@ -24,6 +24,11 @@ public:
 protected:
     bool validateScenario(VFConfig& config, const TilingOperationStorage::UPtr& tilingInfo,
                           Byte reservedMemory) const override;
+
+    // Reports the CMX demand of each operation excluding the tensors shared by all tiles, together with the total
+    // size of those shared tensors. Returns false when there is no tiling information for one of the operations.
+    bool calculateBufferSizes(VFConfig& config, const TilingOperationStorage::UPtr& tilingInfo,
+                              SmallVector<Byte>& opNotSharedSizes, Byte& sharedSize) const;
 
     bool isSharedWeightsSupported(VFConfig& config) const override;
 };

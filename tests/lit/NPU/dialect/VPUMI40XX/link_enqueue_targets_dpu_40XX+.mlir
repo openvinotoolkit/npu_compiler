@@ -41,7 +41,7 @@ func.func @multiple_clusters_dpu_soh_f16_f16_f16() {
   %e1 = VPURegMapped.Enqueue at(%b : !VPURegMapped.Index<0:0:0>) (%35 -> %35 : <1:0:0> -> <1:0:0>) -> !VPURegMapped.Index<0:0:1> {taskType = #VPURegMapped.task_type<DPUVariant>}
   %e2 = VPURegMapped.Enqueue at(%b : !VPURegMapped.Index<0:0:0>) (%36 -> %36 : <1:0:1> -> <1:0:1>) -> !VPURegMapped.Index<0:0:2> {taskType = #VPURegMapped.task_type<DPUVariant>}
 
-  %mi = VPUMI40XX.MappedInference invariants(%31 : !VPURegMapped.Index<0:0:0>) variants(%33, %35 : !VPURegMapped.Index<0:0:0>, !VPURegMapped.Index<1:0:0>) barriers(%b : !VPURegMapped.Index<0:0:0>) workItemTasks(%e0 : !VPURegMapped.Index<0:0:0>) dmaCount([[0, 0], [0, 0], [0, 0], [0, 0], [0, 0], [0, 0]]) invariantCount([1, 0, 0, 0, 0, 0]) variantCount([2, 2, 0, 0, 0, 0]) actKernelRangesCount([[0, 0], [0, 0], [0, 0], [0, 0], [0, 0], [0, 0]]) actKernelInvocationsCount([[0, 0], [0, 0], [0, 0], [0, 0], [0, 0], [0, 0]]) mediaCount(0) barrierCount(1) workItemCount(3) -> !VPURegMapped.Index<0:0:0>
+  %mi = VPUMI40XX.MappedInference invariants(%31 : !VPURegMapped.Index<0:0:0>) variants(%33, %35 : !VPURegMapped.Index<0:0:0>, !VPURegMapped.Index<1:0:0>) barriers(%b : !VPURegMapped.Index<0:0:0>) workItemTasks(%e0 : !VPURegMapped.Index<0:0:0>) dmaCount([[0, 0], [0, 0], [0, 0], [0, 0], [0, 0], [0, 0]]) invariantCount([1, 0, 0, 0, 0, 0]) variantCount([2, 2, 0, 0, 0, 0]) actKernelRangesCount([[0, 0], [0, 0], [0, 0], [0, 0], [0, 0], [0, 0]]) actKernelInvocationsCount([[0, 0], [0, 0], [0, 0], [0, 0], [0, 0], [0, 0]]) barrierCount(1) workItemCount(3) -> !VPURegMapped.Index<0:0:0>
 
   return
 }

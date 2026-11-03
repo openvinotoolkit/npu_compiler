@@ -11,19 +11,33 @@
 #include "vpux/compiler/dialect/VPU/utils/type_infer.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
 #include "vpux/compiler/dialect/const/utils/attributes_utils.hpp"
+#include "vpux/compiler/dialect/core/IR/tensor_attr.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
 #include "vpux/compiler/utils/infer_output_shape.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
+
+#include <mlir/Dialect/Arith/IR/Arith.h>
+#include <mlir/Dialect/Tensor/IR/Tensor.h>
 
 using namespace vpux;
 
 mlir::Type getAuxiliaryBufferType(mlir::Value input, mlir::IntegerAttr axisAttr) {
     constexpr int64_t int32Size = sizeof(int32_t);
 
-    const auto axis = parseIntAttr<int64_t>(axisAttr);
-
     const auto inputType = mlir::cast<vpux::NDTypeInterface>(input.getType());
-    const auto axisDim = inputType.getShape().raw()[axis];
+    const auto rank = static_cast<int64_t>(inputType.getRank());
+
+    auto axis = parseIntAttr<int64_t>(axisAttr);
+    if (axis < 0) {
+        axis += rank;
+    }
+    VPUX_THROW_UNLESS(axis >= 0 && axis < rank, "TopK axis {0} is out of range for rank {1}", axis, rank);
+    auto axisDim = inputType.getShape().raw()[axis];
+    if (mlir::ShapedType::isDynamic(axisDim)) {
+        const auto shapeInfo = ShapeInfo::fromNDType(inputType);
+        VPUX_THROW_WHEN(shapeInfo.isUnbounded(), "TopK axis {0} is dynamic and has no upper bound", axis);
+        axisDim = shapeInfo.bounds[axis];
+    }
     const int64_t bufferSizePerShave =
             axisDim * (2 * std::max(int32Size, inputType.getElemTypeSize().to<Byte>().count()));
     const auto auxBuffType =
@@ -52,36 +66,16 @@ mlir::LogicalResult vpux::VPU::TopKOp::inferReturnTypes(mlir::MLIRContext* ctx, 
     }
 
     const auto inType = mlir::cast<vpux::NDTypeInterface>(topK.getInput().getType());
-    const auto inputShape = inType.getShape().raw();
+    const auto inShapeInfo = ShapeInfo::fromNDType(inType);
 
-    const auto kValue = Const::getConstOrAttrValue(topK.getK(), topK.getKValueAttr());
-
-    if (mlir::failed(kValue)) {
+    const auto outInfo = inferTopKOutputShapeInfo(inShapeInfo, topK.getAxis(), topK.getK(), topK.getKValueAttr(), loc);
+    if (mlir::failed(outInfo)) {
         return mlir::failure();
     }
 
-    SmallVector<int64_t> outShape;
-    for (size_t i = 0; i < inputShape.size(); ++i) {
-        outShape.push_back(inputShape[i]);
-    }
-    int64_t axis = topK.getAxis();
-    const auto inRank = inType.getRank();
-    if (axis < 0) {
-        axis += inRank;
-    }
-    outShape[axis] = kValue.value();
-
-    // Build output tensor attribute. For bounded (dynamic) types, adjust the bounds
-    // on the TopK axis dimension from the input size to k_value.
-    mlir::Attribute outTensorAttr;
-    if (auto boundedType = mlir::dyn_cast<Core::BoundedTensorType>(inType)) {
-        auto outBounds = boundedType.getBounds().toValues();
-        outBounds[Dim(axis)] = kValue.value();
-        outTensorAttr =
-                vpux::getTensorAttr(ctx, inType.getDimsOrder().toAffineMap(ctx), inType.getMemSpace(), outBounds);
-    } else {
-        outTensorAttr = createTensorAttrFromType(inType);
-    }
+    const auto& outShape = outInfo->shape;
+    const mlir::Attribute outTensorAttr =
+            vpux::getTensorAttr(ctx, inType.getDimsOrder(), inType.getMemSpace(), BoundsRef(outInfo->bounds));
 
     auto outputType = mlir::RankedTensorType::get(outShape, inType.getElementType(), outTensorAttr);
     inferredReturnTypes.push_back(outputType);
@@ -101,8 +95,35 @@ mlir::LogicalResult vpux::VPU::TopKOp::reifyResultShapes(mlir::OpBuilder& builde
     auto loc = getLoc();
 
     const auto kValue = Const::getConstOrAttrValue(getK(), getKValueAttr());
-    if (mlir::failed(kValue)) {
-        return mlir::failure();
+
+    // Axis size is either a compile-time constant or is read from the runtime K operand
+    mlir::OpFoldResult kDim;
+    if (mlir::succeeded(kValue)) {
+        kDim = builder.getIndexAttr(kValue.value());
+    } else {
+        if (getK() == nullptr) {
+            return mlir::failure();
+        }
+        const auto kType = mlir::dyn_cast<mlir::RankedTensorType>(getK().getType());
+        if (kType == nullptr || !mlir::isa<mlir::IntegerType>(kType.getElementType())) {
+            return mlir::failure();
+        }
+
+        auto kLoc = appendLoc(loc, "k_extract");
+        mlir::Value kTensor = getK();
+        auto elemType = mlir::cast<mlir::IntegerType>(kType.getElementType());
+        if (!elemType.isSignless()) {
+            // arith ops accept only signless integers
+            const auto signlessType = mlir::IntegerType::get(builder.getContext(), elemType.getWidth());
+            kTensor = mlir::tensor::BitcastOp::create(builder, kLoc, kType.clone(kType.getShape(), signlessType),
+                                                      kTensor);
+            elemType = signlessType;
+        }
+
+        const mlir::Value zeroIdx = mlir::arith::ConstantIndexOp::create(builder, kLoc, 0);
+        SmallVector<mlir::Value> kIndices(kType.getRank(), zeroIdx);
+        const mlir::Value kScalar = mlir::tensor::ExtractOp::create(builder, kLoc, elemType, kTensor, kIndices);
+        kDim = mlir::arith::IndexCastOp::create(builder, kLoc, builder.getIndexType(), kScalar).getResult();
     }
 
     int64_t axis = getAxis();
@@ -116,7 +137,7 @@ mlir::LogicalResult vpux::VPU::TopKOp::reifyResultShapes(mlir::OpBuilder& builde
     outShape.reserve(rank);
     for (int64_t i = 0; i < rank; ++i) {
         if (i == axis) {
-            outShape.push_back(builder.getIndexAttr(kValue.value()));
+            outShape.push_back(kDim);
         } else {
             outShape.push_back(reifyDim(builder, getInput(), i, loc));
         }

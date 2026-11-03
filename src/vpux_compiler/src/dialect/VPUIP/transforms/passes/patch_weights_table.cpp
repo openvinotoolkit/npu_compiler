@@ -27,6 +27,19 @@ using namespace vpux;
 
 namespace {
 
+bool isGroupedSOKWeightTable(VPUIP::NCEClusterTaskOp nceOp, VPURT::DeclareBufferOp wtBuffer) {
+    if (nceOp->hasAttr(vpux::ConstantFusing::constantsFused)) {
+        return false;
+    }
+    const auto wtType = mlir::dyn_cast<VPUIP::DistributedBufferType>(wtBuffer.getType());
+    if (wtType == nullptr || wtType.getShape().size() != DimsGroups5D::Filter::numDims) {
+        return false;
+    }
+    const auto numTiles = wtType.getDistribution().getNumTiles();
+    return numTiles != nullptr && numTiles.size() == DimsGroups5D::Filter::numDims &&
+           parseIntArrayAttr<int64_t>(numTiles)[DimsGroups5D::Filter::OC.ind()] > 1;
+}
+
 //
 // PatchWeightsTablePass
 //
@@ -42,7 +55,8 @@ private:
 
     uint32_t getRootBufferPointer(mlir::Value value, uint32_t defaultValue);
 
-    SmallVector<uint32_t> getWeightsPerClusterPointers(VPUIP::NCEClusterTaskOp nceOp, int64_t numCluster);
+    SmallVector<uint32_t> getWeightsPerClusterPointers(VPUIP::NCEClusterTaskOp nceOp, VPURT::DeclareBufferOp wtBuffer,
+                                                       int64_t numCluster);
 
     // gets pointers to weights, sparsity and offset of base buffer(for fused constants)
     std::tuple<SmallVector<uint32_t>, uint32_t, uint32_t> getWeightsAndSparsityPointers(
@@ -125,7 +139,7 @@ void PatchWeightsTablePass::safeRunOnFunc() {
         auto originalOC = 0;
 
         if (VPU::canAutopadOutput(nceOp.getOperation())) {
-            originalOC = mlir::cast<vpux::NDTypeInterface>(nceOp->getResult(0).getType()).getShape()[Dims4D::Act::C];
+            originalOC = VPUIP::getPreODUOutputChannels(nceOp);
         }
 
         auto newConstAttr = cstOp.getContentAttr()
@@ -153,7 +167,7 @@ std::tuple<SmallVector<uint32_t>, uint32_t, uint32_t> PatchWeightsTablePass::get
         baseOffset = wtBuffer.getByteOffset();
     }
 
-    auto weightsPerClusterPtrs = getWeightsPerClusterPointers(nceOp, numClusters);
+    auto weightsPerClusterPtrs = getWeightsPerClusterPointers(nceOp, wtBuffer, numClusters);
     return {weightsPerClusterPtrs, sparsityPtr, baseOffset};
 }
 
@@ -200,6 +214,16 @@ SmallVector<int64_t> PatchWeightsTablePass::getOffsets(vpux::VPUIP::NCEClusterTa
         VPUX_THROW_UNLESS(perClusterShapeOffsets.size() == checked_cast<size_t>(numClusters),
                           "Number of shape offsets '{0}' and clusters '{1}' are mismatch",
                           perClusterShapeOffsets.size(), numClusters);
+
+        if (isGroupedSOKWeightTable(nceOp, wtDecBuf)) {
+            for (auto group : irange(distributedType.getShape()[DimsGroups5D::Filter::G])) {
+                for (const auto& clusterOffsets : perClusterShapeOffsets) {
+                    offsets.push_back(group * distributedType.getShape()[DimsGroups5D::Filter::OC] +
+                                      clusterOffsets[DimsGroups5D::Filter::OC]);
+                }
+            }
+            return offsets;
+        }
 
         for (auto clusterOffsets : perClusterShapeOffsets | indexed) {
             if (clusterOffsets.value().size() == 4) {
@@ -303,9 +327,36 @@ uint32_t PatchWeightsTablePass::getRootBufferPointer(mlir::Value value, uint32_t
 }
 
 SmallVector<uint32_t> PatchWeightsTablePass::getWeightsPerClusterPointers(VPUIP::NCEClusterTaskOp nceOp,
+                                                                          VPURT::DeclareBufferOp wtBuffer,
                                                                           int64_t numCluster) {
     auto weights = nceOp.getWeights();
     uint64_t weightsBasePointer = getRootBufferPointer(weights, 0);
+
+    if (isGroupedSOKWeightTable(nceOp, wtBuffer)) {
+        const auto weightsType =
+                weights != nullptr ? mlir::dyn_cast<VPUIP::DistributedBufferType>(weights.getType()) : nullptr;
+        VPUX_THROW_UNLESS(weightsType != nullptr && weightsType.getDistribution().getMode().getValue() ==
+                                                            VPU::DistributionMode::SEGMENTED,
+                          "Expected segmented MatMul weights for an OC-segmented weight table");
+        const auto wtType = mlir::cast<VPUIP::DistributedBufferType>(wtBuffer.getType());
+        const auto clusterOffsets = wtType.getPerClusterMemoryShapeOffsets();
+        const auto weightStridedShapes = weightsType.getPerClusterMemoryStridedShapes();
+        VPUX_THROW_UNLESS(clusterOffsets.size() == weightStridedShapes.size() &&
+                                  checked_cast<size_t>(numCluster) ==
+                                          clusterOffsets.size() *
+                                                  checked_cast<size_t>(wtType.getShape()[DimsGroups5D::Filter::G]),
+                          "Mismatch between weight table and weight clusters");
+        SmallVector<uint32_t> weightsPerClusterPtrs;
+        weightsPerClusterPtrs.reserve(numCluster);
+        for (auto group : irange(wtType.getShape()[DimsGroups5D::Filter::G])) {
+            for (const auto& stridedShape : weightStridedShapes) {
+                const auto groupStride = Byte(stridedShape.strides[DimsGroups5D::Filter::G]);
+                weightsPerClusterPtrs.push_back(
+                        checked_cast<uint32_t>(weightsBasePointer + group * groupStride.count()));
+            }
+        }
+        return weightsPerClusterPtrs;
+    }
 
     if (weights == nullptr || !mlir::isa<vpux::VPUIP::DistributedBufferType>(weights.getType())) {
         return SmallVector<uint32_t>(numCluster, static_cast<int32_t>(weightsBasePointer));

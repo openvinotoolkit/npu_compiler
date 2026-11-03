@@ -949,3 +949,50 @@ func.func @AtanDmaCopy(%arg0: memref<1x1x1x4194304xf16, @DDR>, %arg1: memref<4xs
     // CHECK:      [[OUT_SHAPE_COPY:%.+]] = VPUIP.Copy inputs([[DYN_OUT_SHAPE]] : memref<4xsi32, @DDR>) outputs([[OUT_SHAPE]] : memref<4xsi32, @DDR>) -> memref<4xsi32, @DDR>
     // CHECK:      return [[RESULTS]]#0, [[OUT_SHAPE_COPY]] : memref<1x1x1x4194304xf16, @DDR>, memref<4xsi32, @DDR>
 }
+
+// -----
+
+module @VPU.SW {
+    func.func nested @builtin_AtanDma(memref<*xf16>, memref<*xsi32>, memref<*xui8, @CMX_NN>, memref<*xf16>, memref<*xsi32>, memref<*xui8, @CMX_NN>, i64)
+                       attributes {VPU.kernel_code = "activation_atan_dma.cpp", VPU.kernel_entry = "activation_atan_dma", VPU.kernel_name = "activation_atan_dma", VPU.task_type = @COMPUTE}
+    func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"}
+}
+
+net.NetworkInfo entryPoint : @AtanDmaUnboundedIO inputsInfo : {
+    DataInfo "Input"  : tensor<1x1x1x?xf16>
+    DataInfo "InputShape" : tensor<4xsi32>
+} outputsInfo : {
+    DataInfo "Output"  : tensor<1x1x1x?xf16>
+    DataInfo "OutputShape" : tensor<4xsi32>
+}
+
+// CHECK-LABEL: func.func @AtanDmaUnboundedIO(
+// CHECK-SAME:   [[IN_DATA:%.+]]: memref<1x1x1x?xf16, @DDR>, [[IN_SHAPE:%.+]]: memref<4xsi32, @DDR>, [[OUT_DATA:%.+]]: memref<1x1x1x?xf16, @DDR>, [[OUT_SHAPE:%.+]]: memref<4xsi32, @DDR>)
+func.func @AtanDmaUnboundedIO(%arg0: memref<1x1x1x?xf16, @DDR>, %arg1: memref<4xsi32, @DDR>, %arg2: memref<1x1x1x?xf16, @DDR>, %arg3: memref<4xsi32, @DDR>) -> (memref<1x1x1x?xf16, @DDR>, memref<4xsi32, @DDR>) {
+    %aux_buf = memref.alloc() : memref<1x1x1x524288xui8, [@CMX_NN, 0]>
+
+    %results:2, %dynamicOutputShapes = VPUIP.SW.Kernel {dynamicInputShapesMap = array<i32: 0, -1>, dynamicOutputShapesMap = array<i32: 0, -1>, resultSegmentSizes = array<i32: 2, 1, 0>}
+     @VPU.SW::@builtin_AtanDma
+      inputs(%arg0 as %arg4: memref<1x1x1x?xf16, @DDR>, %aux_buf as %arg5: memref<1x1x1x524288xui8, [@CMX_NN, 0]>)
+      dynamicInputShapes(%arg1 : memref<4xsi32, @DDR>)
+      outputs(%arg2 as %arg6: memref<1x1x1x?xf16, @DDR>, %aux_buf as %arg7: memref<1x1x1x524288xui8, [@CMX_NN, 0]>)
+      dynamicOutputShapes(%arg3 : memref<4xsi32, @DDR>)
+      on tile 0 -> (memref<1x1x1x?xf16, @DDR>, memref<1x1x1x524288xui8, [@CMX_NN, 0]>, memref<4xsi32, @DDR>)
+     {
+       VPUIP.SW.Kernel.run {attrs = [8589934593]}(%arg4, %arg5, %arg6, %arg7) : memref<1x1x1x?xf16, @DDR>, memref<1x1x1x524288xui8, [@CMX_NN, 0]>, memref<1x1x1x?xf16, @DDR>, memref<1x1x1x524288xui8, [@CMX_NN, 0]>
+     }
+
+    return %results#0, %dynamicOutputShapes : memref<1x1x1x?xf16, @DDR>, memref<4xsi32, @DDR>
+
+    // CHECK-NOT:  VPUIP.Copy inputs([[IN_DATA]]
+    // CHECK:      [[IN_SHAPE_COPY:%.+]] = VPUIP.Copy inputs([[IN_SHAPE]] : memref<4xsi32, @DDR>)
+
+    // CHECK:      [[RESULTS:%.+]]:2, [[DYN_OUT_SHAPE:%.+]] = VPUIP.SW.Kernel
+    // CHECK-SAME:     inputs([[IN_DATA]] as {{[^:]+}}: memref<1x1x1x?xf16, @DDR>
+    // CHECK-SAME:     dynamicInputShapes([[IN_SHAPE_COPY]] : memref<4xsi32, @DDR>)
+    // CHECK-SAME:     outputs([[OUT_DATA]] as {{[^:]+}}: memref<1x1x1x?xf16, @DDR>
+
+    // CHECK-NOT:  VPUIP.Copy inputs([[RESULTS]]#0
+    // CHECK:      [[OUT_SHAPE_COPY:%.+]] = VPUIP.Copy inputs([[DYN_OUT_SHAPE]] : memref<4xsi32, @DDR>) outputs([[OUT_SHAPE]] : memref<4xsi32, @DDR>)
+    // CHECK:      return [[RESULTS]]#0, [[OUT_SHAPE_COPY]] : memref<1x1x1x?xf16, @DDR>, memref<4xsi32, @DDR>
+}

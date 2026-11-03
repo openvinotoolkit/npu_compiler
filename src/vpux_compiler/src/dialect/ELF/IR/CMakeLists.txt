@@ -28,3 +28,5 @@ add_npu_library(npu_compiler_dialect_elf
         npu_compiler_dialect_npureg40xx
         MLIRFuncDialect
 )
+enable_lto_if_possible(npu_compiler_dialect_elf)
+

@@ -335,9 +335,10 @@ mlir::LogicalResult CleanupFQRewriter::matchAndRewrite(IE::FakeQuantizeOp fqOp, 
         return mlir::failure();
     }
 
-    auto levels = fqOp.getLevels();
+    auto levelsOrLowFpType = fqOp.getLevelsOrLowFpTypeAttr();
     // Maximum number of levels that exceeds I8/U8 storage type
-    if (!levels.has_value() || *levels > QuantizationLevels::QUANT_LEVELS_8BIT) {
+    if (mlir::dyn_cast<mlir::IntegerAttr>(levelsOrLowFpType) == nullptr ||
+        mlir::dyn_cast<mlir::IntegerAttr>(levelsOrLowFpType).getInt() > QuantizationLevels::QUANT_LEVELS_8BIT) {
         return mlir::failure();
     }
 

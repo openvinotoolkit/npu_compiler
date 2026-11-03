@@ -136,12 +136,15 @@ mlir::quant::QuantizedType getQuantizedElementTypeFromFakeQuantize(IE::FakeQuant
     auto outHighConst = fqOp.getOutputHigh().getDefiningOp<Const::DeclareOp>();
     const auto realType = mlir::cast<vpux::NDTypeInterface>(fqOp.getInput().getType());
     const auto realElemType = mlir::cast<mlir::FloatType>(realType.getElementType());
-    return IE::getQuantizedType(outLowConst.getContentAttr(), outHighConst.getContentAttr(), fqOp.getLevels(),
-                                fqOp.getLowFpType(), realElemType, false, fqOp.getLoc(), fqOp.getAutoBroadcast(), true);
+    return IE::getQuantizedType(outLowConst.getContentAttr(), outHighConst.getContentAttr(),
+                                fqOp.getLevelsOrLowFpTypeAttr(), realElemType, false, fqOp.getLoc(),
+                                fqOp.getAutoBroadcast(), true);
 }
 
 bool checkFQ(IE::FakeQuantizeOp fqOp) {
-    if (fqOp.getLevels() != 256 || !fqOp.getOutputLow().hasOneUse() || !fqOp.getOutputHigh().hasOneUse()) {
+    mlir::IntegerAttr levelsAttr = fqOp.getLevelsAttr();
+    if (levelsAttr == nullptr || levelsAttr.getInt() != 256 || !fqOp.getOutputLow().hasOneUse() ||
+        !fqOp.getOutputHigh().hasOneUse()) {
         return false;
     }
     auto inLowConst = fqOp.getInputLow().getDefiningOp<Const::DeclareOp>();

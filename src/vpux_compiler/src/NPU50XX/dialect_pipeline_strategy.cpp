@@ -48,9 +48,7 @@ public:
     static void setupOptionsCommon(DefaultHWOptions50XX& options, VPU::InitCompilerOptions& initCompilerOptions,
                                    LogLevel logLevel = LogLevel::None) {
         setupPWLMParams50XX(options, logLevel);
-        if (options.enableSCFTiling) {
-            overwriteIfUnset(options.enableBoundedTensorsToDynamicDimsMask, false);
-        }
+        setupDefaultHWOptionsCommon<DefaultHWOptions50XX>(options);
 
         const auto& platformOpt = initCompilerOptions.platform;
         if (platformOpt.hasValue()) {
@@ -85,25 +83,15 @@ public:
 
     static void setupOptionsCommon(DefaultHWOptions50XX& options, LogLevel logLevel = LogLevel::None) {
         setupPWLMParams50XX(options, logLevel);
-        // ReferenceSW specific values
-        overwriteIfUnset(options.enableForceZMajorConcat, false);
-        overwriteIfUnset(options.enableSwapTransposeWithFQ, false);
-        overwriteIfUnset(options.enableAlignScales, false);
-        overwriteIfUnset(options.enableConvertFCToConv, false);
-        overwriteIfUnset(options.enableAdjustNonZeroFakeQuant, false);
-        overwriteIfUnset(options.enableExtraStaticShapeOps, false);
-        overwriteIfUnset(options.enableOptimizeReorders, false);
-        overwriteIfUnset(options.enableVPUNNPreSplit, false);
-        overwriteIfUnset(options.enableODULocalRegion, false);
-        overwriteIfUnset(options.enableRuntimeDequant, false);
+        setupReferenceSWOptionsCommon<DefaultHWOptions50XX>(options);
 
-        overwriteIfUnset(options.enableConvertFFTToConv, false);
+        // NPU50XX specific values
         overwriteIfUnset(options.enableConvertToAttention, false);
         overwriteIfUnset(options.enableConvertToReduceSquare, true);
-        overwriteIfUnset(options.enableDecomposeGRUSequence, false);
         overwriteIfUnset(options.enableAutoPaddingIDU, false);
         overwriteIfUnset(options.enableAutoPaddingODU, false);
         overwriteIfUnset(options.enableIsReduceSupported, false);
+        overwriteIfUnset(options.useMemrefForHostFunctionBufferization, false);
     }
 };
 
@@ -194,9 +182,7 @@ public:
     }
 
     void buildLowerVPU2VPUIPPipeline(mlir::OpPassManager& pm, Logger log) override {
-        vpux::buildLowerVPU2VPUIPPipeline(pm, _optionsContainer->getPipelineOptions().enableInPlaceBufferization,
-                                          _optionsContainer->getPipelineOptions().useMemrefForHostFunctionBufferization,
-                                          log);
+        vpux::buildLowerVPU2VPUIPPipeline(pm, _optionsContainer->getPipelineOptions(), log);
     }
 
     void buildVPUIPPipeline(mlir::OpPassManager& pm, Logger log) override {
@@ -244,8 +230,7 @@ public:
     }
 
     void buildLowerVPU2VPUIPPipeline(mlir::OpPassManager& pm, Logger log) override {
-        vpux::buildLowerVPU2VPUIPPipeline(pm, _optionsContainer->getPipelineOptions().enableInPlaceBufferization,
-                                          /*useMemrefForHostFunctionBufferization*/ false, log);
+        vpux::buildLowerVPU2VPUIPPipeline(pm, _optionsContainer->getPipelineOptions(), log);
     }
 
     void buildVPUIPPipeline(mlir::OpPassManager& pm, Logger log) override {
@@ -271,7 +256,7 @@ std::unique_ptr<IDialectPipelineStrategy> vpux::createDialectPipelineStrategy50X
     case config::CompilationMode::ReferenceSW: {
         return std::make_unique<DialectPipelineStrategyReferenceSW50XX>(config);
     }
-    case config::CompilationMode::HostCompile: {
+    case config::CompilationMode::HostCompile_Interpreter: {
         return std::make_unique<DialectPipelineStrategy50XX<HostCompileSetup50XX>>(config);
     }
     case config::CompilationMode::WSInit: {
@@ -307,7 +292,7 @@ template <>
 std::unique_ptr<IDialectPipelineStrategy> vpux::createDialectPipelineStrategy50XXHostCompile(
         config::CompilationMode compilationMode, const VPU::InitCompilerOptions* initCompilerOptions,
         const DefaultHWOptions50XX* options) {
-    VPUX_THROW_UNLESS(compilationMode == config::CompilationMode::HostCompile,
+    VPUX_THROW_UNLESS(compilationMode == config::CompilationMode::HostCompile_Interpreter,
                       "Unsupported compilation mode {0} for Host Compile.", config::stringifyEnum(compilationMode));
 
     auto wrapper = std::make_unique<HostCompileSetup50XX>(initCompilerOptions, options);

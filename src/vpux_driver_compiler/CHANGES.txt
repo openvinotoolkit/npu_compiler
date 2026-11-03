@@ -1,5 +1,9 @@
 Change Log:
 -----------
+VPUXCompilerL0 7.10.1:
+ - Add compatibility headers for compiler/OpenVINO interoperability, including
+   the Compiler-owned VCL interface and synchronized cross-repository utilities
+
 VPUXCompilerL0 7.10.0:
  - Add vclAllocatedExecutableCreateWSOneShot2
 

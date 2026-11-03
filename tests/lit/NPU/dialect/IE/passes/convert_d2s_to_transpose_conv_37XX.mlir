@@ -28,7 +28,7 @@ func.func @DepthToSpaceWithConversionBS2(%input: tensor<1x64x3x3xf16>) -> tensor
 
     // CHECK:                [[FAKEQUANTIZE:%.+]] = IE.FakeQuantize([[WEIGHTS]], [[INPUTRANGE]], [[OUTPUTRANGE]], [[INPUTRANGE]], [[OUTPUTRANGE]]) {
     // CHECK-SAME:               auto_broadcast = #IE.auto_broadcast_type<NUMPY>,
-    // CHECK-SAME:               levels = 2 : i64
+    // CHECK-SAME:               levels_or_low_fp_type = 2 : i64
     // CHECK-SAME:           }
 
     // CHECK:                [[TRANSCONV:%.+]] = IE.TransposedConvolution([[INPUT]], [[FAKEQUANTIZE]]) {
@@ -65,7 +65,7 @@ func.func @DepthToSpaceWithConversionBS3(%input: tensor<1x144x3x3xf16>) -> tenso
 
     // CHECK:                [[FAKEQUANTIZE:%.+]] = IE.FakeQuantize([[WEIGHTS]], [[INPUTRANGE]], [[OUTPUTRANGE]], [[INPUTRANGE]], [[OUTPUTRANGE]]) {
     // CHECK-SAME:               auto_broadcast = #IE.auto_broadcast_type<NUMPY>,
-    // CHECK-SAME:               levels = 2 : i64
+    // CHECK-SAME:               levels_or_low_fp_type = 2 : i64
     // CHECK-SAME:           }
 
     // CHECK:                [[TRANSCONV:%.+]] = IE.TransposedConvolution([[INPUT]], [[FAKEQUANTIZE]]) {
@@ -121,7 +121,7 @@ func.func @DepthToSpaceWithConversionBS2_SmallChan(%input: tensor<1x12x1280x720x
 
     // CHECK:                [[FAKEQUANTIZE:%.+]] = IE.FakeQuantize([[WEIGHTS]], [[INPUTRANGE]], [[OUTPUTRANGE]], [[INPUTRANGE]], [[OUTPUTRANGE]]) {
     // CHECK-SAME:               auto_broadcast = #IE.auto_broadcast_type<NUMPY>,
-    // CHECK-SAME:               levels = 2 : i64
+    // CHECK-SAME:               levels_or_low_fp_type = 2 : i64
     // CHECK-SAME:           }
 
     // CHECK:                [[TRANSCONV:%.+]] = IE.TransposedConvolution([[INPUT]], [[FAKEQUANTIZE]]) {

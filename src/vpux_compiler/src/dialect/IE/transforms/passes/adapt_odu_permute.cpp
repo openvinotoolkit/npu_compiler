@@ -129,8 +129,8 @@ mlir::LogicalResult AdaptODUPermuteRewriter::matchAndRewrite(IE::LayerWithPermut
 
         auto denseAttr = mlir::DenseElementsAttr::get(newOutputShapeType, apVals);
         Const::ContentAttr newOutputShapeContentAttr = Const::ContentAttr::get(denseAttr);
-        auto newOutputShapeOp = Const::DeclareOp::create(rewriter, transConvOp.getLoc(), newOutputShapeType,
-                                                         std::move(newOutputShapeContentAttr));
+        auto newOutputShapeOp = Const::DeclareOp::create(rewriter, takeOpLoc(transConvOp, "const_output_shape"),
+                                                         newOutputShapeType, newOutputShapeContentAttr);
         return newOutputShapeOp.getOutput();
     };
 
@@ -150,8 +150,8 @@ mlir::LogicalResult AdaptODUPermuteRewriter::matchAndRewrite(IE::LayerWithPermut
             newInputShape[Dims4D::Act::H] = newInputShape[Dims4D::Act::W];
             newInputShape[Dims4D::Act::W] = 1;
 
-            auto newPermuteCastOp =
-                    IE::tryToFindPermuteCastOp(origOp.getLoc(), inputValue, inOrder, newInputShape, rewriter);
+            auto newPermuteCastOp = IE::tryToFindPermuteCastOp(takeOpLoc(origOp, "permute_in_{0}", index), inputValue,
+                                                               inOrder, newInputShape, rewriter);
             if (!newPermuteCastOp.has_value()) {
                 return matchFailed(_log.nest(), rewriter, origOp, "No input permuteCast found");
             }
@@ -160,6 +160,7 @@ mlir::LogicalResult AdaptODUPermuteRewriter::matchAndRewrite(IE::LayerWithPermut
     }
 
     auto newOp = rewriter.clone(*origOp, mapper);
+    extendOpLoc(newOp, "adapt_odu_permute");
 
     rewriter.startOpModification(newOp);
     if (needPermuteCastOnInput) {
@@ -220,8 +221,8 @@ mlir::LogicalResult AdaptODUPermuteRewriter::matchAndRewrite(IE::LayerWithPermut
         result.setType(newType);
     }
 
-    auto newPermuteCastOp =
-            IE::tryToFindPermuteCastOp(origOp.getLoc(), newOp->getResult(0), outOrder, outShape, rewriter);
+    auto newPermuteCastOp = IE::tryToFindPermuteCastOp(takeOpLoc(origOp, "permute_out"), newOp->getResult(0), outOrder,
+                                                       outShape, rewriter);
     if (!newPermuteCastOp.has_value()) {
         rewriter.cancelOpModification(newOp);
         return matchFailed(_log.nest(), rewriter, origOp, "No output permuteCast found");

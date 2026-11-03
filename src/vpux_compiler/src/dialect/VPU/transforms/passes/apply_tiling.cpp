@@ -112,17 +112,15 @@ mlir::LogicalResult ApplyTilingPass::initialize(mlir::MLIRContext* ctx) {
 void ApplyTilingPass::safeRunOnFunc() {
     auto& ctx = getContext();
     auto funcOp = getOperation();
-    auto module = funcOp->getParentOfType<mlir::ModuleOp>();
+    LoopIndexAllocator loopIndexAllocator(funcOp);
 
     if (_enableDynamicDimAlignment) {
         VPU::setDynamicDimAlignment(funcOp);
     }
 
-    funcOp->walk([module, tilingIndex = 0ll](VPU::TilingInfoOpInterface iface) mutable {
+    funcOp->walk([&](VPU::TilingInfoOpInterface iface) {
         if (iface->hasAttr(tilingStrategy)) {
-            // Use a module-wide index when the function belongs to a module.
-            // Isolated function tests have no module, so retain the original local counter.
-            const auto loopIndex = module != nullptr ? getNextTilingLoopIndex(module) : tilingIndex++;
+            const auto loopIndex = loopIndexAllocator.getNextTilingLoopIndex();
             iface->setAttr(TILING_LOOP_INDEX_ATTR_NAME, TilingLoopIndexAttr::get(iface->getContext(), loopIndex));
         }
     });

@@ -64,6 +64,7 @@ static const std::unordered_set<std::string> supportedDummyKernels = {"activatio
                                                                       "activation_gelu",
 
                                                                       "eltwise_mul",
+                                                                      "eltwise_mul_inner_bcst3",
                                                                       "eltwise_add",
                                                                       "eltwise_sub",
                                                                       "eltwise_min",
@@ -79,8 +80,11 @@ static const std::unordered_set<std::string> supportedDummyKernels = {"activatio
                                                                       "eltwise_logical_not",
                                                                       "eltwise_and",
                                                                       "eltwise_bitwise_and",
+                                                                      "eltwise_bitwise_and_p00",
                                                                       "eltwise_bitwise_or",
+                                                                      "eltwise_bitwise_or_p00",
                                                                       "eltwise_bitwise_xor",
+                                                                      "eltwise_bitwise_xor_p00",
                                                                       "eltwise_bitwise_not",
                                                                       "eltwise_bitwise_left_shift",
                                                                       "eltwise_bitwise_right_shift",
@@ -251,8 +255,9 @@ VPUIP::SwKernelOp AddSwKernelInstructionPrefetch::insertDummyKernelPrefetchTask(
     auto createBuffer = [&](mlir::Value io, StringRef suffix, mlir::IntegerAttr offset,
                             mlir::SmallVector<mlir::Value>& buffers) {
         if (auto bufOp = io.getDefiningOp<VPURT::DeclareBufferOp>()) {
-            auto newType =
-                    mlir::cast<NDTypeInterface>(io.getType()).changeMemSpace(memSpaceCMX).changeShape({1, 1, 1, 1});
+            const auto ioType = mlir::cast<NDTypeInterface>(io.getType());
+            const Shape bufferShape(ioType.getRank(), 1);
+            const auto newType = ioType.changeMemSpace(memSpaceCMX).changeShape(bufferShape);
             auto newBuff = VPURT::DeclareBufferOp::create(
                     builder, appendLoc(bufOp->getLoc(), suffix), newType, sectionCMX,
                     getIntArrayAttr(&getContext(), mlir::SmallVector<int>{static_cast<int>(clusterIdx)}), offset,

@@ -5,6 +5,7 @@
 
 #include "vpux/compiler/dialect/IE/utils/pooling_utils.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/shape_manipulation.hpp"
+#include "vpux/compiler/dialect/IE/IR/ops/specialized.hpp"
 #include "vpux/compiler/dialect/VPU/interfaces/strategies.hpp"
 #include "vpux/compiler/utils/factors.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
@@ -112,7 +113,7 @@ bool IE::isAddOutputQuantized(IE::AddOp add) {
 // createConvertPoolingForScaleTable
 //
 
-mlir::Value IE::createConvertPoolingForScaleTable(mlir::Value scale, mlir::PatternRewriter& rewriter) {
+mlir::Value IE::createConvertPoolingForScaleTable(mlir::Value scale, mlir::PatternRewriter& rewriter, bool nhwcLayout) {
     if (scale == nullptr) {
         return nullptr;
     }
@@ -159,10 +160,23 @@ mlir::Value IE::createConvertPoolingForScaleTable(mlir::Value scale, mlir::Patte
     auto reshapedScale = rewriter.createOrFold<IE::ReshapeOp>(appendLoc(scale.getLoc(), "scale_reshape_in"), scale,
                                                               getIntArrayAttr(ctx, poolShape));
 
+    mlir::Value poolInput = reshapedScale;
+    if (nhwcLayout) {
+        const auto nhwcOrderAttr = mlir::AffineMapAttr::get(DimsOrder::NHWC.toAffineMap(ctx));
+        poolInput = IE::LayoutCastOp::create(rewriter, appendLoc(scale.getLoc(), "in_layout_cast"), reshapedScale,
+                                             nhwcOrderAttr);
+    }
+
     // Identity MaxPool outputs fp32.
-    const auto reshapedType = mlir::cast<vpux::NDTypeInterface>(reshapedScale.getType());
-    const auto fp32PoolType = reshapedType.changeElemType(mlir::Float32Type::get(ctx));
-    auto maxPoolOut = IE::createIdentityMaxPool(reshapedScale, fp32PoolType, rewriter)->getResult(0);
+    const auto poolInputType = mlir::cast<vpux::NDTypeInterface>(poolInput.getType());
+    const auto fp32PoolType = poolInputType.changeElemType(mlir::Float32Type::get(ctx));
+    mlir::Value maxPoolOut = IE::createIdentityMaxPool(poolInput, fp32PoolType, rewriter)->getResult(0);
+
+    if (nhwcLayout) {
+        const auto nchwOrderAttr = mlir::AffineMapAttr::get(DimsOrder::NCHW.toAffineMap(ctx));
+        maxPoolOut = IE::LayoutCastOp::create(rewriter, appendLoc(scale.getLoc(), "out_layout_cast"), maxPoolOut,
+                                              nchwOrderAttr);
+    }
 
     std::array<int64_t, 4> wtScaleShape = {totalElems, 1, 1, 1};
     return rewriter.createOrFold<IE::ReshapeOp>(appendLoc(scale.getLoc(), "scale_reshape_out"), maxPoolOut,

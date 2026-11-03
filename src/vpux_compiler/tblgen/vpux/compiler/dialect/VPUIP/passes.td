@@ -153,28 +153,6 @@ def OptimizeCopies : PassBase<"optimize-copies", "vpux::FunctionPass"> {
 }
 
 //
-// UniquifyWeightsTableCopies
-//
-
-def UniquifyWeightsTableCopies : PassBase<"uniquify-weights-table-copies", "vpux::FunctionPass"> {
-    let summary = "Removes Copy Ops of shared constant weights table";
-
-    let description = [{
-        AI-generated summary
-
-        This pass deduplicates Copy operations of shared constant weights tables when weights table
-        reuse is enabled (isZeroOffsetWeightsTable attribute is set).
-
-        The pass finds NCEClusterTaskOp operations with IsZeroOffsetWeightsTable set, traces their
-        weight table inputs to Const::DeclareOp sources through single-use CopyOps, groups all
-        CopyOps that share the same Const::DeclareOp source and output type, then replaces all
-        duplicate CopyOps with the first CopyOp in each group, erasing the redundant copies.
-    }];
-
-    let constructor = "vpux::VPUIP::createUniquifyWeightsTableCopiesPass()";
-}
-
-//
 // OptimizeConcatViewCopies
 //
 
@@ -194,9 +172,18 @@ def OptimizeConcatViewCopies : PassBase<"optimize-concat-view-copies", "vpux::Fu
            After fusing, the number of input copies is: M * P + (N - P)
            Can't ensure we get benefit when P is of a large size. Limit optimization to P=1.
 
+        - SplitUnbalancedDDRConcatOnSameAxis: Splits an unbalanced DDR Concat (one large block-arg branch, one
+          small data branch, both on the same axis after GenericReshape + PermuteCast) into per-consumer DDR->CMX
+          copies, avoiding a large upfront DDR->DDR copy that would otherwise block prefetch/scheduling of a KV
+          cache-style model. A distributed data branch is read with ExtractFlatSliceOp, while a DDR block-argument
+          source uses SubViewOp; the CMX destination segment always uses ExtractFlatSliceOp. Since
+          ExtractFlatSliceOp requires compact-strided operands, this rewrite only applies when every such operand
+          is compact. If any required segment is non-compact (e.g. a padded/aligned CMX layout), the rewrite is
+          skipped and the original DDR Concat and Copy chain is preserved instead.
+
         - FuseGatherDMAWithSubViewCopy: Transforms a costly GatherDMAOp (with INDEXED mode) into Subview + CopyOps, reducing the amount of data copied.
           Turns subgraph:
-        NCE_i  (CMX, DUPLICATED/MULTICASTED or SEGMENTED (over C only))
+        NCE_i  (CMX, DUPLICATED/MULTICASTED, SEGMENTED (over C only), or a plain single-tile CMX buffer)
             |
         Copy  (CMX → SubView of alloc_concat, DDR)       ← one per NCE
               \   /
@@ -205,7 +192,7 @@ def OptimizeConcatViewCopies : PassBase<"optimize-concat-view-copies", "vpux::Fu
                 -> GenericReshape  (K x gatherRowSize → 1 x K x gatherRowSize) -> Copy  (CMX -> DDR)
           into:
         For each row index r = indices[j]:
-            NCE_inputIdx  (CMX, DUPLICATED/MULTICASTED/SEGMENTED over C) -> [ExtractFlatSliceOp for SEGMENTED over C] ->
+            NCE_inputIdx  (CMX, DUPLICATED/MULTICASTED/SEGMENTED over C, or plain single-tile CMX) -> [ExtractFlatSliceOp for SEGMENTED over C] ->
                     -> SubView [0, channelOffset, h, w][1, gatherRowSize, 1, 1] -> [GenericReshape + PermuteCast to match DDR dest dims] ->
                     -> Copy  (CMX → row-j slot of downstream alloc, DDR)
 
@@ -214,7 +201,7 @@ def OptimizeConcatViewCopies : PassBase<"optimize-concat-view-copies", "vpux::Fu
           form is required on platforms whose GatherDMA element-size limit is smaller than the row size, making
           the GatherDMA lowering illegal.
           Turns subgraph:
-        NCE_i  (CMX, DUPLICATED/MULTICASTED or SEGMENTED (over C only))
+        NCE_i  (CMX, DUPLICATED/MULTICASTED, SEGMENTED (over C only), or a plain single-tile CMX buffer)
             |
         Copy  (CMX → SubView of alloc_concat, DDR)       ← one per NCE
               \   /
@@ -223,7 +210,7 @@ def OptimizeConcatViewCopies : PassBase<"optimize-concat-view-copies", "vpux::Fu
                 -> SubView  [spatialPosition, absoluteChannelOffset][1, gatherRowSize]  (one diagonal row) ->
                 -> Copy  (DDR → row slot of downstream alloc, DDR)
           into (per diagonal row, with h = spatialPosition / width, w = spatialPosition % width):
-            NCE_inputIdx  (CMX, DUPLICATED/MULTICASTED/SEGMENTED over C) -> [ExtractFlatSliceOp for SEGMENTED over C] ->
+            NCE_inputIdx  (CMX, DUPLICATED/MULTICASTED/SEGMENTED over C, or plain single-tile CMX) -> [ExtractFlatSliceOp for SEGMENTED over C] ->
                     -> SubView [0, channelOffset, h, w][1, pieceSize, 1, 1] -> [GenericReshape + PermuteCast to match DDR dest dims] ->
                     -> Copy  (CMX → row slot of downstream alloc, DDR)
           When a row spans more than one NCE input, it is split into per-input pieces and the pieces are
@@ -331,8 +318,9 @@ def FuseLastCopy : PassBase<"fuse-last-copy", "vpux::FunctionPass"> {
         Restrictions:
         - Input and output must be in the same memory space
         - Input and output must be compact (no strides)
-        - No multiple output copy operations sharing the same source root
         - Strided network outputs are not supported
+        - Multi-output cases are supported only when the input/output buffer types match
+        - Multi-output cases with cast chains are not supported
     }];
 
     let constructor = "vpux::VPUIP::createFuseLastCopyPass()";
@@ -539,6 +527,10 @@ def StaticAllocation : PassBase<"static-allocation", "vpux::FunctionPass"> {
         using a linear scan algorithm. Assigns fixed memory offsets to all buffer declarations at
         compile time, computes the total memory requirement, and verifies allocations fit within
         available memory capacity.
+
+        An allocation whose shape has a dimension without an upper bound is rejected: it is a
+        placeholder created at bufferization for a network output, and one that FuseLastCopy did
+        not replace with a network output buffer has no size to allocate it with.
     }];
 
     let constructor = [{
@@ -573,7 +565,8 @@ def PatchWeightsTable : PassBase<"patch-weight-table", "vpux::FunctionPass"> {
            source Const::DeclareOp (resolving spill chains if weights were spilled).
         2. Computes per-cluster weights pointers from the DeclareBufferOp byte offset of the
            weights operand. For Duplicated|Segmented distributions, per-cluster offsets are
-           computed based on the segmentation axis and strides.
+           computed based on the segmentation axis and strides. For OC-segmented 5D tables,
+           each group uses the corresponding cluster's local weight-group stride.
         3. Computes the sparsity map pointer from the root buffer of the weightsSparsityMap
            operand.
         4. Handles fused constants by using the fused buffer base offset and computing the
@@ -2284,7 +2277,7 @@ def NNDMATiling : PassBase<"nn-dma-tiling", "vpux::FunctionPass"> {
 // UngroupBoundedBuffer
 //
 
-def UngroupBoundedBuffers : PassBase<"ungroup-bounded-buffers", "vpux::FunctionPass"> {
+def UngroupBoundedBuffers : PassBase<"ungroup-bounded-buffers", "vpux::ModulePass"> {
     let summary = "Ungroup all values (data and shape) of BoundedBufferType";
 
     let description = [{
@@ -2384,6 +2377,10 @@ def AddCopyBetweenSWKernelsAndNetworkIO : PassBase<"add-copy-between-swkernels-a
     let description = [{
         Inserts NNDMA Ops before/after SWKernels that directly access NetworkInput/NetworkOutput,
         to avoid restricting NetworkInput and NetworkOutput section allocation to the ActSHAVE address range.
+        The data operands of SwIoDma kernels are left as they are, since those kernels move the IO data themselves.
+
+        A network IO whose shape has a dimension without an upper bound is rejected when any other SW kernel
+        accesses it, directly or through a view: the copy would become a DMA, and no DMA may access such a buffer.
     }];
 
     let constructor = "vpux::VPUIP::createAddCopyBetweenSWKernelsAndNetworkIOPass()";
@@ -3008,6 +3005,13 @@ def LegalizeStridedDmas : PassBase<"legalize-strided-dmas", "vpux::ModulePass"> 
 
         Which is compatible under previous definition.
 
+        Note: subbyte DMAs are considered to be always incompatible. There is also an extra assumption
+        that for subbyte IO user will tile the tensor to have a continuous chunk of the tensor be byte aligned.
+        This assumption is not possible to verify during compile-time.
+
+        An IO without an upper bound cannot have dynamic strides and is rejected: only SwIoDma kernels
+        access it, and they derive compact strides from the runtime extents.
+
         If this pass detects any incompatible DMA it will allocate auxiliary DDR buffer and transfer
         data from network IO to it and replace all uses of the network IO with uses of auxiliary buffer.
         If the branch using that auxiliary buffer has writes legalization pass will additionally insert
@@ -3285,6 +3289,83 @@ def SplitLargeInvariants : PassBase<"split-large-invariants", "vpux::FunctionPas
             "int", "",
             "Threshold number of DPU variants which triggers DPU invariant split"
         >
+    ];
+}
+
+//
+// DetectIDUOOBAccesses
+//
+
+def DetectIDUOOBAccesses : PassBase<"detect-idu-oob-accesses", "vpux::FunctionPass"> {
+    let summary = "Detects potential out-of-bounds reads by the IDU";
+
+    let description = [{
+        Out-of-bounds reads can occur when reading the weights of an NCE task that uses ODU autopad.
+        In this case, the weights constant is not padded to have the output channels aligned to be a multiple of 16.
+        The IDU however still reads channels as if they are a multiple of 16, since the DPU needs them to be aligned.
+        If the weights pointers are not present (either via the weights table or weights data pointer table),
+        the hardware will generate the pointers by itself, which can lead to addresses that are found beyond the CMX boundary.
+
+        This pass prints a log when such out-of-bounds are encountered.
+
+        Note: For the time being, even cases with explicit weights pointers are reported, as if the pointers
+        are generated at runtime. This is done to collect data about the current risk of having the weights
+        placed at the CMX boundary.
+    }];
+
+    let constructor = "vpux::VPUIP::createDetectIDUOOBAccessesPass()";
+}
+
+//
+// OptimizeDMACopies
+//
+
+def OptimizeDMACopies : PassBase<"optimize-dma-copies", "vpux::FunctionPass"> {
+    let summary = "Optimize DMA copy operations in VPUIP";
+
+    let description = [{
+        This pass introduces an edge-based framework for analyzing and optimizing DMA copy operations.
+
+        OptimizeDMACopies has three main stages:
+
+        1. Edge collection. The IR is modeled as a set of edges, where each edge represents one data-flow path.
+           An edge has the following properties:
+           a. The edge source is a compute operation, function argument, or constant.
+           b. The edge target is a compute operation or function return.
+           c. Edge nodes are view-like operations and CopyOps.
+           d. A DDR-to-CMX CopyOp load data in CMX for compute operations.
+           e. A CMX-to-DDR CopyOp writes compute results back to DDR.
+           f. View-like operations in DDR or CMX adjust the value view for different consumer requirements.
+
+           Example edge shape:
+           SourceBoundaries -> [ViewOps/CopyOps] -> [CopyOp] -> [ViewOps/CopyOps] -> TargetBoundaries
+
+           The goal is to optimize unnecessary CopyOps by reasoning over each edge and the view-like
+           operations on that edge.
+
+           Edges are classified by the number of sources and targets:
+           a. Single-source single-target edge -> Normal edge.
+           b. Single-source multi-target edge -> FanOut edge.
+           c. Multi-source single-target edge -> FanIn edge.
+           d. Multi-source multi-target edge -> ManyToMany edge.
+
+        2. Edge optimization planning. A planner analyzes edge structure and data-flow properties to build
+           an optimization plan. The planner does not mutate IR directly.
+
+           a. CopyReusePlanner currently handles compatible FanOut DDR-to-CMX copies that feed
+              NCEClusterTaskOp zero-offset weight-table operands. It keeps one CopyOp result and
+              redirects equivalent sibling weight-table operands through EditPlan.
+
+        3. Edge plan application. EditPlanApplier applies the planner output to the IR, including
+           replacement of copy results and erasure of redundant CopyOps and private output buffers.
+
+    }];
+
+    let constructor = "vpux::VPUIP::createOptimizeDMACopiesPass()";
+
+    let dependentDialects = [
+        "vpux::VPUIP::VPUIPDialect",
+        "vpux::VPURT::VPURTDialect"
     ];
 }
 

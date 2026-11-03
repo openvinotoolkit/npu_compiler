@@ -879,7 +879,7 @@ if (result == VCL_RESULT_SUCCESS) {
 
 ## References
 
-- Header file: [npu_driver_compiler.h](../include/npu_driver_compiler.h)
+- Header file: [npu_driver_compiler.h](../include/compatibility/npu_driver_compiler.h)
 - For detailed structure and parameter descriptions, refer to the header file comments.
 
 ---

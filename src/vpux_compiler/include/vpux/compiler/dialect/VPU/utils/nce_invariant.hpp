@@ -5,6 +5,7 @@
 
 #pragma once
 
+#include "vpux/compiler/core/layers.hpp"
 #include "vpux/compiler/dialect/config/IR/attributes.hpp"
 #include "vpux/compiler/dialect/core/interfaces/type_interfaces.hpp"
 #include "vpux/compiler/utils/error.hpp"
@@ -154,6 +155,46 @@ bool isParentOptimalForAlignment(mlir::Operation* parentOp);
 bool isAlignmentBeneficial(mlir::Operation* op);
 
 bool hasDimensionExceedingVPULimit(ShapeRef shape);
+
+//
+// Rank-aware dimension accessors
+//
+
+inline bool isGroupedRank(size_t rank) {
+    return rank == DimsGroups5D::Act::numDims;
+}
+
+inline Dim getActChannelDim(size_t rank) {
+    return isGroupedRank(rank) ? DimsGroups5D::Act::C : Dims4D::Act::C;
+}
+
+inline Dim getActBatchDim(size_t rank) {
+    return isGroupedRank(rank) ? DimsGroups5D::Act::N : Dims4D::Act::N;
+}
+
+inline Dim getActHeightDim(size_t rank) {
+    return isGroupedRank(rank) ? DimsGroups5D::Act::H : Dims4D::Act::H;
+}
+
+inline Dim getActWidthDim(size_t rank) {
+    return isGroupedRank(rank) ? DimsGroups5D::Act::W : Dims4D::Act::W;
+}
+
+inline Dim getFilterChannelDim(size_t rank) {
+    return isGroupedRank(rank) ? DimsGroups5D::Filter::OC : Dims4D::Filter::OC;
+}
+
+inline Dim getFilterInputChannelDim(size_t rank) {
+    return isGroupedRank(rank) ? DimsGroups5D::Filter::IC : Dims4D::Filter::IC;
+}
+
+inline Dim getFilterKernelYDim(size_t rank) {
+    return isGroupedRank(rank) ? DimsGroups5D::Filter::KY : Dims4D::Filter::KY;
+}
+
+inline Dim getFilterKernelXDim(size_t rank) {
+    return isGroupedRank(rank) ? DimsGroups5D::Filter::KX : Dims4D::Filter::KX;
+}
 
 //
 // DPU vs SHAVE size heuristic

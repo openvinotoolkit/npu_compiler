@@ -22,6 +22,8 @@
 #include <mlir/Dialect/Quant/IR/Quant.h>
 #include <mlir/Transforms/WalkPatternRewriteDriver.h>
 
+#include <cmath>
+
 namespace vpux::IE {
 #define GEN_PASS_DECL_SPLITFAKEQUANT
 #define GEN_PASS_DEF_SPLITFAKEQUANT
@@ -31,6 +33,68 @@ namespace vpux::IE {
 using namespace vpux;
 
 namespace {
+
+bool isStorageFormIntegerContent(const Const::Content& content, double storageMin, double storageMax) {
+    auto isIntegerInBounds = [&](double val) {
+        if (val < storageMin || val > storageMax) {
+            return false;
+        }
+        const auto rounded = std::round(val);
+        return isDoubleEqual(val, rounded);
+    };
+
+    if (content.isSplat()) {
+        return isIntegerInBounds(content.getSplatValue<double>());
+    }
+
+    for (const auto val : content.getValues<double>()) {
+        if (!isIntegerInBounds(val)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+// Returns the element type of the data a ContentAttr is built from, or nullptr when it cannot be determined.
+//
+// Const::ConcatAttr keeps its inputs inside the transformation and leaves the base content as the dummy
+// placeholder produced by Const::getDummyBaseContent(), whose element type (f80) carries no information about
+// the actual data. Querying getBaseContent() directly therefore misreports such constants as float. Walking the
+// concatenated inputs recovers the real element type while touching attributes only, so no weights are
+// materialized. A null result means the inputs disagree or an unrecognized dummy producer was met, in which case
+// callers must fall back to inspecting the values.
+mlir::Type getEffectiveBaseElemType(const Const::ContentAttr& contentAttr) {
+    const auto baseContent = contentAttr.getBaseContent();
+    if (!Const::isDummyBaseContent(baseContent)) {
+        return baseContent.getShapedType().getElementType();
+    }
+
+    mlir::Type commonElemType = nullptr;
+    for (const auto& transformation : contentAttr.getTransformations()) {
+        const auto concatAttr = mlir::dyn_cast<Const::ConcatAttr>(transformation);
+        if (concatAttr == nullptr) {
+            continue;
+        }
+        for (const auto& input : concatAttr.getConstants()) {
+            const auto inputElemType = getEffectiveBaseElemType(input);
+            if (inputElemType == nullptr) {
+                return nullptr;
+            }
+            if (commonElemType == nullptr) {
+                commonElemType = inputElemType;
+            } else if (commonElemType != inputElemType) {
+                return nullptr;
+            }
+        }
+    }
+    return commonElemType;
+}
+
+// Returns true when the element type proves the data is already in integral storage form, so a numeric
+// quantization would only be an identity transformation over the whole tensor.
+bool isStorageFormElemType(mlir::Type elemType) {
+    return elemType != nullptr && (!mlir::isa<mlir::FloatType>(elemType) || isLowFpType(elemType));
+}
 
 bool checkRange(const Const::ContentAttr& lowConst, const Const::ContentAttr& highConst,
                 IE::AutoBroadcastType broadcast, bool (*predicate)(const double low, const double high)) {
@@ -122,16 +186,16 @@ bool shouldConvertFakeQuantizeOpForSplit(IE::FakeQuantizeOp fqOp) {
     // Although HW could not support multi Zero Point, but if the input is const, we can fuse the fq to const
     // So here ignore multi Zero Point check for const input
     const auto inQuantizeElemType = getQuantizedType(
-            inLowConst.getContentAttr(), inHighConst.getContentAttr(), fqOp.getLevels(), fqOp.getLowFpType(),
-            realElemType, false, fqOp.getLoc(), fqOp.getAutoBroadcast(), /*ignoreZPCheck=*/isConstInput);
+            inLowConst.getContentAttr(), inHighConst.getContentAttr(), fqOp.getLevelsOrLowFpTypeAttr(), realElemType,
+            false, fqOp.getLoc(), fqOp.getAutoBroadcast(), /*ignoreZPCheck=*/isConstInput);
 
     if (inQuantizeElemType == nullptr) {
         return false;
     }
 
     const auto outQuantizeElemType = getQuantizedType(
-            outLowConst.getContentAttr(), outHighConst.getContentAttr(), fqOp.getLevels(), fqOp.getLowFpType(),
-            realElemType, false, fqOp.getLoc(), fqOp.getAutoBroadcast(), /*ignoreZPCheck=*/isConstInput);
+            outLowConst.getContentAttr(), outHighConst.getContentAttr(), fqOp.getLevelsOrLowFpTypeAttr(), realElemType,
+            false, fqOp.getLoc(), fqOp.getAutoBroadcast(), /*ignoreZPCheck=*/isConstInput);
 
     return outQuantizeElemType != nullptr;
 }
@@ -182,12 +246,19 @@ mlir::LogicalResult UseQuantDequant::matchAndRewrite(IE::FakeQuantizeOp origOp, 
     const auto realType = mlir::cast<vpux::NDTypeInterface>(origOp.getInput().getType());
     const auto realElemType = mlir::cast<mlir::FloatType>(realType.getElementType());
 
-    auto lowFpType = origOp.getLowFpType();
-    VPUX_THROW_WHEN((lowFpType.has_value() && !isLowFpType(lowFpType.value())), "[{0}] Unsupported low precision type"),
-            getDebugName();
-    auto isSigned = lowFpType.has_value() && isLowFpType(lowFpType.value());
+    auto levelsOrLowFpType = origOp.getLevelsOrLowFpTypeAttr();
+    auto levelsAttr = mlir::dyn_cast<mlir::IntegerAttr>(levelsOrLowFpType);
+    auto lowFpType = mlir::dyn_cast<mlir::TypeAttr>(levelsOrLowFpType);
+    auto isSigned = lowFpType != nullptr && isLowFpType(lowFpType.getValue());
 
-    if (!lowFpType.has_value()) {
+    // Validate low FP type if present
+    if (levelsAttr == nullptr) {
+        if (lowFpType != nullptr) {
+            VPUX_THROW_WHEN(!isLowFpType(lowFpType.getValue()), "[{0}] Unsupported low precision type", getDebugName());
+        }
+    }
+
+    if (lowFpType == nullptr) {
         mlir::Value value = origOp.getInput();
         auto op = value.getDefiningOp();
         // Go upwards through the traversing chain comprising
@@ -215,27 +286,17 @@ mlir::LogicalResult UseQuantDequant::matchAndRewrite(IE::FakeQuantizeOp origOp, 
         }
     }
 
-    if (IE::keepIntTypeForSIWeightsAsInputOrConst(origOp, _strategy)) {
-        auto scaleAndZeroPoints = IE::getScalesAndZeroPointsFromContentAttr(
-                inLowConst.getContentAttr(), inHighConst.getContentAttr(), origOp.getAutoBroadcast(),
-                origOp.getLevels(), lowFpType, true, innerLog);
-        if (!mlir::failed(scaleAndZeroPoints)) {
-            const auto& zeroPoints = std::get<1>(scaleAndZeroPoints.value());
-            auto isNegativeZeroPoint = llvm::any_of(zeroPoints, [](double zeroPoint) {
-                return zeroPoint < 0;
-            });
-            if (!isNegativeZeroPoint) {
-                isSigned = true;
-            }
-        }
+    if (IE::keepIntTypeForSIWeightsAsInputOrConst(origOp, _strategy) &&
+        IE::canActivationMatchSignedWaiWeight(origOp, innerLog)) {
+        isSigned = true;
     }
 
     const auto inQuantizeElemType = getQuantizedType(
-            inLowConst.getContentAttr(), inHighConst.getContentAttr(), origOp.getLevels(), origOp.getLowFpType(),
-            realElemType, isSigned, origOp.getLoc(), origOp.getAutoBroadcast(), /*ignoreZPCheck=*/false, innerLog);
+            inLowConst.getContentAttr(), inHighConst.getContentAttr(), origOp.getLevelsOrLowFpTypeAttr(), realElemType,
+            isSigned, origOp.getLoc(), origOp.getAutoBroadcast(), /*ignoreZPCheck=*/false, innerLog);
 
     const auto outQuantizeElemType = getQuantizedType(
-            outLowConst.getContentAttr(), outHighConst.getContentAttr(), origOp.getLevels(), origOp.getLowFpType(),
+            outLowConst.getContentAttr(), outHighConst.getContentAttr(), origOp.getLevelsOrLowFpTypeAttr(),
             realElemType, isSigned, origOp.getLoc(), origOp.getAutoBroadcast(), /*ignoreZPCheck=*/false, innerLog);
 
     innerLog.trace("Insert Quantize op '{0}' -> '{1}'", realElemType, inQuantizeElemType);
@@ -327,6 +388,8 @@ mlir::LogicalResult UseConstDequant::matchAndRewrite(IE::FakeQuantizeOp origOp, 
     auto inConstAttr = inConst.getContentAttr();
     const auto& inBaseVals = inConstAttr.getBaseContent();
     const auto inBaseElemType = inBaseVals.getShapedType().getElementType();
+    // Sees through the dummy placeholder base of concatenated constants, unlike inBaseElemType.
+    const auto inEffectiveBaseElemType = getEffectiveBaseElemType(inConstAttr);
 
     const auto inLowContent = inLowConst.getContent();
     const auto inHighContent = inHighConst.getContent();
@@ -379,6 +442,11 @@ mlir::LogicalResult UseConstDequant::matchAndRewrite(IE::FakeQuantizeOp origOp, 
 
     const auto multiZeroPoint = !IE::hasFQSameZeroPoint(origOp);
 
+    // Set when the FakeQuantize input range matches the natural range of the target storage type. In that case the
+    // constant already holds integral values in storage form, so it only needs an element type relabel and must not
+    // be quantized numerically a second time below.
+    bool inputAlreadyInStorageForm = false;
+
     {
         // This function patches malfunctioning FQ operation (where in_low and
         // in_high do not align with the FQ levels) that may appear in IR due to
@@ -391,14 +459,34 @@ mlir::LogicalResult UseConstDequant::matchAndRewrite(IE::FakeQuantizeOp origOp, 
         // Check if FakeQuantize input range is equal to a low precision storage type and if not apply FakeQuantize
         // mathematical formula to the FakeQuantize input Const to quantize the data to the targeted low precision type
         // TODO: E#122705 Add Quantize transformation in Const dialect
-        auto levels = origOp.getLevels();
-        if (levels.has_value() && inLowContent.isSplat() && inHighContent.isSplat()) {
+        const auto levelsOrLowFpTypeAttr = origOp.getLevelsOrLowFpTypeAttr();
+
+        auto levels = mlir::dyn_cast<mlir::IntegerAttr>(levelsOrLowFpTypeAttr);
+        if (levels != nullptr && inLowContent.isSplat() && inHighContent.isSplat()) {
             const auto isSigned = Const::hasNegativeValues(inLowContent);
-            if (!isLowPrecisionTypeRange(getContext(), ArrayRef(inLowContent.getSplatValue<float>()),
-                                         ArrayRef(inHighContent.getSplatValue<float>()), *levels, isSigned)) {
+            const bool rangeMatchesStorageType =
+                    isLowPrecisionTypeRange(getContext(), ArrayRef(inLowContent.getSplatValue<float>()),
+                                            ArrayRef(inHighContent.getSplatValue<float>()), levels.getInt(), isSigned);
+            if (rangeMatchesStorageType) {
+                // Cheap check first: an effective base that is already Integer, QuantileFloat or lowFp
+                // proves without reading a single element that only type relabel transforms could have been
+                // applied so far, so the values are necessarily already in storage form
+                if (isStorageFormElemType(inEffectiveBaseElemType)) {
+                    inputAlreadyInStorageForm = true;
+                } else {
+                    const auto storageParams = getStorageParams(getContext(), levels.getInt(), isSigned);
+                    if (mlir::succeeded(storageParams)) {
+                        const auto [storageMin, storageMax, _] = *storageParams;
+                        const auto foldedInput = inConstAttr.fold();
+                        inputAlreadyInStorageForm = isStorageFormIntegerContent(foldedInput, storageMin, storageMax);
+                    }
+                }
+            }
+
+            if (!rangeMatchesStorageType || !inputAlreadyInStorageForm) {
                 const auto quantizedElemType = getQuantizedType(
-                        inLowConst.getContentAttr(), inHighConst.getContentAttr(), levels, origOp.getLowFpType(),
-                        realElemType, isSigned, origOp.getLoc(), origOp.getAutoBroadcast(), multiZeroPoint, innerLog);
+                        inLowConst.getContentAttr(), inHighConst.getContentAttr(), levelsOrLowFpTypeAttr, realElemType,
+                        isSigned, origOp.getLoc(), origOp.getAutoBroadcast(), multiZeroPoint, innerLog);
                 inConstAttr = inConst.transformContentAttr().quantize(quantizedElemType).get();
             }
         }
@@ -415,10 +503,10 @@ mlir::LogicalResult UseConstDequant::matchAndRewrite(IE::FakeQuantizeOp origOp, 
 
     // Fuse dequantize to const directly since it could not convert to HW for multi zero point case
     if (shouldDequantize) {
-        auto qElemType =
-                getQuantizedType(outLowConst.getContentAttr(), outHighConst.getContentAttr(), origOp.getLevels(),
-                                 origOp.getLowFpType(), realElemType, Const::hasNegativeValues(inLowContent),
-                                 origOp.getLoc(), origOp.getAutoBroadcast(), multiZeroPoint, innerLog);
+        auto qElemType = getQuantizedType(outLowConst.getContentAttr(), outHighConst.getContentAttr(),
+                                          origOp.getLevelsOrLowFpTypeAttr(), realElemType,
+                                          Const::hasNegativeValues(inLowContent), origOp.getLoc(),
+                                          origOp.getAutoBroadcast(), multiZeroPoint, innerLog);
         if (qElemType == nullptr) {
             return mlir::failure();
         }
@@ -432,17 +520,18 @@ mlir::LogicalResult UseConstDequant::matchAndRewrite(IE::FakeQuantizeOp origOp, 
         return mlir::success();
     }
 
-    // Determine raw storage type from levels/lowFpType
+    // Determine raw storage type from merged levels/lowFpType attribute
     const auto isSigned = Const::hasNegativeValues(inLowContent);
     mlir::Type rawStorageType;
-    if (origOp.getLowFpType().has_value()) {
-        const auto storageParams = getStorageParams(origOp.getLowFpType().value());
+    const auto levelsOrLowFpType = origOp.getLevelsOrLowFpTypeAttr();
+    if (auto levelsAttr = mlir::dyn_cast<mlir::IntegerAttr>(levelsOrLowFpType)) {
+        const auto storageParams = getStorageParams(getContext(), levelsAttr.getInt(), isSigned);
         if (mlir::failed(storageParams)) {
             return mlir::failure();
         }
         rawStorageType = std::get<2>(*storageParams);
-    } else if (origOp.getLevels().has_value()) {
-        const auto storageParams = getStorageParams(getContext(), *origOp.getLevels(), isSigned);
+    } else if (auto typeAttr = mlir::dyn_cast<mlir::TypeAttr>(levelsOrLowFpType)) {
+        const auto storageParams = getStorageParams(typeAttr.getValue());
         if (mlir::failed(storageParams)) {
             return mlir::failure();
         }
@@ -455,13 +544,16 @@ mlir::LogicalResult UseConstDequant::matchAndRewrite(IE::FakeQuantizeOp origOp, 
     // reinterpret them. Consts whose base is already in storage format (integers, QuantileType, lowFp) only need
     // the cast. The current element type - not attribute identity - tells whether the block above already
     // quantized the attribute.
+    // A base whose values were verified to be integral and within the storage range sets
+    // inputAlreadyInStorageForm; quantizing such a const would be an identity transformation over the whole
+    // weights tensor, so the numeric step is skipped and only the cast is applied.
     const auto curElemType = mlir::cast<vpux::NDTypeInterface>(inConstAttr.getType()).getElementType();
-    const bool baseNeedsQuantize =
-            mlir::isa<mlir::FloatType>(inBaseElemType) && !isLowFpType(inBaseElemType) && !isLowFpType(rawStorageType);
+    const bool baseNeedsQuantize = !isStorageFormElemType(inEffectiveBaseElemType) && !isLowFpType(rawStorageType) &&
+                                   !inputAlreadyInStorageForm;
     const bool isStillFloat = mlir::isa<mlir::FloatType>(curElemType) && !isLowFpType(curElemType);
     if (baseNeedsQuantize && isStillFloat) {
         const auto inputQType = getQuantizedType(inLowConst.getContentAttr(), inHighConst.getContentAttr(),
-                                                 origOp.getLevels(), origOp.getLowFpType(), realElemType, isSigned,
+                                                 origOp.getLevelsOrLowFpTypeAttr(), realElemType, isSigned,
                                                  origOp.getLoc(), origOp.getAutoBroadcast(), multiZeroPoint, innerLog);
         if (inputQType != nullptr) {
             inConstAttr = inConstAttr.transform().quantize(inputQType).get();
@@ -484,7 +576,7 @@ mlir::LogicalResult UseConstDequant::matchAndRewrite(IE::FakeQuantizeOp origOp, 
     } else {
         const auto scalesAndZPs = IE::getScalesAndZeroPointsFromContentAttr(
                 outLowConst.getContentAttr(), outHighConst.getContentAttr(), origOp.getAutoBroadcast(),
-                origOp.getLevels(), origOp.getLowFpType(), isSigned, innerLog);
+                origOp.getLevelsOrLowFpTypeAttr(), isSigned, innerLog);
         if (mlir::failed(scalesAndZPs)) {
             return mlir::failure();
         }

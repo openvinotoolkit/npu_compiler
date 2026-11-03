@@ -30,8 +30,9 @@ VPU::OverlapDistributionParams VPU::getExplicitOverlapParamsForSWOpInput(VPU::SW
 
     auto clusteredOp = mlir::dyn_cast<VPU::ClusteredOpInterface>(swOp.getOperation());
     VPUX_THROW_WHEN(clusteredOp == nullptr, "Sw op {0} is not a ClusteredOp", swOp->getLoc());
-    for (const auto& [index, operand] : operands | indexed) {
-        const auto ndTypeInterface = mlir::dyn_cast<vpux::NDTypeInterface>(operand.getType());
+    for (auto& operand : swOp->getOpOperands()) {
+        const auto index = operand.getOperandNumber();
+        const auto ndTypeInterface = mlir::dyn_cast<vpux::NDTypeInterface>(operand.get().getType());
         if (getSWInputTensorDistributionMode(clusteredOp, strategy, operand, ndTypeInterface) ==
             VPU::DistributionMode::OVERLAPPED) {
             VPUX_THROW_WHEN(overlappedInputIdx.has_value(), "More than one OVERLAPPED input for Sw op: {0}", swOp);

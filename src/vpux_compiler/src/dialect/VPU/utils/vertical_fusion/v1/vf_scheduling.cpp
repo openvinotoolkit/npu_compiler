@@ -201,9 +201,9 @@ StrategyCost VFScheduling::getLinearCost(VFConfig& config, int64_t tilesNumber,
 
             // isolated operation cost
             auto isolatedCost = costFunction->getStrategyCost(op, costParameters);
-            if (isolatedCost >= std::numeric_limits<StrategyCost>::max()) {
-                _log.warning("Invalid VPUNN cost");
-                return isolatedCost;
+            if (isolatedCost >= VPU::INVALID_COST_BASE) {
+                _log.trace("Op {0} has invalid cost {1}, force to {2}", op->getLoc(), isolatedCost, VPU::UNIT_COST);
+                isolatedCost = VPU::UNIT_COST;
             }
             isolatedOperCost[op] = isolatedCost;
             fullCost += isolatedCost;

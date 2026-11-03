@@ -49,7 +49,6 @@ mlir::LogicalResult MappedInferenceRewriter::matchAndRewrite(VPUASM::MappedInfer
     npu40xx::nn_public::VpuMappedInference mi = {};
 
     mi.barrier_configs.count = origOp.getBarrierCount();
-    mi.media_tasks.count = origOp.getMediaCount();
 
     size_t totalDDRDmaCount = 0;
     VPUX_THROW_WHEN(dmaCountDDR.size() > npu40xx::nn_public::VPU_MAX_DMA_ENGINES, "Too many DMA DDR lists");
@@ -120,7 +119,6 @@ mlir::LogicalResult MappedInferenceRewriter::matchAndRewrite(VPUASM::MappedInfer
     mi.task_storage_counts_.act_range_count = config::getConstraint(moduleOp, config::METADATA_MAX_KERNEL_RANGE_COUNT);
     mi.task_storage_counts_.act_invo_count =
             config::getConstraint(moduleOp, config::METADATA_MAX_KERNEL_INVOCATION_COUNT);
-    mi.task_storage_counts_.media_count = config::getConstraint(moduleOp, config::METADATA_MAX_MEDIA_COUNT);
 
     VpuMappedInference miDesc;
     VPUX_THROW_UNLESS(sizeof(npu40xx::nn_public::VpuMappedInference) == miDesc.size(),
@@ -137,7 +135,6 @@ mlir::LogicalResult MappedInferenceRewriter::matchAndRewrite(VPUASM::MappedInfer
                                           origOp.getVariantCountAttr(),               //
                                           origOp.getActKernelRangesCountAttr(),       //
                                           origOp.getActKernelInvocationsCountAttr(),  //
-                                          origOp.getMediaCountAttr(),                 //
                                           origOp.getBarrierCountAttr(),               //
                                           origOp.getMappedInferenceVersionAttr(),     //
                                           origOp.getActShaveRtAttr(),                 //
@@ -150,7 +147,6 @@ mlir::LogicalResult MappedInferenceRewriter::matchAndRewrite(VPUASM::MappedInfer
                                           origOp.getVariantTasksAttr(),               //
                                           origOp.getActKernelRangesAttr(),            //
                                           origOp.getActKernelInvocationsAttr(),       //
-                                          origOp.getMediaTasksAttr(),                 //
                                           origOp.getBarrierTasksAttr(),
                                           std::move(miDesc));  //
     rewriter.eraseOp(origOp);

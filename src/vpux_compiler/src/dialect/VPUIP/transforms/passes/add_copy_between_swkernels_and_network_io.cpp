@@ -4,6 +4,7 @@
 //
 
 #include "vpux/compiler/core/aliases_info.hpp"
+#include "vpux/compiler/core/attributes/shape.hpp"
 #include "vpux/compiler/dialect/VPUIP/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPUIP/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPUIP/transforms/passes.hpp"
@@ -44,6 +45,15 @@ mlir::BlockArgument getRootBlockArgument(mlir::Value val, const AliasesInfo& ali
         return nullptr;
     }
     return mlir::dyn_cast<mlir::BlockArgument>(*rootBuffers.begin());
+}
+
+// The copy becomes a DMA, and no DMA may access a buffer without an upper bound: only a SwIoDma kernel moves such
+// data itself.
+void rejectUnboundedCopy(mlir::Value operand, mlir::Operation* user) {
+    VPUX_THROW_WHEN(hasUnboundedDynamicShape(operand),
+                    "Cannot copy network IO of type '{0}' used by a SW kernel at {1}: a dimension has no upper bound, "
+                    "and only a SwIoDma kernel can access such an IO",
+                    operand.getType(), user->getLoc());
 }
 
 int64_t getOperandIndex(mlir::Operation* op, mlir::Value operand) {
@@ -307,6 +317,7 @@ void addCopySwKernelWithBlockArgIOInMainFuncOp(mlir::func::FuncOp mainFuncOp, ml
             mlir::DenseSet<int64_t> resultIdx;
             for (auto operand : range) {
                 if (auto rootBlockArg = getRootBlockArgument(operand, aliasesInfo)) {
+                    rejectUnboundedCopy(operand, swKernelOp);
                     resultIdx.insert(getOperandIndex(swKernelOp, operand));
                 }
             }
@@ -496,6 +507,7 @@ void addCopyForCallOpWithBlockArgIO(FunctionWithSwKernelCalls& functionWithSwKer
                 if (!isSwKernelInputArg && !isSwKernelOutputArg) {
                     continue;
                 }
+                rejectUnboundedCopy(calledFuncArg, callOp);
 
                 if (isSwKernelInputArg) {
                     processCallOpWithInputBlockArg(calledFuncArg, blockArgumentToNewCopy, mainFuncOp, callOp, builder,

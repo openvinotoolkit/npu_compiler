@@ -85,24 +85,13 @@ module @MatMulWithGroupQuantPrefill {
 
     // CHECK: func.func @main([[ARG_PREFILL:%.+]]: tensor<17x3072xf32>) -> tensor<17x4096xf32> {
     func.func @main(%arg0: tensor<17x3072xf32>) -> tensor<17x4096xf32> {
-        %WEIGHTS = const.Declare tensor<3x1024x4096xf32> = dense<1.0> : tensor<3x1024x4096xf32>
+        %WEIGHTS = const.Declare tensor<3x1024x4096xui4> = dense<1> : tensor<3x1024x4096xui4>
+        %SCALE = const.Declare tensor<3x1x4096xf32> = dense<2.000000e+00> : tensor<3x1x4096xf32>
+        %ZP = const.Declare tensor<3x1x4096xui4> = dense<8> : tensor<3x1x4096xui4>
+        %DQ = IE.DynamicDequantize(%WEIGHTS, %SCALE, %ZP) {dstElemType = f32, vpux.weights_import_dyn_dequant}
+            : tensor<3x1024x4096xui4>, tensor<3x1x4096xf32>, tensor<3x1x4096xui4> -> tensor<3x1024x4096xf32>
 
-        %IN_LOW = const.Declare tensor<1x1x1xf32> = dense<0.0e+00> : tensor<1x1x1xf32>
-        %IN_HIGH = const.Declare tensor<1x1x1xf32> = dense<1.5e+01> : tensor<1x1x1xf32>
-        %OUT_LOW = const.Declare tensor<3x1x4096xf32> = dense<-16.0> : tensor<3x1x4096xf32>
-        %OUT_HIGH = const.Declare tensor<3x1x4096xf32> = dense<14.0> : tensor<3x1x4096xf32>
-
-        %FQ = IE.FakeQuantize(%WEIGHTS, %IN_LOW, %IN_HIGH, %OUT_LOW, %OUT_HIGH) {
-            auto_broadcast = #IE.auto_broadcast_type<NUMPY>,
-            levels = 16 : i64
-        } : tensor<3x1024x4096xf32>,
-            tensor<1x1x1xf32>,
-            tensor<1x1x1xf32>,
-            tensor<3x1x4096xf32>,
-            tensor<3x1x4096xf32>
-                -> tensor<3x1024x4096xf32>
-
-        %RESHAPE = IE.Reshape(%FQ) {shape_value = [3072, 4096]} : tensor<3x1024x4096xf32> -> tensor<3072x4096xf32>
+        %RESHAPE = IE.Reshape(%DQ) {shape_value = [3072, 4096]} : tensor<3x1024x4096xf32> -> tensor<3072x4096xf32>
         %GEMM = IE.MatMul(%arg0, %RESHAPE) : tensor<17x3072xf32>, tensor<3072x4096xf32> -> tensor<17x4096xf32>
         // CHECK:   [[RESHAPE_LHS_PREFILL:%.+]] = IE.AffineReshape([[ARG_PREFILL]]) {
         // CHECK-SAME:      shape_value = [1, 1, 17, 3072]
@@ -248,27 +237,18 @@ module @MatMulWithGroupQuant {
     // CHECK: func.func @main
     // CHECK-SAME: [[ARG:%.+]]: tensor<16x3072xf32>
     func.func @main(%arg0: tensor<16x3072xf32>) -> tensor<16x4096xf32> {
-        %WEIGHTS = const.Declare tensor<3x1024x4096xf32> = dense<1.0> : tensor<3x1024x4096xf32>
-        // CHECK-DAG:   [[WEIGHTS_2:%.+]] = const.Declare tensor<4096x1024x1x1x[[Q_ELEM_TYPE]], {order = #NHWC}> = dense<1.000000e+00> : tensor<3x1024x4096xf32>, [#const.SubView<[2, 0, 0], [1, 1024, 4096]>{{.*}}#const.Reorder<#NHWC>]
-        // CHECK-DAG:   [[WEIGHTS_1:%.+]] = const.Declare tensor<4096x1024x1x1x[[Q_ELEM_TYPE]], {order = #NHWC}> = dense<1.000000e+00> : tensor<3x1024x4096xf32>, [#const.SubView<[1, 0, 0], [1, 1024, 4096]>{{.*}}#const.Reorder<#NHWC>]
-        // CHECK-DAG:   [[WEIGHTS_0:%.+]] = const.Declare tensor<4096x1024x1x1x[[Q_ELEM_TYPE]], {order = #NHWC}> = dense<1.000000e+00> : tensor<3x1024x4096xf32>, [#const.SubView<[0, 0, 0], [1, 1024, 4096]>{{.*}}#const.Reorder<#NHWC>]
+        %WEIGHTS = const.Declare tensor<3x1024x4096xui4> = dense<1> : tensor<3x1024x4096xui4>
+        // CHECK-DAG:   [[WEIGHTS_2:%.+]] = const.Declare tensor<4096x1024x1x1x[[Q_ELEM_TYPE]], {order = #NHWC}> = dense<1> : tensor<3x1024x4096xui4>, [#const.SubView<[2, 0, 0], [1, 1024, 4096]>{{.*}}#const.Reorder<#NHWC>]
+        // CHECK-DAG:   [[WEIGHTS_1:%.+]] = const.Declare tensor<4096x1024x1x1x[[Q_ELEM_TYPE]], {order = #NHWC}> = dense<1> : tensor<3x1024x4096xui4>, [#const.SubView<[1, 0, 0], [1, 1024, 4096]>{{.*}}#const.Reorder<#NHWC>]
+        // CHECK-DAG:   [[WEIGHTS_0:%.+]] = const.Declare tensor<4096x1024x1x1x[[Q_ELEM_TYPE]], {order = #NHWC}> = dense<1> : tensor<3x1024x4096xui4>, [#const.SubView<[0, 0, 0], [1, 1024, 4096]>{{.*}}#const.Reorder<#NHWC>]
 
-        %IN_LOW = const.Declare tensor<1x1x1xf32> = dense<0.0e+00> : tensor<1x1x1xf32>
-        %IN_HIGH = const.Declare tensor<1x1x1xf32> = dense<1.5e+01> : tensor<1x1x1xf32>
-        %OUT_LOW = const.Declare tensor<3x1x4096xf32> = dense<-16.0> : tensor<3x1x4096xf32>
-        %OUT_HIGH = const.Declare tensor<3x1x4096xf32> = dense<14.0> : tensor<3x1x4096xf32>
+        %SCALE = const.Declare tensor<3x1x4096xf32> = dense<2.000000e+00> : tensor<3x1x4096xf32>
+        %ZP = const.Declare tensor<3x1x4096xui4> = dense<8> : tensor<3x1x4096xui4>
 
-        %FQ = IE.FakeQuantize(%WEIGHTS, %IN_LOW, %IN_HIGH, %OUT_LOW, %OUT_HIGH) {
-            auto_broadcast = #IE.auto_broadcast_type<NUMPY>,
-            levels = 16 : i64
-        } : tensor<3x1024x4096xf32>,
-            tensor<1x1x1xf32>,
-            tensor<1x1x1xf32>,
-            tensor<3x1x4096xf32>,
-            tensor<3x1x4096xf32>
-                -> tensor<3x1024x4096xf32>
+        %DQ = IE.DynamicDequantize(%WEIGHTS, %SCALE, %ZP) {dstElemType = f32, vpux.weights_import_dyn_dequant}
+            : tensor<3x1024x4096xui4>, tensor<3x1x4096xf32>, tensor<3x1x4096xui4> -> tensor<3x1024x4096xf32>
 
-        %RESHAPE = IE.Reshape(%FQ) {shape_value = [3072, 4096]} : tensor<3x1024x4096xf32> -> tensor<3072x4096xf32>
+        %RESHAPE = IE.Reshape(%DQ) {shape_value = [3072, 4096]} : tensor<3x1024x4096xf32> -> tensor<3072x4096xf32>
         %GEMM = IE.MatMul(%arg0, %RESHAPE) : tensor<16x3072xf32>, tensor<3072x4096xf32> -> tensor<16x4096xf32>
         // CHECK:   [[RESHAPE_LHS:%.+]] = IE.AffineReshape([[ARG]]) {
         // CHECK-SAME:      shape_value = [1, 1, 16, 3072]

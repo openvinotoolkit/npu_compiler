@@ -260,9 +260,9 @@ module @BoundsOrderRestore {
 
     // CHECK-LABEL: module @Module0 attributes {{.+}} {
     // CHECK:     net.NetworkInfo entryPoint : @main_func1 inputsInfo : {
-    // CHECK:       DataInfo "in_0" tensorNames = ["in_0"] : tensor<?x1x?x1xf16, {bounds = #const.OpaqueI64Elements<[32, 1, 548, 1]> : tensor<4xsi64>, order = #NCHW}>
+    // CHECK:       DataInfo "in_0" tensorNames = ["in_0"] : tensor<1x?x?x1xf16, {bounds = #const.OpaqueI64Elements<[1, 32, 548, 1]> : tensor<4xsi64>, order = #NCHW}>
     // CHECK:     } outputsInfo : {
-    // CHECK:       DataInfo "out_0" tensorNames = ["out_0"] : tensor<?x1x?x1xf16, {bounds = #const.OpaqueI64Elements<[32, 1, 548, 1]> : tensor<4xsi64>, order = #NCHW}>
+    // CHECK:       DataInfo "out_0" tensorNames = ["out_0"] : tensor<1x?x?x1xf16, {bounds = #const.OpaqueI64Elements<[1, 32, 548, 1]> : tensor<4xsi64>, order = #NCHW}>
     // CHECK:     func.func @main_func1(
     // CHECK-LABEL: func.func @main(
 }
@@ -321,7 +321,7 @@ module @BoundsOrderRestoreOnOutputTensor {
     // CHECK:       DataInfo "in_0" tensorNames = ["in_0"] : tensor<1x?x?x3xf16, {bounds = #const.OpaqueI64Elements<[1, 360, 640, 3]> : tensor<4xsi64>, order = #NCHW}>
     // CHECK:       DataInfo "in_1" tensorNames = ["in_1"] : tensor<4xf32>
     // CHECK:     } outputsInfo : {
-    // CHECK:       DataInfo "out_0" tensorNames = ["out_0"] : tensor<1x?x?x3xf16, {bounds = #const.OpaqueI64Elements<[1, 2160, 3840, 3]> : tensor<4xsi64>, order = #NCHW}>
+    // CHECK:       DataInfo "out_0" tensorNames = ["out_0"] : tensor<1x3x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 3, 2160, 3840]> : tensor<4xsi64>, order = #NCHW}>
     // CHECK:     }
     // CHECK:     func.func @main_func1
 }

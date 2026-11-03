@@ -47,11 +47,17 @@ struct NPUConstraints {
     // Minimum ELF ABI version required to support dynamic strides if applicable
     std::optional<Version> dynamicStridesMinElfAbiVersion;
 
+    // Minimum ELF ABI version required to support dynamic strides for subbyte tensors if applicable
+    std::optional<Version> dynamicStridesSubByteMinElfAbiVersion;
+
     // Maximum kernel size supported by the target DPU, used for optimizations that require this information.
     uint32_t maxKernelSize = 0;
 
     // Supported RoPE (C, W) configurations used by IE::FuseRoPE pass.
     SmallVector<RoPEConfig> legalRoPEConfigs;
+
+    // Indicates the capability of asymmetric zero point quantization per tensor
+    bool asymmetricPerTensorZP = false;
 };
 
 // Returns the baseline set of RoPE configurations supported on all platforms.
@@ -77,6 +83,8 @@ public:
     }
 
     friend const NPUConstraints& updateMaxKernelSize(mlir::MLIRContext* context, uint32_t maxKernelSize);
+
+    friend const NPUConstraints& updateAsymmetricPerTensorZP(mlir::MLIRContext* context, bool asymmetricPerTensorZP);
 };
 
 /**
@@ -90,5 +98,7 @@ void setNPUConstraints(mlir::MLIRContext* context, const NPUConstraints& constra
 const NPUConstraints& getNPUConstraints(mlir::MLIRContext* context);
 
 const NPUConstraints& updateMaxKernelSize(mlir::MLIRContext* context, uint32_t maxKernelSize);
+
+const NPUConstraints& updateAsymmetricPerTensorZP(mlir::MLIRContext* context, bool asymmetricPerTensorZP);
 
 }  // namespace vpux::config

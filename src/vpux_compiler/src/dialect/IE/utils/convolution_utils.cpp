@@ -327,12 +327,27 @@ mlir::LogicalResult FuseConvAndBias::matchAndRewrite(IE::ScaleShiftOp biasOp, ml
             return matchFailed(_log, rewriter, convOp, "Conv cannot convert to NCE, not fuse ScaleShift");
         }
 
-        // Do not fuse if the conv has any scale operand or a non-constant (runtime) filter.
-        // TODO: E#231464 - properly support bias fusion for these cases.
-        if (convOp.getScale() != nullptr || !isFoldableConstFilter(convOp.getFilter())) {
+        if (!isFoldableConstFilter(convOp.getFilter())) {
             return matchFailed(_log, rewriter, convOp,
-                               "Conv has a scale operand or a non-constant filter; skipping bias fusion to "
+                               "Conv has a non-constant filter; skipping bias fusion to "
                                "preserve precision of the bias through quantization passes");
+        }
+
+        if (convOp.getStaticScaleAttr() != nullptr &&
+            isDoubleEqual(convOp.getStaticScaleAttr().getValueAsDouble(), 0.0)) {
+            return matchFailed(_log, rewriter, convOp, "Conv has a zero static scale, not fuse ScaleShift");
+        }
+        if (convOp.getScale() != nullptr) {
+            const auto scaleConst = IE::getConstParentOp(convOp.getScale());
+            if (mlir::failed(scaleConst)) {
+                return matchFailed(_log, rewriter, convOp,
+                                   "Conv has a non-constant, non-uniform, or zero scale operand, not fuse ScaleShift");
+            }
+            const auto scaleContent = scaleConst.value().getContentAttr().fold();
+            if (!scaleContent.isSplat() || isDoubleEqual(scaleContent.getSplatValue<double>(), 0.0)) {
+                return matchFailed(_log, rewriter, convOp,
+                                   "Conv has a non-constant, non-uniform, or zero scale operand, not fuse ScaleShift");
+            }
         }
     }
     if (auto grConvOp = mlir::dyn_cast<IE::GroupConvolutionOp>(op)) {
@@ -340,12 +355,23 @@ mlir::LogicalResult FuseConvAndBias::matchAndRewrite(IE::ScaleShiftOp biasOp, ml
             mlir::failed(IE::canConvertGroupConvToConv(grConvOp))) {
             return matchFailed(_log, rewriter, grConvOp, "GroupConv cannot convert to NCE, not fuse ScaleShift");
         }
+        if (!isFoldableConstFilter(grConvOp.getFilter())) {
+            return matchFailed(_log, rewriter, grConvOp,
+                               "GroupConv has a non-constant filter; skipping bias fusion to preserve precision of the "
+                               "bias through quantization passes");
+        }
     }
     if (auto transposedConv = mlir::dyn_cast<IE::TransposedConvolutionOp>(op)) {
         auto seOp = mlir::dyn_cast<IE::SEOpInterface>(transposedConv.getOperation());
         if (!seOp || !seOp.isSupported(emptyLogCb)) {
             return matchFailed(_log, rewriter, transposedConv,
                                "TransposedConv cannot convert to NCE, not fuse ScaleShift");
+        }
+        if (!isFoldableConstFilter(transposedConv.getFilter())) {
+            return matchFailed(
+                    _log, rewriter, transposedConv,
+                    "TransposedConv has a non-constant filter; skipping bias fusion to preserve precision of the bias "
+                    "through quantization passes");
         }
     }
 
@@ -372,17 +398,25 @@ mlir::LogicalResult FuseConvAndBias::matchAndRewrite(IE::ScaleShiftOp biasOp, ml
     //   conv * scale + bias ==> (conv + bias/scale) * scale
     auto biasConst = [&]() -> mlir::Value {
         auto convolutionOp = mlir::dyn_cast<IE::ConvolutionOp>(op);
-        if (convolutionOp == nullptr || convolutionOp.getStaticScaleAttr() == nullptr) {
+        if (convolutionOp == nullptr) {
             return biasOp.getBiases();
         }
 
-        auto staticScale = convolutionOp.getStaticScaleAttr().getValueAsDouble();
-        if (isDoubleEqual(staticScale, 1)) {
+        auto scale = convolutionOp.getStaticScaleAttr() != nullptr
+                             ? convolutionOp.getStaticScaleAttr().getValueAsDouble()
+                             : 1.0;
+        if (convolutionOp.getScale() != nullptr) {
+            const auto scaleConst = IE::getConstParentOp(convolutionOp.getScale());
+            VPUX_THROW_UNLESS(mlir::succeeded(scaleConst), "Expected constant scale operand for bias rescaling");
+            scale *= scaleConst.value().getContentAttr().fold().getSplatValue<double>();
+        }
+
+        if (isDoubleEqual(scale, 1)) {
             return biasOp.getBiases();
         }
 
         auto biasConst = IE::getConstParentOp(biasOp.getBiases()).value();
-        auto contentAttr = biasConst.transformContentAttr().rescale(1 / staticScale).get();
+        auto contentAttr = biasConst.transformContentAttr().rescale(1 / scale).get();
         return Const::DeclareOp::create(rewriter, takeOpLoc(biasConst, "rescaled"), biasConst.getType(), contentAttr)
                 .getOutput();
     }();
@@ -408,8 +442,8 @@ mlir::LogicalResult FuseConvAndBias::matchAndRewrite(IE::ScaleShiftOp biasOp, ml
         }
         auto newTransposedConv = IE::TransposedConvolutionOp::create(
                 rewriter, transposedConv.getLoc(), transposedConv.getInput(), transposedConv.getFilter(),
-                transposedConv.getOutputShape(), biasOp.getBiases(), transposedConv.getStrides(),
-                transposedConv.getPadsBegin(), transposedConv.getPadsEnd(), transposedConv.getDilations(),
+                transposedConv.getOutputShape(), biasConst, transposedConv.getStrides(), transposedConv.getPadsBegin(),
+                transposedConv.getPadsEnd(), transposedConv.getDilations(),
                 transposedConv.getSpatialOutputPaddingAttr(), transposedConv.getPostOpAttr(),
                 transposedConv.getClampAttr(), transposedConv.getOutputPaddingAttr(),
                 transposedConv.getInputPaddingAttr());

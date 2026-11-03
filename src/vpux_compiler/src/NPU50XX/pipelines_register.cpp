@@ -61,7 +61,8 @@ void PipelineRegistry50XX::registerPipelines() {
     mlir::PassPipelineRegistration<DefaultHWOptions50XX>(
             "host-compile", "Compile IE Network in Host mode (host and HW execution) for NPU50XX",
             [platform = _platform](mlir::OpPassManager& pm, const DefaultHWOptions50XX& options) {
-                VPU::InitCompilerOptions initCompilerOptions{platform, config::CompilationMode::HostCompile, options};
+                VPU::InitCompilerOptions initCompilerOptions{platform, config::CompilationMode::HostCompile_Interpreter,
+                                                             options};
                 auto createPipelineStrategy = [&](config::CompilationMode compilationMode) {
                     return createDialectPipelineStrategy50XXHostCompile<DefaultHWOptions50XX>(
                             compilationMode, &initCompilerOptions, &options);

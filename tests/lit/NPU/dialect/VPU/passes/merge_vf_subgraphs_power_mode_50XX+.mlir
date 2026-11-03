@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-// RUN: vpux-opt --split-input-file --init-compiler="platform=%platform% compilation-mode=DefaultHW allow-custom-values=true" --cmx-stack-frames-reserve-mem --cmx-metadata-reserve-mem --merge-vertical-fusion-subgraphs="enable-vertical-fusion-pipelining=true workload-management-mode=FWLM_V1_PAGES vf-merge-cost-mode=power" %s | FileCheck %s
+// RUN: vpux-opt --split-input-file --init-compiler="platform=%platform% compilation-mode=DefaultHW allow-custom-values=true power-optimized=true" --cmx-stack-frames-reserve-mem --cmx-metadata-reserve-mem --merge-vertical-fusion-subgraphs="enable-vertical-fusion-pipelining=true workload-management-mode=FWLM_V1_PAGES" %s | FileCheck %s
 // REQUIRES: platform-NPU5010
 
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>

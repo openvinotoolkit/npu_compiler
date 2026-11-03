@@ -409,14 +409,31 @@ SmallVector<PadInfo> VPU::DistributedTensorType::getPerClusterPadding(PadInfo ke
 // @warning This function should not be used for memory size calculation,
 // because it does not retrieve the true allocate shape in cases
 // of broadcasting.
-SmallVector<StridedShape> VPU::DistributedTensorType::getPerClusterMemoryStridedShapes() const {
+mlir::FailureOr<SmallVector<StridedShape>> VPU::DistributedTensorType::getPerClusterMemoryStridedShapesOrFailure(
+        vpux::LogCb logCb) const {
     const auto strideInReqs = StrideReqs::compact(getShape().size());
-    VPUX_THROW_UNLESS(strideInReqs.checkStrides(*this), "Only compact strides are supported");
+    if (!strideInReqs.checkStrides(*this)) {
+        logCb(formatv("Only compact strides are supported"));
+        return mlir::failure();
+    }
 
     const auto memoryShapes = getPerClusterMemoryShapes();
     const auto strides = getStrides();
-    return VPU::getPerClusterMemoryStridedShapes(getShape(), strides, getDimsOrder(), getDistribution().getMode(),
-                                                 memoryShapes);
+    return VPU::getPerClusterMemoryStridedShapesOrFailure(getShape(), strides, getDimsOrder(),
+                                                          getDistribution().getMode(), memoryShapes, logCb);
+}
+
+// @brief Retrieve the array of strided memory shapes
+// @warning This function should not be used for memory size calculation,
+// because it does not retrieve the true allocate shape in cases
+// of broadcasting.
+SmallVector<StridedShape> VPU::DistributedTensorType::getPerClusterMemoryStridedShapes() const {
+    std::string errorMsg;
+    auto stridedShapes = getPerClusterMemoryStridedShapesOrFailure([&](const formatv_object_base& msg) {
+        errorMsg = msg.str();
+    });
+    VPUX_THROW_WHEN(mlir::failed(stridedShapes), "{0}", errorMsg);
+    return stridedShapes.value();
 }
 
 // @brief Get largest strided memory shape

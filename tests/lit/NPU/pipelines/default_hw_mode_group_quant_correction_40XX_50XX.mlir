@@ -45,14 +45,15 @@ module @GroupQuantCorrection {
         // CHECK-SAME:      task_type = #VPUIP.nce_task_type<CONV>
 
         // Correction buffers retain ui2 zero points and are tiled across NPU tiles.
-        // CHECK:       [[GQC_TILE_0:%.+]] = VPUIP.SW.Kernel
+        // Tile shapes depend on VPUNN SHAVE costs, so only element types and tile placement are checked.
+        // CHECK:       VPUIP.SW.Kernel
         // CHECK-SAME:      @VPU.SW::@builtin_GroupQuantCorrection
-        // CHECK-SAME:      inputs({{.*}}: memref<{{[12]}}x96x1x1xf16, [@CMX_NN, 0]>, {{.*}}: memref<{{[12]}}x1x1x64xf16, [@CMX_NN, 0]>, {{.*}}: memref<{{[12]}}x96x1x1xf16, [@CMX_NN, 0]>, {{.*}}: memref<{{[12]}}x96x1x1xui2, [@CMX_NN, 0]>)
-        // CHECK-SAME:      outputs({{.*}}: memref<{{[12]}}x96x1x1xf16, [@CMX_NN, 0]>){{.*}}on tile 0
+        // CHECK-SAME:      inputs({{.*}}: memref<{{[0-9x]+}}xf16, [@CMX_NN, 0]>, {{.*}}: memref<{{[0-9x]+}}xf16, [@CMX_NN, 0]>, {{.*}}: memref<{{[0-9x]+}}xf16, [@CMX_NN, 0]>, {{.*}}: memref<{{[0-9x]+}}xui2, [@CMX_NN, 0]>)
+        // CHECK-SAME:      outputs({{.*}}: memref<{{[0-9x]+}}xf16, [@CMX_NN, 0]>){{.*}}on tile 0
         // CHECK:           VPUIP.SW.Kernel.run
-        // CHECK:       [[GQC_TILE_1:%.+]] = VPUIP.SW.Kernel
+        // CHECK:       VPUIP.SW.Kernel
         // CHECK-SAME:      @VPU.SW::@builtin_GroupQuantCorrection
-        // CHECK-SAME:      outputs({{.*}}: memref<{{[12]}}x96x1x1xf16, [@CMX_NN, 1]>){{.*}}on tile 1
+        // CHECK-SAME:      outputs({{.*}}: memref<{{[0-9x]+}}xf16, [@CMX_NN, 1]>){{.*}}on tile 1
         // CHECK:           VPUIP.SW.Kernel.run
     }
 }

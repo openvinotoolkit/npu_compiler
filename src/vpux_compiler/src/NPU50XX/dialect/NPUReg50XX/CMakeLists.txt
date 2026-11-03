@@ -27,3 +27,5 @@ add_npu_library(npu_compiler_dialect_npureg50xx
         npu_compiler_utils
         npu_core_utils
 )
+enable_lto_if_possible(npu_compiler_dialect_npureg50xx)
+

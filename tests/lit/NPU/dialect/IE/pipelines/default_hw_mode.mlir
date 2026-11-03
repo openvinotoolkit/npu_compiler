@@ -24,7 +24,7 @@ module @FuseConstDivideToMatMul {
         %cst_17 = const.Declare tensor<1xf16> = dense<7.95201873> : tensor<1xf16>
         %cst_18 = const.Declare tensor<1xf16> = dense<2.460000e+02> : tensor<1xf16>
         %cst_fq = IE.FakeQuantize(%cst_18, %cst_0, %cst_1, %cst_16, %cst_17) {
-            auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i64
+            auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256 : i64
         } : tensor<1xf16>, tensor<1xf16>, tensor<1xf16>, tensor<1xf16>, tensor<1xf16> -> tensor<1xf16>
 
         %28 = IE.MatMul(%arg0, %arg1) {transpose_b}
@@ -521,7 +521,7 @@ module @HandleFQWithDifferentScenarios {
         %in_low = const.Declare tensor<1x1x1x1xf32> = dense<-2.0> : tensor<1x1x1x1xf32>
         %in_high = const.Declare tensor<1x1x1x1xf32> = dense<10.0> : tensor<1x1x1x1xf32>
         %fq_in = IE.FakeQuantize(%arg0, %in_low, %in_high, %in_low, %in_high) {
-                    auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i16
+                    auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256 : i16
                 } : tensor<1x16x250x256xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32> -> tensor<1x16x250x256xf32>
 
         %weights = const.Declare tensor<16x16x3x3xf32> = dense<2> : tensor<16x16x3x3xui8>, [#const.CastElemType<f32>]
@@ -530,7 +530,7 @@ module @HandleFQWithDifferentScenarios {
         %weights_high = const.Declare tensor<16x1x1x1xf32> = dense<[[[[2.0]]], [[[2.1]]], [[[2.2]]], [[[2.3]]], [[[2.4]]], [[[2.5]]], [[[2.6]]], [[[2.7]]],
                                                                     [[[2.8]]], [[[2.9]]], [[[3.0]]], [[[3.1]]], [[[3.2]]], [[[3.3]]], [[[3.4]]], [[[3.5]]]]> : tensor<16x1x1x1xf32>
         %fq_weights = IE.FakeQuantize(%weights, %weights_low, %weights_high, %weights_low, %weights_high) {
-                        auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i64
+                        auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256 : i64
                     } : tensor<16x16x3x3xf32>, tensor<16x1x1x1xf32>, tensor<16x1x1x1xf32>, tensor<16x1x1x1xf32>, tensor<16x1x1x1xf32> -> tensor<16x16x3x3xf32>
 
         %conv = IE.Convolution(%fq_in, %fq_weights) {
@@ -540,7 +540,7 @@ module @HandleFQWithDifferentScenarios {
         %out_low = const.Declare tensor<1x1x1x1xf32> = dense<4.5> : tensor<1x1x1x1xf32>
         %out_high = const.Declare tensor<1x1x1x1xf32> = dense<5.0> : tensor<1x1x1x1xf32>
         %fq_out = IE.FakeQuantize(%conv, %out_low, %out_high, %out_low, %out_high) {
-                    auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i16
+                    auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256 : i16
                 } : tensor<1x16x250x256xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32> -> tensor<1x16x250x256xf32>
 
         return %fq_out : tensor<1x16x250x256xf32>
@@ -559,7 +559,7 @@ module @HandleFQWithDifferentScenarios {
         // CHECK:       [[CONVOLUTION:%.+]] = IE.Convolution([[PERMUTE_IN]], [[WEIGHTS]]) {
         // CHECK-SAME:          dilations = [1, 1], pads_begin = [1, 1], pads_end = [1, 1], strides = [1, 1]} : tensor<1x16x250x256xf16, {order = #NHWC}>, tensor<16x16x3x3xf16, {order = #NHWC}> -> tensor<1x16x250x256xf16, {order = #NHWC}>
         // CHECK:       [[QUANTIZE_OUT:%.+]] = IE.FakeQuantize([[CONVOLUTION]], [[OUT_LOW]], [[OUT_HIGH]], [[OUT_LOW]], [[OUT_HIGH]]) {
-        // CHECK-SAME:          auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i16} : tensor<1x16x250x256xf16, {order = #NHWC}>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<1x16x250x256xf16, {order = #NHWC}>
+        // CHECK-SAME:          auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256 : i16} : tensor<1x16x250x256xf16, {order = #NHWC}>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<1x16x250x256xf16, {order = #NHWC}>
         // CHECK:       [[PERMUTE_OUT:%.+]] = IE.MaxPool([[QUANTIZE_OUT]]) {
         // CHECK-SAME:          kernel_size = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], rounding_type = #IE.rounding_type<FLOOR>, strides = [1, 1]} : tensor<1x16x250x256xf16, {order = #NHWC}> -> tensor<1x16x250x256xf16>
         // CHECK:       [[CONVERT_OUT:%.+]] = IE.Convert([[PERMUTE_OUT]]) {dstElemType = f32} : tensor<1x16x250x256xf16> -> tensor<1x16x250x256xf32>
@@ -660,4 +660,105 @@ module @ReduceSumBatchAxisAlignedWPipeline {
         // CHECK-SAME: tensor<1x1x1024x2048xf16> -> tensor<1024x1x2048xf16>
         // CHECK: return [[AR1]] : tensor<1024x1x2048xf16>
     }
+}
+
+// -----
+
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+#NCWH = affine_map<(d0, d1, d2, d3) -> (d0, d1, d3, d2)>
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+#NWCH = affine_map<(d0, d1, d2, d3) -> (d0, d3, d1, d2)>
+
+// ReduceSum on the channel axis (H==1) where the remaining width is NOT a multiple of
+// VPU_CHANNEL_ALIGNMENT (16) but exceeds it: ConvertReduceToPooling's ReduceChannelSplitRewriter
+// splits the input into an aligned "bulk" slice (W rounded down to 16) and a small unaligned
+// "remainder" slice, reduces each independently, and concatenates the results back together.
+
+// CHECK-LABEL: @ReduceSumChannelSplitUnalignedWidthPipeline
+module @ReduceSumChannelSplitUnalignedWidthPipeline {
+    net.NetworkInfo entryPoint : @main
+    inputsInfo : {
+        DataInfo "input" : tensor<1x8x1x19xf16>
+    } outputsInfo : {
+        DataInfo "output" : tensor<1x1x19xf16>
+    }
+
+    // CHECK-LABEL: func.func @main
+    // CHECK-SAME: ([[INPUT:%.+]]: tensor<1x8x1x19xf16>)
+    func.func @main(%arg0: tensor<1x8x1x19xf16>) -> tensor<1x1x19xf16> {
+        %0 = IE.ReduceSum(%arg0) {axes_value = [1]} : tensor<1x8x1x19xf16> -> tensor<1x1x19xf16>
+        return %0 : tensor<1x1x19xf16>
+
+        // CHECK-NOT:   IE.ReduceSum
+
+        // CHECK-DAG: [[BULK:%.+]] = IE.Slice [[INPUT]] [0, 0, 0, 0] [1, 8, 1, 16] : tensor<1x8x1x19xf16> to tensor<1x8x1x16xf16>
+        // CHECK-DAG: [[REMAINDER:%.+]] = IE.Slice [[INPUT]] [0, 0, 0, 16] [1, 8, 1, 3] : tensor<1x8x1x19xf16> to tensor<1x8x1x3xf16>
+
+        // Bulk (aligned, W=16): PermuteCast to NHWC + balanced-kernel AvgPool.
+        // CHECK: [[BULK_PC:%.+]] = IE.PermuteCast([[BULK]]) {dst_order = #NHWC, mem_perm = #NCHW} : tensor<1x8x1x16xf16> -> tensor<1x16x8x1xf16, {order = #NHWC}>
+        // CHECK: [[BULK_SC:%.+]] = IE.ShapeCast {shape = [1, 16, 4, 2]} inputs([[BULK_PC]] : tensor<1x16x8x1xf16, {order = #NHWC}>) -> tensor<1x16x4x2xf16, {order = #NHWC}>
+        // CHECK: [[BULK_POOL:%.+]] = IE.AvgPool([[BULK_SC]]) {exclude_pads, kernel_size = [4, 2], pads_begin = [0, 0], pads_end = [0, 0], rounding_type = #IE.rounding_type<FLOOR>, static_scale = 8.000000e+00 : f32, strides = [1, 1]} : tensor<1x16x4x2xf16, {order = #NHWC}> -> tensor<1x16x1x1xf16, {order = #NHWC}>
+
+        // Remainder (unaligned, W=3): reshape, PermuteCast, expand-pad channel to 16, AvgPool.
+        // CHECK: [[REM_AR0:%.+]] = IE.AffineReshape([[REMAINDER]])
+        // CHECK-SAME{LITERAL}: {dim_mapping = [[0, 1], [2], [2], [3]], shape_value = [1, 1, 8, 3]}
+        // CHECK-SAME: tensor<1x8x1x3xf16> -> tensor<1x1x8x3xf16>
+        // CHECK: [[REM_PC0:%.+]] = IE.PermuteCast([[REM_AR0]]) {dst_order = #NHWC, mem_perm = #NHWC} : tensor<1x1x8x3xf16> -> tensor<1x1x8x3xf16, {order = #NHWC}>
+        // CHECK: [[REM_SC0:%.+]] = IE.ShapeCast {shape = [1, 3, 8, 1]} inputs([[REM_PC0]] : tensor<1x1x8x3xf16, {order = #NHWC}>) -> tensor<1x3x8x1xf16, {order = #NHWC}>
+        // CHECK: [[REM_EXPAND:%.+]] = IE.Expand([[REM_SC0]]) {pads_begin = [0, 0, 0, 0], pads_end = [0, 13, 0, 0]} : tensor<1x3x8x1xf16, {order = #NHWC}> -> tensor<1x16x8x1xf16, {order = #NHWC}>
+        // CHECK: [[REM_POOL:%.+]] = IE.AvgPool([[REM_EXPAND]]) {exclude_pads, kernel_size = [8, 1], pads_begin = [0, 0], pads_end = [0, 0], rounding_type = #IE.rounding_type<FLOOR>, static_scale = 8.000000e+00 : f32, strides = [1, 1]} : tensor<1x16x8x1xf16, {order = #NHWC}> -> tensor<1x16x1x1xf16, {order = #NHWC}>
+        // CHECK: [[REM_SC1:%.+]] = IE.ShapeCast {shape = [1, 1, 1, 16]} inputs([[REM_POOL]] : tensor<1x16x1x1xf16, {order = #NHWC}>) -> tensor<1x1x1x16xf16, {order = #NHWC}>
+        // CHECK: [[REM_SLICE:%.+]] = IE.Slice [[REM_SC1]] [0, 0, 0, 0] [1, 1, 1, 3] : tensor<1x1x1x16xf16, {order = #NHWC}> to tensor<1x1x1x3xf16, {order = #NHWC}>
+        // CHECK: [[REM_PC1:%.+]] = IE.PermuteCast([[REM_SLICE]]) {dst_order = #NCHW, mem_perm = #NWCH} : tensor<1x1x1x3xf16, {order = #NHWC}> -> tensor<1x1x1x3xf16>
+
+        // Reassemble bulk + remainder back into the original width via Concat.
+        // CHECK: [[BULK_AR:%.+]] = IE.AffineReshape([[BULK_POOL]])
+        // CHECK-SAME{LITERAL}: {dim_mapping = [[0, 1], [2], [3], [3]], shape_value = [1, 1, 16, 1]}
+        // CHECK-SAME: tensor<1x16x1x1xf16, {order = #NHWC}> -> tensor<1x1x16x1xf16, {order = #NCWH}>
+        // CHECK: [[BULK_PC_OUT:%.+]] = IE.PermuteCast([[BULK_AR]]) {dst_order = #NCHW, mem_perm = #NCWH} : tensor<1x1x16x1xf16, {order = #NCWH}> -> tensor<1x1x16x1xf16>
+        // CHECK: [[REM_AR1:%.+]] = IE.AffineReshape([[REM_PC1]])
+        // CHECK-SAME{LITERAL}: {dim_mapping = [[0], [1], [1], [2, 3]], shape_value = [1, 1, 3, 1]}
+        // CHECK-SAME: tensor<1x1x1x3xf16> -> tensor<1x1x3x1xf16>
+        // CHECK: [[CONCAT:%.+]] = IE.Concat([[BULK_PC_OUT]], [[REM_AR1]])
+        // CHECK-SAME: tensor<1x1x16x1xf16>, tensor<1x1x3x1xf16> -> tensor<1x1x19x1xf16>
+        // CHECK: [[OUT:%.+]] = IE.AffineReshape([[CONCAT]])
+        // CHECK-SAME{LITERAL}: {dim_mapping = [[0], [1], [2], [2]], shape_value = [1, 1, 19]}
+        // CHECK-SAME: tensor<1x1x19x1xf16> -> tensor<1x1x19xf16>
+        // CHECK: return [[OUT]] : tensor<1x1x19xf16>
+    }
+}
+
+// -----
+
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+
+// CHECK-LABEL: @BatchedIdentityAvgPoolPipeline
+module @BatchedIdentityAvgPoolPipeline {
+  net.NetworkInfo entryPoint : @main inputsInfo : {
+    DataInfo "input" : tensor<4x145x384x1xf16>
+  } outputsInfo : {
+        DataInfo "output" : tensor<4x145x384x1xf32>
+  }
+    func.func @main(%arg0: tensor<4x145x384x1xf16>) -> tensor<4x145x384x1xf32> {
+        %0 = IE.AvgPool(%arg0) {exclude_pads, kernel_size = [1, 1], pads_begin = [0, 0], pads_end = [0, 0],
+            rounding_type = #IE.rounding_type<FLOOR>, strides = [1, 1]} :
+            tensor<4x145x384x1xf16> -> tensor<4x145x384x1xf32>
+        return %0 : tensor<4x145x384x1xf32>
+
+    // The f16-to-f32 conversion keeps this unclamped identity AvgPool observable.
+    // CHECK-LABEL: func.func @main
+    // CHECK-SAME: ([[ARG0:%.+]]: tensor<4x145x384x1xf16>) -> tensor<4x145x384x1xf32>
+    // CHECK: [[INPUT_SHAPE:%.+]] = IE.ShapeCast {shape = [1, 145, 384, 4]} inputs([[ARG0]] : tensor<4x145x384x1xf16>) -> tensor<1x145x384x4xf16>
+    // CHECK: [[INPUT_LAYOUT:%.+]] = IE.LayoutCast([[INPUT_SHAPE]]) {dst_order = #NHWC}
+    // CHECK-SAME: tensor<1x145x384x4xf16> -> tensor<1x145x384x4xf16, {order = #NHWC}>
+    // CHECK: [[BATCH_SHAPE:%.+]] = IE.ShapeCast {shape = [1, 16, 120, 116]} inputs([[INPUT_LAYOUT]] : tensor<1x145x384x4xf16, {order = #NHWC}>) -> tensor<1x16x120x116xf16, {order = #NHWC}>
+    // CHECK: [[AVGPOOL:%.+]] = IE.AvgPool([[BATCH_SHAPE]]) {exclude_pads, kernel_size = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], rounding_type = #IE.rounding_type<FLOOR>, strides = [1, 1]}
+    // CHECK-SAME: tensor<1x16x120x116xf16, {order = #NHWC}> -> tensor<1x16x120x116xf32, {order = #NHWC}>
+    // CHECK: [[RESTORE_SHAPE:%.+]] = IE.ShapeCast {shape = [1, 145, 384, 4]} inputs([[AVGPOOL]] : tensor<1x16x120x116xf32, {order = #NHWC}>) -> tensor<1x145x384x4xf32, {order = #NHWC}>
+    // CHECK: [[RESULT_LAYOUT:%.+]] = IE.LayoutCast([[RESTORE_SHAPE]]) {dst_order = #NCHW}
+    // CHECK-SAME: tensor<1x145x384x4xf32, {order = #NHWC}> -> tensor<1x145x384x4xf32>
+    // CHECK: [[OUTPUT_SHAPE:%.+]] = IE.ShapeCast {shape = [4, 145, 384, 1]} inputs([[RESULT_LAYOUT]] : tensor<1x145x384x4xf32>) -> tensor<4x145x384x1xf32>
+    // CHECK-NEXT: return [[OUTPUT_SHAPE]] : tensor<4x145x384x1xf32>
+  }
 }

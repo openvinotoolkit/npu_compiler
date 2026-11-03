@@ -34,3 +34,11 @@ const NPUConstraints& vpux::config::updateMaxKernelSize(mlir::MLIRContext* conte
     npuConstraints.maxKernelSize = maxKernelSize;
     return npuConstraints;
 }
+
+const NPUConstraints& vpux::config::updateAsymmetricPerTensorZP(mlir::MLIRContext* context,
+                                                                bool asymmetricPerTensorZP) {
+    auto& registeredInterface = getCache<ConfigCache, ConfigDialect>(context);
+    auto& npuConstraints = registeredInterface._npuConstraints;
+    npuConstraints.asymmetricPerTensorZP = asymmetricPerTensorZP;
+    return npuConstraints;
+}

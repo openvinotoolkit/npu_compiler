@@ -56,3 +56,22 @@ func.func @FuseLayoutCasts(%arg0: tensor<1x4x8x64xf32>) -> tensor<1x4x8x64xf32, 
 
     // CHECK:   return [[LAYOUT_CAST]]
 }
+
+// -----
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+
+// CHECK-LABEL: @LayoutCastWithDynamicDims
+func.func @LayoutCastWithDynamicDims(
+        %arg0: tensor<1x?x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 64, 64]> : tensor<4xsi64>, order = #NCHW}>)
+        -> tensor<1x?x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 64, 64]> : tensor<4xsi64>, order = #NHWC}> {
+    %0 = IE.LayoutCast(%arg0) {dst_order = #NHWC} :
+        tensor<1x?x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 64, 64]> : tensor<4xsi64>, order = #NCHW}>
+        -> tensor<1x?x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 64, 64]> : tensor<4xsi64>, order = #NHWC}>
+    return %0 : tensor<1x?x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 64, 64]> : tensor<4xsi64>, order = #NHWC}>
+
+    // CHECK: [[LAYOUT_CAST:%.+]] = IE.LayoutCast([[ARG0:%.+]]) {dst_order = #NHWC} :
+    // CHECK-SAME: tensor<1x?x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 64, 64]> : tensor<4xsi64>, order = #NCHW}>
+    // CHECK-SAME: -> tensor<1x?x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 64, 64]> : tensor<4xsi64>, order = #NHWC}>
+    // CHECK: return [[LAYOUT_CAST]]
+}

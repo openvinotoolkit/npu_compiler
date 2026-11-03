@@ -373,33 +373,16 @@ mlir::LogicalResult DecomposeRollToSliceConcat::matchAndRewrite(IE::RollOp origO
 
 class ConvertToSpatialOpPass final : public IE::impl::ConvertToSpatialOpBase<ConvertToSpatialOpPass> {
 public:
-    explicit ConvertToSpatialOpPass(const bool m2iEnabled, Logger log): _m2iEnabled(m2iEnabled), _log(log) {
+    explicit ConvertToSpatialOpPass(Logger log): _log(log) {
         _log.setName(Base::getArgumentName());
     }
-
-    mlir::LogicalResult initialize(mlir::MLIRContext* ctx) final;
 
 private:
     void safeRunOnFunc() final;
 
 private:
-    bool _m2iEnabled;
     Logger _log;
 };
-
-mlir::LogicalResult ConvertToSpatialOpPass::initialize(mlir::MLIRContext* ctx) {
-    if (mlir::failed(Base::initialize(ctx))) {
-        return mlir::failure();
-    }
-
-    // When this parameter has a value, it probably comes from LIT test.
-    // Override the default
-    if (m2iEnabled.hasValue()) {
-        _m2iEnabled = m2iEnabled.getValue();
-    }
-
-    return mlir::success();
-}
 
 //
 // safeRunOnFunc
@@ -414,9 +397,7 @@ void ConvertToSpatialOpPass::safeRunOnFunc() {
     SmallVector<mlir::PatternBenefit> benefitLevels = getBenefitLevels(levelCount);
 
     mlir::RewritePatternSet patterns(&ctx);
-    if (!_m2iEnabled) {
-        patterns.add<TransposeInterpolation>(&ctx, _log);
-    }
+    patterns.add<TransposeInterpolation>(&ctx, _log);
 
     if (vpux::config::hasEnableSEPtrsOperations(moduleOp)) {
         patterns.add<TransposeRoll>(&ctx, benefitLevels[0], _log);
@@ -431,6 +412,6 @@ void ConvertToSpatialOpPass::safeRunOnFunc() {
 // createConvertToSpatialOpPass
 //
 
-std::unique_ptr<mlir::Pass> vpux::IE::createConvertToSpatialOpPass(const bool m2iEnabled, Logger log) {
-    return std::make_unique<ConvertToSpatialOpPass>(m2iEnabled, log);
+std::unique_ptr<mlir::Pass> vpux::IE::createConvertToSpatialOpPass(Logger log) {
+    return std::make_unique<ConvertToSpatialOpPass>(log);
 }

@@ -9,6 +9,7 @@
 #include "vpux/compiler/dialect/VPU/utils/cost_model/layer_vpunn_cost.hpp"
 #include "vpux/compiler/dialect/VPU/utils/vertical_fusion/v1/merge_vf_region_rewriter.hpp"
 #include "vpux/compiler/dialect/VPU/utils/vertical_fusion/v2/merge_vf_region_rewriter.hpp"
+#include "vpux/compiler/dialect/VPU/utils/vertical_fusion/vertical_fusion_utils.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
@@ -31,12 +32,10 @@ namespace {
 class MergeVfSubgraphsPass final : public VPU::impl::MergeVfSubgraphsBase<MergeVfSubgraphsPass> {
 public:
     explicit MergeVfSubgraphsPass(bool enableVerticalFusionPipelining, bool enablePrefetchTiling,
-                                  const WorkloadManagementMode workloadManagementMode, VFMergeCostMode costMode,
-                                  Logger log)
+                                  const WorkloadManagementMode workloadManagementMode, Logger log)
             : _enableVerticalFusionPipelining(enableVerticalFusionPipelining),
               _enablePrefetchTiling(enablePrefetchTiling),
-              _workloadManagementMode(workloadManagementMode),
-              _costMode(costMode) {
+              _workloadManagementMode(workloadManagementMode) {
         Base::initLogger(log, Base::getArgumentName());
     }
 
@@ -47,7 +46,6 @@ private:
     bool _enableVerticalFusionPipelining = false;
     bool _enablePrefetchTiling = true;
     WorkloadManagementMode _workloadManagementMode = WorkloadManagementMode::PWLM_V0_1_PAGES;
-    VFMergeCostMode _costMode = VFMergeCostMode::PERFORMANCE;
 };
 
 mlir::LogicalResult MergeVfSubgraphsPass::initialize(mlir::MLIRContext* ctx) {
@@ -68,9 +66,6 @@ mlir::LogicalResult MergeVfSubgraphsPass::initialize(mlir::MLIRContext* ctx) {
         _workloadManagementMode = workloadManagementModeOpt.getValue();
     }
 
-    if (vfMergeCostModeOpt.hasValue()) {
-        _costMode = vfMergeCostModeOpt.getValue();
-    }
     return mlir::success();
 }
 
@@ -108,7 +103,7 @@ void MergeVfSubgraphsPass::safeRunOnFunc() {
     } else {
         auto& vfCache = getAnalysis<VPU::VF::v2::VFCacheAnalysis>();
         patterns.add<VPU::VF::v2::MergeVFRegionRewriter>(&ctx, _enableVerticalFusionPipelining, _enablePrefetchTiling,
-                                                         costFunction, _log, vfCache, _costMode);
+                                                         costFunction, _log, vfCache, VPU::getVFMergeCostMode(func));
     }
 
     auto config = getDefaultGreedyRewriteConfig();
@@ -133,7 +128,7 @@ void MergeVfSubgraphsPass::safeRunOnFunc() {
 std::unique_ptr<mlir::Pass> VPU::createMergeVfSubgraphsPass(bool enableVerticalFusionPipelining,
                                                             bool enablePrefetchTiling,
                                                             const WorkloadManagementMode workloadManagementMode,
-                                                            VFMergeCostMode costMode, Logger log) {
+                                                            Logger log) {
     return std::make_unique<MergeVfSubgraphsPass>(enableVerticalFusionPipelining, enablePrefetchTiling,
-                                                  workloadManagementMode, costMode, log);
+                                                  workloadManagementMode, log);
 }

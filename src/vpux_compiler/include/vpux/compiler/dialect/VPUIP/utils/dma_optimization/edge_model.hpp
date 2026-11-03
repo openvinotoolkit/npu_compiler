@@ -13,9 +13,9 @@
 /// The collector represents every collected data-flow region with the same
 /// N-to-M `Edge` structure:
 /// - `sources` are legal producer boundaries: compute ops, constants, allocs,
-///   function arguments, or LoopRegion ports.
+///   function arguments, or synthetic LoopRegion input/output ports.
 /// - `targets` are legal consumer boundaries: compute ops, function returns,
-///   or LoopRegion ports.
+///   or synthetic LoopRegion input/output/destination-buffer ports.
 /// - `nodes` are the Copy/SubView/ConcatView/view-like operations between the
 ///   boundaries. They form a directed acyclic graph, not a linear queue.
 ///
@@ -28,7 +28,6 @@
 ///   converge, typically through a ConcatView-like junction.
 /// - `Many2Many`: multiple sources and multiple targets. The edge may contain
 ///   one or more junction nodes that both gather and redistribute data.
-/// - `LoopRegion`: an edge whose boundary crosses or lives inside a LoopRegion.
 ///
 /// EdgeNode adjacency uses one integer encoding for both in-edge nodes and
 /// boundary links: non-negative values index `Edge::nodes`; negative values are
@@ -37,38 +36,23 @@
 /// node, and `targetExitNodes` maps each target to its last touched node. A
 /// value of -1 means the boundary connects directly without an in-edge node.
 
+#include "vpux/compiler/dialect/VPU/IR/attributes.hpp"
+#include "vpux/compiler/dialect/VPUIP/utils/dma_optimization/loop_region.hpp"
 #include "vpux/utils/core/small_vector.hpp"
 #include "vpux/utils/logger/logger.hpp"
 
+#include <llvm/ADT/ArrayRef.h>
 #include <llvm/ADT/STLExtras.h>
 #include <mlir/IR/Operation.h>
 #include <mlir/IR/Types.h>
 #include <mlir/IR/Value.h>
 
 #include <cstddef>
+#include <cstdint>
+#include <optional>
+#include <string>
 
-namespace vpux {
-namespace VPUIP {
-
-/// Memory space codes captured in NodeDetails.
-constexpr int64_t kMemSpaceDDR = 0;
-constexpr int64_t kMemSpaceCMX = 1;
-
-struct LoopRegion;
-
-/// Region-port role used when an edge boundary represents a LoopRegion port.
-enum class LoopRegionPortKind : uint8_t {
-    Input,       ///< logical input port; data flows into the region
-    Output,      ///< logical output port; data flows out of the region
-    DestBuffer,  ///< shared destination-buffer port used by tiled outputs
-};
-
-/// Address of a LoopRegion port boundary.
-struct LoopRegionPortLocation {
-    const VPUIP::LoopRegion* region = nullptr;
-    uint32_t portIdx = 0;
-    LoopRegionPortKind portKind{};
-};
+namespace vpux::VPUIP::DmaOptimization {
 
 /// Typed boundary of a collected DMA edge.
 ///
@@ -89,13 +73,14 @@ struct EdgeBoundary {
     Kind kind = Kind::None;
 
     // Mutually exclusive payloads; only the field matching `kind` is meaningful.
-    mlir::Operation* op = nullptr;    ///< ComputeOp / Constant / AllocBuffer / FuncReturn
-    mlir::BlockArgument arg = {};     ///< FuncArg
-    LoopRegionPortLocation loopPort;  ///< LoopRegion port location
+    mlir::Operation* op = nullptr;  ///< ComputeOp / Constant / AllocBuffer / FuncReturn
+    mlir::BlockArgument arg = {};   ///< FuncArg
     /// Result index for multi-result compute sources.
     uint32_t resultIdx = 0;
     /// Operand index for multi-operand compute and func.return targets.
     uint32_t operandIdx = 0;
+    /// LoopRegion domain/port metadata.
+    LoopRegionInfo loopRegionInfo;
 
     static EdgeBoundary none();
     static EdgeBoundary compute(mlir::Operation* op);
@@ -105,8 +90,16 @@ struct EdgeBoundary {
     static EdgeBoundary constant(mlir::Operation* op);
     static EdgeBoundary allocBuffer(mlir::Operation* op);
     static EdgeBoundary funcReturn(mlir::Operation* op, uint32_t operandIdx);
-    static EdgeBoundary loopRegion(LoopRegionPortLocation location);
-    static EdgeBoundary loopRegion(const VPUIP::LoopRegion* region, uint32_t portIdx, LoopRegionPortKind portKind);
+};
+
+StringRef stringifyEdgeBoundaryKind(EdgeBoundary::Kind kind);
+
+LoopRegionInfo getLoopRegionInfo(const EdgeBoundary& boundary, bool includeTile = true);
+
+/// Immutable source and ordered view operations for an EdgeNode's first data input.
+struct InputViewChain final {
+    mlir::Value source;
+    SmallVector<mlir::Operation*, 4> views;
 };
 
 /// Snapshot of one operation inside an Edge.
@@ -125,35 +118,33 @@ struct NodeDetails {
     /// Set to true when this node has been optimized away.
     bool removed = false;
 
-    /// Input/output memory spaces captured from the node types; -1 means unavailable.
-    int64_t srcMemSpace = -1;
-    int64_t dstMemSpace = -1;
-
-    /// True when this node should be materialized as a DistributedCast instead
-    /// of the original CopyOp.
-    bool syntheticDistCast = false;
+    /// Input/output memory spaces captured from the node types.
+    std::optional<VPU::MemoryKind> srcMemSpace;
+    std::optional<VPU::MemoryKind> dstMemSpace;
 
     /// Destination buffer for VPUIP Copy nodes.
     mlir::Value dstBuff;
 
-    /// Rewrite hint for same-CMX strided copy elimination.
-    bool eliminateByStridedRewrite = false;
+    /// Present when the first data input has one representable source/view path.
+    std::optional<InputViewChain> inputViewChain;
 
     bool isCopy() const;
     bool isViewOp() const;
     bool isSlice() const;
+    bool hasEquivalentInputViewChain(const NodeDetails& other) const;
 };
 
 /// Topology shape of a collected DMA edge.
 enum class EdgeType : uint8_t {
-    Normal,      ///< 1 source, 1 target, no junction
-    FanOut,      ///< 1 source, N targets, no junction
-    FanIn,       ///< N sources, 1 target, usually through a ConcatView node
-    Many2Many,   ///< N sources, M targets, usually through junction nodes
-    LoopRegion,  ///< region-internal or region-boundary edge
+    Normal,     ///< 1 source, 1 target, no junction
+    FanOut,     ///< 1 source, N targets, no junction
+    FanIn,      ///< N sources, 1 target, usually through a ConcatView node
+    Many2Many,  ///< N sources, M targets, usually through junction nodes
 };
 
-/// Infer the non-LoopRegion edge topology from its external boundary counts.
+StringRef stringifyEdgeType(EdgeType type);
+
+/// Infer edge topology from producer/consumer boundary counts.
 EdgeType inferEdgeTypeFromBoundaryCounts(size_t sourceCount, size_t targetCount);
 
 /// One operation on the collected edge DAG.
@@ -169,6 +160,8 @@ struct EdgeNode {
     /// idx < 0 => target boundary; target index = `~idx`.
     SmallVector<int32_t, 2> succs;
     NodeDetails details;
+    /// Loop kind, loop index, tile, and optional port associated with this op.
+    LoopRegionInfo loopRegionInfo;
 };
 
 /// Collected data-flow subgraph between legal edge boundaries.
@@ -191,6 +184,9 @@ struct Edge {
     /// One node-index per target. -1 means the target is fed directly by a source.
     SmallVector<int32_t, 1> targetExitNodes;
 
+    /// Unique LoopRegionInfo entries seen on this edge's sources, targets, or nodes.
+    SmallVector<LoopRegionInfo, 1> loopRegionInfos;
+
     bool isNormal() const;
     bool isFanIn() const;
     bool isFanOut() const;
@@ -210,5 +206,4 @@ struct EdgeCollection {
     SmallVector<Edge, 0> edges;
 };
 
-}  // namespace VPUIP
-}  // namespace vpux
+}  // namespace vpux::VPUIP::DmaOptimization

@@ -93,7 +93,7 @@ mlir::Type VPUIP::setSparsityCompressionAttr(mlir::Type type, VPUIP::SparsityCom
 
     if (mlir::isa<mlir::MemRefType>(type)) {
         auto ndType = mlir::cast<vpux::NDTypeInterface>(type);
-        const auto strides = ndType.getStrides();
+        const auto strides = getStridesUnlessUnbounded(ndType);
         return getMemRefType(ndType.getShape(), ndType.getElementType(), ndType.getDimsOrder(), ndType.getMemSpace(),
                              strides, getBounds(ndType), VPUIP::getSwizzlingSchemeAttr(type), sparsityCompressionAttr);
     } else if (auto distributedBuffer = mlir::dyn_cast<vpux::VPUIP::DistributedBufferType>(type)) {

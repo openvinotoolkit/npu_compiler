@@ -7,6 +7,7 @@
 
 #include "vpux/compiler/dialect/VPU/utils/cost_model/layer_vpunn_cost.hpp"
 #include "vpux/compiler/dialect/VPU/utils/vertical_fusion/patterns/dynamic_dequant_conv_vf_pattern.hpp"
+#include "vpux/compiler/dialect/VPU/utils/vertical_fusion/patterns/sdpa_matmul_vf_pattern.hpp"
 #include "vpux/compiler/dialect/VPU/utils/vertical_fusion/patterns/sdpa_vf_pattern.hpp"
 
 using namespace vpux;
@@ -17,15 +18,12 @@ mlir::Operation* VFPattern::getSingleInnerOp(VPU::VerticalFusionOp vfOp) const {
     if (body == nullptr) {
         return nullptr;
     }
-
-    mlir::Operation* singleOp = nullptr;
-    for (auto& op : body->without_terminator()) {
-        if (singleOp != nullptr) {
-            return nullptr;
-        }
-        singleOp = &op;
+    auto innerComputeOps = body->getOps<VPU::VerticalFusionOpInterface>();
+    const auto opSize = std::distance(innerComputeOps.begin(), innerComputeOps.end());
+    if (opSize != 1) {
+        return nullptr;
     }
-    return singleOp;
+    return (*innerComputeOps.begin()).getOperation();
 }
 
 VPU::VerticalFusionOp VFPattern::getUniqUser(VPU::VerticalFusionOp vfOp) const {
@@ -53,6 +51,7 @@ VPU::VerticalFusionOp VFPattern::getUniqUser(VPU::VerticalFusionOp vfOp) const {
 
 VPU::VFPatternMatcher::VFPatternMatcher(VFMergeCostMode costMode, Logger log): _costMode(costMode), _log(log) {
     addPattern(std::make_unique<DynamicDequantConvVFPattern>());
+    addPattern(std::make_unique<SDPAMatMulVFPattern>());
     addPattern(std::make_unique<SDPAVFPattern>());
 }
 

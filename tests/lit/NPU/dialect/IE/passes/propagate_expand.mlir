@@ -452,7 +452,9 @@ func.func @PropagateExpandThroughShapeCastAfterSlice(%arg0: tensor<1x80x18x32xf1
 
     return %2 : tensor<1x80x24x24xf16, {order = #NHWC}>
 
-    //CHECK:    [[SHAPECAST:%.+]]  = IE.ShapeCast {shape = [1, 80, 24, 24]} inputs([[INPUT]] : tensor<1x80x18x32xf16, {order = #NHWC}>) -> tensor<1x80x24x24xf16, {order = #NHWC}>
+    //CHECK:    [[SLICE:%.+]]  = IE.Slice [[INPUT]] [0, 0, 0, 0] [1, 72, 18, 32] : tensor<1x80x18x32xf16, {order = #NHWC}> to tensor<1x72x18x32xf16, {order = #NHWC}>
+    //CHECK:    [[EXPAND:%.+]]  = IE.Expand([[SLICE]]) {pads_begin = [0, 0, 0, 0], pads_end = [0, 8, 0, 0]} : tensor<1x72x18x32xf16, {order = #NHWC}> -> tensor<1x80x18x32xf16, {order = #NHWC}>
+    //CHECK:    [[SHAPECAST:%.+]]  = IE.ShapeCast {shape = [1, 80, 24, 24]} inputs([[EXPAND]] : tensor<1x80x18x32xf16, {order = #NHWC}>) -> tensor<1x80x24x24xf16, {order = #NHWC}>
 
     //CHECK:    return [[SHAPECAST]] : tensor<1x80x24x24xf16, {order = #NHWC}>
 }

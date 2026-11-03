@@ -328,6 +328,15 @@ using CreateSliceOpFunc = FuncRef<mlir::Operation*(mlir::OpBuilder& builder, mli
 void obfuscateInputs(const Logger& log, mlir::Location loc, mlir::func::FuncOp funcOp, ArrayRef<size_t> indices,
                      CreateSliceOpFunc createSlice, bool obfuscateSingleInput = false);
 
+/** @brief Converts specific inputs of function into an obfuscated "blob" using precomputed offsets.
+
+    This overload extends obfuscateInputs() with an explicit folded blob type and a parallel list of slice offsets.
+    The caller still identifies which arguments must be replaced, but it also provides the byte offset of each input
+    inside the shared blob.
+ */
+void obfuscateInputs(const Logger& log, mlir::Location loc, mlir::func::FuncOp funcOp, ArrayRef<size_t> indices,
+                     ArrayRef<int64_t> offsets, mlir::Type blobType, CreateSliceOpFunc createSlice);
+
 /** @brief Converts specific groups of inputs into obfuscated "blobs".
 
     This is an extension on top of obfuscateInputs() algorithm that converts N

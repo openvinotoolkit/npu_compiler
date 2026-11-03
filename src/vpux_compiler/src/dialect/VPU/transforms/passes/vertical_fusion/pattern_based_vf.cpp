@@ -5,6 +5,7 @@
 
 #include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
+#include "vpux/compiler/dialect/VPU/utils/vertical_fusion/vertical_fusion_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/vertical_fusion/vf_pattern_matcher.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 
@@ -21,9 +22,8 @@ namespace {
 
 class PatternBasedVFPass final : public VPU::impl::PatternBasedVFBase<PatternBasedVFPass> {
 public:
-    explicit PatternBasedVFPass(const WorkloadManagementMode workloadManagementMode, VFMergeCostMode costMode,
-                                Logger log)
-            : _workloadManagementMode(workloadManagementMode), _costMode(costMode) {
+    explicit PatternBasedVFPass(const WorkloadManagementMode workloadManagementMode, Logger log)
+            : _workloadManagementMode(workloadManagementMode) {
         Base::initLogger(log, Base::getArgumentName());
     }
 
@@ -33,7 +33,6 @@ private:
     void safeRunOnFunc() final;
 
     WorkloadManagementMode _workloadManagementMode = WorkloadManagementMode::PWLM_V0_1_PAGES;
-    VFMergeCostMode _costMode = VFMergeCostMode::PERFORMANCE;
 };
 
 mlir::LogicalResult PatternBasedVFPass::initialize(mlir::MLIRContext* ctx) {
@@ -42,9 +41,6 @@ mlir::LogicalResult PatternBasedVFPass::initialize(mlir::MLIRContext* ctx) {
     }
     if (workloadManagementModeOpt.hasValue()) {
         _workloadManagementMode = workloadManagementModeOpt.getValue();
-    }
-    if (vfMergeCostModeOpt.hasValue()) {
-        _costMode = vfMergeCostModeOpt.getValue();
     }
     return mlir::success();
 }
@@ -62,7 +58,7 @@ void PatternBasedVFPass::safeRunOnFunc() {
     auto& ctx = getContext();
     mlir::IRRewriter rewriter(&ctx);
 
-    VFPatternMatcher matcher(_costMode, _log);
+    VFPatternMatcher matcher(VPU::getVFMergeCostMode(func), _log);
     _log.trace("PatternBasedVFPass invoking matcher, func={0}", funcName);
     const auto changed = matcher.applyPatterns(func, rewriter);
     _log.trace("PatternBasedVFPass done, changed={0}, func={1}", changed, funcName);
@@ -71,6 +67,6 @@ void PatternBasedVFPass::safeRunOnFunc() {
 }  // namespace
 
 std::unique_ptr<mlir::Pass> VPU::createPatternBasedVFPass(const WorkloadManagementMode workloadManagementMode,
-                                                          VFMergeCostMode costMode, Logger log) {
-    return std::make_unique<PatternBasedVFPass>(workloadManagementMode, costMode, log);
+                                                          Logger log) {
+    return std::make_unique<PatternBasedVFPass>(workloadManagementMode, log);
 }

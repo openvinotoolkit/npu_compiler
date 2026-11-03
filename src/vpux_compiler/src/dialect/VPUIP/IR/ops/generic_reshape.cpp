@@ -7,6 +7,7 @@
 #include "vpux/compiler/dialect/VPUIP/utils/reshape_utils.hpp"
 #include "vpux/compiler/dialect/VPUIP/utils/utils.hpp"
 
+#include "vpux/compiler/core/attributes/shape.hpp"
 #include "vpux/compiler/core/attributes/stride_reqs.hpp"
 #include "vpux/compiler/utils/error.hpp"
 
@@ -30,6 +31,13 @@ bool isSupportedGenericReshapeType(mlir::Type inputType, mlir::Type outputType, 
                                                                                                 outputDistType)) {
         logCb(formatv("Reshape has incompatible output shape as clustering: in type = {0}, out type = {1}",
                       inputDistType, outputDistType));
+        return false;
+    }
+
+    // A shape without an upper bound has unknown strides, so no reshape of it can be shown to keep the layout.
+    if (hasUnboundedDynamicShape(inputType) || hasUnboundedDynamicShape(outputType)) {
+        logCb(formatv("GenericReshape does not support a shape without an upper bound: in type = {0}, out type = {1}",
+                      inputType, outputType));
         return false;
     }
 

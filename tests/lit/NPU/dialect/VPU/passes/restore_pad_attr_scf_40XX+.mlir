@@ -705,3 +705,75 @@ module {
     // CHECK: scf.yield [[LOOP_ACC]] : tensor<1x32x64x64xf16, {order = #NHWC}>
     // CHECK: return [[LOOP]] : tensor<1x32x64x64xf16, {order = #NHWC}>
 }
+
+
+// -----
+
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+#lowPadMap = affine_map<(d0) -> (0, 1 - d0)>
+#highPadMap = affine_map<(d0) -> (0, d0 - 1)>
+
+// CHECK-LABEL: @RefreshEltwiseAfterPadRestore
+module {
+  func.func @RefreshEltwiseAfterPadRestore(
+      %arg0: tensor<1x32x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 32, 76, 172]> : tensor<4xsi64>, order = #NHWC}>,
+      %arg1: tensor<1x32x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 32, 76, 172]> : tensor<4xsi64>, order = #NHWC}>)
+      -> tensor<1x32x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 32, 76, 172]> : tensor<4xsi64>, order = #NHWC}> {
+    %cst = arith.constant 0.000000e+00 : f16
+    %c0 = arith.constant 0 : index
+    %c1 = arith.constant 1 : index
+    %c3 = arith.constant 3 : index
+    %cst_0 = const.Declare tensor<32x32x3x3xf16, {order = #NHWC}> = dense<1.000000e+00> : tensor<32x32x3x3xf32>, [#const.CastElemType<f16>, #const.Reorder<#NHWC>]
+
+    // 3 tiles: only tile 0 gets low-pad, only tile 2 (last) gets high-pad, tile 1 (interior) gets neither.
+    scf.for %i = %c0 to %c3 step %c1 {
+      %low = affine.max #lowPadMap(%i)
+      %high = affine.max #highPadMap(%i)
+
+      // Pad here not changing bounds intentionally as per iteration we have something like
+      // left pad (1) | tile 0 (73) | tile 1 (76) | tile 2 (75) | right pad (1)
+
+      // so max(size_iv + left_iv + right_iv) = max(73 + 1, 76 + 0, 75 + 1) = 76
+      // but when putting it to NCE.Conv pad attribute we will have
+      // input 76  to NCE.Conv( pads = [max(left), max(right)]) so it will become
+      // max(size_iv) + max(left_iv) + max(right_iv) = 76 + 1 + 1 = 78
+      %padded = tensor.pad %arg0 low[0, 0, %low, %low] high[0, 0, %high, %high] {
+      ^bb0(%arg2: index, %arg3: index, %arg4: index, %arg5: index):
+        tensor.yield %cst : f16
+      } : tensor<1x32x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 32, 76, 172]> : tensor<4xsi64>, order = #NHWC}>
+        to tensor<1x32x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 32, 76, 172]> : tensor<4xsi64>, order = #NHWC}>
+
+      %conv = VPU.NCE.Convolution(%padded, %cst_0) rawFilterShape [32, 32, 3, 3] {
+        resultSegmentSizes = array<i32: 1, 0, 0, 0>,
+        mpe_engine = #VPU.MPEEngine37XX<mode = <SCL>>,
+        pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
+        ppe = #VPU.PPEInt<mode = <NOOP>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64, lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 1.000000e+00 : f64>,
+        strides = [1, 1]
+      } : tensor<1x32x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 32, 76, 172]> : tensor<4xsi64>, order = #NHWC}>, tensor<32x32x3x3xf16, {order = #NHWC}>
+        -> tensor<1x32x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 32, 74, 170]> : tensor<4xsi64>, order = #NHWC}>
+
+      // Frozen at tiling time to match conv's pre-restore bound (real crash: Eltwise's declared bound was [74,170],
+      // matching this conv's own declared output at the time it was created).
+      %sum = VPU.NCE.Eltwise(%conv, %arg1) {
+        is_inplace = true,
+        op_type = #VPU.eltwise_type<ADD>,
+        pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
+        ppe = #VPU.PPEStub<>,
+        resultSegmentSizes = array<i32: 1, 0, 0, 0>
+      } -> tensor<1x32x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 32, 74, 170]> : tensor<4xsi64>, order = #NHWC}>
+
+      scf.yield
+    }
+
+    return %arg1 : tensor<1x32x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 32, 76, 172]> : tensor<4xsi64>, order = #NHWC}>
+  }
+
+  // CHECK:      scf.for
+  // CHECK:        [[CONV:%.+]] = VPU.NCE.Convolution(%arg0, {{%.+}})
+  // CHECK-SAME:     pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>
+  // CHECK-SAME:     : tensor<1x32x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 32, 76, 172]> : tensor<4xsi64>, order = #NHWC}>, tensor<32x32x3x3xf16, {order = #NHWC}>
+  // CHECK-SAME:     -> tensor<1x32x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 32, 76, 172]> : tensor<4xsi64>, order = #NHWC}>
+  // CHECK:        VPU.NCE.Eltwise([[CONV]], %arg1)
+  // CHECK-SAME:     -> tensor<1x32x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 32, 76, 172]> : tensor<4xsi64>, order = #NHWC}>
+  // CHECK:      return %arg1
+}

@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-// RUN: vpux-opt --split-input-file --init-compiler="platform=%platform% allow-custom-values=true enable-sw-kernel-fifo-per-shave-engine=false" --convert-VPUIP-to-VPUMI40XX %s | FileCheck %s
+// RUN: vpux-opt --split-input-file --init-compiler="platform=%platform% allow-custom-values=true" --convert-VPUIP-to-VPUMI40XX %s | FileCheck %s
 // REQUIRES: platform-NPU4000
 
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
@@ -64,7 +64,7 @@ module @mainModule {
 
     // CHECK: [[MI:%.+]] = VPUMI40XX.MappedInference dmas(([[NNDMA0_DDR_0]], [[NNDMA0_CMX_0]]), ([[NNDMA1_DDR_0]], [[NNDMA1_CMX_0]]) : (!VPURegMapped.Index<0:0:0>, !VPURegMapped.Index<0:1:0>), (!VPURegMapped.Index<1:0:0>, !VPURegMapped.Index<1:1:0>)) barriers([[BAR0]] : !VPURegMapped.Index<0:0:0>)
     // CHECK-SAME{LITERAL}: dmaCount([[2, 1], [2, 1]])
-    // CHECK-SAME{LITERAL}: invariantCount([0, 0, 0, 0, 0, 0]) variantCount([0, 0, 0, 0, 0, 0]) actKernelRangesCount([[0, 0], [0, 0], [0, 0], [0, 0], [0, 0], [0, 0]]) actKernelInvocationsCount([[0, 0], [0, 0], [0, 0], [0, 0], [0, 0], [0, 0]]) mediaCount(0) barrierCount(2) -> !VPURegMapped.Index<0:0:0>
+    // CHECK-SAME{LITERAL}: invariantCount([0, 0, 0, 0, 0, 0]) variantCount([0, 0, 0, 0, 0, 0]) actKernelRangesCount([[0, 0], [0, 0], [0, 0], [0, 0], [0, 0], [0, 0]]) actKernelInvocationsCount([[0, 0], [0, 0], [0, 0], [0, 0], [0, 0], [0, 0]]) barrierCount(2) -> !VPURegMapped.Index<0:0:0>
     return %arg1, %arg2 : memref<1x16x16x16xf16, {order = #NHWC}, @DDR>, memref<1x16x16x16xf16, {order = #NHWC}, @DDR>
   }
 }

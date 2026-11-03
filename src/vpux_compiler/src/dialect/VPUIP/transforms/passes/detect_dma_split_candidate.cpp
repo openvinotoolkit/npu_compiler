@@ -4,6 +4,7 @@
 //
 
 #include "vpux/compiler/core/cost_model_utils.hpp"
+#include "vpux/compiler/core/dma_cost_model_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/cost_model/cost_model.hpp"
 #include "vpux/compiler/dialect/VPUIP/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPUIP/IR/types.hpp"
@@ -210,28 +211,50 @@ size_t calculateSplitDMACost(VPUIP::DMATypeOpInterface dmaOp, const std::shared_
     // The input type (e.g. f32) is not supported by VPUNN on some architectures (e.g. NPU40XX),
     // which would cause COST_MAX and prevent ConvertDMA from ever being selected as a split candidate.
     const auto checkElemType = mlir::isa<VPUIP::ConvertDMAOp>(dmaOp.getOperation()) ? outElemType : inElemType;
-    if (!VPU::isVPUNNSupportedElementType(checkElemType, arch)) {
+    // DMA split candidate selection on NPU50XX keeps the legacy type set
+    const auto supportArch = arch == config::ArchKind::NPU50XX ? config::ArchKind::NPU40XX : arch;
+    if (!VPU::isVPUNNSupportedElementType(checkElemType, supportArch)) {
         return COST_MAX;
     }
 
     auto inputShape = inputType.getShape();
-    auto [firstPartSize, secondPartSize] = VPUIP::getSplitPartSizes(inputType, tileDim);
+    auto [firstPartSize, secondPartSize] = VPUIP::getSplitPartSizes(inputType, outputType, tileDim);
     if (firstPartSize <= 0 || secondPartSize <= 0) {
         return COST_MAX;
     }
     SmallVector<int64_t> splitShape = to_small_vector(inputShape);
     splitShape[tileDim.ind()] = secondPartSize;
 
-    const auto nnInType = VPU::getVPUNNElementType(inElemType);
-    VPUX_THROW_UNLESS(nnInType.has_value(), "Unsupported data type: '{0}'", inElemType);
-    const auto nnOutType = VPU::getVPUNNElementType(outElemType);
-    VPUX_THROW_UNLESS(nnOutType.has_value(), "Unsupported data type: '{0}'", outElemType);
     const auto vpuDevice = vpux::VPU::getVPUDeviceType(dmaOp);
-    const auto totalSize = checked_cast<unsigned int>(Shape(splitShape).totalSize());
-    const auto nnInputTensor = VPUNN::VPUTensor({totalSize, 1, 1, 1}, nnInType.value());
-    const auto nnOutputTensor = VPUNN::VPUTensor({totalSize, 1, 1, 1}, nnOutType.value());
-    return costModel->DMA(vpuDevice, {nnInputTensor}, {nnOutputTensor}, getMemoryLocation(inputType),
-                          getMemoryLocation(outputType));
+    const auto nnInType = VPU::getVPUNNElementType(inElemType, vpuDevice);
+    VPUX_THROW_UNLESS(nnInType.has_value(), "Unsupported data type: '{0}'", inElemType);
+    const auto nnOutType = VPU::getVPUNNElementType(outElemType, vpuDevice);
+    VPUX_THROW_UNLESS(nnOutType.has_value(), "Unsupported data type: '{0}'", outElemType);
+    const auto srcMemLoc = getMemoryLocation(inputType);
+    const auto dstMemLoc = getMemoryLocation(outputType);
+    const Shape splitPartShape(splitShape);
+
+    // Unlike the rest of the compiler, the VPUNN DMA interface is queried directly here instead of going
+    // through getDMACost(): the cost is needed for a hypothetical split part, which has no type of its own
+    // yet, so the shape and the strides cannot be described by the operand types the utils entry points take.
+    size_t cost = COST_MAX;
+    if (usesStrideAwareDMACostModel(arch)) {
+        // The split part is a sub-view of the same buffer, so the parent strides still describe it
+        const auto inStrides = inputType.getStrides();
+        const auto outStrides = outputType.getStrides();
+        const auto srcTensor =
+                getVPUDMATensor(splitPartShape, inStrides, inputType.getDimsOrder(), inElemType, vpuDevice);
+        const auto dstTensor =
+                getVPUDMATensor(splitPartShape, outStrides, outputType.getDimsOrder(), outElemType, vpuDevice);
+        cost = costModel->DMA(buildDMADescriptor(vpuDevice, srcTensor, dstTensor, srcMemLoc, dstMemLoc));
+    } else {
+        const auto totalSize = checked_cast<unsigned int>(splitPartShape.totalSize());
+        const auto nnInputTensor = VPUNN::VPUTensor({totalSize, 1, 1, 1}, nnInType.value());
+        const auto nnOutputTensor = VPUNN::VPUTensor({totalSize, 1, 1, 1}, nnOutType.value());
+        cost = costModel->DMA(vpuDevice, {nnInputTensor}, {nnOutputTensor}, srcMemLoc, dstMemLoc);
+    }
+
+    return cost;
 }
 
 //

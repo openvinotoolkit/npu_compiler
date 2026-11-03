@@ -192,11 +192,17 @@ class PipeliningVFScenarioCostCalculator final : public PerformanceVFScenarioCos
 public:
     using PerformanceVFScenarioCostCalculator::PerformanceVFScenarioCostCalculator;
 
+    PipeliningVFScenarioCostCalculator(bool dmaPrefetchingEnabled = false)
+            : dmaPrefetchingEnabled(dmaPrefetchingEnabled) {};
+
     StrategyCost calculate(VFScenarioCostCalculationContext& context) const override;
 
     SmallVector<TimelineInterval> getTimeIntervals(VFScenarioCostCalculationContext& context) const override;
 
     VFPipelineContainer getPipelining(VFScenarioCostCalculationContext& context) const;
+
+protected:
+    bool dmaPrefetchingEnabled = false;
 };
 
 class PerformanceVFScenarioCostCalculatorFactory final {

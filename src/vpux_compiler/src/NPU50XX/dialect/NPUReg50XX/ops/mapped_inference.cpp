@@ -76,11 +76,6 @@ size_t getSymRefOffsetForReloc(NPUReg50XX::MappedInferenceOp op, mlir::SymbolRef
                offsetof(nn_public::VpuTaskReference<nn_public::VpuBarrierCountConfig>, address);
     }
 
-    if (ref == op.getMediaTasks()) {
-        return offsetof(nn_public::VpuMappedInference, media_tasks) +
-               offsetof(nn_public::VpuTaskReference<nn_public::VpuMediaTask>, address);
-    }
-
     if (ref == op.getActShaveRt()) {
         return offsetof(nn_public::VpuMappedInference, shv_rt_configs) +
                offsetof(nn_public::VpuNNShaveRuntimeConfigs, act_rt_window_base);
@@ -256,12 +251,6 @@ std::vector<ELF::RelocationInfo> vpux::NPUReg50XX::MappedInferenceOp::getRelocat
                 [](mlir::Type) {});
     }
 
-    if (auto mediaTasks = getMediaTasks().value_or(nullptr)) {
-        relocs.emplace_back(mediaTasks, targetSection, getSymRefOffsetForReloc(thisMI, mediaTasks),
-                            ELF::RelocationType::R_VPU_64, ELF::getOffsetOfSymRef(symRefMap, mediaTasks),
-                            "mediaTasks in mapped inference reloc");
-    }
-
     if (auto barrierTasks = getBarrierTasks().value_or(nullptr)) {
         relocs.emplace_back(barrierTasks, targetSection, getSymRefOffsetForReloc(thisMI, barrierTasks),
                             ELF::RelocationType::R_VPU_64, ELF::getOffsetOfSymRef(symRefMap, barrierTasks),
@@ -327,12 +316,11 @@ void vpux::NPUReg50XX::MappedInferenceOp::build(
         mlir::OpBuilder&, mlir::OperationState& state, mlir::StringAttr sym_name, mlir::ArrayAttr dmaCount,
         mlir::ArrayAttr dmaDDRCount, mlir::ArrayAttr dmaCMXCount, mlir::ArrayAttr invariantCount,
         mlir::ArrayAttr variantCount, mlir::ArrayAttr actKernelRangesCount, mlir::ArrayAttr actKernelInvocationsCount,
-        mlir::IntegerAttr mediaCount, mlir::IntegerAttr barrierCount, mlir::SymbolRefAttr mappedInferenceVersion,
-        mlir::SymbolRefAttr actShaveRt, mlir::ArrayAttr actShaveStacks, mlir::SymbolRefAttr dmaHwpBase,
-        mlir::SymbolRefAttr hwpWorkpointCfg, mlir::ArrayAttr dmaTasks, mlir::ArrayAttr invariantTasks,
-        mlir::ArrayAttr variantTasks, mlir::ArrayAttr actKernelRanges, mlir::ArrayAttr actKernelInvocations,
-        mlir::SymbolRefAttr mediaTasks, mlir::SymbolRefAttr barrierTasks, mlir::SymbolRefAttr managedMappedInference,
-        vpux::NPUReg50XX::Descriptors::VpuMappedInference&& descriptor) {
+        mlir::IntegerAttr barrierCount, mlir::SymbolRefAttr mappedInferenceVersion, mlir::SymbolRefAttr actShaveRt,
+        mlir::ArrayAttr actShaveStacks, mlir::SymbolRefAttr dmaHwpBase, mlir::SymbolRefAttr hwpWorkpointCfg,
+        mlir::ArrayAttr dmaTasks, mlir::ArrayAttr invariantTasks, mlir::ArrayAttr variantTasks,
+        mlir::ArrayAttr actKernelRanges, mlir::ArrayAttr actKernelInvocations, mlir::SymbolRefAttr barrierTasks,
+        mlir::SymbolRefAttr managedMappedInference, vpux::NPUReg50XX::Descriptors::VpuMappedInference&& descriptor) {
     auto& props = state.getOrAddProperties<Properties>();
 
     props.sym_name = sym_name;
@@ -344,7 +332,6 @@ void vpux::NPUReg50XX::MappedInferenceOp::build(
     props.variantCount = variantCount;
     props.actKernelRangesCount = actKernelRangesCount;
     props.actKernelInvocationsCount = actKernelInvocationsCount;
-    props.mediaCount = mediaCount;
     props.barrierCount = barrierCount;
     props.actShaveRt = actShaveRt;
     props.actShaveStacks = actShaveStacks;
@@ -356,7 +343,6 @@ void vpux::NPUReg50XX::MappedInferenceOp::build(
     props.variantTasks = variantTasks;
     props.actKernelRanges = actKernelRanges;
     props.actKernelInvocations = actKernelInvocations;
-    props.mediaTasks = mediaTasks;
     props.barrierTasks = barrierTasks;
     props.descriptor = std::move(descriptor);
 }

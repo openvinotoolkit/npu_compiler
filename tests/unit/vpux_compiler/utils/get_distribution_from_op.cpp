@@ -5,6 +5,7 @@
 
 //
 
+#include "vpux/compiler/core/layers.hpp"
 #include "vpux/compiler/dialect/VPU/IR/attributes.hpp"
 #include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/activation.hpp"
@@ -13,6 +14,7 @@
 #include "vpux/compiler/dialect/VPU/IR/ops/dpu.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/internal.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/normalization.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/specialized.hpp"
 #include "vpux/compiler/dialect/VPU/IR/types.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
 #include "vpux/compiler/dialect/VPU/utils/distributed_tensor_utils.hpp"
@@ -33,15 +35,15 @@ using namespace vpux;
 
 void testDType(mlir::MLIRContext* ctx, VPU::ClusteredOpInterface clusteredOp,
                VPU::DistributionInfoAttr expectedDistributedAttr, mlir::IntegerAttr numClusters, bool isAct,
-               NDTypeInterface tiledInput = nullptr, NDTypeInterface tiledOutput = nullptr) {
-    auto inputType = tiledInput != nullptr ? tiledInput
-                                           : mlir::cast<vpux::NDTypeInterface>(clusteredOp->getOperand(0).getType());
+               NDTypeInterface tiledInput = nullptr, NDTypeInterface tiledOutput = nullptr, unsigned operandIdx = 0) {
+    auto& opOperand = clusteredOp->getOpOperand(operandIdx);
+    auto inputType = tiledInput != nullptr ? tiledInput : mlir::cast<vpux::NDTypeInterface>(opOperand.get().getType());
     auto outputType = tiledOutput != nullptr ? tiledOutput
                                              : mlir::cast<vpux::NDTypeInterface>(clusteredOp->getResult(0).getType());
 
     auto distributedIf =
-            isAct ? VPU::getDistributedActivationTypeFromOp(clusteredOp, clusteredOp->getOperand(0), inputType,
-                                                            numClusters.getInt(), outputType)
+            isAct ? VPU::getDistributedActivationTypeFromOp(clusteredOp, opOperand, inputType, numClusters.getInt(),
+                                                            outputType)
                   : VPU::getDistributedOutputTypeFromOp(clusteredOp, outputType, numClusters.getInt(), {inputType});
     auto distributedType = mlir::cast<vpux::VPU::DistributedTensorType>(distributedIf.getDistributedTypes().front());
 
@@ -775,6 +777,61 @@ TEST_F(MLIR_GetDistributedTypeFromSwOpTest, OverlappedMultiInputSWOpDuringTiling
     });
 }
 
+using MLIR_GetDistributedTypeFromAliasedOperandsTest = vpux::VPU::arch40xx::UnitTest;
+
+TEST_F(MLIR_GetDistributedTypeFromAliasedOperandsTest, SDPAWithAliasedQKVDistributesPerOpOperand) {
+    constexpr llvm::StringLiteral inputIR = R"(
+        module @test {
+            config.Resources 2 of @NCE at 6.000000e+02 MHz
+            func.func @main(%arg0: tensor<1x32x1024x96xf16>) -> tensor<1x32x1024x96xf16> {
+                %aux = const.Declare tensor<1x32x1024x384xui8> = dense<0> : tensor<1x32x1024x384xui8>
+                %0 = VPU.SDPA(%arg0, %arg0, %arg0, %aux) {
+                    operandSegmentSizes = array<i32: 1, 1, 1, 0, 0, 0, 1>,
+                    multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>}
+                    : tensor<1x32x1024x96xf16>, tensor<1x32x1024x96xf16>, tensor<1x32x1024x96xf16>,
+                      tensor<1x32x1024x384xui8>
+                    -> tensor<1x32x1024x96xf16>
+                return %0 : tensor<1x32x1024x96xf16>
+            }
+        }
+    )";
+
+    auto module = mlir::parseSourceString<mlir::ModuleOp>(inputIR, &ctx);
+    ASSERT_TRUE(module.get() != nullptr);
+
+    auto func = module.get().lookupSymbol<mlir::func::FuncOp>("main");
+    ASSERT_TRUE(func != nullptr);
+
+    const auto numClusters = getIntAttr(&ctx, 2);
+
+    const auto queryNumTiles = getIntArrayAttr(&ctx, SmallVector<int64_t>({1, 1, 2, 1}));
+    auto expectedQueryDistribution = VPU::DistributionInfoAttr::get(
+            &ctx, VPU::DistributionModeAttr::get(&ctx, VPU::DistributionMode::SEGMENTED), queryNumTiles, nullptr,
+            nullptr, nullptr, numClusters, /*alignment=*/nullptr, mlir::UnitAttr::get(&ctx), nullptr, nullptr, nullptr,
+            nullptr, nullptr, nullptr);
+    auto expectedKeyDistribution = VPU::DistributionInfoAttr::get(
+            &ctx, VPU::DistributionModeAttr::get(&ctx, VPU::DistributionMode::DUPLICATED), /*num_tiles=*/nullptr,
+            nullptr, nullptr, nullptr, numClusters, /*alignment=*/nullptr, mlir::UnitAttr::get(&ctx), nullptr, nullptr,
+            nullptr, nullptr, nullptr, nullptr);
+    auto expectedValueDistribution = expectedKeyDistribution;
+
+    size_t numSDPAOps = 0;
+    func.walk([&](VPU::SDPAOp op) {
+        ++numSDPAOps;
+        auto clusteredOp = mlir::cast<VPU::ClusteredOpInterface>(op.getOperation());
+
+        ASSERT_EQ(op.getInputQ(), op.getInputK());
+        ASSERT_EQ(op.getInputK(), op.getInputV());
+        testDType(&ctx, clusteredOp, expectedQueryDistribution, numClusters, /*isAct=*/true, /*tiledInput=*/nullptr,
+                  /*tiledOutput=*/nullptr, /*operandIdx=*/0);
+        testDType(&ctx, clusteredOp, expectedKeyDistribution, numClusters, /*isAct=*/true, /*tiledInput=*/nullptr,
+                  /*tiledOutput=*/nullptr, /*operandIdx=*/1);
+        testDType(&ctx, clusteredOp, expectedValueDistribution, numClusters, /*isAct=*/true, /*tiledInput=*/nullptr,
+                  /*tiledOutput=*/nullptr, /*operandIdx=*/2);
+    });
+    EXPECT_EQ(numSDPAOps, 1);
+}
+
 using MLIR_GetDistributedTypeFromDepthwiseOpTest = vpux::VPU::arch40xx::UnitTest;
 
 TEST_F(MLIR_GetDistributedTypeFromDepthwiseOpTest, MaxPoolOpWithODUPermuteToNCXXAssignedSOC) {
@@ -1149,6 +1206,99 @@ TEST_F(MLIR_CheckMCFusionHardLegalityNullOpTest, NullProducerOpTreatedAsNonSwOp)
                                                                /*consumerOp=*/geluOp, nonSparseOperand);
     EXPECT_TRUE(s3NonSwProducer);
     EXPECT_EQ(s3NonSwProducer, s3NullProducer);
+}
+
+using MLIR_GetDistributionTensorTilingTest = vpux::VPU::arch50xx::UnitTest;
+
+constexpr llvm::StringLiteral grouped5DMatMulIR = R"(
+        #GNHWC = affine_map<(d0, d1, d2, d3, d4) -> (d0, d1, d3, d4, d2)>
+        module @test {
+            config.Resources 3 of @NCE at 6.000000e+02 MHz
+            config.PipelineOptions @Options {
+                config.Option @config.EnableODULocalRegion : true
+            }
+            func.func @main(
+                    %arg0: tensor<3x1x32x16x16xf16, {order = #GNHWC}>,
+                    %arg1: tensor<3x32x32x1x1xf16, {order = #GNHWC}>)
+                    -> tensor<3x1x32x16x16xf16, {order = #GNHWC}> {
+                %out = VPU.NCE.MatMul(%arg0, %arg1) rawFilterShape [3, 32, 32, 1, 1] {
+                    pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
+                    ppe = #VPU.PPEStub<>,
+                    strides = [1, 1],
+                    operandSegmentSizes = array<i32: 1, 1, 0, 0, 0, 0, 0, 0, 0>,
+                    resultSegmentSizes = array<i32: 1, 0, 0, 0>,
+                    multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverGroup>
+                } -> tensor<3x1x32x16x16xf16, {order = #GNHWC}>
+                return %out : tensor<3x1x32x16x16xf16, {order = #GNHWC}>
+            }
+        }
+    )";
+
+TEST_F(MLIR_GetDistributionTensorTilingTest, TensorNumTilesSplitOverGroup5D) {
+    mlir::ParserConfig parseConfig(&ctx, /*verifyAfterParse=*/false);
+    auto module = mlir::parseSourceString<mlir::ModuleOp>(grouped5DMatMulIR, parseConfig);
+    ASSERT_TRUE(module.get() != nullptr);
+
+    VPU::NCEMatMulOp matMulOp;
+    module.get()->walk([&](VPU::NCEMatMulOp op) {
+        matMulOp = op;
+        return mlir::WalkResult::interrupt();
+    });
+    ASSERT_TRUE(matMulOp != nullptr);
+
+    auto clusteredOp = mlir::cast<VPU::ClusteredOpInterface>(matMulOp.getOperation());
+    const auto expectedNumTiles = SmallVector<int64_t>{3, 1, 1, 1, 1};
+
+    const auto activationNumTiles = VPU::getActivationTensorNumTiles(
+            clusteredOp, /*numClustersAvailableForCompilation=*/3, VPU::MultiClusterStrategy::SplitOverGroup);
+    EXPECT_EQ(activationNumTiles, expectedNumTiles);
+
+    const auto outputNumTiles = VPU::getOutputTensorNumTiles(clusteredOp, /*numClustersAvailableForCompilation=*/3,
+                                                             VPU::MultiClusterStrategy::SplitOverGroup);
+    EXPECT_EQ(outputNumTiles, expectedNumTiles);
+
+    const auto filterType = mlir::cast<vpux::NDTypeInterface>(matMulOp->getOperand(1).getType());
+    const auto weightsNumTiles = VPU::getWeightsTensorNumTiles(clusteredOp, filterType,
+                                                               /*numClustersAvailableForCompilation=*/3,
+                                                               VPU::MultiClusterStrategy::SplitOverGroup);
+    EXPECT_EQ(weightsNumTiles, expectedNumTiles);
+}
+
+TEST_F(MLIR_GetDistributionTensorTilingTest, TensorAlignmentSplitOverKernelFor5DTensor) {
+    mlir::ParserConfig parseConfig(&ctx, /*verifyAfterParse=*/false);
+    auto module = mlir::parseSourceString<mlir::ModuleOp>(grouped5DMatMulIR, parseConfig);
+    ASSERT_TRUE(module.get() != nullptr);
+
+    VPU::NCEMatMulOp matMulOp;
+    module.get()->walk([&](VPU::NCEMatMulOp op) {
+        matMulOp = op;
+        return mlir::WalkResult::interrupt();
+    });
+    ASSERT_TRUE(matMulOp != nullptr);
+
+    auto clusteredOp = mlir::cast<VPU::ClusteredOpInterface>(matMulOp.getOperation());
+    constexpr size_t grouped5DRank = 5;
+
+    EXPECT_FALSE(VPU::getActivationTensorAlignment(clusteredOp, matMulOp.getInputMutable(), /*numClusters=*/3,
+                                                   VPU::MultiClusterStrategy::SplitOverKernel)
+                         .has_value());
+
+    auto expectedOutputAlignment = SmallVector<int64_t>(grouped5DRank, 1);
+    expectedOutputAlignment[DimsGroups5D::Act::C.ind()] = VPU::DISTRIBUTED_C_ALIGNMENT;
+    const auto outputAlignment = VPU::getOutputTensorAlignment(clusteredOp, VPU::MultiClusterStrategy::SplitOverKernel,
+                                                               /*numClusters=*/3, /*channelSize=*/32);
+    ASSERT_TRUE(outputAlignment.has_value());
+    EXPECT_EQ(outputAlignment.value().size(), grouped5DRank);
+    EXPECT_EQ(outputAlignment.value(), expectedOutputAlignment);
+
+    auto expectedWeightsAlignment = SmallVector<int64_t>(grouped5DRank, 1);
+    expectedWeightsAlignment[DimsGroups5D::Filter::OC.ind()] = VPU::DISTRIBUTED_N_ALIGNMENT;
+    const auto weightsAlignment =
+            VPU::getWeightsTensorAlignment(clusteredOp, VPU::MultiClusterStrategy::SplitOverKernel,
+                                           /*numClusters=*/3, /*channelSize=*/32);
+    ASSERT_TRUE(weightsAlignment.has_value());
+    EXPECT_EQ(weightsAlignment.value().size(), grouped5DRank);
+    EXPECT_EQ(weightsAlignment.value(), expectedWeightsAlignment);
 }
 
 // =============================================================================

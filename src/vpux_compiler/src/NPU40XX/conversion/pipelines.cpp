@@ -29,17 +29,13 @@ void vpux::arch40xx::buildLowerVPUIP2ELFPipeline(mlir::OpPassManager& pm,
                                                  const BackendCompilationOptions40XX& backendCompilationOptions,
                                                  Logger log, VPU::DPUDryRunMode dpuDryRunMode) {
     log.info("BackendCompilationOptions:\n"
-             "  workloadManagementEnable = {0}\n"
-             "  workloadManagementMode = {1}\n"
-             "  workloadManagementBarrierProgrammingMode = {2}\n"
-             "  workloadManagementDmaFifoType = {3}\n"
-             "  enableMemorySideCache = {4}\n"
-             "  enableDMAProfiling = {5}\n"
-             "  enableShaveDDRAccessOptimization = {6}\n",
-             backendCompilationOptions.workloadManagementEnable,
+             "  workloadManagementMode = {0}\n"
+             "  workloadManagementBarrierProgrammingMode = {1}\n"
+             "  enableMemorySideCache = {2}\n"
+             "  enableDMAProfiling = {3}\n"
+             "  enableShaveDDRAccessOptimization = {4}\n",
              stringifyEnum(backendCompilationOptions.workloadManagementMode),
              stringifyEnum(backendCompilationOptions.workloadManagementBarrierProgrammingMode),
-             stringifyEnum(backendCompilationOptions.workloadManagementDmaFifoType),
              backendCompilationOptions.enableMemorySideCache, backendCompilationOptions.enableDMAProfiling,
              backendCompilationOptions.enableShaveDDRAccessOptimization);
 
@@ -61,7 +57,8 @@ void vpux::arch40xx::buildLowerVPUIP2ELFPipeline(mlir::OpPassManager& pm,
                                                                 npu40xx::NNRT_API_UD2024_44_MINOR_VERSION,
                                                                 npu40xx::NNRT_API_UD2024_44_PATCH_VERSION));
 
-    elfSubsetPipelineVPUASM(pm, backendCompilationOptions.workloadManagementDmaFifoType == DMAFifoType::HW, log);
+    elfSubsetPipelineVPUASM(
+            pm, backendCompilationOptions.workloadManagementMode == WorkloadManagementMode::FWLM_V1_PAGES, log);
 
     pm.addPass(VPUIPDPU::createExpandDPUConfigPass(log));
     pm.addPass(ELF::createUpdateELFSectionFlagsPass(
@@ -78,6 +75,7 @@ void vpux::arch40xx::buildLowerVPUIP2ELFPipeline(mlir::OpPassManager& pm,
     pm.addPass(ELF::createSetCMXSymbolValuePass(log));
     pm.addPass(ELF::createAddRelocationsForDynamicStridesDMAsPass(log));
     pm.addPass(ELF::createAddELFRelocationsPass(log));
+    pm.addPass(ELF::createRemoveRedundantRegisterSectionsPass(log));
     pm.addPass(ELF::createRemoveEmptyELFSectionsPass(log));
 }
 

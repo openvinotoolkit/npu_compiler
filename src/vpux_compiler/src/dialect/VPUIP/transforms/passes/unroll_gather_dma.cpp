@@ -142,6 +142,12 @@ mlir::LogicalResult GatherDMARewriter::matchAndRewrite(VPUIP::GatherDMAOp gather
                 rewriter, vpurtTask.getWaitBarriers(), vpurtTask.getUpdateBarriers(), newLoc, inputBuffers[clusterId],
                 indicesBuffers[clusterId], outputBuffers[clusterId], gatherDmaOp.getElementSize(),
                 gatherDmaOp.getPadding(), dmaPort);
+        if (auto addressingMode = gatherDmaOp.getAddressingModeAttr()) {
+            newGatherDMAOp.setAddressingModeAttr(addressingMode);
+        }
+        if (auto listOOBMode = gatherDmaOp.getListOOBModeAttr()) {
+            newGatherDMAOp.setListOOBModeAttr(listOOBMode);
+        }
         if (numClusters % _dmaPortCount != 0) {
             newGatherDMAOp->setAttr(VPUIP::UNROLL_IDX, getIntAttr(rewriter, unrollIdx));
         }

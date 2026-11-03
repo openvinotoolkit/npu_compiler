@@ -7,6 +7,7 @@
 
 #include "utils/options.hpp"
 #include "vpux/compiler/NPU40XX/dialect/NPUReg40XX/dialect.hpp"
+#include "vpux/compiler/core/pipelines_options.hpp"
 #include "vpux/compiler/dialect/ELF/IR/dialect.hpp"
 #include "vpux/compiler/dialect/ELFNPU37XX/dialect.hpp"
 #include "vpux/compiler/dialect/HostExec/IR/dialect.hpp"
@@ -62,8 +63,8 @@ std::unique_ptr<mlir::Pass> createAdjustDynamicOpsBeforeBufferizationPass();
 std::unique_ptr<mlir::Pass> createAddBuffersForNetResults(bool useMemrefForHostFunctionBufferization = false,
                                                           Logger log = Logger::global());
 
-void buildLowerVPU2VPUIPPipeline(mlir::OpPassManager& pm, bool enableInPlaceBufferization,
-                                 bool useMemrefForHostFunctionBufferization, Logger log = Logger::global());
+void buildLowerVPU2VPUIPPipeline(mlir::OpPassManager& pm, const vpux::DefaultHWOptionsBase& options,
+                                 Logger log = Logger::global());
 
 //
 // ShaveCodeGen
@@ -74,6 +75,7 @@ void buildLowerSwLayers2LinalgPipeline(mlir::OpPassManager& pm, Logger log = Log
 std::unique_ptr<mlir::Pass> createConvertEltwiseLayers2MathPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createDecomposeAggregateOpsPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createExpandLayersPass(Logger log = Logger::global());
+std::unique_ptr<mlir::Pass> createExpandNonContiguousMemRefCopyPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createConvertAffine2LLVMPass(Logger log = Logger::global());
 
 //

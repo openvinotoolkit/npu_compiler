@@ -12,6 +12,7 @@ include "vpux/compiler/dialect/VPUASM/dialect.td"
 
 include "vpux/compiler/dialect/core/attributes.td"
 include "vpux/compiler/dialect/core/ops_interfaces.td"
+include "vpux/compiler/dialect/VPURegMapped/ops_interfaces.td"
 include "vpux/compiler/dialect/VPU/attributes.td"
 include "vpux/compiler/dialect/VPU/ops_interfaces.td"
 include "vpux/compiler/dialect/VPUIP/types.td"
@@ -263,7 +264,6 @@ def VPUASM_MappedInferenceOp :
         OptionalAttr<SymbolRefArrayAttr>:$variantTasks,
         OptionalAttr<SymbolRefArrayAttr>:$actKernelRanges,
         OptionalAttr<SymbolRefArrayAttr>:$actKernelInvocations,
-        OptionalAttr<SymbolRefAttr>:$mediaTasks,
         OptionalAttr<SymbolRefAttr>:$barrierTasks,
         OptionalAttr<SymbolRefAttr>:$actShaveRt,
         OptionalAttr<SymbolRefArrayAttr>:$actShaveStacks,
@@ -273,7 +273,6 @@ def VPUASM_MappedInferenceOp :
         I64ArrayAttr:$variantCount,
         I64ArrayAttr:$actKernelRangesCount,
         I64ArrayAttr:$actKernelInvocationsCount,
-        I64Attr:$mediaCount,
         I64Attr:$barrierCount,
         OptionalAttr<SymbolRefAttr>:$dmaHwpBase,
         OptionalAttr<SymbolRefAttr>:$hwpWorkpointCfg,
@@ -288,7 +287,6 @@ def VPUASM_MappedInferenceOp :
         (`variants` `(` $variantTasks^ `)`)?
         (`actKernelRanges` `(` $actKernelRanges^ `)`)?
         (`actKernelInvocations` `(` $actKernelInvocations^ `)`)?
-        (`mediaTasks` `(` $mediaTasks^ `)`)?
         (`barriers` `(` $barrierTasks^ `)`)?
         (`actShaveRt` `(` $actShaveRt^ `)`)?
         (`actShaveStacks` `(` $actShaveStacks^ `)`)?
@@ -298,7 +296,6 @@ def VPUASM_MappedInferenceOp :
         `variantCount` `(` $variantCount `)`
         `actKernelRangesCount` `(` $actKernelRangesCount `)`
         `actKernelInvocationsCount` `(` $actKernelInvocationsCount `)`
-        `mediaCount` `(` $mediaCount `)`
         `barrierCount` `(` $barrierCount `)`
         `mappedInferenceVersion` `(` $mappedInferenceVersion `)`
         (`dmaHwpBase` `(` $dmaHwpBase^ `)`)?
@@ -398,7 +395,6 @@ def VPUASM_ManagedMappedInferenceOp :
         I64Attr:$barrierConfigurationStride,
         UI8Attr:$actshv_used,
         UI8Attr:$dpu_used,
-        UI8Attr:$media_used,
         UI8Attr:$dma_from_ddr_used,
         UI8Attr:$dma_from_cmx_used,
         SymbolRefAttr:$mappedInferenceVersion,
@@ -585,7 +581,8 @@ def VPUASM_NNDMAOp :
         VPUASM_Instruction<"NNDMA",
             [
                 DeclareOpInterfaceMethods<ELF_DDRMemoryAccessingOpInterface>,
-                VPUASM_IndexedTaskInterface
+                VPUASM_IndexedTaskInterface,
+                DMAOpTrait
             ]
         > {
     let summary = "NN DMA task";
@@ -616,7 +613,8 @@ def VPUASM_NNDMAOp :
         OptionalAttr<IntAttr>:$dma_hwp_id,
         OptionalAttr<I64ArrayAttr>:$tile_indexes,
         OptionalAttr<SymbolRefAttr>:$indices,
-        OptionalAttr<VPUIP_GatherAddressingMode>:$addressing_mode,
+        OptionalAttr<VPUIP_GatherAddressingModeAttr>:$addressing_mode,
+        OptionalAttr<VPUIP_GatherListOOBModeAttr>:$list_oob_mode,
         OptionalAttr<VPUIP_SkipDMAAttr>:$skip_dma,
         OptionalAttr<VPUIP_FetchDMAAttr>:$fetch_dma,
         OptionalAttr<UI16Attr>:$task_dyn_id,

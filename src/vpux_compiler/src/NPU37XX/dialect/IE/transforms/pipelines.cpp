@@ -236,8 +236,6 @@ void vpux::IE::arch37xx::buildDefaultHWPipeline(mlir::OpPassManager& pm, const I
     IE::buildOptimizeMemPermuteAndActivationChannelsExpandPipeline(pm, IE::ExpandActivationChannelsOptions(options),
                                                                    log);
 
-    pm.addPass(locverif::createStopLocationVerifierPass(log));
-
     IE::buildOptimizeViewLikeOpsPipeline(pm, log);
 
     IE::arch37xx::buildOptimizeSliceOpPipeline(pm, options.disableSliceToConvMinHWThreshold, log);
@@ -253,6 +251,8 @@ void vpux::IE::arch37xx::buildDefaultHWPipeline(mlir::OpPassManager& pm, const I
     }
 
     pm.addPass(IE::createDumpStatisticsOfIeOpsPass("End of IE pipeline statistics", log));
+
+    pm.addPass(locverif::createStopLocationVerifierPass(log));
 }
 
 //
@@ -282,10 +282,10 @@ void vpux::IE::arch37xx::buildReferenceSWPipeline(mlir::OpPassManager& pm,
     pm.addPass(mlir::createCSEPass());
     pm.addPass(IE::createUniquifySimilarOpsPass(log));
     pm.addPass(IE::createMergeParallelFullyConnectedPass(log));
-    pm.addPass(IE::createConvertDynamicDequantizeToFakeQuantizePass(log));
     pm.addPass(IE::createUnrollGroupQuantizePass(log));
     pm.addPass(IE::createUnrollFullyConnectedPass(log));
     pm.addPass(IE::createConvertMatMulToConvPass(log));
+    pm.addPass(IE::createConvertDynamicDequantizeToFakeQuantizePass(log));
     if (options.enableConvertFCToConv) {
         pm.addPass(IE::createConvertFCToConvPass(log));
     }
@@ -295,7 +295,7 @@ void vpux::IE::arch37xx::buildReferenceSWPipeline(mlir::OpPassManager& pm,
     pm.addPass(IE::createConvertNceOpsTo4DPass(log));
     pm.addPass(IE::createConvertShapeTo4DPass(isOptionEnabled(options.forceConvertGatherTo4D), log));
     pm.addPass(mlir::createCanonicalizerPass(grc));
-    pm.addPass(IE::createConvertToSpatialOpPass(false, log));
+    pm.addPass(IE::createConvertToSpatialOpPass(log));
     pm.addPass(IE::createConvertGRNToNormalizeL2Pass(log));
     pm.addPass(IE::createResolveScatterUpdateByTransposePass(log));
     IE::buildAdjustForVPUPipeline(pm, log);
@@ -333,6 +333,15 @@ void vpux::IE::arch37xx::registerIEPipelines() {
             "equivalent operations supported by the lower compilation levels",
             [](mlir::OpPassManager& pm, const IE::LowPrecisionTransformOptions& options) {
                 IE::arch37xx::buildInitialLowPrecisionTransformationsPipeline(pm, options);
+            });
+
+    mlir::PassPipelineRegistration<OperationConversionOptions>(
+            "operation-conversion",
+            "[OPTIMIZATION] Operation Conversion pipeline is responsible for changing type of existing operations."
+            "Main purpose is reducing subset of ops"
+            "which using in our graph for improve pattern matching of next passes ",
+            [](mlir::OpPassManager& pm, const OperationConversionOptions& options) {
+                IE::buildOperationConversionPipeline(pm, options);
             });
 
     mlir::PassPipelineRegistration<LowPrecisionOptions>(

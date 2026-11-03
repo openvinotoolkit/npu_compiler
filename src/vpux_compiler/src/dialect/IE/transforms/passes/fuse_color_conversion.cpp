@@ -6,6 +6,7 @@
 #include "vpux/compiler/core/layers.hpp"
 #include "vpux/compiler/dialect/IE/IR/attributes.hpp"
 #include "vpux/compiler/dialect/IE/IR/dialect.hpp"
+#include "vpux/compiler/dialect/IE/IR/import/yuv_to_rgb.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/arithmetic.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/convolution.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/data_movement.hpp"
@@ -331,34 +332,25 @@ mlir::LogicalResult fuseColorConversionPattern(mlir::Operation* op, mlir::Patter
     // preserve behavior via the explicit IE.Multiply below.
     const float yuvToRgbScale = enableYuvToRgbShaveScale ? static_cast<float>(scaleFactor) : 1.0f;
 
-    // Create YuvToRgb operation with detected color format
-    auto yuvToRgbOp = IE::YuvToRgbOp::create(builder, appendLoc(addOp->getLoc(), "nv12_to_rgb"), yInput, uvInput,
-                                             nullptr,                 // input3 (optional V channel)
-                                             IE::ColorFmt::NV12,      // inFmt
-                                             outputColorFmt.value(),  // outFmt (RGB or BGR)
+    // Create the fused YuvToRgb in the compiler's normalized B form first, so the semantic
+    // channel axis is resolved from the logical C dimension instead of relying on the raw
+    // NHWC-like input shape. The consumer order is restored only at the boundary when needed.
+    auto normalizedYInput = IE::YuvToRgb::canonicalizeYuvToRgbInput(
+            builder, appendLoc(addOp->getLoc(), "yuv_to_rgb_input_y"), yInput, "canonicalizeY");
+    auto normalizedUVInput = uvInput == nullptr ? nullptr
+                                                : IE::YuvToRgb::canonicalizeYuvToRgbInput(
+                                                          builder, appendLoc(addOp->getLoc(), "yuvToRgbInputUv"),
+                                                          uvInput, "canonicalizeUV");
+
+    // Keep the fused YuvToRgb in the compiler's canonical B-form throughout this pass. The
+    // semantic channel axis is already resolved as the logical C dimension here, so we must not
+    // restore an NHWC-style output permute afterward; that reintroduces the extra transpose that
+    // triggered the incorrect NCHW/NHWC mismatch.
+    auto yuvToRgbOp = IE::YuvToRgbOp::create(builder, appendLoc(addOp->getLoc(), "nv12ToRgb"), normalizedYInput,
+                                             normalizedUVInput, nullptr, IE::ColorFmt::NV12, outputColorFmt.value(),
                                              builder.getF32FloatAttr(yuvToRgbScale));
 
-    auto outputType = mlir::cast<vpux::NDTypeInterface>(addOp.getType());
-    auto yuvOutputType = mlir::cast<vpux::NDTypeInterface>(yuvToRgbOp.getType());
-
     mlir::Value finalOutput = yuvToRgbOp.getOutput();
-
-    const auto outputShape = outputType.getShape();
-    const auto yuvOutputShape = yuvOutputType.getShape();
-
-    if (outputShape != yuvOutputShape) {
-        // Check if we need transpose from NHWC to NCHW
-        // YuvToRgb output: [N, H, W, C], Expected output: [N, C, H, W]
-        SmallVector<uint32_t> permuteOrder = {0, 3, 1, 2};
-
-        const auto orderAttr =
-                mlir::AffineMapAttr::get(mlir::AffineMap::getPermutationMap(permuteOrder, builder.getContext()));
-
-        auto transposeOp = IE::TransposeOp::create(builder, appendLoc(addOp->getLoc(), "transpose"), finalOutput,
-                                                   nullptr, orderAttr);
-
-        finalOutput = transposeOp.getOutput();
-    }
 
     if (!isDoubleEqual(scaleFactor, 1.0)) {
         // Default path (enableYuvToRgbShaveScale=false): keep YuvToRgb scale at 1.0 and
@@ -391,9 +383,26 @@ mlir::LogicalResult fuseColorConversionPattern(mlir::Operation* op, mlir::Patter
                 auto restoredFqOp = IE::FakeQuantizeOp::create(
                         builder, appendLoc(addOp->getLoc(), "scale_fq"), finalOutput.getType(), finalOutput,
                         fqOp.getInputLow(), fqOp.getInputHigh(), fqOp.getOutputLow(), fqOp.getOutputHigh(),
-                        fqOp.getLevelsAttr(), fqOp.getLowFpTypeAttr(), fqOp.getAutoBroadcastAttr());
+                        fqOp.getLevelsOrLowFpTypeAttr(), fqOp.getAutoBroadcastAttr());
                 finalOutput = restoredFqOp.getOutput();
             }
+        }
+    }
+
+    auto outputType = mlir::cast<vpux::NDTypeInterface>(addOp.getType());
+    auto yuvOutputType = mlir::cast<vpux::NDTypeInterface>(yuvToRgbOp.getType());
+
+    const auto outputShape = outputType.getShape();
+    const auto yuvOutputShape = yuvOutputType.getShape();
+
+    if (outputShape != yuvOutputShape) {
+        finalOutput = IE::YuvToRgb::restoreYuvToRgbOutput(builder, appendLoc(addOp->getLoc(), "restore_output_order"),
+                                                          finalOutput);
+        if (mlir::cast<vpux::NDTypeInterface>(finalOutput.getType()).getShape() != outputShape) {
+            log.debug("Tried to apply YuvToRgb fusion at {0}, but aborted: output shape still mismatches after restore "
+                      "(actual={1}, expected={2})",
+                      op->getLoc(), finalOutput.getType(), outputType);
+            return mlir::failure();
         }
     }
 

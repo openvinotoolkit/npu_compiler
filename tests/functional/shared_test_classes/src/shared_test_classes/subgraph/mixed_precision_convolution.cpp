@@ -1,5 +1,5 @@
 //
-// Copyright (C) 2024-2025 Intel Corporation
+// Copyright (C) 2024-2026 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -90,7 +90,7 @@ void MixedPrecisionConvSubGraphTest::SetUp() {
     std::uniform_int_distribution<> int8Dist(-127, 127);
     std::uniform_int_distribution<> int4Dist(-7, 7);
     std::uniform_int_distribution<> nf4Dist(0, 15);
-    auto intGen = [&int8Dist, &int4Dist, &nf4Dist, &intMersenneEngine, &lowFpType, &quantLevels]() {
+    auto intGen = [&int8Dist, &int4Dist, &nf4Dist, &intMersenneEngine, lowFpType, quantLevels]() {
         if (lowFpType != LowFpType::Undefined) {
             switch (lowFpType) {
             case LowFpType::NF4:

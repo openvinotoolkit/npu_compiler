@@ -4,8 +4,16 @@
 #
 
 file(GLOB_RECURSE SRC_FILES *.cpp)
+# This library is intentionally left out of MSVC LTO: its archive would
+# exceed the 4 GB PE/COFF limit under lib.exe /LTCG (LNK1248). As a
+# consequence it must not reuse the shared PCH either, which is compiled
+# with /GL when LTO is enabled (C4652).
+if(ENABLE_LTO AND MSVC)
+    set(NPU_PCH_OPTS SKIP_PCH_REUSE)
+endif()
 add_npu_library(npu_compiler_conversion
     ${SRC_FILES}
+    ${NPU_PCH_OPTS}
     LINK_LIBS
       PUBLIC
         mlir-dependencies

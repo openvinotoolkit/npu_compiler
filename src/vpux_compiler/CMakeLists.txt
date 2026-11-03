@@ -10,10 +10,6 @@
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-if(ENABLE_LTO)
-    set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RELEASE ON)
-endif()
-
 set(TARGET_NAME "npu_mlir_compiler")
 set(STATIC_TARGET_NAME "${TARGET_NAME}_static")
 set(gen_base_dst_include_dir "src/vpux_compiler/include/vpux/compiler")
@@ -133,11 +129,15 @@ target_include_directories(mlir-dependencies
 set(COMPILER_TARGET ${STATIC_TARGET_NAME})
 add_library(${STATIC_TARGET_NAME} STATIC ${SOURCES})
 
+enable_lto_if_possible(${STATIC_TARGET_NAME})
+
 #
 # Separate compiler module library
 #
 set(COMPILER_LIB openvino_intel_npu_compiler)
 add_library(${COMPILER_LIB} MODULE $<TARGET_OBJECTS:${STATIC_TARGET_NAME}>)
+
+enable_lto_if_possible(${COMPILER_LIB})
 target_link_libraries(${COMPILER_LIB} PRIVATE ${STATIC_TARGET_NAME})
 if(WIN32)
     ov_add_api_validator_post_build_step(TARGET ${COMPILER_LIB})
@@ -187,7 +187,6 @@ target_include_directories(${COMPILER_TARGET}
 target_link_libraries(${COMPILER_TARGET}
     PUBLIC
         npu_compiler_interface
-        openvino::npu_al
     PRIVATE
         npu_profiling_utils
 )

@@ -38,10 +38,7 @@ ConvertQuantizeOpsToNceOpsStrategy::ConvertQuantizeOpsToNceOpsStrategy() {
             return true;
         }
 
-        return isQuantizedPerAxis(dequantizeOp.getInput()) || rank != 4 ||
-               (inType.getTotalAllocSize() <= vpux::VPU::getTotalCMXSize(dequantizeOp) &&
-                !vpux::isFloat8Quantized(inType.getElementType())) ||
-               hasConstProducer(dequantizeOp);
+        return isQuantizedPerAxis(dequantizeOp.getInput()) || rank != 4 || hasConstProducer(dequantizeOp);
     };
 
     _canSkipQuantizeEltwiseConversion = [canUseCMajor = _canUseCMajor](IE::QuantizeOp quantizeOp) {

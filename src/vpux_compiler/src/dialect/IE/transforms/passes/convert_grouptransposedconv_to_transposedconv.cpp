@@ -162,8 +162,8 @@ mlir::LogicalResult GroupTransposedConvConverter::matchAndRewrite(IE::GroupTrans
             auto outputLow = sliceFqConstInput(fqOp.getOutputLow(), "out_low");
             auto outputHigh = sliceFqConstInput(fqOp.getOutputHigh(), "out_high");
             weightsSlice = IE::FakeQuantizeOp::create(rewriter, takeOpLoc(fqOp, "fq_in_{0}", sliceIdx), newInput,
-                                                      inputLow, inputHigh, outputLow, outputHigh, fqOp.getLevelsAttr(),
-                                                      fqOp.getLowFpTypeAttr(), fqOp.getAutoBroadcastAttr());
+                                                      inputLow, inputHigh, outputLow, outputHigh,
+                                                      fqOp.getLevelsOrLowFpTypeAttr(), fqOp.getAutoBroadcastAttr());
         } else {
             weightsSlice = rewriter.createOrFold<IE::SliceOp>(takeOpLoc(origOp, "weights_{0}", sliceIdx), weights,
                                                               weightsOffsetsAttr, weightsShapeAttr);
@@ -316,8 +316,8 @@ mlir::LogicalResult DepthwiseGroupTransposedConvConverter::matchAndRewrite(IE::G
                 takeOpLoc(origOp, "weights_out_high_resh"), outputHigh, newFQParamShapeSqueezedAttr));
 
         newWeights = IE::FakeQuantizeOp::create(rewriter, takeOpLoc(origOp, "weights_fq"), newWeights, inputLow,
-                                                inputHigh, outputLow, outputHigh, fqOp.getLevelsAttr(),
-                                                fqOp.getLowFpTypeAttr(), fqOp.getAutoBroadcastAttr());
+                                                inputHigh, outputLow, outputHigh, fqOp.getLevelsOrLowFpTypeAttr(),
+                                                fqOp.getAutoBroadcastAttr());
     }
 
     rewriter.replaceOpWithNewOp<IE::TransposedConvolutionOp>(

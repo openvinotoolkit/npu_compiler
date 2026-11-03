@@ -19,11 +19,11 @@ func.func @GroupsToAttrWithFQInputF8E4M3FN(%input: tensor<1x96x96x96xf32>) -> te
     %out_high_1 = const.Declare tensor<3x32x1x1x1xf32> = dense<0.40> : tensor<3x32x1x1x1xf32>
 
     %0 = IE.FakeQuantize(%input, %in_low, %in_high, %out_low_0, %out_high_0) {
-            auto_broadcast = #IE.auto_broadcast_type<NUMPY>, low_fp_type = f8E4M3FN
+            auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = f8E4M3FN
     } : tensor<1x96x96x96xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32> -> tensor<1x96x96x96xf32>
 
     %1 = IE.FakeQuantize(%weights, %in_low, %in_high, %out_low_1, %out_high_1) {
-            auto_broadcast = #IE.auto_broadcast_type<NUMPY>, low_fp_type = f8E4M3FN
+            auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = f8E4M3FN
     } : tensor<3x32x32x3x3xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<3x32x1x1x1xf32>, tensor<3x32x1x1x1xf32> -> tensor<3x32x32x3x3xf32>
 
     %2 = IE.GroupConvolution(%0, %1) {
@@ -43,10 +43,10 @@ func.func @GroupsToAttrWithFQInputF8E4M3FN(%input: tensor<1x96x96x96xf32>) -> te
     // CHECK-DAG:    [[OUT_HIGH:%.+]] = const.Declare tensor<1x1x1x1xf32> = dense<2.000000e+00> : tensor<1x1x1x1xf32>
 
     // CHECK:    [[FQ_0:%.+]] = IE.FakeQuantize([[INPUT]], [[IN_LOW]], [[IN_HIGH]], [[OUT_LOW]], [[OUT_HIGH]])
-    // CHECK-SAME:  {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, low_fp_type = f8E4M3FN} : tensor<1x96x96x96xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32> -> tensor<1x96x96x96xf32>
+    // CHECK-SAME:  {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = f8E4M3FN} : tensor<1x96x96x96xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32> -> tensor<1x96x96x96xf32>
 
     // CHECK:    [[FQ_1:%.+]] = IE.FakeQuantize([[WEIGHTS]], [[IN_LOW_RS]], [[IN_HIGH_RS]], [[OUT_LOW_RS]], [[OUT_HIGH_RS:%.+]])
-    // CHECK-SAME:  {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, low_fp_type = f8E4M3FN} : tensor<96x32x3x3xf32>, tensor<1x1x1xf32>, tensor<1x1x1xf32>, tensor<96x1x1x1xf32>, tensor<96x1x1x1xf32> -> tensor<96x32x3x3xf32>
+    // CHECK-SAME:  {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = f8E4M3FN} : tensor<96x32x3x3xf32>, tensor<1x1x1xf32>, tensor<1x1x1xf32>, tensor<96x1x1x1xf32>, tensor<96x1x1x1xf32> -> tensor<96x32x3x3xf32>
 
     // CHECK:    [[CONV:%.+]] = IE.GroupConvolution([[FQ_0]], [[FQ_1]])
     // CHECK-SAME:  {dilations = [1, 1], groups = 3 : i64, pads_begin = [1, 1], pads_end = [1, 1], strides = [1, 1]} : tensor<1x96x96x96xf32>, tensor<96x32x3x3xf32> -> tensor<1x96x96x96xf32>

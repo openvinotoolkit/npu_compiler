@@ -376,3 +376,135 @@ module @AddBuffersForSubViewOfLoopIterArg {
         // CHECK:   scf.yield [[ITER]]
     }
 }
+
+// -----
+
+// CHECK-LABEL: @AliasingCallOperandReuseRejectedInPlace
+// The same allocation is used as the call input and as the copy target, so the
+// reuse path must reject it and keep a separate output buffer
+module @AliasingCallOperandReuseRejectedInPlace {
+    net.NetworkInfo entryPoint : @main
+    inputsInfo : {
+        DataInfo "input" : tensor<1x1000xf16> loc(fused<{name = "input", type = "Parameter"}>["input"])
+    } outputsInfo : {
+        DataInfo "output" : tensor<1x1000xf16> loc(fused<{name = "output", type = "Result"}>["output"])
+    }
+
+    // CHECK: func.func @kernel([[ARG0:%.+]]: memref<1x1000xf16>, [[ARG1:%.+]]: memref<1x1000xf16>) -> memref<1x1000xf16>
+    func.func @kernel(%arg0: memref<1x1000xf16>) -> memref<1x1000xf16> {
+        return %arg0 : memref<1x1000xf16>
+    }
+
+    // CHECK: func.func @main([[ARG0:%.+]]: memref<1x1000xf16>, [[ARG1:%.+]]: memref<1x1000xf16>) -> memref<1x1000xf16> {
+    func.func @main(%arg0: memref<1x1000xf16>) -> memref<1x1000xf16> {
+        %scratch = memref.alloc() : memref<1x1000xf16>
+        %result = func.call @kernel(%scratch) : (memref<1x1000xf16>) -> memref<1x1000xf16>
+        memref.copy %result, %scratch : memref<1x1000xf16> to memref<1x1000xf16>
+        return %scratch : memref<1x1000xf16>
+
+        // CHECK: [[SCRATCH:%.+]] = memref.alloc() : memref<1x1000xf16>
+        // CHECK: [[RESULT_ALLOC:%.+]] = memref.alloc() : memref<1x1000xf16>
+        // CHECK: [[RESULT:%.+]] = call @kernel([[SCRATCH]], [[RESULT_ALLOC]]) : (memref<1x1000xf16>, memref<1x1000xf16>) -> memref<1x1000xf16>
+        // CHECK: memref.copy [[RESULT]], [[SCRATCH]] : memref<1x1000xf16> to memref<1x1000xf16>
+        // CHECK: memref.copy [[SCRATCH]], [[ARG1]] : memref<1x1000xf16> to memref<1x1000xf16>
+        // CHECK: return [[ARG1]] : memref<1x1000xf16>
+    }
+}
+
+// -----
+
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+
+// CHECK-LABEL: @FuncCallDynamicSubviewAllocReuseWithScfFor
+module @FuncCallDynamicSubviewAllocReuseWithScfFor {
+    net.NetworkInfo entryPoint : @main
+    inputsInfo : {
+        DataInfo "Image" : tensor<1x3x?x?xf16> loc(fused<{name = "Image", type = "Parameter"}>["Image"])
+        DataInfo "scales" : tensor<2xf32> loc(fused<{name = "scales", type = "Parameter"}>["scales"])
+    } outputsInfo : {
+        DataInfo "output" : tensor<1x3x?x?xf16> loc(fused<{name = "output", type = "Result"}>["output"])
+    }
+
+    // CHECK: func.func @kernel_dynamic([[ARG0:%.+]]: memref<1x3x?x?xf16>, [[RES:%.+]]: memref<1x3x?x?xf16>) -> memref<1x3x?x?xf16> {
+    func.func @kernel_dynamic(%arg0: memref<1x3x?x?xf16>) -> memref<1x3x?x?xf16> {
+        return %arg0 : memref<1x3x?x?xf16>
+    }
+    // CHECK: func.func @kernel_in_the_loop([[ARG0:%.+]]: memref<1x3x?x?xf16>, [[RES:%.+]]: memref<1x3x?x?xf16>) -> memref<1x3x?x?xf16> {
+    func.func @kernel_in_the_loop(%arg0: memref<1x3x?x?xf16>) -> memref<1x3x?x?xf16> {
+        return %arg0 : memref<1x3x?x?xf16>
+    }
+
+    // CHECK: func.func @main([[IMAGE:%.+]]: memref<1x3x?x?xf16>, [[SCALES:%.+]]: memref<2xf32>, [[RES:%.+]]: memref<1x3x?x?xf16>) -> memref<1x3x?x?xf16> {
+    func.func @main(%Image: memref<1x3x?x?xf16>, %scales: memref<2xf32>) -> memref<1x3x?x?xf16> {
+        %c0 = arith.constant 0 : index
+        %c1 = arith.constant 1 : index
+        %c2 = arith.constant 2 : index
+        %c3 = arith.constant 3 : index
+
+        // Calculating sizes for destination buffer allocation - real case example
+        %shape_scale_h = memref.load %scales[%c0] : memref<2xf32>
+        %shape_scale_h_f64 = arith.extf %shape_scale_h : f32 to f64
+        %shape_scale_w = memref.load %scales[%c1] : memref<2xf32>
+        %shape_scale_w_f64 = arith.extf %shape_scale_w : f32 to f64
+        %shape_dim_h = memref.dim %Image, %c2 : memref<1x3x?x?xf16>
+        %shape_dim_h_i64 = arith.index_cast %shape_dim_h : index to i64
+        %shape_dim_h_f64 = arith.sitofp %shape_dim_h_i64 : i64 to f64
+        %shape_scaled_h_f64 = arith.mulf %shape_dim_h_f64, %shape_scale_h_f64 : f64
+        %shape_scaled_h_i64 = arith.fptosi %shape_scaled_h_f64 : f64 to i64
+        %shape_calc_h = arith.index_cast %shape_scaled_h_i64 : i64 to index
+        %shape_dim_w = memref.dim %Image, %c3 : memref<1x3x?x?xf16>
+        %shape_dim_w_i64 = arith.index_cast %shape_dim_w : index to i64
+        %shape_dim_w_f64 = arith.sitofp %shape_dim_w_i64 : i64 to f64
+        %shape_scaled_w_f64 = arith.mulf %shape_dim_w_f64, %shape_scale_w_f64 : f64
+        %shape_scaled_w_i64 = arith.fptosi %shape_scaled_w_f64 : f64 to i64
+        %shape_calc_w = arith.index_cast %shape_scaled_w_i64 : i64 to index
+
+        // Destination buffer allocated
+        %shape_alloc = memref.alloc(%shape_calc_h, %shape_calc_w) {alignment = 64 : i64} : memref<1x3x?x?xf16>
+        %scratch = memref.subview %shape_alloc[0, 0, 0, 0] [1, 3, %shape_calc_h, %shape_calc_w] [1, 1, 1, 1] : memref<1x3x?x?xf16> to memref<1x3x?x?xf16, strided<[?, ?, ?, 1]>>
+        %scratch_cast = memref.cast %scratch : memref<1x3x?x?xf16, strided<[?, ?, ?, 1]>> to memref<1x3x?x?xf16>
+        %preloop_res = func.call @kernel_dynamic(%Image) : (memref<1x3x?x?xf16>) -> memref<1x3x?x?xf16>
+
+        // This copy should be eliminated and the destination buffer reused
+        memref.copy %preloop_res, %scratch : memref<1x3x?x?xf16> to memref<1x3x?x?xf16, strided<[?, ?, ?, 1]>>
+
+        %iter_alloc = memref.alloc(%shape_calc_h, %shape_calc_w) {alignment = 64 : i64} : memref<1x3x?x?xf16>
+
+        %loop = scf.for %iv = %c0 to %c1 step %c1 iter_args(%iter = %iter_alloc) -> (memref<1x3x?x?xf16>) {
+            %view = memref.subview %shape_alloc[0, 0, 0, 0] [1, 3, %shape_calc_h, %shape_calc_w] [1, 1, 1, 1] : memref<1x3x?x?xf16> to memref<1x3x?x?xf16, strided<[?, ?, ?, 1]>>
+            %cast = memref.cast %view : memref<1x3x?x?xf16, strided<[?, ?, ?, 1]>> to memref<1x3x?x?xf16>
+            %res = func.call @kernel_in_the_loop(%cast) : (memref<1x3x?x?xf16>) -> memref<1x3x?x?xf16>
+            %iter_view = memref.subview %iter[0, 0, 0, 0] [1, 3, %shape_calc_h, %shape_calc_w] [1, 1, 1, 1] : memref<1x3x?x?xf16> to memref<1x3x?x?xf16, strided<[?, ?, ?, 1]>>
+
+            memref.copy %res, %iter_view : memref<1x3x?x?xf16> to memref<1x3x?x?xf16, strided<[?, ?, ?, 1]>>
+            scf.yield %iter : memref<1x3x?x?xf16>
+        }
+
+        return %loop : memref<1x3x?x?xf16>
+
+        // CHECK: [[SHAPE_ALLOC:%.+]] = memref.alloc
+        // CHECK:                       memref<1x3x?x?xf16>
+        // CHECK: [[SCRATCH:%.+]] = memref.subview [[SHAPE_ALLOC]][0, 0, 0, 0]
+        // CHECK:                   memref<1x3x?x?xf16, strided<[?, ?, ?, 1]>> to memref<1x3x?x?xf16>
+        // CHECK: [[SCRATCH_CAST:%.+]] = memref.cast [[SCRATCH]] : memref<1x3x?x?xf16, strided<[?, ?, ?, 1]>> to memref<1x3x?x?xf16>
+
+        // CHECK: [[PRELOOP_RES:%.+]] = call @kernel_dynamic([[IMAGE]], [[SCRATCH_CAST]]) : (memref<1x3x?x?xf16>, memref<1x3x?x?xf16>) -> memref<1x3x?x?xf16>
+
+        // For dynamic function we are reusing Destination buffer, so there is no copy
+        // CHECK-NOT: memref.copy
+
+        // CHECK: [[ITER_ALLOC:%.+]] = memref.alloc([[SHAPE_ALLOC_DIM0:%.+]], [[SHAPE_ALLOC_DIM1:%.+]]) {alignment = 64 : i64} : memref<1x3x?x?xf16>
+        // CHECK: [[LOOP:%.+]] = scf.for {{%.+}} iter_args([[ITER:%.+]] = [[ITER_ALLOC]]) -> (memref<1x3x?x?xf16>) {
+        // CHECK:   [[VIEW:%.+]] = memref.subview [[SHAPE_ALLOC]][0, 0, 0, 0] [1, 3, {{%.+}}, {{%.+}}] [1, 1, 1, 1] : memref<1x3x?x?xf16> to memref<1x3x?x?xf16, strided<[?, ?, ?, 1]>>
+        // CHECK:   [[CAST:%.+]] = memref.cast [[VIEW]] : memref<1x3x?x?xf16, strided<[?, ?, ?, 1]>> to memref<1x3x?x?xf16>
+        // CHECK:   [[ITER_VIEW:%.+]] = memref.subview [[ITER]][0, 0, 0, 0] [1, 3, {{%.+}}, {{%.+}}] [1, 1, 1, 1] : memref<1x3x?x?xf16> to memref<1x3x?x?xf16, strided<[?, ?, ?, 1]>>
+        // CHECK:   [[ITER_CAST:%.+]] = memref.cast [[ITER_VIEW]] : memref<1x3x?x?xf16, strided<[?, ?, ?, 1]>> to memref<1x3x?x?xf16>
+        // CHECK:   {{%.+}} = func.call @kernel_in_the_loop([[CAST]], [[ITER_CAST]]) : (memref<1x3x?x?xf16>, memref<1x3x?x?xf16>) -> memref<1x3x?x?xf16>
+        // CHECK-NOT: memref.copy
+        // CHECK:   scf.yield [[ITER]] : memref<1x3x?x?xf16>
+        // CHECK: }
+
+        // CHECK: memref.copy [[LOOP]], [[RES]] : memref<1x3x?x?xf16> to memref<1x3x?x?xf16>
+        // CHECK: return [[RES]] : memref<1x3x?x?xf16>
+    }
+}

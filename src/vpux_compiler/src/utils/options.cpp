@@ -40,17 +40,6 @@ StringLiteral vpux::stringifyEnum(WorkloadManagementBarrierProgrammingMode val) 
     }
 }
 
-StringLiteral vpux::stringifyEnum(DMAFifoType val) {
-    switch (val) {
-    case DMAFifoType::SW:
-        return "SW";
-    case DMAFifoType::HW:
-        return "HW";
-    default:
-        return "UNKNOWN";
-    }
-}
-
 StringLiteral vpux::stringifyEnum(WeightsTableReuseMode val) {
     switch (val) {
     case WeightsTableReuseMode::ENABLED:
@@ -59,6 +48,21 @@ StringLiteral vpux::stringifyEnum(WeightsTableReuseMode val) {
         return "VF_ENABLED";
     case WeightsTableReuseMode::DISABLED:
         return "DISABLED";
+    default:
+        return "UNKNOWN";
+    }
+}
+
+StringLiteral vpux::stringifyEnum(UnboundedDynamismMode val) {
+    switch (val) {
+    case UnboundedDynamismMode::DISABLED:
+        return "DISABLED";
+    case UnboundedDynamismMode::LOWER:
+        return "LOWER";
+    case UnboundedDynamismMode::UPPER:
+        return "UPPER";
+    case UnboundedDynamismMode::LOWER_UPPER:
+        return "LOWER_UPPER";
     default:
         return "UNKNOWN";
     }

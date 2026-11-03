@@ -10,6 +10,7 @@
 #include "vpux/compiler/dialect/VPU/IR/ops_interfaces.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
 #include "vpux/compiler/dialect/VPU/utils/outlining_utils.hpp"
+#include "vpux/compiler/dialect/config/IR/utils.hpp"
 #include "vpux/compiler/dialect/net/IR/ops.hpp"
 #include "vpux/compiler/dialect/net/utils/network_info_utils.hpp"
 #include "vpux/compiler/utils/function_outlining_splitter.hpp"
@@ -47,16 +48,21 @@ using InputBranch = std::unordered_map<size_t, SmallVector<mlir::Operation*>>;
 class ConcatOutliner final {
 private:
     int64_t _minSeqLength;
+    int64_t _sdpaMinSeqLength;
     int64_t _sdpaHeadThreshold;
     bool _singleFunctionPerConcat;
+    bool _enableSdpaMinSeqLength;
     bool _wrapMainIntoCallOps = true;
     Logger _log;
 
 public:
-    ConcatOutliner(int64_t minSeqLength, int64_t sdpaHeadThreshold, bool singleFunctionPerConcat, const Logger& log)
+    ConcatOutliner(int64_t minSeqLength, int64_t sdpaMinSeqLength, int64_t sdpaHeadThreshold,
+                   bool singleFunctionPerConcat, bool enableSdpaMinSeqLength, const Logger& log)
             : _minSeqLength(minSeqLength),
+              _sdpaMinSeqLength(sdpaMinSeqLength),
               _sdpaHeadThreshold(sdpaHeadThreshold),
               _singleFunctionPerConcat(singleFunctionPerConcat),
+              _enableSdpaMinSeqLength(enableSdpaMinSeqLength),
               _log(log) {
     }
 
@@ -99,34 +105,36 @@ public:
     }
 
 private:
-    bool isBeneficialForConcatRepeatingBlocksOutlining(const SmallVector<SmallVector<InputBranch>>& inputBranches) {
-        const auto isSDPASoftMax = [](VPU::SoftMaxOp softMaxOp) {
-            const auto inputOp = softMaxOp.getInput().getDefiningOp();
-            if (!mlir::isa_and_present<VPU::NCEConvolutionOp>(inputOp)) {
-                return false;
-            }
+    static bool isSDPASoftMax(VPU::SoftMaxOp softMaxOp) {
+        const auto inputOp = softMaxOp.getInput().getDefiningOp();
+        if (!mlir::isa_and_present<VPU::NCEConvolutionOp>(inputOp)) {
+            return false;
+        }
 
-            return llvm::any_of(softMaxOp->getUsers(), [](mlir::Operation* userOp) {
-                return mlir::isa_and_present<VPU::NCEConvolutionOp>(userOp);
-            });
-        };
+        return llvm::any_of(softMaxOp->getUsers(), [](mlir::Operation* userOp) {
+            return mlir::isa_and_present<VPU::NCEConvolutionOp>(userOp);
+        });
+    }
 
-        const auto isSDPAPattern = [&](const InputBranch& inputBranch) {
-            for (const auto& [_, levelOps] : inputBranch) {
-                for (auto op : levelOps) {
-                    auto softMaxOp = mlir::dyn_cast_if_present<VPU::SoftMaxOp>(op);
-                    if (softMaxOp != nullptr && isSDPASoftMax(softMaxOp)) {
-                        return true;
-                    }
+    static bool isSDPAPattern(const InputBranch& inputBranch) {
+        for (const auto& [_, levelOps] : inputBranch) {
+            for (auto op : levelOps) {
+                auto softMaxOp = mlir::dyn_cast_if_present<VPU::SoftMaxOp>(op);
+                if (softMaxOp != nullptr && isSDPASoftMax(softMaxOp)) {
+                    return true;
                 }
             }
+        }
 
-            return false;
-        };
+        return false;
+    }
 
+    bool isBeneficialForConcatRepeatingBlocksOutlining(const SmallVector<SmallVector<InputBranch>>& inputBranches) {
         const auto allConcatsMatchSmallSDPAPattern = llvm::all_of(inputBranches, [&](const auto& branches) {
             return checked_cast<int64_t>(branches.size()) <= _sdpaHeadThreshold &&
-                   llvm::all_of(branches, isSDPAPattern);
+                   llvm::all_of(branches, [](const InputBranch& branch) {
+                       return isSDPAPattern(branch);
+                   });
         });
         if (allConcatsMatchSmallSDPAPattern) {
             return false;
@@ -265,14 +273,29 @@ private:
                     }
                 }
             }
-            if (numComputeOps < _minSeqLength) {
+            const int64_t minForBranch =
+                    (_enableSdpaMinSeqLength && isSDPAPattern(inputBranch.value())) ? _sdpaMinSeqLength : _minSeqLength;
+            if (numComputeOps < minForBranch) {
                 _log.nest().trace("Branch {0} has {1} compute operations. Minimum is {2}", inputBranch.index(),
-                                  numComputeOps, _minSeqLength);
+                                  numComputeOps, minForBranch);
                 return false;
             }
         }
         _log.nest().trace("Found {0} valid branches", inputBranches.size());
         return true;
+    }
+
+    void collectConstantLikeParentOps(mlir::Operation* op, ArrayRef<mlir::Operation*> instanceOps,
+                                      SmallVector<mlir::Operation*>& extraConstants) {
+        if (op == nullptr || llvm::find(instanceOps, op) != instanceOps.end() ||
+            llvm::find(extraConstants, op) != extraConstants.end() || !VPU::isConstantLikeOp(op)) {
+            return;
+        }
+
+        for (auto operand : op->getOperands()) {
+            collectConstantLikeParentOps(operand.getDefiningOp(), instanceOps, extraConstants);
+        }
+        extraConstants.push_back(op);
     }
 
     void addInstanceInputsOutputs(IRSlice& instance) {
@@ -300,9 +323,7 @@ private:
                     // Include the constants that are used by the operations into the instance as well, so that function
                     // passes are able to read their value when necessary, after outlining
                     if (VPU::isConstantLikeOp(parentOp)) {
-                        if (llvm::find(extraConstants, parentOp) == extraConstants.end()) {
-                            extraConstants.push_back(parentOp);
-                        }
+                        collectConstantLikeParentOps(parentOp, instance.operations, extraConstants);
                         continue;
                     }
                     instance.inputs.push_back(operand);
@@ -481,12 +502,14 @@ class ConcatRepeatingBlocksOutliningPass final :
         public VPU::impl::ConcatRepeatingBlocksOutliningBase<ConcatRepeatingBlocksOutliningPass> {
 private:
     int64_t _minSeqLength = 1;
+    int64_t _sdpaMinSeqLength = 4;
     int64_t _sdpaHeadThreshold = 2;
     bool _singleFunctionPerConcat = true;
 
 public:
-    explicit ConcatRepeatingBlocksOutliningPass(int64_t minSeqLength, int64_t sdpaHeadThreshold, const Logger& log)
-            : _minSeqLength(minSeqLength), _sdpaHeadThreshold(sdpaHeadThreshold) {
+    explicit ConcatRepeatingBlocksOutliningPass(int64_t minSeqLength, int64_t sdpaMinSeqLength,
+                                                int64_t sdpaHeadThreshold, const Logger& log)
+            : _minSeqLength(minSeqLength), _sdpaMinSeqLength(sdpaMinSeqLength), _sdpaHeadThreshold(sdpaHeadThreshold) {
         Base::initLogger(log, Base::getArgumentName());
     }
 
@@ -496,6 +519,9 @@ public:
         }
         if (minSeqLength.hasValue()) {
             _minSeqLength = minSeqLength.getValue();
+        }
+        if (sdpaMinSeqLength.hasValue()) {
+            _sdpaMinSeqLength = sdpaMinSeqLength.getValue();
         }
         if (sdpaHeadThreshold.hasValue()) {
             _sdpaHeadThreshold = sdpaHeadThreshold.getValue();
@@ -511,8 +537,11 @@ private:
         auto moduleOp = getOperation();
         auto mainFuncOp = net::getMainFunc(moduleOp);
 
+        const bool enableSdpaMinSeqLength = config::getArch(moduleOp) > config::ArchKind::NPU50XX;
+
         _log.debug("Searching for outlining instances around concat operations");
-        ConcatOutliner outliner(_minSeqLength, _sdpaHeadThreshold, _singleFunctionPerConcat, _log);
+        ConcatOutliner outliner(_minSeqLength, _sdpaMinSeqLength, _sdpaHeadThreshold, _singleFunctionPerConcat,
+                                enableSdpaMinSeqLength, _log);
         const auto outliningInstances = outliner.getOutliningInstances(mainFuncOp);
         if (outliningInstances.empty()) {
             _log.debug("Found no candidate instances");
@@ -685,7 +714,11 @@ private:
                 for (const auto op : slice.operations) {
                     mlir::IRMapping mapper;
                     for (auto operand : op->getOperands()) {
-                        mapper.map(operand, oldToNewMap[operand]);
+                        VPUX_THROW_UNLESS(oldToNewMap.contains(operand),
+                                          "Missing outlined function operand mapping for operand of operation {0} at "
+                                          "{1}",
+                                          op->getName(), op->getLoc());
+                        mapper.map(operand, oldToNewMap.lookup(operand));
                     }
                     auto clonedOp = builder.clone(*op, mapper);
                     clonedOp->setLoc(appendLoc(clonedOp->getLoc(),
@@ -697,7 +730,9 @@ private:
 
                 SmallVector<mlir::Value> funcOutputFromSlices;
                 for (const auto output : slice.outputs) {
-                    funcOutputFromSlices.push_back(oldToNewMap[output]);
+                    VPUX_THROW_UNLESS(oldToNewMap.contains(output),
+                                      "Missing outlined function output mapping for output at {0}", output.getLoc());
+                    funcOutputFromSlices.push_back(oldToNewMap.lookup(output));
                 }
                 const auto returnLoc =
                         appendLoc(mainFuncOp.getLoc(), "concat{0}_input{1}_return", targetIdx + 1, sliceIdx + 1);
@@ -771,7 +806,8 @@ private:
 //
 
 std::unique_ptr<mlir::Pass> vpux::VPU::createConcatRepeatingBlocksOutliningPass(int64_t minSeqLength,
+                                                                                int64_t sdpaMinSeqLength,
                                                                                 int64_t sdpaHeadThreshold,
                                                                                 const Logger& log) {
-    return std::make_unique<ConcatRepeatingBlocksOutliningPass>(minSeqLength, sdpaHeadThreshold, log);
+    return std::make_unique<ConcatRepeatingBlocksOutliningPass>(minSeqLength, sdpaMinSeqLength, sdpaHeadThreshold, log);
 }

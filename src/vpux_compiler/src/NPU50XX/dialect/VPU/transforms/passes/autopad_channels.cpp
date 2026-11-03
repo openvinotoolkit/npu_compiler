@@ -31,6 +31,7 @@
 #include "vpux/utils/core/range.hpp"
 
 #include <llvm/ADT/STLExtras.h>
+#include <llvm/ADT/SmallPtrSet.h>
 #include <llvm/ADT/SmallVector.h>
 #include <mlir/IR/Builders.h>
 #include <mlir/IR/BuiltinTypes.h>
@@ -50,6 +51,10 @@ namespace vpux::VPU::arch50xx {
 using namespace vpux;
 
 namespace {
+
+// Minimum ratio between padded and unpadded output channels required to legalize the users that are not compatible with
+// ODU autopad by inserting an Expand. E.g. 16 channels with 3 unpadded (~5.3x) qualifies, 16 with 12 (~1.3x) does not
+constexpr int64_t MIXED_USERS_MIN_PADDING_RATIO = 2;
 
 class AutopadChannelsPass final : public VPU::arch50xx::impl::AutopadChannelsBase<AutopadChannelsPass> {
 public:
@@ -316,13 +321,14 @@ private:
         // This sort of cases should be enabled if identified in some specific models, as the introduction of the
         // Expand operation could affect the performance in some situations
         _log.nest().trace("Checking if all users are compatible");
-        if (!hasCompatibleUsers(nceOp, unpaddedOutputChannels)) {
-            _log.nest(2).trace("Not all users are compatible");
+        const auto usersToLegalize = collectIncompatibleUsersToLegalize(nceOp, outputChannels, unpaddedOutputChannels);
+        if (mlir::failed(usersToLegalize)) {
+            _log.nest(2).trace("ODU autopad is not applicable to the users");
             return;
         }
-        _log.nest(2).trace("All users are compatible");
+        _log.nest(2).trace("All users are compatible or can be legalized");
 
-        autopadOutput(nceOp, unpaddedOutputChannels, weightsTableOp);
+        autopadOutput(nceOp, unpaddedOutputChannels, weightsTableOp, *usersToLegalize);
     }
 
     void autopadInput(VPU::NCEOpInterface nceOp, int64_t unpaddedInputChannels, Const::DeclareOp weightsTableOp) {
@@ -436,7 +442,8 @@ private:
         nceOp->setAttr(VPU::INPUT_PADDING_ATTR_NAME, nullptr);
     }
 
-    void autopadOutput(VPU::NCEOpInterface nceOp, int64_t unpaddedOutputChannels, Const::DeclareOp weightsTableOp) {
+    void autopadOutput(VPU::NCEOpInterface nceOp, int64_t unpaddedOutputChannels, Const::DeclareOp weightsTableOp,
+                       const llvm::SmallPtrSetImpl<mlir::Operation*>& usersToLegalize) {
         _log.nest().debug("Autopadding output to {0} channels for {1} at {2}", unpaddedOutputChannels, nceOp->getName(),
                           nceOp.getLoc());
 
@@ -451,10 +458,25 @@ private:
         const auto origOutputChannels = outputType.getShape()[Dims4D::Act::C];
 
         const auto newType = unpadChannels(outputType);
+
+        // Snapshot uses to legalize before the loop below rewires Slice users' uses onto nceOp's result directly,
+        // which could otherwise make an unrelated operand of a legalized user alias to it too.
+        SmallVector<mlir::OpOperand*> operandsToLegalize;
+        if (!usersToLegalize.empty()) {
+            for (auto& use : nceOp->getResult(0).getUses()) {
+                if (usersToLegalize.contains(use.getOwner())) {
+                    operandsToLegalize.push_back(&use);
+                }
+            }
+        }
+
         nceOp->getResult(0).setType(newType);
 
         // Update the users to receive the new output directly
         for (auto userOp : nceOp->getUsers()) {
+            if (usersToLegalize.contains(userOp)) {
+                continue;
+            }
             auto actualUserOp = userOp;
             while (isCompatibleViewLikeOp(actualUserOp)) {
                 auto outputType = mlir::cast<NDTypeInterface>(actualUserOp->getResult(0).getType());
@@ -472,6 +494,23 @@ private:
                     userWeightsTableOp = weightsTable.getDefiningOp<Const::DeclareOp>();
                 }
                 autopadInput(nceUserOp, unpaddedOutputChannels, userWeightsTableOp);
+            }
+        }
+
+        // Insert a shared VPU.Expand to restore the original channel count for users that can't consume the
+        // unpadded output directly.
+        if (!usersToLegalize.empty()) {
+            _log.nest().debug("Legalizing {0} incompatible user(s) with a VPU.Expand", usersToLegalize.size());
+            mlir::OpBuilder builder(nceOp);
+            builder.setInsertionPointAfter(nceOp);
+            SmallVector<int64_t> padsBegin(newType.getRank(), 0);
+            SmallVector<int64_t> padsEnd(newType.getRank(), 0);
+            padsEnd[Dims4D::Act::C.ind()] = origOutputChannels - unpaddedOutputChannels;
+            auto expandOp = VPU::ExpandOp::create(builder, takeOpLoc(nceOp, "output_align"), nceOp->getResult(0),
+                                                  getIntArrayAttr(&getContext(), padsBegin),
+                                                  getIntArrayAttr(&getContext(), padsEnd));
+            for (auto* use : operandsToLegalize) {
+                use->set(expandOp.getOutput());
             }
         }
 
@@ -611,7 +650,10 @@ private:
         return mlir::isa_and_nonnull<VPU::SliceOp, VPU::ExpandOp, VPU::ReshapeOp, VPU::LayoutCastOp>(op);
     }
 
-    bool hasCompatibleUsers(mlir::Operation* op, int64_t unpaddedOutputChannels) const {
+    // Returns failure if ODU autopad must not be attempted. Otherwise returns the users that need
+    // legalizing with an inserted VPU.Expand (empty if all users are compatible).
+    mlir::FailureOr<llvm::SmallPtrSet<mlir::Operation*, 4>> collectIncompatibleUsersToLegalize(
+            mlir::Operation* op, int64_t outputChannels, int64_t unpaddedOutputChannels) const {
         const auto isTheShapeChanged = [](mlir::Operation* op) -> bool {
             // Note: Operations that could modify the shape (e.g. PermuteCast) must currently preserve the shape, so
             // that when the channels are unpadded, we can be sure that the channel dimension will be the one unpadded.
@@ -681,9 +723,14 @@ private:
             _log.nest().trace("{0}", msg.str());
         };
 
+        llvm::SmallPtrSet<mlir::Operation*, 4> usersToLegalize;
+        bool hasSuitableConvUser = false;
+
         // For each user op, allow the following pattern, where operations in square brackets are optional:
         // [view-like op] -> slice
         //                \> NCEConv
+        // A user that doesn't fit is recorded in usersToLegalize instead of failing, as long as at least one suitable
+        // NCEConv user remains.
         for (auto userOp : op->getUsers()) {
             _log.nest(2).trace("Found user {0} at {1}", userOp->getName(), userOp->getLoc());
 
@@ -704,23 +751,40 @@ private:
                             return mlir::isa_and_present<VPU::InterpolateOp>(sliceUserOp);
                         });
                 if (hasInterpolateUser) {
-                    return false;
+                    return mlir::failure();
                 }
                 if (!isCompatibleSliceUser(sliceOp)) {
-                    return false;
+                    usersToLegalize.insert(userOp);
                 }
             } else if (auto nceConvOp = mlir::dyn_cast_if_present<VPU::NCEConvolutionOp>(actualUserOp)) {
                 if (!VPU::canConsumeIDUAutopad(nceConvOp, logCb)) {
-                    return false;
+                    usersToLegalize.insert(userOp);
+                } else {
+                    hasSuitableConvUser = true;
                 }
             } else {
-                _log.nest(3).trace("User {0} at {1} is incompatible. Stopping search", actualUserOp->getName(),
+                _log.nest(3).trace("User {0} at {1} is incompatible and needs legalizing", actualUserOp->getName(),
                                    actualUserOp->getLoc());
-                return false;
+                usersToLegalize.insert(userOp);
             }
         }
 
-        return true;
+        if (!usersToLegalize.empty() && !hasSuitableConvUser) {
+            _log.nest(3).trace("No suitable Convolution user found to justify legalizing the incompatible users");
+            return mlir::failure();
+        }
+
+        // Legalizing a user requires an extra Expand, whose cost is fixed, while the gain of ODU autopad grows with
+        // the amount of padding that is no longer needed by the compatible users. Only legalize when the padding is
+        // large enough
+        if (!usersToLegalize.empty() && outputChannels < MIXED_USERS_MIN_PADDING_RATIO * unpaddedOutputChannels) {
+            _log.nest(3).trace("{0} users need legalizing, but the padding ratio {1}/{2} is below {3}",
+                               usersToLegalize.size(), outputChannels, unpaddedOutputChannels,
+                               MIXED_USERS_MIN_PADDING_RATIO);
+            return mlir::failure();
+        }
+
+        return usersToLegalize;
     }
 };
 

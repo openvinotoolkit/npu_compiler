@@ -5,6 +5,7 @@
 
 #include "vpux/compiler/core/attributes/shape.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/specialized.hpp"
+#include "vpux/compiler/dialect/VPU/utils/attention_dma_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/auxiliary_buffers.hpp"
 #include "vpux/compiler/dialect/VPU/utils/const_utils.hpp"
 #include "vpux/compiler/dialect/core/types.hpp"
@@ -38,75 +39,57 @@ mlir::LogicalResult vpux::VPU::AttentionDMAOp::inferReturnTypes(
         return mlir::failure();
     }
 
-    const auto inQType = mlir::cast<vpux::NDTypeInterface>(attention.getInputQ().getType());
-    const auto inQShape = inQType.getShape().raw();
-    const auto rank = inQType.getShape().size();
+    SmallVector<int64_t> outShape;
+    SmallVector<int64_t> outBounds;
+    mlir::Type outElementType;
+    inferAttentionOutputShapeAndBounds(attention.getInputQ(), attention.getInputK(), attention.getInputV(), outShape,
+                                       outBounds, outElementType);
 
-    const auto inVType = mlir::cast<vpux::NDTypeInterface>(attention.getInputV().getType());
-    const auto inVShape = inVType.getShape().raw();
+    const auto rankedType = mlir::RankedTensorType::get(outShape, outElementType);
+    inferredReturnTypes.push_back(outBounds.empty() ? mlir::Type(rankedType)
+                                                    : Core::BoundedTensorType::get(rankedType, BoundsRef(outBounds)));
 
-    // Detect V transposition by comparing K and V sequence-length dimensions.
-    // For dynamic shapes (BoundedTensorType), use upper bounds for the comparison.
-    const auto kBounds = getBoundedShape(attention.getInputK());
-    const auto vBounds = getBoundedShape(attention.getInputV());
-    const auto isTransposedV = kBounds[Dim(rank - 2)] != vBounds[Dim(rank - 2)];
-    const auto Ev = isTransposedV ? inVShape[rank - 2] : inVShape[rank - 1];
-    SmallVector<int64_t> outShape(inQShape.begin(), inQShape.end());
-    outShape[rank - 1] = Ev;
-
-    // Propagate bounds to the output when it has dynamic dimensions.
-    const bool outIsDynamic = llvm::any_of(outShape, [](int64_t d) {
-        return d == mlir::ShapedType::kDynamic;
-    });
-    mlir::Type outputType;
-    if (outIsDynamic) {
-        const auto qBounds = getBoundedShape(attention.getInputQ());
-        SmallVector<int64_t> outBounds(qBounds.begin(), qBounds.end());
-        outBounds[rank - 1] = isTransposedV ? vBounds[Dim(rank - 2)] : vBounds[Dim(rank - 1)];
-        auto ranked = mlir::RankedTensorType::get(outShape, inQType.getElementType());
-        outputType = Core::BoundedTensorType::get(ranked, BoundsRef(outBounds));
-    } else {
-        outputType = mlir::RankedTensorType::get(outShape, inQType.getElementType());
+    // presentK/presentV keep the exact type of pastK/pastV:
+    // the kernel writes the new entries back into the past cache layout.
+    if (attention.getPastK() != nullptr && attention.getPastV() != nullptr) {
+        inferredReturnTypes.push_back(attention.getPastK().getType());
+        inferredReturnTypes.push_back(attention.getPastV().getType());
     }
-    inferredReturnTypes.push_back(outputType);
 
     return mlir::success();
 }
 
 mlir::LogicalResult vpux::VPU::AttentionDMAOp::reifyResultShapes(
         mlir::OpBuilder& builder, mlir::ReifiedRankedShapedTypeDims& reifiedReturnShapes) {
-    const auto loc = getLoc();
-    const auto inputQ = getInputQ();
-    const auto inputV = getInputV();
-    const auto qType = mlir::cast<mlir::RankedTensorType>(inputQ.getType());
-    const auto rank = qType.getRank();
-
-    // Output shape = Q dims [0..rank-2] + V last dim
-    SmallVector<mlir::OpFoldResult> dims;
-    dims.reserve(rank);
-    for (int64_t i = 0; i < rank - 1; ++i) {
-        dims.push_back(reifyDim(builder, inputQ, qType, i, loc));
+    if (mlir::failed(reifyAttentionResultShape(builder, getInputQ(), getInputK(), getInputV(), getLoc(),
+                                               reifiedReturnShapes))) {
+        return mlir::failure();
     }
-    const auto vType = mlir::cast<mlir::RankedTensorType>(inputV.getType());
-    dims.push_back(reifyDim(builder, inputV, vType, rank - 1, loc));
 
-    reifiedReturnShapes.emplace_back(std::move(dims));
+    if (getPresentK() != nullptr && getPresentV() != nullptr) {
+        reifiedReturnShapes.emplace_back(reifyTrivialTensor(builder, getPastK(), getLoc()));
+        reifiedReturnShapes.emplace_back(reifyTrivialTensor(builder, getPastV(), getLoc()));
+    }
+
     return mlir::success();
 }
 
 void vpux::VPU::AttentionDMAOp::build(::mlir::OpBuilder& odsBuilder, ::mlir::OperationState& odsState,
                                       ::mlir::Value inputQ, ::mlir::Value inputK, ::mlir::Value inputV,
-                                      ::mlir::Value inputMask, ::mlir::Value inputScale, ::mlir::Value inputSink,
-                                      ::mlir::Value inputBias, ::mlir::Value seqLenK, ::mlir::Value kScale,
-                                      ::mlir::Value vScale, ::mlir::IntegerAttr padSizeS,
-                                      ::mlir::IntegerAttr localWindowSize, ::mlir::UnitAttr smoothSoftmax) {
+                                      ::mlir::Value pastK, ::mlir::Value pastV, ::mlir::Value inputMask,
+                                      ::mlir::Value inputScale, ::mlir::Value inputSink, ::mlir::Value inputBias,
+                                      ::mlir::Value seqLenK, ::mlir::Value kScale, ::mlir::Value vScale,
+                                      ::mlir::IntegerAttr padSizeS, ::mlir::IntegerAttr localWindowSize,
+                                      ::mlir::UnitAttr smoothSoftmax, ::mlir::UnitAttr slidingWindowCache,
+                                      ::mlir::UnitAttr vTransposed) {
     auto loc = odsState.location;
     auto module = getModuleOp(odsBuilder);
     auto auxBufferType = getAuxiliaryBufferType(module);
     auto auxBuffer = VPU::createEmptyAuxiliaryBuffer(odsBuilder, loc, auxBufferType);
 
-    build(odsBuilder, odsState, inputQ, inputK, inputV, inputMask, inputScale, inputSink, inputBias, auxBuffer, seqLenK,
-          kScale, vScale, padSizeS, localWindowSize, smoothSoftmax, nullptr);
+    build(odsBuilder, odsState, inputQ, inputK, inputV, pastK, pastV, inputMask, inputScale, inputSink, inputBias,
+          auxBuffer, seqLenK, kScale, vScale, padSizeS, localWindowSize, smoothSoftmax, slidingWindowCache, vTransposed,
+          nullptr);
 }
 
 //
@@ -114,18 +97,41 @@ void vpux::VPU::AttentionDMAOp::build(::mlir::OpBuilder& odsBuilder, ::mlir::Ope
 //
 
 ///
-/// fitsForNonFlashKernel
+/// fitsAndLegalForNonFlashKernel
 ///
-/// The function calculates memory requirements for:
+/// The non-flash attention_dma kernel does not support a KV cache, quantized (si8) K/V, or a sink
+/// (only attention_dma_flash does); those are rejected outright. It also requires {eDim, eVDim, sSL}
+/// to be 16-aligned. The remaining checks calculate memory requirements for:
 /// - Input tensors: Q [1,1,1,e], K [1,1,sSL,e], V [1,1,eV,sSL]
 /// - Optional inputs: mask [1,1,1,sSL], scale [1,1,1,1], bias [1,1,1,sSL], seqLenK [1,1,1,1]
 /// - DPU storage buffer * numShaves
 /// - DMA aux buffer
 /// - Output tensor [1,1,1,eV]
 ///
-bool vpux::VPU::AttentionDMAOp::fitsForNonFlashKernel(VPU::AttentionDMAOp origOp) {
+/// "Legal" additionally requires the op's raw {qHeadSize, tSL, sSL, eDim, eVDim} to match one of
+/// the static configs in isLegalNonFlashAttentionDMAConfig -- the same configs IE::FuseAttentionPass
+/// uses to decide AttentionOp -> AttentionDMAOp conversion without relying on a dynamic
+/// seqLenK/KV-cache. An op that only became AttentionDMAOp via that dynamic path will not match and
+/// must run the flash kernel instead, regardless of whether its buffers would fit CMX.
+///
+bool vpux::VPU::AttentionDMAOp::fitsAndLegalForNonFlashKernel(VPU::AttentionDMAOp origOp) {
     auto module = origOp->getParentOfType<mlir::ModuleOp>();
     if (!module) {
+        return false;
+    }
+
+    if (origOp.getPastK() != nullptr && origOp.getPastV() != nullptr) {
+        return false;
+    }
+    if (origOp.getInputSink() != nullptr) {
+        return false;
+    }
+    // With a KV cache the quantized tensors would be pastK/pastV, not inputK/inputV, but a cache is
+    // already rejected above, so inputK/inputV are the only possible quantized tensors here.
+    const auto kElemType = mlir::cast<NDTypeInterface>(origOp.getInputK().getType()).getElementType();
+    const auto vElemType = mlir::cast<NDTypeInterface>(origOp.getInputV().getType()).getElementType();
+    if (kElemType.isSignedInteger(8) || vElemType.isSignedInteger(8) || origOp.getKScale() != nullptr ||
+        origOp.getVScale() != nullptr) {
         return false;
     }
 
@@ -133,10 +139,39 @@ bool vpux::VPU::AttentionDMAOp::fitsForNonFlashKernel(VPU::AttentionDMAOp origOp
     const auto kType = mlir::cast<NDTypeInterface>(origOp.getInputK().getType());
     const auto vType = mlir::cast<NDTypeInterface>(origOp.getInputV().getType());
 
+    if (hasUnboundedDynamicShape(qType) || hasUnboundedDynamicShape(kType) || hasUnboundedDynamicShape(vType)) {
+        return false;
+    }
+
+    // A (bounded) dynamic sequence length has no static {qHeadSize, tSL, sSL, eDim, eVDim} entry to
+    // match in isLegalNonFlashAttentionDMAConfig below, and only attention_dma (not the flash
+    // kernel) handles it correctly -- always route it to the non-flash kernel.
+    const auto hasDynamicShape = [](NDTypeInterface type) {
+        return llvm::is_contained(type.getShape().raw(), mlir::ShapedType::kDynamic);
+    };
+    if (hasDynamicShape(qType) || hasDynamicShape(kType) || hasDynamicShape(vType)) {
+        return true;
+    }
+
     const auto qShape = getBoundedShape(qType).raw();
     const auto kShape = getBoundedShape(kType).raw();
     const auto vShape = getBoundedShape(vType).raw();
     const auto rank = qType.getRank();
+
+    // V may be pre-transposed to [.., eV, sSL] (the layout FuseAttention inserts for the legal
+    // static shapes) or not; pick eVDim accordingly.
+    const auto isTransposedV = kShape[rank - 2] != vShape[rank - 2];
+    const auto qHeadSize = (rank == 3) ? qShape[0] : qShape[0] * qShape[1];
+    const auto tSL = qShape[rank - 2];
+    const auto sSLRaw = kShape[rank - 2];
+    const auto eDimRaw = kShape[rank - 1];
+    const auto eVDimRaw = isTransposedV ? vShape[rank - 2] : vShape[rank - 1];
+    if (!isLegalNonFlashAttentionDMAConfig(qHeadSize, tSL, sSLRaw, eDimRaw, eVDimRaw)) {
+        return false;
+    }
+    if (eDimRaw % 16 != 0 || eVDimRaw % 16 != 0 || sSLRaw % 16 != 0) {
+        return false;
+    }
 
     // Align fixed dimensions to 32
     const auto e = alignValUp((int64_t)qShape[rank - 1], (int64_t)32);
@@ -157,29 +192,11 @@ bool vpux::VPU::AttentionDMAOp::fitsForNonFlashKernel(VPU::AttentionDMAOp origOp
     if (origOp.getInputScale()) {
         buffersSize.push_back(Byte(fp16Size));
     }
-    if (origOp.getInputSink()) {
-        buffersSize.push_back(Byte(1 * fp16Size));
-    }
     if (origOp.getInputBias()) {
         buffersSize.push_back(Byte(sSL * fp16Size));
     }
     if (origOp.getSeqLenK()) {
         buffersSize.push_back(Byte(1 * sizeof(int32_t)));
-    }
-    if (origOp.getKScale()) {
-        buffersSize.push_back(Byte(e * fp16Size));
-    }
-    if (origOp.getVScale()) {
-        buffersSize.push_back(Byte(eV * fp16Size));
-    }
-
-    // Quantized (si8) K/V: the kernel loads raw bytes into an extra scratch buffer (1 byte/elem)
-    // on top of the (already counted above) half CMX buffer it dequantizes into.
-    if (kType.getElementType().isSignedInteger(8)) {
-        buffersSize.push_back(Byte(sSL * e));
-    }
-    if (vType.getElementType().isSignedInteger(8)) {
-        buffersSize.push_back(Byte(eV * sSL));
     }
 
     int64_t numShaves = (static_cast<VPU::SwIoDmaOpInterface>(origOp)).getDuplicatedNumShaves();

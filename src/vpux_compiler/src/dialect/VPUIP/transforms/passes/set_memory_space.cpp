@@ -176,8 +176,10 @@ void SetMemorySpacePass::safeRunOnModule() {
     auto entryPointFunc = net::getMainFunc(moduleOp);
 
     moduleOp.walk([&](mlir::func::FuncOp funcOp) {
-        // Probably is ACT_SHAVE kernel
-        if (funcOp.isExternal()) {
+        // Skip ACT_SHAVE kernel declarations (external functions) and JIT'ed
+        // functions nested inside the @VPU.SW module.
+        const auto parentModuleName = funcOp->getParentOfType<mlir::ModuleOp>().getSymName().value_or("");
+        if (funcOp.isExternal() || parentModuleName == "VPU.SW") {
             return;
         }
 

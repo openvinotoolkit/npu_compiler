@@ -189,6 +189,8 @@ public:
 // DMATypeOpInterface
 //
 
+mlir::LogicalResult verifyDMAType(mlir::Operation* op);
+
 std::optional<VPUIP::DmaChannelType> getChannelType(mlir::Operation* op);
 
 }  // namespace VPUIP

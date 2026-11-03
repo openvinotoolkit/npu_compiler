@@ -117,9 +117,8 @@ IE::FakeQuantizeOp createBinaryFakeQuantize(mlir::MLIRContext* ctx, IE::DepthToS
     auto levels = getIntAttr(ctx, 2);
     auto broadcast = vpux::IE::AutoBroadcastTypeAttr::get(ctx, IE::AutoBroadcastType::NUMPY);
 
-    // lowFpType is ignored (nullptr), only levels are given
     return IE::FakeQuantizeOp::create(rewriter, takeOpLoc(d2sOp, "fq_in"), inputOp, fqLow, fqHigh, fqLow, fqHigh,
-                                      levels, nullptr, broadcast);
+                                      levels, broadcast);
 }
 
 //

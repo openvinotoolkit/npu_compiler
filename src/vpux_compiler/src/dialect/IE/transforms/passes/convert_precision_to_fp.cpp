@@ -66,17 +66,24 @@ Const::ContentAttr clampF16(const Const::ContentAttr& input) {
     return input.transform().clamp(f16Lowest, f16Max).get();
 }
 
-// Returns true when the constant feeds a SelectOp as a data input (input2 or input3).
-bool isSelectDataInput(Const::DeclareOp constOp) {
+// Returns true when the constant feeds a SelectOp as a data input (input2 or input3),
+// or a GatherElementsOp as its data operand (not indices).
+// E#236826: GatherElementsOp data input added to catch anchor/lookup tables with
+// dummy ±inf rows picked out via indices.
+bool isOverflowSensitiveDataInput(Const::DeclareOp constOp) {
     for (auto& use : constOp.getResult().getUses()) {
-        auto selectOp = mlir::dyn_cast<IE::SelectOp>(use.getOwner());
-        if (selectOp == nullptr) {
-            continue;
+        const auto operandIdx = use.getOperandNumber();
+        const auto isDataOperand = llvm::TypeSwitch<mlir::Operation*, bool>(use.getOwner())
+                                           .Case<IE::SelectOp>([&](IE::SelectOp) {
+                                               return operandIdx != 0;  // operand 0 is the condition
+                                           })
+                                           .Case<IE::GatherElementsOp>([&](IE::GatherElementsOp) {
+                                               return operandIdx == 0;  // operand 0 is the data input
+                                           })
+                                           .Default(false);
+        if (isDataOperand) {
+            return true;
         }
-        if (use.getOperandNumber() == 0) {
-            continue;  // condition input, not a data input
-        }
-        return true;
     }
     return false;
 }
@@ -579,7 +586,8 @@ void ConvertPrecisionToFPPass::safeRunOnModule() {
     // E#160869: Splat floating-point constants must be clamped, not converted,
     // to ensure accurate results (e.g. when comparing to CPU inference).
     // - Splat constants: always clamped when the value overflows to ±inf in f16.
-    // - Non-splat constants: clamped when fed as a data input to SelectOp.
+    // - Non-splat constants: clamped when fed as a data input to SelectOp, or
+    //   (E#236826) as the data operand of a GatherElementsOp.
     module.walk([&](Const::DeclareOp op) {
         const auto inElemType = op.getContentAttr().getType().getElementType();
         const auto precisionLoweringToF16 =
@@ -588,8 +596,8 @@ void ConvertPrecisionToFPPass::safeRunOnModule() {
             return;
         }
         const auto& contentAttr = op.getContentAttr();
-        const Const::ContentAttr newContentAttr =
-                (contentAttr.isSplat() || isSelectDataInput(op)) ? clampF16(contentAttr) : nullptr;
+        const bool shouldClamp = contentAttr.isSplat() || isOverflowSensitiveDataInput(op);
+        const Const::ContentAttr newContentAttr = shouldClamp ? clampF16(contentAttr) : nullptr;
         if (newContentAttr != nullptr) {
             VPUX_THROW_WHEN(op.getType() != newContentAttr.getType(),
                             "Const op type {0} must match new content attribute type {1}", op.getType(),

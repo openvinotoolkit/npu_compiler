@@ -22,26 +22,6 @@
 using namespace ov::test::utils;
 using namespace ov::util::pugixml;
 
-class BackendName {
-public:
-    BackendName() {
-        const auto corePtr = PluginCache::get().core();
-        if (corePtr != nullptr) {
-            _name = getBackendName(*corePtr);
-        } else {
-            _log.error("Failed to get OpenVINO Core from cache!");
-        }
-    }
-
-    std::string getName() const {
-        return _name;
-    }
-
-private:
-    std::string _name;
-    intel_npu::Logger _log = intel_npu::Logger("BackendName", ov::log::Level::INFO);
-};
-
 class AvailableDevices {
 public:
     AvailableDevices() {
@@ -220,7 +200,7 @@ const std::vector<std::regex>& disabled_test_patterns() {
 
         intel_npu::Logger _log = intel_npu::Logger("SkipConfig", ov::log::Level::INFO);
 
-        const BackendName backendName;
+        const std::string backendName = std::string(test_utils::TARGET_DEVICE) == "IMD" ? "IMD" : "LEVEL0";
         const AvailableDevices devices;
         const CurrentOS currentOS;
 
@@ -252,7 +232,7 @@ const std::vector<std::regex>& disabled_test_patterns() {
                 bool ruleFlag = true;
                 if (!enableRules.empty()) {
                     // Accumulate rule for each category
-                    ruleFlag &= categoryRuleEnabler("backend", {backendName.getName()}, enableRules);
+                    ruleFlag &= categoryRuleEnabler("backend", {backendName}, enableRules);
                     ruleFlag &= categoryRuleEnabler("device", devices.getAvailableDevices(), enableRules);
                     ruleFlag &= categoryRuleEnabler("operating_system", {currentOS.getName()}, enableRules);
                 }

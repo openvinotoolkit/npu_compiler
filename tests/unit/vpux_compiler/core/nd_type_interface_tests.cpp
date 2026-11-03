@@ -395,3 +395,158 @@ TEST_F(MLIR_NDTypeInterface, ExplicitSizeMemRefType) {
 
     EXPECT_EQ(ndType.getTotalAllocSize().count(), explicitSize);
 }
+
+// Strides of a shape without an upper bound are unknown at compile time, so they are rejected, and a type rebuilt
+// from such a type is given none.
+TEST_F(MLIR_NDTypeInterface, UnboundedTypeStridesAreRejected) {
+    mlir::MLIRContext ctx(registry);
+    ctx.loadDialect<VPUIP::VPUIPDialect>();
+
+    const Shape shape{1, mlir::ShapedType::kDynamic, 16, 16};
+    const auto elemType = mlir::Float16Type::get(&ctx);
+
+    const auto tensorType = mlir::cast<vpux::NDTypeInterface>(getTensorType(shape, elemType, DimsOrder::NCHW, nullptr));
+    EXPECT_ANY_THROW(tensorType.getStrides());
+    EXPECT_ANY_THROW(tensorType.getMemStrides());
+    EXPECT_TRUE(getStridesUnlessUnbounded(tensorType).empty());
+
+    const auto memrefType = mlir::cast<vpux::NDTypeInterface>(getMemRefType(shape, elemType, DimsOrder::NCHW));
+    EXPECT_ANY_THROW(memrefType.getStrides());
+    EXPECT_ANY_THROW(memrefType.getMemStrides());
+    EXPECT_TRUE(getStridesUnlessUnbounded(memrefType).empty());
+}
+
+// A shape without an upper bound has only the identity layout, which MLIR reads as dense for the runtime shape.
+TEST_F(MLIR_NDTypeInterface, UnboundedMemRefTypeLayout) {
+    mlir::MLIRContext ctx(registry);
+    ctx.loadDialect<VPUIP::VPUIPDialect>();
+
+    const Shape shape{1, mlir::ShapedType::kDynamic, 16, 16};
+    const auto elemType = mlir::Float16Type::get(&ctx);
+
+    const auto memrefType = getMemRefType(shape, elemType, DimsOrder::NCHW);
+    EXPECT_TRUE(memrefType.getLayout().isIdentity());
+    const auto [mlirStrides, mlirOffset] = memrefType.getStridesAndOffset();
+    EXPECT_EQ(mlirStrides, SmallVector<int64_t>({mlir::ShapedType::kDynamic, 256, 16, 1}));
+    EXPECT_EQ(mlirOffset, 0);
+
+    // Explicit strides are rejected, even the ones a dense layout would have.
+    const auto unknownStride = Bit(mlir::ShapedType::kDynamic);
+    const Strides denseStrides({unknownStride, 4096_Bit, 256_Bit, 16_Bit});
+    EXPECT_ANY_THROW(getMemRefType(shape, elemType, DimsOrder::NCHW, nullptr, denseStrides));
+
+    // vpux::MemRefAttr requires bounds for a dynamic shape, so a non-identity order is rejected, and so is any layout
+    // extra on the identity order.
+    EXPECT_ANY_THROW(getMemRefType(shape, elemType, DimsOrder::NHWC));
+    EXPECT_ANY_THROW(
+            getMemRefType(shape, elemType, DimsOrder::NCHW, nullptr, {}, {}, nullptr, nullptr, getIntAttr(&ctx, 8192)));
+    const auto swizzlingScheme = VPUIP::SwizzlingSchemeAttr::get(&ctx, getIntAttr(&ctx, 5), getIntAttr(&ctx, 512));
+    EXPECT_ANY_THROW(getMemRefType(shape, elemType, DimsOrder::NCHW, nullptr, {}, {}, swizzlingScheme));
+
+    const auto numElemsType = mlir::RankedTensorType::get({16}, getInt64Type(&ctx));
+    const auto numElemsAttr = mlir::DenseElementsAttr::get(numElemsType, ArrayRef(SmallVector<int64_t>(16, 1)));
+    const auto sparsityCompression =
+            VPUIP::SparsityCompressionAttr::get(&ctx, getIntAttr(&ctx, 1), numElemsAttr, getIntAttr(&ctx, 16));
+    EXPECT_ANY_THROW(VPUIP::setSparsityCompressionAttr(memrefType, sparsityCompression));
+}
+
+// Changing the memory space keeps the identity layout.
+TEST_F(MLIR_NDTypeInterface, UnboundedMemRefTypeChangeMemSpace) {
+    mlir::MLIRContext ctx(registry);
+    ctx.loadDialect<VPUIP::VPUIPDialect>();
+
+    const Shape shape{1, mlir::ShapedType::kDynamic, 16, 16};
+    const auto elemType = mlir::Float16Type::get(&ctx);
+    const auto ndType = mlir::cast<vpux::NDTypeInterface>(getMemRefType(shape, elemType, DimsOrder::NCHW));
+
+    const auto memSpace = IndexedSymbolAttr::get(&ctx, DDR_NAME);
+    const auto ddrType = ndType.changeMemSpace(memSpace);
+    EXPECT_EQ(ddrType, mlir::cast<vpux::NDTypeInterface>(getMemRefType(shape, elemType, DimsOrder::NCHW, memSpace)));
+    EXPECT_TRUE(mlir::cast<mlir::MemRefType>(ddrType).getLayout().isIdentity());
+}
+
+// An unbounded type passes no strides on, so the new type is dense for its own components.
+TEST_F(MLIR_NDTypeInterface, UnboundedMemRefTypeChangeTypeComponents) {
+    mlir::MLIRContext ctx(registry);
+    ctx.loadDialect<VPUIP::VPUIPDialect>();
+
+    const Shape shape{1, mlir::ShapedType::kDynamic, 16, 16};
+    const auto f16Type = mlir::Float16Type::get(&ctx);
+    const auto ndType = mlir::cast<vpux::NDTypeInterface>(getMemRefType(shape, f16Type, DimsOrder::NCHW));
+
+    const auto memSpace = IndexedSymbolAttr::get(&ctx, DDR_NAME);
+    EXPECT_EQ(ndType.changeTypeComponents(TypeComponents().setMemSpace(memSpace)),
+              mlir::cast<vpux::NDTypeInterface>(getMemRefType(shape, f16Type, DimsOrder::NCHW, memSpace)));
+
+    const Shape staticShape{1, 128, 16, 16};
+    EXPECT_EQ(ndType.changeTypeComponents(TypeComponents().setShape(staticShape)),
+              mlir::cast<vpux::NDTypeInterface>(getMemRefType(staticShape, f16Type, DimsOrder::NCHW)));
+
+    const Shape otherUnboundedShape{1, mlir::ShapedType::kDynamic, 8, 16};
+    EXPECT_EQ(ndType.changeTypeComponents(TypeComponents().setShape(otherUnboundedShape)),
+              mlir::cast<vpux::NDTypeInterface>(getMemRefType(otherUnboundedShape, f16Type, DimsOrder::NCHW)));
+
+    const Bounds bounds{1, 32, 16, 16};
+    EXPECT_EQ(ndType.changeTypeComponents(TypeComponents().setBounds(Bounds(bounds))),
+              mlir::cast<vpux::NDTypeInterface>(
+                      getMemRefType(shape, f16Type, DimsOrder::NCHW, nullptr, StridesRef(), bounds)));
+
+    const auto f32Type = mlir::Float32Type::get(&ctx);
+    EXPECT_EQ(ndType.changeTypeComponents(TypeComponents().setElementType(f32Type)),
+              mlir::cast<vpux::NDTypeInterface>(getMemRefType(shape, f32Type, DimsOrder::NCHW)));
+}
+
+// An explicit strided layout with unknown strides cannot be rebuilt, only kept as is.
+TEST_F(MLIR_NDTypeInterface, UnboundedStridedMemRefType) {
+    mlir::MLIRContext ctx(registry);
+    ctx.loadDialect<VPUIP::VPUIPDialect>();
+
+    const auto dyn = mlir::ShapedType::kDynamic;
+    const auto layout = mlir::StridedLayoutAttr::get(&ctx, dyn, {dyn, dyn, dyn, dyn});
+    const auto memrefType = mlir::MemRefType::get({1, dyn, 16, 16}, mlir::Float16Type::get(&ctx), layout);
+    const auto ndType = mlir::cast<vpux::NDTypeInterface>(memrefType);
+
+    EXPECT_ANY_THROW(ndType.getStrides());
+    EXPECT_ANY_THROW(getStridesUnlessUnbounded(ndType));
+
+    const Shape staticShape{1, 128, 16, 16};
+    EXPECT_ANY_THROW(ndType.changeTypeComponents(TypeComponents().setShape(staticShape)));
+
+    const auto memSpace = IndexedSymbolAttr::get(&ctx, DDR_NAME);
+    EXPECT_EQ(mlir::cast<mlir::MemRefType>(ndType.changeMemSpace(memSpace)).getLayout(), layout);
+}
+
+// No shared layout can be proven without strides, so an in-place op is refused instead of throwing.
+TEST_F(MLIR_NDTypeInterface, UnboundedTypeIsNotCompatibleForInplaceOp) {
+    mlir::MLIRContext ctx(registry);
+    ctx.loadDialect<VPUIP::VPUIPDialect>();
+
+    const Shape shape{1, mlir::ShapedType::kDynamic, 16, 16};
+    const auto elemType = mlir::Float16Type::get(&ctx);
+    const Bounds bounds{1, 32, 16, 16};
+    const auto unboundedType = mlir::cast<vpux::NDTypeInterface>(getMemRefType(shape, elemType, DimsOrder::NCHW));
+    const auto boundedType = mlir::cast<vpux::NDTypeInterface>(
+            getMemRefType(shape, elemType, DimsOrder::NCHW, nullptr, StridesRef(), bounds));
+    const auto log = Logger::global();
+
+    EXPECT_FALSE(isCompatibleForInplaceOp(unboundedType, unboundedType, log));
+    EXPECT_FALSE(isCompatibleForInplaceOp(unboundedType, boundedType, log));
+    EXPECT_FALSE(isCompatibleForInplaceOp(boundedType, unboundedType, log));
+    EXPECT_TRUE(isCompatibleForInplaceOp(boundedType, boundedType, log));
+}
+
+TEST_F(MLIR_NDTypeInterface, BoundedMemRefTypeStrides) {
+    mlir::MLIRContext ctx(registry);
+    ctx.loadDialect<VPUIP::VPUIPDialect>();
+
+    const Shape shape{1, mlir::ShapedType::kDynamic, 16, 16};
+    const Bounds bounds{1, 32, 16, 16};
+    const auto memrefType = getMemRefType(shape, mlir::Float16Type::get(&ctx), DimsOrder::NCHW, nullptr, {}, bounds);
+    const auto ndType = mlir::dyn_cast<vpux::NDTypeInterface>(memrefType);
+    ASSERT_TRUE(ndType != nullptr) << "Type cannot be cast to vpux::NDTypeInterface";
+
+    // A dynamic shape with an upper bound keeps the compact strides of its bounds.
+    const SmallVector<Bit> strides({131072_Bit, 4096_Bit, 256_Bit, 16_Bit});
+    EXPECT_FALSE(ndType.getStrides().isDynamic());
+    EXPECT_EQ(ndType.getStrides().raw(), strides);
+}

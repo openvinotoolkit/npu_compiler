@@ -371,12 +371,14 @@ void rewritePattern(const InputScaleShiftPattern& pattern) {
         inputMin = std::min(inputMin, 0.);
         inputMax = std::max(inputMax, 0.);
 
-        const auto maybeInputFQLevels = inputFqOp.getLevels();
-        if (!maybeInputFQLevels.has_value()) {
+        const auto levelsOrLowFpTypeAttr = inputFqOp.getLevelsOrLowFpTypeAttr();
+
+        const auto maybeInputFQLevels = mlir::dyn_cast<mlir::IntegerAttr>(levelsOrLowFpTypeAttr);
+        if (maybeInputFQLevels == nullptr) {
             return;
         }
 
-        const auto inputFQLevels = maybeInputFQLevels.value();
+        const auto inputFQLevels = maybeInputFQLevels.getInt();
 
         auto inputZP = checked_cast<double>(calculateZeroPoint(
                 inputMin, inputMax, inputFQLevels, mlir::IntegerType::get(ctx, 8, mlir::IntegerType::Unsigned)));

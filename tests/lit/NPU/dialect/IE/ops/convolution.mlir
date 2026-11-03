@@ -125,7 +125,7 @@ func.func @FuseConvAndBiasWithFQ(%arg0: tensor<1x3x300x300xf32>) -> tensor<1x16x
     %output_high = const.Declare tensor<1x1x1x1xf32> = dense<2.0> : tensor<1x1x1x1xf32>
     %fq = IE.FakeQuantize(%conv, %input_low, %input_high, %output_low, %output_high) {
         auto_broadcast = #IE.auto_broadcast_type<NUMPY>,
-        levels = 256 : i64
+        levels_or_low_fp_type = 256 : i64
     } : tensor<1x16x300x300xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32> -> tensor<1x16x300x300xf32>
 
     %bias = const.Declare tensor<1x16x1x1xf32> = dense<1.0> : tensor<1x16x1x1xf32>
@@ -167,14 +167,14 @@ func.func @FuseConvAndBiasWith2FQ(%arg0: tensor<1x3x300x300xf32>) -> tensor<1x16
     %high1 = const.Declare tensor<1x1x1x1xf32> = dense<0.51> : tensor<1x1x1x1xf32>
     %fq1 = IE.FakeQuantize(%conv, %low1, %high1, %low1, %high1) {
         auto_broadcast = #IE.auto_broadcast_type<NUMPY>,
-        levels = 256 : i64
+        levels_or_low_fp_type = 256 : i64
     } : tensor<1x16x300x300xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32> -> tensor<1x16x300x300xf32>
 
     %low2 = const.Declare tensor<1x1x1x1xf32> = dense<-0.57> : tensor<1x1x1x1xf32>
     %high2 = const.Declare tensor<1x1x1x1xf32> = dense<0.51> : tensor<1x1x1x1xf32>
     %fq2 = IE.FakeQuantize(%fq1, %low2, %high2, %low2, %high2) {
         auto_broadcast = #IE.auto_broadcast_type<NUMPY>,
-        levels = 65536 : i64
+        levels_or_low_fp_type = 65536 : i64
     } : tensor<1x16x300x300xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32> -> tensor<1x16x300x300xf32>
 
     %bias = const.Declare tensor<1x16x1x1xf32> = dense<1.0> : tensor<1x16x1x1xf32>
@@ -216,14 +216,14 @@ func.func @NotFuseConvAndBiasWith3FQ(%arg0: tensor<1x3x300x300xf32>) -> tensor<1
     %high1 = const.Declare tensor<1x1x1x1xf32> = dense<0.51> : tensor<1x1x1x1xf32>
     %fq1 = IE.FakeQuantize(%conv, %low1, %high1, %low1, %high1) {
         auto_broadcast = #IE.auto_broadcast_type<NUMPY>,
-        levels = 256 : i64
+        levels_or_low_fp_type = 256 : i64
     } : tensor<1x16x300x300xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32> -> tensor<1x16x300x300xf32>
 
     %low2 = const.Declare tensor<1x1x1x1xf32> = dense<-0.57> : tensor<1x1x1x1xf32>
     %high2 = const.Declare tensor<1x1x1x1xf32> = dense<0.52> : tensor<1x1x1x1xf32>
     %fq2 = IE.FakeQuantize(%fq1, %low2, %high2, %low2, %high2) {
         auto_broadcast = #IE.auto_broadcast_type<NUMPY>,
-        levels = 65536 : i64
+        levels_or_low_fp_type = 65536 : i64
     } : tensor<1x16x300x300xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32> -> tensor<1x16x300x300xf32>
 
     %low3 = const.Declare tensor<1x1x1x1xf32> = dense<-1.0> : tensor<1x1x1x1xf32>
@@ -232,7 +232,7 @@ func.func @NotFuseConvAndBiasWith3FQ(%arg0: tensor<1x3x300x300xf32>) -> tensor<1
     %high4 = const.Declare tensor<1x1x1x1xf32> = dense<2.0> : tensor<1x1x1x1xf32>
     %fq3 = IE.FakeQuantize(%fq2, %low3, %high3, %low4, %high4) {
         auto_broadcast = #IE.auto_broadcast_type<NUMPY>,
-        levels = 256 : i64
+        levels_or_low_fp_type = 256 : i64
     } : tensor<1x16x300x300xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32> -> tensor<1x16x300x300xf32>
 
     %bias = const.Declare tensor<1x16x1x1xf32> = dense<1.0> : tensor<1x16x1x1xf32>
@@ -260,11 +260,11 @@ func.func @NotFuseConvAndBiasWith3FQ(%arg0: tensor<1x3x300x300xf32>) -> tensor<1
     // CHECK-SAME:      strides = [1, 1]
 
     // CHECK-NEXT:  [[FQ1:%.+]] = IE.FakeQuantize([[CONV]], [[LOW1]], [[HIGH1]], [[LOW1]], [[HIGH1]])
-    // CHECK-SAME:      levels = 256 : i64
+    // CHECK-SAME:      levels_or_low_fp_type = 256 : i64
     // CHECK-NEXT:  [[FQ2:%.+]] = IE.FakeQuantize([[FQ1]], [[LOW2]], [[HIGH2]], [[LOW2]], [[HIGH2]])
-    // CHECK-SAME:      levels = 65536 : i64
+    // CHECK-SAME:      levels_or_low_fp_type = 65536 : i64
     // CHECK-NEXT:  [[FQ3:%.+]] = IE.FakeQuantize([[FQ2]], [[LOW3]], [[HIGH3]], [[LOW4]], [[HIGH4]])
-    // CHECK-SAME:      levels = 256 : i64
+    // CHECK-SAME:      levels_or_low_fp_type = 256 : i64
 
     // CHECK-NEXT:  [[SCALE_SHIFT:%.+]] = IE.ScaleShift([[FQ3]], [[BIAS]])
     // CHECK-SAME:      operandSegmentSizes = array<i32: 1, 0, 1>
@@ -293,7 +293,7 @@ func.func @NotFuseConvAndBiasWithFQMultipleUses(%arg0: tensor<1x3x300x300xf32>) 
     %output_high = const.Declare tensor<1x1x1x1xf32> = dense<2.0> : tensor<1x1x1x1xf32>
     %fq = IE.FakeQuantize(%conv, %input_low, %input_high, %output_low, %output_high) {
         auto_broadcast = #IE.auto_broadcast_type<NUMPY>,
-        levels = 256 : i64
+        levels_or_low_fp_type = 256 : i64
     } : tensor<1x16x300x300xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32> -> tensor<1x16x300x300xf32>
 
     %bias = const.Declare tensor<1x16x1x1xf32> = dense<1.0> : tensor<1x16x1x1xf32>
@@ -317,7 +317,7 @@ func.func @NotFuseConvAndBiasWithFQMultipleUses(%arg0: tensor<1x3x300x300xf32>) 
     // CHECK-SAME:      strides = [1, 1]
 
     // CHECK:       [[FQ:%.+]] = IE.FakeQuantize([[CONV]], [[INPUT_LOW]], [[INPUT_HIGH]], [[OUTPUT_LOW]], [[OUTPUT_HIGH]])
-    // CHECK-SAME:      levels = 256 : i64
+    // CHECK-SAME:      levels_or_low_fp_type = 256 : i64
 
     // CHECK:       [[SCALE_SHIFT:%.+]] = IE.ScaleShift([[FQ]], [[BIAS]])
     // CHECK-SAME:      operandSegmentSizes = array<i32: 1, 0, 1>
@@ -535,13 +535,13 @@ func.func @GroupsToAttrWithFQInput(%arg0: tensor<1x96x96x96xf32>) -> tensor<1x96
     %0 = IE.FakeQuantize(%arg0, %cst_4, %cst_5, %cst_6, %cst_7)
         {
             auto_broadcast = #IE.auto_broadcast_type<NUMPY>,
-            levels = 256 : i64
+            levels_or_low_fp_type = 256 : i64
         } :
         tensor<1x96x96x96xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32> -> tensor<1x96x96x96xf32>
     %1 = IE.FakeQuantize(%cst, %cst_0, %cst_1, %cst_2, %cst_3)
         {
             auto_broadcast = #IE.auto_broadcast_type<NUMPY>,
-            levels = 255 : i64
+            levels_or_low_fp_type = 255 : i64
         } :
         tensor<3x32x32x3x3xf32>, tensor<1x1x1x1x1xf32>, tensor<1x1x1x1x1xf32>, tensor<3x32x1x1x1xf32>, tensor<3x32x1x1x1xf32> -> tensor<3x32x32x3x3xf32>
     %2 = IE.GroupConvolution(%0, %1)
@@ -567,11 +567,11 @@ func.func @GroupsToAttrWithFQInput(%arg0: tensor<1x96x96x96xf32>) -> tensor<1x96
 
     // CHECK:           [[INPUT_FQ:%.+]] = IE.FakeQuantize([[INPUT]], [[CST_4]], [[CST_5]], [[CST_6]], [[CST_7]]) {
     // CHECK-SAME:          auto_broadcast = #IE.auto_broadcast_type<NUMPY>,
-    // CHECK-SAME:          levels = 256 : i64}
+    // CHECK-SAME:          levels_or_low_fp_type = 256 : i64}
     // CHECK-SAME:          tensor<1x96x96x96xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32> -> tensor<1x96x96x96xf32>
     // CHECK:           [[FILTER_FQ:%.+]] = IE.FakeQuantize([[CST]], [[CST_0]], [[CST_1]], [[CST_2]], [[CST_3]]) {
     // CHECK-SAME:          auto_broadcast = #IE.auto_broadcast_type<NUMPY>,
-    // CHECK-SAME:          levels = 255 : i64}
+    // CHECK-SAME:          levels_or_low_fp_type = 255 : i64}
     // CHECK-SAME:          tensor<96x32x3x3xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<96x1x1x1xf32>, tensor<96x1x1x1xf32> -> tensor<96x32x3x3xf32>
 
     // CHECK:           [[GROUP_CONV:%.+]] = IE.GroupConvolution([[INPUT_FQ]], [[FILTER_FQ]]) {
@@ -688,6 +688,78 @@ func.func @NotFuseConvAndBiasRuntimeScale(%arg0: tensor<1x32x16x16xf16, {order =
 
 // -----
 
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+!qElemType = !quant.uniform<ui4:f16, 1.000000e+00>
+
+// CHECK-LABEL: @FuseConvAndBiasWithConstScale
+// CHECK-SAME:    ([[ARG_0:%[^:]+]]: tensor<1x32x16x16xf16, {order = #NHWC}>)
+func.func @FuseConvAndBiasWithConstScale(%arg0: tensor<1x32x16x16xf16, {order = #NHWC}>) -> tensor<1x32x16x16xf16, {order = #NHWC}> {
+    %filters = const.Declare tensor<32x32x1x1x!qElemType, {order = #NHWC}> = dense<1.0> : tensor<32x32x1x1xf16>, [#const.CastElemType<ui8>, #const.CastElemType<!qElemType>, #const.Reorder<#NHWC>]
+    %scale = const.Declare tensor<32x1x1x1xf32> = dense<2.0> : tensor<32x1x1x1xf32>
+    %0 = IE.Convolution(%arg0, %filters, %scale)
+        {
+            operandSegmentSizes = array<i32: 1, 1, 0, 1, 0>,
+            strides = [1, 1],
+            pads_begin = [0, 0],
+            pads_end = [0, 0],
+            dilations = [1, 1]
+        } :
+        tensor<1x32x16x16xf16, {order = #NHWC}>, tensor<32x32x1x1x!qElemType, {order = #NHWC}>, tensor<32x1x1x1xf32> -> tensor<1x32x16x16xf16, {order = #NHWC}>
+
+    %bias = const.Declare tensor<1x32x1x1xf16> = dense<1.0> : tensor<1x32x1x1xf16>
+    %1 = IE.ScaleShift(%0, %bias)
+        {operandSegmentSizes = array<i32: 1, 0, 1>} :
+        tensor<1x32x16x16xf16, {order = #NHWC}>, tensor<1x32x1x1xf16> -> tensor<1x32x16x16xf16, {order = #NHWC}>
+
+    return %1 : tensor<1x32x16x16xf16, {order = #NHWC}>
+
+    // CHECK-DAG:   [[FILTERS:%.+]] = const.Declare tensor<32x32x1x1x!qElemType, {order = #NHWC}> = dense<1.000000e+00> : tensor<32x32x1x1xf16>, [#const.CastElemType<ui8>, #const.CastElemType<!qElemType>, #const.Reorder<#NHWC>]
+    // CHECK-DAG:   [[SCALE:%.+]] = const.Declare tensor<32x1x1x1xf32> = dense<2.000000e+00> : tensor<32x1x1x1xf32>
+    // CHECK-DAG:   [[BIAS:%.+]] = const.Declare tensor<1x32x1x1xf16> = dense<1.000000e+00> : tensor<1x32x1x1xf16>, [#const.Rescale<5.000000e-01 : f64>]
+    // CHECK:       [[VAL0:%.+]] = IE.Convolution([[ARG_0]], [[FILTERS]], [[BIAS]], [[SCALE]])
+    // CHECK-SAME:      dilations = [1, 1]
+    // CHECK-SAME:      pads_begin = [0, 0]
+    // CHECK-SAME:      pads_end = [0, 0]
+    // CHECK-SAME:      strides = [1, 1]
+    // CHECK:       return [[VAL0]]
+}
+
+// -----
+
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+!qElemType = !quant.uniform<ui4:f16, 1.000000e+00>
+
+// CHECK-LABEL: @NotFuseConvAndBiasWithZeroConstScale
+// CHECK-SAME:    ([[ARG_0:%[^:]+]]: tensor<1x32x16x16xf16, {order = #NHWC}>)
+func.func @NotFuseConvAndBiasWithZeroConstScale(%arg0: tensor<1x32x16x16xf16, {order = #NHWC}>) -> tensor<1x32x16x16xf16, {order = #NHWC}> {
+    %filters = const.Declare tensor<32x32x1x1x!qElemType, {order = #NHWC}> = dense<1.0> : tensor<32x32x1x1xf16>, [#const.CastElemType<ui8>, #const.CastElemType<!qElemType>, #const.Reorder<#NHWC>]
+    %scale = const.Declare tensor<32x1x1x1xf32> = dense<0.0> : tensor<32x1x1x1xf32>
+    %0 = IE.Convolution(%arg0, %filters, %scale)
+        {
+            operandSegmentSizes = array<i32: 1, 1, 0, 1, 0>,
+            strides = [1, 1],
+            pads_begin = [0, 0],
+            pads_end = [0, 0],
+            dilations = [1, 1]
+        } :
+        tensor<1x32x16x16xf16, {order = #NHWC}>, tensor<32x32x1x1x!qElemType, {order = #NHWC}>, tensor<32x1x1x1xf32> -> tensor<1x32x16x16xf16, {order = #NHWC}>
+
+    %bias = const.Declare tensor<1x32x1x1xf16> = dense<1.0> : tensor<1x32x1x1xf16>
+    %1 = IE.ScaleShift(%0, %bias)
+        {operandSegmentSizes = array<i32: 1, 0, 1>} :
+        tensor<1x32x16x16xf16, {order = #NHWC}>, tensor<1x32x1x1xf16> -> tensor<1x32x16x16xf16, {order = #NHWC}>
+
+    return %1 : tensor<1x32x16x16xf16, {order = #NHWC}>
+
+    // CHECK:       [[FILTERS:%.+]] = const.Declare tensor<32x32x1x1x!qElemType, {order = #NHWC}>
+    // CHECK:       [[SCALE:%.+]] = const.Declare tensor<32x1x1x1xf32> = dense<0.000000e+00>
+    // CHECK:       [[CONV:%.+]] = IE.Convolution([[ARG_0]], [[FILTERS]], [[SCALE]])
+    // CHECK:       [[SCALE_SHIFT:%.+]] = IE.ScaleShift([[CONV]], {{%.+}}) {operandSegmentSizes = array<i32: 1, 0, 1>}
+    // CHECK:       return [[SCALE_SHIFT]]
+}
+
+// -----
+
 // CHECK-LABEL: @FuseConvAndBiasWithFQCompressedFilter
 // CHECK-SAME:    ([[INPUT:%.+]]: tensor<1x4x1x1xf32>) -> tensor<1x6x1x1xf32>
 func.func @FuseConvAndBiasWithFQCompressedFilter(%arg0: tensor<1x4x1x1xf32>) -> tensor<1x6x1x1xf32> {
@@ -698,11 +770,11 @@ func.func @FuseConvAndBiasWithFQCompressedFilter(%arg0: tensor<1x4x1x1xf32>) -> 
 
     %fq0 = IE.FakeQuantize(%weights0, %low, %high, %low, %high) {
         auto_broadcast = #IE.auto_broadcast_type<NUMPY>,
-        levels = 256 : i64
+        levels_or_low_fp_type = 256 : i64
     } : tensor<3x4x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32> -> tensor<3x4x1x1xf32>
     %fq1 = IE.FakeQuantize(%weights1, %low, %high, %low, %high) {
         auto_broadcast = #IE.auto_broadcast_type<NUMPY>,
-        levels = 256 : i64
+        levels_or_low_fp_type = 256 : i64
     } : tensor<3x4x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32> -> tensor<3x4x1x1xf32>
     %concat = IE.Concat(%fq0, %fq1) {per_axis = #IE.Concat<axis = 0>} : tensor<3x4x1x1xf32>, tensor<3x4x1x1xf32> -> tensor<6x4x1x1xf32>
     %filters = IE.AffineReshape(%concat) {
@@ -771,4 +843,69 @@ func.func @FuseConvAndBiasWithDynamicDequantizeCompressedFilter(%arg0: tensor<1x
     // CHECK-SAME:      pads_end = [0, 0]
     // CHECK-SAME:      strides = [1, 1]
     // CHECK:       return [[CONV]]
+}
+
+// -----
+
+// CHECK-LABEL: @NotFuseGroupConvAndBiasWithRuntimeDynamicDequantizeFilter
+// CHECK-SAME:    ([[ARG_0:%[^:]+]]: tensor<1x4x1x1xf32>, [[ARG_1:%[^:]+]]: tensor<4x1x1x1xui4>, [[ARG_2:%[^:]+]]: tensor<1x1x1x1xf32>)
+func.func @NotFuseGroupConvAndBiasWithRuntimeDynamicDequantizeFilter(%arg0: tensor<1x4x1x1xf32>,
+                                                                     %arg1: tensor<4x1x1x1xui4>,
+                                                                     %arg2: tensor<1x1x1x1xf32>) -> tensor<1x4x1x1xf32> {
+    %filters = IE.DynamicDequantize(%arg1, %arg2) {dstElemType = f32} :
+        tensor<4x1x1x1xui4>, tensor<1x1x1x1xf32> -> tensor<4x1x1x1xf32>
+    %0 = IE.GroupConvolution(%arg0, %filters)
+        {
+            groups = 4 : i64,
+            strides = [1, 1],
+            pads_begin = [0, 0],
+            pads_end = [0, 0],
+            dilations = [1, 1]
+        } :
+        tensor<1x4x1x1xf32>, tensor<4x1x1x1xf32> -> tensor<1x4x1x1xf32>
+
+    %bias = const.Declare tensor<1x4x1x1xf32> = dense<1.0> : tensor<1x4x1x1xf32>
+    %1 = IE.ScaleShift(%0, %bias)
+        {operandSegmentSizes = array<i32: 1, 0, 1>} :
+        tensor<1x4x1x1xf32>, tensor<1x4x1x1xf32> -> tensor<1x4x1x1xf32>
+
+    return %1 : tensor<1x4x1x1xf32>
+
+    // CHECK:       [[FILTERS:%.+]] = IE.DynamicDequantize([[ARG_1]], [[ARG_2]])
+    // CHECK:       [[GROUP_CONV:%.+]] = IE.GroupConvolution([[ARG_0]], [[FILTERS]])
+    // CHECK:       [[SCALE_SHIFT:%.+]] = IE.ScaleShift([[GROUP_CONV]], {{%.+}}) {operandSegmentSizes = array<i32: 1, 0, 1>}
+    // CHECK:       return [[SCALE_SHIFT]]
+}
+
+// -----
+
+// CHECK-LABEL: @NotFuseTransposedConvAndBiasWithRuntimeDynamicDequantizeFilter
+// CHECK-SAME:    ([[ARG_0:%[^:]+]]: tensor<1x3x64x64xf16>, [[ARG_1:%[^:]+]]: tensor<16x3x2x2xui4>, [[ARG_2:%[^:]+]]: tensor<1x1x1x1xf16>)
+func.func @NotFuseTransposedConvAndBiasWithRuntimeDynamicDequantizeFilter(%arg0: tensor<1x3x64x64xf16>,
+                                                                         %arg1: tensor<16x3x2x2xui4>,
+                                                                         %arg2: tensor<1x1x1x1xf16>) -> tensor<1x16x129x129xf16> {
+    %filters = IE.DynamicDequantize(%arg1, %arg2) {dstElemType = f16} :
+        tensor<16x3x2x2xui4>, tensor<1x1x1x1xf16> -> tensor<16x3x2x2xf16>
+    %0 = IE.TransposedConvolution(%arg0, %filters)
+        {
+            dilations = [1, 1],
+            operandSegmentSizes = array<i32: 1, 1, 0, 0>,
+            spatial_output_padding = [1, 1],
+            pads_begin = [0, 0],
+            pads_end = [0, 0],
+            strides = [2, 2]
+        } :
+        tensor<1x3x64x64xf16>, tensor<16x3x2x2xf16> -> tensor<1x16x129x129xf16>
+
+    %bias = const.Declare tensor<1x16x1x1xf16> = dense<1.000000e+00> : tensor<1x16x1x1xf16>
+    %1 = IE.ScaleShift(%0, %bias)
+        {operandSegmentSizes = array<i32: 1, 0, 1>} :
+        tensor<1x16x129x129xf16>, tensor<1x16x1x1xf16> -> tensor<1x16x129x129xf16>
+
+    return %1 : tensor<1x16x129x129xf16>
+
+    // CHECK:       [[FILTERS:%.+]] = IE.DynamicDequantize([[ARG_1]], [[ARG_2]])
+    // CHECK:       [[TRANSPOSED_CONV:%.+]] = IE.TransposedConvolution([[ARG_0]], [[FILTERS]])
+    // CHECK:       [[SCALE_SHIFT:%.+]] = IE.ScaleShift([[TRANSPOSED_CONV]], {{%.+}}) {operandSegmentSizes = array<i32: 1, 0, 1>}
+    // CHECK:       return [[SCALE_SHIFT]]
 }

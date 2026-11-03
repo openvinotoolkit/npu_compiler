@@ -13,6 +13,7 @@
 #include "vpux/compiler/dialect/VPU/utils/vertical_fusion/vertical_fusion_algorithm.hpp"
 #include "vpux/compiler/dialect/VPU/utils/vertical_fusion/vertical_fusion_utils.hpp"
 #include "vpux/compiler/dialect/config/IR/resources.hpp"
+#include "vpux/compiler/utils/attributes.hpp"
 #include "vpux/utils/core/numeric.hpp"
 
 using namespace vpux;
@@ -30,10 +31,6 @@ bool isNCEReduce(mlir::Operation* op) {
 
 bool isEltwiseLike(mlir::Operation* op) {
     return mlir::isa<VPU::NCEOpInterface>(op) && op->hasTrait<VPU::EltwiseOp>();
-}
-
-bool isNonEltwiseNCEOp(mlir::Operation* op) {
-    return mlir::isa<VPU::NCEOpInterface>(op) && !op->hasTrait<VPU::EltwiseOp>();
 }
 
 int64_t getMinTiles(ArrayRef<int64_t> maxNumTilesWithDPUEfficiency, Dim dim, const VPU::VF::v2::VFConfig& vfConfig) {
@@ -111,13 +108,14 @@ bool SDPAVFPattern::hasExpectedSDPAChain(ArrayRef<VPU::VerticalFusionOp> vfOps, 
         return false;
     }
 
-    return isNonEltwiseNCEOp((*ops)[0]) && isEltwiseLike((*ops)[1]) && isNonEltwiseNCEOp((*ops)[3]);
+    return isNCEConv((*ops)[0]) && isEltwiseLike((*ops)[1]) && isNCEConv((*ops)[3]);
 }
 
 // Attempt to match a SoftmaxDecomposedSDPA pattern: Conv-SoftMax-{Conv, Reduce->Conv}-Eltwise
 std::optional<SmallVector<VPU::VerticalFusionOp>> SDPAVFPattern::tryMatchSoftmaxDecomposedSDPA(
         VPU::VerticalFusionOp rootOp, VPU::VerticalFusionOp second, Logger log) const {
-    const auto getSingleMatchingVFUser = [&](VPU::VerticalFusionOp producer, auto predicate) -> VPU::VerticalFusionOp {
+    const auto getSingleMatchingVFUser = [this](VPU::VerticalFusionOp producer,
+                                                auto predicate) -> VPU::VerticalFusionOp {
         VPU::VerticalFusionOp matchedUser = nullptr;
         for (auto* user : producer->getUsers()) {
             auto vfUser = mlir::dyn_cast<VPU::VerticalFusionOp>(user);
@@ -225,6 +223,7 @@ std::optional<SmallVector<VPU::VerticalFusionOp>> SDPAVFPattern::getMatchedChain
 }
 
 std::optional<VPU::VF::v2::VFCase> SDPAVFPattern::buildVFCase(VPU::VerticalFusionOp mergedOp,
+                                                              ArrayRef<VPU::VerticalFusionOp> /*matchedOps*/,
                                                               const std::unique_ptr<VPU::LayerVPUNNCost>& costFunction,
                                                               VFMergeCostMode costMode, Logger log) const {
     VPU::VF::v2::VFCacheAnalysis cache(mergedOp.getOperation());
@@ -241,7 +240,7 @@ std::optional<VPU::VF::v2::VFCase> SDPAVFPattern::buildVFCase(VPU::VerticalFusio
 
     const auto maxNumTiles = vpux::getMaxNumTiles(vfConfig.getOutputs().front(), /*checkMinimalWidthAndHeight=*/true,
                                                   /*checkWorkloadEfficiency=*/true);
-    auto minNumCalc = [&](Dim dim, const VPU::VF::v2::VFSplit&) {
+    auto minNumCalc = [&maxNumTiles, &vfConfig](Dim dim, const VPU::VF::v2::VFSplit&) {
         return getMinTiles(maxNumTiles, dim, vfConfig);
     };
 
@@ -339,7 +338,7 @@ mlir::FailureOr<VPU::VerticalFusionOp> SDPAVFPattern::tryMerge(VPU::VerticalFusi
     }
 
     log.trace("SDPAVFPattern::tryMerge buildVFCase begin {0}", rootOp->getLoc());
-    auto vfCase = buildVFCase(mergedOp, costFunction, costMode, log);
+    auto vfCase = buildVFCase(mergedOp, matchedOps.value(), costFunction, costMode, log);
     if (!vfCase.has_value()) {
         log.trace("SDPAVFPattern::tryMerge buildVFCase failed, skip fusion and return failure at {0}",
                   mergedOp->getLoc());

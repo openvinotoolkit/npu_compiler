@@ -52,9 +52,9 @@ void vpux::VPU::arch37xx::buildDefaultHWPipeline(mlir::OpPassManager& pm,
     const auto grc = getDefaultGreedyRewriteConfig();
 
     if (options.enableConcatRepeatingBlockOutlining) {
-        pm.addPass(VPU::createConcatRepeatingBlocksOutliningPass(options.concatRepeatingBlockOutliningSeqLength,
-                                                                 options.concatRepeatingBlockOutliningSdpaHeadThreshold,
-                                                                 log));
+        pm.addPass(VPU::createConcatRepeatingBlocksOutliningPass(
+                options.concatRepeatingBlockOutliningSeqLength, options.concatRepeatingBlockOutliningSdpaMinSeqLength,
+                options.concatRepeatingBlockOutliningSdpaHeadThreshold, log));
         pm.addPass(mlir::createCanonicalizerPass(grc));
     }
 
@@ -73,8 +73,7 @@ void vpux::VPU::arch37xx::buildDefaultHWPipeline(mlir::OpPassManager& pm,
                                                            /*skipConvOC=*/SkipOCMode::SKIP_NONE,
                                                            /*skipEltwiseOC=*/SkipOCMode::SKIP_NONE,
                                                            /*enableSplitChannelForDynamicDequantize=*/false, log));
-    pm.addPass(VPU::createOptimizeConcatPass(/*optimizeOnlyOuterConcat*/ false,
-                                             /*disablePassOnEntryFunctionForHostCompile=*/false, log));
+    pm.addPass(VPU::createOptimizeConcatPass(/*optimizeOnlyOuterConcat*/ false, log));
     if (options.enableWeightsSparsity) {
         VPU::buildWeightsSparsityPipeline(pm, VPU::WeightsSparsityOptions(options), log);
     }
@@ -101,8 +100,7 @@ void vpux::VPU::arch37xx::buildDefaultHWPipeline(mlir::OpPassManager& pm,
 
     pm.addPass(VPU::createAdjustMemorySpacePass(log));
     pm.addPass(VPU::createOptimizeSharedInputCopyForConcatPass(log));
-    pm.addPass(VPU::createOptimizeConcatPass(/*optimizeOnlyOuterConcat*/ false,
-                                             /*disablePassOnEntryFunctionForHostCompile=*/false, log));
+    pm.addPass(VPU::createOptimizeConcatPass(/*optimizeOnlyOuterConcat*/ false, log));
     pm.addPass(mlir::createCanonicalizerPass(grc));
 
     pm.addPass(VPU::createCMXConcatPass(log));

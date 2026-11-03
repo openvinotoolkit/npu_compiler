@@ -22,7 +22,6 @@ add_npu_library(npu_compiler_dialect_vpumi37xx
       PRIVATE
         npu_compiler_utils
         npu_elf
-        openvino::npu_al
         # E#98178: remove dependency on firmware headers
         npu_37xx_firmware_headers
         npu_compiler_dialect_vpuip_utils
@@ -34,3 +33,5 @@ add_npu_library(npu_compiler_dialect_vpumi37xx
         npu_compiler_dialect_vpu_utils
         npu_compiler_act_kernels
 )
+enable_lto_if_possible(npu_compiler_dialect_vpumi37xx)
+

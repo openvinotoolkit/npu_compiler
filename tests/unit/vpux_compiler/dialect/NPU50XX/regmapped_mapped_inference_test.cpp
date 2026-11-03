@@ -38,7 +38,6 @@ TEST_NPU5_MI_REG_FIELD(miDPUInvariantCount, task_storage_counts_.dpu_invariant_c
 TEST_NPU5_MI_REG_FIELD(miTcDPUVariantCount, task_storage_counts_.dpu_variant_count)
 TEST_NPU5_MI_REG_FIELD(miTcActRangeCount, task_storage_counts_.act_range_count)
 TEST_NPU5_MI_REG_FIELD(miTcActInvoCount, task_storage_counts_.act_invo_count)
-TEST_NPU5_MI_REG_FIELD(miTcMediaCount, task_storage_counts_.media_count)
 TEST_NPU5_MI_REG_FIELD(miTaskStorageSize, task_storage_size_)
 
 TEST_NPU5_MI_REG_FIELD(taskReferenceR1_DMA_DDR_0, dma_tasks_ddr_[0].reserved1)
@@ -256,12 +255,6 @@ TEST_NPU5_MI_REG_FIELD(taskReferenceR2_ActKernel_invo_5, act_kernel_invocations[
 TEST_NPU5_MI_REG_FIELD(taskReferenceR3_ActKernel_invo_5, act_kernel_invocations[5].reserved3)
 TEST_NPU5_MI_REG_FIELD(taskReferenceAddr_ActKernel_invo_5, act_kernel_invocations[5].address)
 TEST_NPU5_MI_REG_FIELD(taskReferenceCount_ActKernel_invo_5, act_kernel_invocations[5].count)
-
-TEST_NPU5_MI_REG_FIELD(taskReferenceR1_MediaTask, media_tasks.reserved1)
-TEST_NPU5_MI_REG_FIELD(taskReferenceR2_MediaTask, media_tasks.reserved2)
-TEST_NPU5_MI_REG_FIELD(taskReferenceR3_MediaTask, media_tasks.reserved3)
-TEST_NPU5_MI_REG_FIELD(taskReferenceAddr_MediaTask, media_tasks.address)
-TEST_NPU5_MI_REG_FIELD(taskReferenceCount_MediaTask, media_tasks.count)
 
 TEST_NPU5_MI_REG_FIELD(taskReferenceR1_BarrierConfig, barrier_configs.reserved1)
 TEST_NPU5_MI_REG_FIELD(taskReferenceR2_BarrierConfig, barrier_configs.reserved2)

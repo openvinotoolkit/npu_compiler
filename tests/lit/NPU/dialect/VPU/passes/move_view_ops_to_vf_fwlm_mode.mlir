@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-// RUN: vpux-opt --split-input-file --init-compiler="platform=%platform% compilation-mode=DefaultHW" --move-view-ops-to-vf="workload-management-mode=FWLM_V1_PAGES" %s | FileCheck %s
+// RUN: vpux-opt --split-input-file --init-compiler="platform=%platform% compilation-mode=DefaultHW allow-custom-values=true" --move-view-ops-to-vf="workload-management-mode=FWLM_V1_PAGES" %s | FileCheck %s
 // REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010
 
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
@@ -365,4 +365,219 @@ func.func @NotMovePermuteCastWhenWeightsUserHasNoMCStrategy(
     // CHECK: [[SECOND_CONV:%.+]] = VPU.NCE.Convolution
     // CHECK-SAME: multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>
     // CHECK: return [[VF]]
+}
+
+// -----
+
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+
+// ShapeCast reshapes [1,16,192,169] -> [1,3,416,416] (H granule = 416/gcd(192,416) = 13) feeding
+// a Convolution padded top=1/bottom=0, stride=2/kernel=3 on H. No split count can satisfy the
+// granule-13 restriction for every tile role, so the ShapeCast must stay outside the consumer VF
+
+// CHECK-LABEL: @NotMoveShapeCastToVFConvWithPadding
+module @NotMoveShapeCastToVFConvWithPadding {
+    config.PipelineOptions @Options {
+        config.Option @config.AutoPaddingIDU : true
+    }
+
+    // CHECK: func.func @main
+    // CHECK-SAME:      [[INPUT:%.+]]: tensor<1x16x192x169xf16, {order = #NHWC}>
+    func.func @main(%arg0: tensor<1x16x192x169xf16, {order = #NHWC}>) -> tensor<1x32x208x208xf16, {order = #NHWC}> {
+        %cst = const.Declare tensor<32x1x1x144xf16, {order = #NHWC}> = dense<1.0> : tensor<32x1x1x144xf32>, [#const.CastElemType<f16>, #const.Reorder<#NHWC>]
+        %0 = VPU.VerticalFusion (%arg0 as %arg1: tensor<1x16x192x169xf16, {order = #NHWC}>,
+                                 %arg0 as %arg2: tensor<1x16x192x169xf16, {order = #NHWC}>)
+            attributes {tilingStrategy = [1, 1, 2, 1]} -> tensor<1x16x192x169xf16, {order = #NHWC}> {
+          %inner = VPU.NCE.Eltwise(%arg1, %arg2)
+              {resultSegmentSizes = array<i32: 1, 0, 0, 0>, op_type = #VPU.eltwise_type<ADD>, ppe = #VPU.PPEStub<>}
+              -> tensor<1x16x192x169xf16, {order = #NHWC}>
+          VPU.Yield %inner
+        }
+        %1 = VPU.ShapeCast {shape = [1, 3, 416, 416]}
+            inputs(%0 : tensor<1x16x192x169xf16, {order = #NHWC}>)
+            -> tensor<1x3x416x416xf16, {order = #NHWC}>
+        %2 = VPU.VerticalFusion (%1 as %arg1: tensor<1x3x416x416xf16, {order = #NHWC}>,
+                                 %cst as %arg2: tensor<32x1x1x144xf16, {order = #NHWC}>)
+            attributes {tilingStrategy = [1, 1, 1, 1]} -> tensor<1x32x208x208xf16, {order = #NHWC}> {
+          %inner = VPU.NCE.Convolution(%arg1, %arg2) rawFilterShape [32, 3, 3, 3]
+              {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
+               pad = #VPU.Padding<left = 1 : i64, right = 0 : i64, top = 1 : i64, bottom = 0 : i64>,
+               ppe = #VPU.PPEStub<>,
+               strides = [2, 2]}
+              : tensor<1x3x416x416xf16, {order = #NHWC}>, tensor<32x1x1x144xf16, {order = #NHWC}> -> tensor<1x32x208x208xf16, {order = #NHWC}>
+          VPU.Yield %inner
+        }
+        return %2 : tensor<1x32x208x208xf16, {order = #NHWC}>
+
+        //CHECK:  [[VF0:%.+]] = VPU.VerticalFusion ([[INPUT]]
+        //CHECK-SAME: tilingStrategy = [1, 1, 2, 1]
+        //CHECK:  [[SC:%.+]] = VPU.ShapeCast {shape = [1, 3, 416, 416]} inputs([[VF0]]
+        //CHECK:  [[VF1:%.+]] = VPU.VerticalFusion ([[SC]]
+        //CHECK-SAME: tilingStrategy = [1, 1, 1, 1]
+        //CHECK:  [[CONV:%.+]] = VPU.NCE.Convolution
+        //CHECK:  VPU.Yield [[CONV]]
+        //CHECK:  return [[VF1]] : tensor<1x32x208x208xf16, {order = #NHWC}>
+    }
+}
+
+// -----
+
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+
+// CHECK-LABEL: @NotMoveShapeCastPermuteCastToVFConvWithPadding
+module @NotMoveShapeCastPermuteCastToVFConvWithPadding {
+    config.PipelineOptions @Options {
+        config.Option @config.AutoPaddingIDU : true
+    }
+
+    // CHECK: func.func @main
+    // CHECK-SAME:      [[INPUT:%.+]]: tensor<1x192x169x16xf16>
+    func.func @main(%arg0: tensor<1x192x169x16xf16>) -> tensor<1x32x208x208xf16, {order = #NHWC}> {
+        %cst = const.Declare tensor<32x1x1x144xf16, {order = #NHWC}> = dense<1.0> : tensor<32x1x1x144xf32>, [#const.CastElemType<f16>, #const.Reorder<#NHWC>]
+        %0 = VPU.VerticalFusion (%arg0 as %arg1: tensor<1x192x169x16xf16>,
+                                 %arg0 as %arg2: tensor<1x192x169x16xf16>)
+            attributes {tilingStrategy = [1, 1, 2, 1]} -> tensor<1x192x169x16xf16> {
+          %inner = VPU.Add(%arg1, %arg2) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>}
+              : tensor<1x192x169x16xf16>, tensor<1x192x169x16xf16> -> tensor<1x192x169x16xf16>
+          VPU.Yield %inner
+        }
+        %1 = VPU.ShapeCast {shape = [1, 416, 416, 3]}
+            inputs(%0 : tensor<1x192x169x16xf16>)
+            -> tensor<1x416x416x3xf16>
+        %2 = VPU.PermuteCast(%1) {dst_order = #NHWC, mem_perm = #NCHW}
+            : tensor<1x416x416x3xf16> -> tensor<1x3x416x416xf16, {order = #NHWC}>
+        %3 = VPU.VerticalFusion (%2 as %arg1: tensor<1x3x416x416xf16, {order = #NHWC}>,
+                                 %cst as %arg2: tensor<32x1x1x144xf16, {order = #NHWC}>)
+            attributes {tilingStrategy = [1, 1, 1, 1]} -> tensor<1x32x208x208xf16, {order = #NHWC}> {
+          %inner = VPU.NCE.Convolution(%arg1, %arg2) rawFilterShape [32, 3, 3, 3]
+              {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
+               pad = #VPU.Padding<left = 1 : i64, right = 0 : i64, top = 1 : i64, bottom = 0 : i64>,
+               ppe = #VPU.PPEStub<>,
+               strides = [2, 2]}
+              : tensor<1x3x416x416xf16, {order = #NHWC}>, tensor<32x1x1x144xf16, {order = #NHWC}> -> tensor<1x32x208x208xf16, {order = #NHWC}>
+          VPU.Yield %inner
+        }
+        return %3 : tensor<1x32x208x208xf16, {order = #NHWC}>
+
+        //CHECK:  [[VF0:%.+]] = VPU.VerticalFusion ([[INPUT]]
+        //CHECK-SAME: tilingStrategy = [1, 1, 2, 1]
+        //CHECK:  [[SC:%.+]] = VPU.ShapeCast {shape = [1, 416, 416, 3]} inputs([[VF0]]
+        //CHECK:  [[PC:%.+]] = VPU.PermuteCast([[SC]]) {dst_order = #NHWC, mem_perm = #NCHW}
+        //CHECK:  [[VF1:%.+]] = VPU.VerticalFusion ([[PC]]
+        //CHECK-SAME: tilingStrategy = [1, 1, 1, 1]
+        //CHECK:  [[CONV:%.+]] = VPU.NCE.Convolution
+        //CHECK:  VPU.Yield [[CONV]]
+        //CHECK:  return [[VF1]] : tensor<1x32x208x208xf16, {order = #NHWC}>
+    }
+}
+
+// -----
+
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+
+!qElemType = !quant.uniform<u8:f16, 0.0094078685723099058:128>
+!qElemType1 = !quant.uniform<u8:f16, 0.0047039342861549529:128>
+
+// CHECK-LABEL: @NotMoveShapeCastQuantizeCastToVFConvWithPadding
+module @NotMoveShapeCastQuantizeCastToVFConvWithPadding {
+    config.PipelineOptions @Options {
+        config.Option @config.AutoPaddingIDU : true
+    }
+
+    // CHECK: func.func @main
+    // CHECK-SAME:      [[INPUT:%.+]]: tensor<1x16x192x169x!qElemType, {order = #NHWC}>
+    func.func @main(%arg0: tensor<1x16x192x169x!qElemType, {order = #NHWC}>) -> tensor<1x32x208x208xf16, {order = #NHWC}> {
+        %cst = const.Declare tensor<32x1x1x144xf16, {order = #NHWC}> = dense<1.0> : tensor<32x1x1x144xf32>, [#const.CastElemType<f16>, #const.Reorder<#NHWC>]
+        %0 = VPU.VerticalFusion (%arg0 as %arg1: tensor<1x16x192x169x!qElemType, {order = #NHWC}>,
+                                 %arg0 as %arg2: tensor<1x16x192x169x!qElemType, {order = #NHWC}>)
+            attributes {tilingStrategy = [1, 1, 2, 1]} -> tensor<1x16x192x169x!qElemType, {order = #NHWC}> {
+          %inner = VPU.NCE.Eltwise(%arg1, %arg2)
+              {resultSegmentSizes = array<i32: 1, 0, 0, 0>, op_type = #VPU.eltwise_type<ADD>, ppe = #VPU.PPEStub<>}
+              -> tensor<1x16x192x169x!qElemType, {order = #NHWC}>
+          VPU.Yield %inner
+        }
+        %1 = VPU.ShapeCast {shape = [1, 3, 416, 416]}
+            inputs(%0 : tensor<1x16x192x169x!qElemType, {order = #NHWC}>)
+            -> tensor<1x3x416x416x!qElemType, {order = #NHWC}>
+        %2 = VPU.QuantizeCast(%1) {dstElemType = !qElemType1}
+            : tensor<1x3x416x416x!qElemType, {order = #NHWC}> -> tensor<1x3x416x416x!qElemType1, {order = #NHWC}>
+        %3 = VPU.VerticalFusion (%2 as %arg1: tensor<1x3x416x416x!qElemType1, {order = #NHWC}>,
+                                 %cst as %arg2: tensor<32x1x1x144xf16, {order = #NHWC}>)
+            attributes {tilingStrategy = [1, 1, 1, 1]} -> tensor<1x32x208x208xf16, {order = #NHWC}> {
+          %inner = VPU.NCE.Convolution(%arg1, %arg2) rawFilterShape [32, 3, 3, 3]
+              {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
+               pad = #VPU.Padding<left = 1 : i64, right = 0 : i64, top = 1 : i64, bottom = 0 : i64>,
+               ppe = #VPU.PPEStub<>,
+               strides = [2, 2]}
+              : tensor<1x3x416x416x!qElemType1, {order = #NHWC}>, tensor<32x1x1x144xf16, {order = #NHWC}> -> tensor<1x32x208x208xf16, {order = #NHWC}>
+          VPU.Yield %inner
+        }
+        return %3 : tensor<1x32x208x208xf16, {order = #NHWC}>
+
+        //CHECK:  [[VF0:%.+]] = VPU.VerticalFusion ([[INPUT]]
+        //CHECK-SAME: tilingStrategy = [1, 1, 2, 1]
+        //CHECK:  [[SC:%.+]] = VPU.ShapeCast {shape = [1, 3, 416, 416]} inputs([[VF0]]
+        //CHECK:  [[QC:%.+]] = VPU.QuantizeCast([[SC]]) {dstElemType = !qElemType1}
+        //CHECK:  [[VF1:%.+]] = VPU.VerticalFusion ([[QC]]
+        //CHECK-SAME: tilingStrategy = [1, 1, 1, 1]
+        //CHECK:  [[CONV:%.+]] = VPU.NCE.Convolution
+        //CHECK:  VPU.Yield [[CONV]]
+        //CHECK:  return [[VF1]] : tensor<1x32x208x208xf16, {order = #NHWC}>
+    }
+}
+
+// -----
+
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+
+!qElemType = !quant.uniform<u8:f16, 0.0094078685723099058:128>
+!qElemType1 = !quant.uniform<u8:f16, 0.0047039342861549529:128>
+
+// CHECK-LABEL: @MoveShapeCastQuantizeCastToVFConvWithoutPadding
+module @MoveShapeCastQuantizeCastToVFConvWithoutPadding {
+    config.PipelineOptions @Options {
+        config.Option @config.AutoPaddingIDU : true
+    }
+
+    // CHECK: func.func @main
+    // CHECK-SAME:      [[INPUT:%.+]]: tensor<1x16x192x169x!qElemType, {order = #NHWC}>
+    func.func @main(%arg0: tensor<1x16x192x169x!qElemType, {order = #NHWC}>) -> tensor<1x32x414x414xf16, {order = #NHWC}> {
+        %cst = const.Declare tensor<32x1x1x144xf16, {order = #NHWC}> = dense<1.0> : tensor<32x1x1x144xf32>, [#const.CastElemType<f16>, #const.Reorder<#NHWC>]
+        %0 = VPU.VerticalFusion (%arg0 as %arg1: tensor<1x16x192x169x!qElemType, {order = #NHWC}>,
+                                 %arg0 as %arg2: tensor<1x16x192x169x!qElemType, {order = #NHWC}>)
+            attributes {tilingStrategy = [1, 1, 2, 1]} -> tensor<1x16x192x169x!qElemType, {order = #NHWC}> {
+          %inner = VPU.NCE.Eltwise(%arg1, %arg2)
+              {resultSegmentSizes = array<i32: 1, 0, 0, 0>, op_type = #VPU.eltwise_type<ADD>, ppe = #VPU.PPEStub<>}
+              -> tensor<1x16x192x169x!qElemType, {order = #NHWC}>
+          VPU.Yield %inner
+        }
+        %1 = VPU.ShapeCast {shape = [1, 3, 416, 416]}
+            inputs(%0 : tensor<1x16x192x169x!qElemType, {order = #NHWC}>)
+            -> tensor<1x3x416x416x!qElemType, {order = #NHWC}>
+        %2 = VPU.QuantizeCast(%1) {dstElemType = !qElemType1}
+            : tensor<1x3x416x416x!qElemType, {order = #NHWC}> -> tensor<1x3x416x416x!qElemType1, {order = #NHWC}>
+        %3 = VPU.VerticalFusion (%2 as %arg1: tensor<1x3x416x416x!qElemType1, {order = #NHWC}>,
+                                 %cst as %arg2: tensor<32x1x1x144xf16, {order = #NHWC}>)
+            attributes {tilingStrategy = [1, 1, 1, 1]} -> tensor<1x32x414x414xf16, {order = #NHWC}> {
+          %inner = VPU.NCE.Convolution(%arg1, %arg2) rawFilterShape [32, 3, 3, 3]
+              {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
+               pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
+               ppe = #VPU.PPEStub<>,
+               strides = [1, 1]}
+              : tensor<1x3x416x416x!qElemType1, {order = #NHWC}>, tensor<32x1x1x144xf16, {order = #NHWC}> -> tensor<1x32x414x414xf16, {order = #NHWC}>
+          VPU.Yield %inner
+        }
+        return %3 : tensor<1x32x414x414xf16, {order = #NHWC}>
+
+        //CHECK:  [[VF0:%.+]] = VPU.VerticalFusion ([[INPUT]]
+        //CHECK-SAME: tilingStrategy = [1, 1, 2, 1]
+        //CHECK:  [[VF1:%.+]] = VPU.VerticalFusion ([[VF0]]
+        //CHECK-SAME: tilingStrategy = [1, 1, 1, 1]
+        //CHECK:  [[SC:%.+]] = VPU.ShapeCast {shape = [1, 3, 416, 416]}
+        //CHECK:  [[QC:%.+]] = VPU.QuantizeCast([[SC]]) {dstElemType = !qElemType1}
+        //CHECK:  [[CONV:%.+]] = VPU.NCE.Convolution([[QC]]
+        //CHECK:  VPU.Yield [[CONV]]
+        //CHECK:  return [[VF1]] : tensor<1x32x414x414xf16, {order = #NHWC}>
+    }
 }

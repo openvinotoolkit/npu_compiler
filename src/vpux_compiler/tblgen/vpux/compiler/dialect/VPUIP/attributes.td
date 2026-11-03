@@ -208,12 +208,13 @@ def VPUIP_DmaChannelType :
 //
 
 def VPUIP_GatherAddressingMode :
-        I64EnumAttr<
+    VPUIP_I64EnumAttr<
             "GatherAddressingMode",
             "Gather Addressing Mode",
             [
                 I64EnumAttrCase<"ABSOLUTE", 0>,
-                I64EnumAttrCase<"INDEXED", 1>
+                I64EnumAttrCase<"INDEXED", 1>,
+                I64EnumAttrCase<"SIGNED_INDEX", 2>
             ]
         > {
     let cppNamespace = "vpux::VPUIP";
@@ -224,8 +225,37 @@ def VPUIP_GatherAddressingMode :
                                 that is used by the DMA for accessing memory
         - Indexed addressing - each element in the indices list represents the index
                                 to access into a Virtual Array in memory
+        - Signed Index addressing - each element in the indices list is in the range [-N, N - 1], where N = data.shape[axis].
+                                Negative values denote reverse indexing (index -k maps to element N-k).
+                                Indices outside [-N, N-1] are out-of-bound (OOB) and produce zero-filled output or task error.
     }];
 }
+
+def VPUIP_GatherAddressingModeAttr : VPUIP_EnumAttr<VPUIP_GatherAddressingMode, "gather_addressing_mode">;
+
+//
+// GatherListOOBMode
+//
+
+def VPUIP_GatherListOOBMode :
+    VPUIP_I64EnumAttr<
+            "GatherListOOBMode",
+            "Gather source-list out-of-bounds mode",
+            [
+                I64EnumAttrCase<"TASK_ERROR", 0>,
+                I64EnumAttrCase<"SATURATE_TO_MAX", 1>
+            ]
+        > {
+    let cppNamespace = "vpux::VPUIP";
+
+    let description = [{
+      Controls source-list out-of-bounds handling for GatherDMA:
+        - TASK_ERROR - an out-of-bounds normalized source index raises a DMA task error
+        - SATURATE_TO_MAX - an out-of-bounds normalized source index is saturated to SRC_LIST_MAX
+    }];
+}
+
+def VPUIP_GatherListOOBModeAttr : VPUIP_EnumAttr<VPUIP_GatherListOOBMode, "gather_list_oob_mode">;
 
 //
 // DPUHaloRegionAttr

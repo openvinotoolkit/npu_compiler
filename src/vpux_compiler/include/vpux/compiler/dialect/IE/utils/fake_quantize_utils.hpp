@@ -172,7 +172,8 @@ public:
     bool hasConstWeights() const;
     bool hasScale() const;
     bool hasShift() const;
-    bool isKVcachedPattern() const;
+    // Returns true when the WD-chain feeds a data-bound consumer.
+    bool isDataBoundPattern() const;
     // Returns true when the WD-chain's last op has exactly one use that is a GatherOp, and the weights are a
     // supported low-precision integer type (SI4, I4, SI8, I8, or U2). Gathering at inference time accesses only a
     // small subset of rows, so dequantizing the full table offline wastes blob size. The WD chain is instead

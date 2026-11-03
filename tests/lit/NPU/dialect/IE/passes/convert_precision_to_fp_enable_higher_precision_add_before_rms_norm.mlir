@@ -29,9 +29,9 @@ func.func @main(%lhs: tensor<1x1x3072xf32>, %rhs: tensor<1x1x3072xf32>) -> tenso
     %rms = IE.RMS(%add, %gamma) {eps = 1.000000e-05 : f64} : tensor<1x1x3072xf32>, tensor<3072xf32> -> tensor<1x1x3072xf32>
     return %rms : tensor<1x1x3072xf32>
 
+    // CHECK: [[GAMMA:%.+]] = const.Declare tensor<3072xf32> = dense<1.000000e+00> : tensor<3072xf32>
     // CHECK-DAG: [[LHS_F32:%.+]] = IE.Convert([[LHS]]) {dstElemType = f32} : tensor<1x1x3072xf16> -> tensor<1x1x3072xf32>
     // CHECK-DAG: [[RHS_F32:%.+]] = IE.Convert([[RHS]]) {dstElemType = f32} : tensor<1x1x3072xf16> -> tensor<1x1x3072xf32>
-    // CHECK: [[GAMMA:%.+]] = const.Declare tensor<3072xf32> = dense<1.000000e+00> : tensor<3072xf32>
     // CHECK: [[ADD:%.+]] = IE.Add([[LHS_F32]], [[RHS_F32]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x3072xf32>, tensor<1x1x3072xf32> -> tensor<1x1x3072xf32>
     // CHECK: [[RMS:%.+]] = IE.RMS([[ADD]], [[GAMMA]]) {eps = 1.000000e-05 : f64} : tensor<1x1x3072xf32>, tensor<3072xf32> -> tensor<1x1x3072xf32>
     // CHECK: [[OUT:%.+]] = IE.Convert([[RMS]]) {dstElemType = f16} : tensor<1x1x3072xf32> -> tensor<1x1x3072xf16>

@@ -186,6 +186,7 @@ def IE_UnsqueezeOp :
         IE_LayerOp<
             "Unsqueeze",
             [
+                DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface, ["reifyResultShapes"]>,
                 IE_ViewLikeOpInterface
             ]
         > {

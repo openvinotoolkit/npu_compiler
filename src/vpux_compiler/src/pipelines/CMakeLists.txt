@@ -34,3 +34,4 @@ add_npu_library(${TARGET_NAME}
         npu_compiler_dialect_vpuip_transforms
         npu_compiler_dialect_ie_transforms
 )
+enable_lto_if_possible(${TARGET_NAME})

@@ -67,8 +67,7 @@ IE::FakeQuantizeOp createNewFq(mlir::PatternRewriter& rewriter, mlir::Location l
             createNegativeFqVal(rewriter, appendLoc(loc, "out_high"), initialFqOp.getOutputLow(), storageType);
 
     return IE::FakeQuantizeOp::create(rewriter, appendLoc(loc, "new_fq"), fqInput, inLow, inHigh, outLow, outHigh,
-                                      initialFqOp.getLevelsAttr(), initialFqOp.getLowFpTypeAttr(),
-                                      initialFqOp.getAutoBroadcastAttr());
+                                      initialFqOp.getLevelsOrLowFpTypeAttr(), initialFqOp.getAutoBroadcastAttr());
 }
 
 bool shouldConvertSubtractOp(IE::SubtractOp op) {
@@ -271,9 +270,9 @@ mlir::LogicalResult ConvertSubtractToDWConvAdd::matchAndRewrite(IE::SubtractOp s
             // TODO(E#145633): FQ(-1,-1) will cause GroupConv output 3x larger than reference for unknown reason.
             auto low = Const::createFloatConst(rewriter, subOpLoc, fqArgType, -1.0f);
             auto high = Const::createFloatConst(rewriter, subOpLoc, fqArgType, 0.0f);
-            auto filterFQ = IE::FakeQuantizeOp::create(rewriter, subOpLoc, filter, low, high, low, high,
-                                                       fqInput2.getLevelsAttr(), fqInput2.getLowFpTypeAttr(),
-                                                       fqInput2.getAutoBroadcastAttr());
+            auto filterFQ =
+                    IE::FakeQuantizeOp::create(rewriter, subOpLoc, filter, low, high, low, high,
+                                               fqInput2.getLevelsOrLowFpTypeAttr(), fqInput2.getAutoBroadcastAttr());
             filter = filterFQ.getOutput();
         }
 

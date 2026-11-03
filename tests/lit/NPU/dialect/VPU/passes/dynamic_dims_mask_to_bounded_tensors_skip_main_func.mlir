@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-// RUN: vpux-opt --split-input-file --init-compiler="platform=%platform% compilation-mode=HostCompile" --dynamic-dims-mask-to-bounded-tensors %s | FileCheck %s
+// RUN: vpux-opt --split-input-file --init-compiler="platform=%platform% compilation-mode=HostCompile_Interpreter" --dynamic-dims-mask-to-bounded-tensors %s | FileCheck %s
 // REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010
 
 

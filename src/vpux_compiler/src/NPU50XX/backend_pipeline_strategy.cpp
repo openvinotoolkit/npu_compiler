@@ -38,10 +38,8 @@ void BackendPipelineStrategy50XX::buildELFPipeline(mlir::OpPassManager& pm, cons
     backendCompilationOptions->npu5PPEBackwardsCompatibilityMode = options->npu5PPEBackwardsCompatibilityMode;
     backendCompilationOptions->enableDumpStatisticsOfWlmOps = options->enableDumpTaskStats;
     backendCompilationOptions->workloadManagementMode = options->workloadManagementMode;
-    backendCompilationOptions->workloadManagementEnable = true;
     backendCompilationOptions->workloadManagementBarrierProgrammingMode =
             options->workloadManagementBarrierProgrammingMode;
-    backendCompilationOptions->workloadManagementDmaFifoType = options->workloadManagementDmaFifoType;
     backendCompilationOptions->modelIdentifier = options->modelIdentifier;
     backendCompilationOptions->allocateDDRStackFrames = options->allocateDDRStackFrames;
 

@@ -27,10 +27,12 @@ endfunction()
 #     while treating the directories as SYSTEM includes.
 #   TARGET_SOURCES
 #     Same semantics as target_sources().
+#   SKIP_PCH_REUSE
+#     Do not reuse the shared compiler PCH.
 #   )
 function(add_npu_library name)
     cmake_parse_arguments(ARG
-    "DIALECT_LIB"
+    "DIALECT_LIB;SKIP_PCH_REUSE"
     ""
     "DEPENDS;LINK_LIBS;INCLUDES;SYSTEM_INCLUDES;TARGET_SOURCES"
     ${ARGN})
@@ -69,7 +71,7 @@ function(add_npu_library name)
     enable_warnings_as_errors(${name} WIN_STRICT)
     # REUSE_FROM is only valid when ENABLE_FASTER_BUILD is ON, because the
     # anchor target only builds its PCH in that configuration (via ov_build_target_faster)
-    if(ENABLE_FASTER_BUILD)
+    if(ENABLE_FASTER_BUILD AND NOT ARG_SKIP_PCH_REUSE)
         target_precompile_headers(${name} REUSE_FROM npu_compiler_pch_base)
     endif()
 endfunction(add_npu_library)

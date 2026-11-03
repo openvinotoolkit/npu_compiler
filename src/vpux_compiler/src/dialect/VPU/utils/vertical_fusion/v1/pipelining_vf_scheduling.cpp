@@ -106,6 +106,11 @@ VFPipelineContainer PipeliningVFScheduling::getPipelining(
                                       int64_t pipelinedIndex) -> bool {
         auto costPipelinedParameters = fillInCostParam(pipelinedOp, tilingInfo, pipelinedIndex);
         auto isolatedPipelinedCost = costFunction->getStrategyCost(pipelinedOp, costPipelinedParameters);
+        if (isolatedPipelinedCost >= VPU::INVALID_COST_BASE) {
+            _log.trace("Op {0} has invalid cost {1}, force to {2}", pipelinedOp->getLoc(), isolatedPipelinedCost,
+                       VPU::UNIT_COST);
+            isolatedPipelinedCost = VPU::UNIT_COST;
+        }
 
         bool isOpAdded = container.addOperation(pipelinedOp, pipelinedIndex, isolatedPipelinedCost);
 
@@ -134,6 +139,11 @@ VFPipelineContainer PipeliningVFScheduling::getPipelining(
 
             // isolated operation cost
             auto isolatedCost = costFunction->getStrategyCost(operation, costParameters);
+            if (isolatedCost >= VPU::INVALID_COST_BASE) {
+                _log.trace("Op {0} has invalid cost {1}, force to {2}", operation->getLoc(), isolatedCost,
+                           VPU::UNIT_COST);
+                isolatedCost = VPU::UNIT_COST;
+            }
             const auto isInput = llvm::find(config.getInputs(), operation) != config.getInputs().end();
 
             StrategyCost prefetchedCost =

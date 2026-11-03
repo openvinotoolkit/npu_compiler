@@ -107,8 +107,7 @@ TEST_F(EltwiseAddLayerTest, NPU4000_HW) {
 }
 
 TEST_P(EltwiseAddLayerTest_HostCompile, NPU4000_HC) {
-    // E#233490 PredictShape fails with HostCompile_Interpreter
-    setHostCompileMode("HostCompile_JIT");
+    setHostCompileMode();
     setPluginCompilerType();
     run(Platform::NPU4000);
 }
@@ -126,8 +125,7 @@ TEST_F(EltwiseSubtractLayerTest, NPU5010_HW) {
 }
 
 TEST_P(EltwiseAddLayerTest_HostCompile, NPU5010_HC) {
-    // E#233490 PredictShape fails with HostCompile_Interpreter
-    setHostCompileMode("HostCompile_JIT");
+    setHostCompileMode();
     setPluginCompilerType();
     run(Platform::NPU5010);
 }

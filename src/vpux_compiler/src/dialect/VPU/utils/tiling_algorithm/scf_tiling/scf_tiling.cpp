@@ -933,6 +933,8 @@ SmallVector<mlir::Operation*> vpux::VPU::applySCFVerticalFusion(mlir::Operation*
         return {};
     }
 
+    VPU::refreshResultShapesInIROrder(tiledResults->loops, tiledResults->tiledAndFusedOps.getArrayRef());
+
     applyDeferredSliceReplacements(builder, skipConnectionMap, log);
 
     for (auto result : operation->getResults()) {

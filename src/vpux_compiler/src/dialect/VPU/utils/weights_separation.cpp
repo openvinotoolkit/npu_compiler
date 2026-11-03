@@ -1248,12 +1248,34 @@ mlir::RankedTensorType obfuscateType(mlir::Type original) {
     return obfuscateType(ArrayRef{original});
 }
 
+size_t restoreInputFromBlob(const Logger& log, mlir::OpBuilder& builder, CreateSliceOpFunc createSlice,
+                            mlir::BlockArgument inputValue, mlir::Value blobInput, int64_t offset, size_t index) {
+    const auto obfuscatedType = obfuscateType(inputValue.getType());
+
+    const auto shape = mlir::cast<NDTypeInterface>(obfuscatedType).getShape();
+    const auto inputValueLoc = inputValue.getLoc();
+    const SmallVector<int64_t> offsets({offset});
+    auto sliceOp = createSlice(builder, appendLoc(inputValueLoc, "slice"), blobInput, offsets, shape.raw());
+    auto castOp = Core::ReinterpretCastOp::create(builder, appendLoc(sliceOp->getLoc(), "deobfuscated"),
+                                                  inputValue.getType(), sliceOp->getResult(0));
+    inputValue.replaceAllUsesWith(castOp.getResult());
+
+    log.debug("value #{0} is {1}, obfuscated as {2}", index, inputValue.getType(), obfuscatedType);
+
+    // Note: location is printed separately because it differs between init
+    // and main (this is by design).
+    log.debug("value #{0} has location: {1}", index, inputValueLoc);
+
+    return shape[Dim(0)];
+}
+
 // Adds a new obfuscated input as an argument of a body block. Does not delete
 // any original arguments, does not update the function signature. This is a
 // basic building block of the obfuscation algorithm that only cares about
 // adding a new input and wiring it correctly inside of the function body.
 void obfuscateInputsImpl(const Logger& log, mlir::Location loc, mlir::Block& bodyBlock, ArrayRef<size_t> indices,
-                         CreateSliceOpFunc createSlice, bool obfuscateSingleInput = false) {
+                         ArrayRef<int64_t> explicitOffsets, mlir::Type explicitBlobType, CreateSliceOpFunc createSlice,
+                         bool obfuscateSingleInput = false) {
     if (indices.empty()) {
         return;
     }
@@ -1283,27 +1305,14 @@ void obfuscateInputsImpl(const Logger& log, mlir::Location loc, mlir::Block& bod
     auto inputTypes = to_std_vector(inputs | transformed([](mlir::BlockArgument x) {
                                         return x.getType();
                                     }));
-    const auto blobType = obfuscateType(inputTypes);
-    auto blobArg = bodyBlock.addArgument(blobType, loc);
+    const auto blobArgType = (explicitBlobType == nullptr) ? obfuscateType(inputTypes) : explicitBlobType;
+    auto blobArg = bodyBlock.addArgument(blobArgType, loc);
 
     // slice obfuscated blob into deobfuscated tensors
-    SmallVector<int64_t> offsets({0});  // updated in the loop
+    int64_t offset{0};  // updated in the loop
     for (auto [index, inputValue] : inputs | indexed) {
-        const auto obfuscatedType = obfuscateType(inputValue.getType());
-
-        const auto shape = mlir::cast<NDTypeInterface>(obfuscatedType).getShape();
-        const auto inputValueLoc = inputValue.getLoc();
-        auto sliceOp = createSlice(builder, appendLoc(inputValueLoc, "slice"), blobArg, offsets, shape.raw());
-        auto castOp = Core::ReinterpretCastOp::create(builder, appendLoc(sliceOp->getLoc(), "deobfuscated"),
-                                                      inputValue.getType(), sliceOp->getResult(0));
-        inputValue.replaceAllUsesWith(castOp.getResult());
-
-        offsets[0] += shape[Dim(0)];
-
-        log.debug("value #{0} is {1}, obfuscated as {2}", index, inputValue.getType(), obfuscatedType);
-        // Note: location is printed separately because it differs between init
-        // and main (this is by design).
-        log.debug("value #{0} has location: {1}", index, inputValueLoc);
+        auto thisOffset = explicitOffsets.empty() ? offset : explicitOffsets[index];
+        offset += restoreInputFromBlob(log, builder, createSlice, inputValue, blobArg, thisOffset, index);
     }
 }
 
@@ -1323,7 +1332,17 @@ void eraseArguments(mlir::func::FuncOp funcOp, mlir::Block& bodyBlock, SmallVect
 void obfuscateInputs(const Logger& log, mlir::Location loc, mlir::func::FuncOp funcOp, ArrayRef<size_t> indices,
                      CreateSliceOpFunc createSlice, bool obfuscateSingleInput) {
     auto& bodyBlock = funcOp.getFunctionBody().front();
-    obfuscateInputsImpl(log, loc, bodyBlock, indices, createSlice, obfuscateSingleInput);
+    obfuscateInputsImpl(log, loc, bodyBlock, indices, {}, nullptr, createSlice, obfuscateSingleInput);
+    eraseArguments(funcOp, bodyBlock, SmallVector<size_t>(indices));
+}
+
+void obfuscateInputs(const Logger& log, mlir::Location loc, mlir::func::FuncOp funcOp, ArrayRef<size_t> indices,
+                     ArrayRef<int64_t> offsets, mlir::Type blobType, CreateSliceOpFunc createSlice) {
+    VPUX_THROW_WHEN(indices.empty(), "At least one input is expected");
+    VPUX_THROW_WHEN(indices.size() != offsets.size(), "Input indices and offsets must have the same size");
+
+    auto& bodyBlock = funcOp.getFunctionBody().front();
+    obfuscateInputsImpl(log, loc, bodyBlock, indices, offsets, blobType, createSlice, /*obfuscateSingleInput=*/true);
     eraseArguments(funcOp, bodyBlock, SmallVector<size_t>(indices));
 }
 
@@ -1334,7 +1353,7 @@ void obfuscateInputGroups(const Logger& log, mlir::Location loc, mlir::func::Fun
     auto& bodyBlock = funcOp.getFunctionBody().front();
     for (size_t i = 0; i < indexGroups.size(); ++i) {
         const auto& indices = indexGroups[i];
-        obfuscateInputsImpl(log, appendLoc(loc, "{0}", i), bodyBlock, indices, createSlice);
+        obfuscateInputsImpl(log, appendLoc(loc, "{0}", i), bodyBlock, indices, {}, nullptr, createSlice);
         oldArgumentIndices.insert(oldArgumentIndices.end(), indices.begin(), indices.end());
     }
 

@@ -1784,30 +1784,33 @@ VPURT.SW.Runtime entryPoint : @VPU.SW::@runtime stack_configuration : [4096, 409
   }
 
 // CHECK-LABEL: @FuseMemPermuteWithCopyNotApplicableDynamic
-func.func @FuseMemPermuteWithCopyNotApplicableDynamic(%arg0: !VPUIP.BoundedBuffer<data=memref<1x8x384x384xf16>, dynamic_shape=memref<4xsi32>>) ->
-    !VPUIP.BoundedBuffer<data=memref<1x8x384x384xf16, {order = #NHWC}, [@CMX_NN, 0]>, dynamic_shape=memref<4xsi32, [@CMX_NN, 0]>> {
+func.func @FuseMemPermuteWithCopyNotApplicableDynamic(%data: memref<1x8x384x384xf16>, %shape: memref<4xsi32>)
+    -> (memref<1x8x384x384xf16, {order = #NHWC}>, memref<4xsi32>) {
 
 // COM:   DDR -> CMX
     %alloc_1 = memref.alloc() : memref<1x8x384x384xf16, [@CMX_NN, 0]>
     %alloc_2 = memref.alloc() : memref<4xsi32, [@CMX_NN, 0]>
-    %0 = VPUIP.GroupBoundedBuffer(%alloc_1, %alloc_2) : memref<1x8x384x384xf16, [@CMX_NN, 0]>, memref<4xsi32, [@CMX_NN, 0]>
-        -> !VPUIP.BoundedBuffer<data=memref<1x8x384x384xf16, [@CMX_NN, 0]>, dynamic_shape=memref<4xsi32, [@CMX_NN, 0]>>
-    %1 = VPUIP.Copy inputs(%arg0 : !VPUIP.BoundedBuffer<data=memref<1x8x384x384xf16>, dynamic_shape=memref<4xsi32>>)
-                    outputs(%0 : !VPUIP.BoundedBuffer<data=memref<1x8x384x384xf16, [@CMX_NN, 0]>, dynamic_shape=memref<4xsi32, [@CMX_NN, 0]>>)
-        -> !VPUIP.BoundedBuffer<data=memref<1x8x384x384xf16, [@CMX_NN, 0]>, dynamic_shape=memref<4xsi32, [@CMX_NN, 0]>>
+    %data_copy0 = VPUIP.Copy inputs(%data: memref<1x8x384x384xf16>) outputs(%alloc_1: memref<1x8x384x384xf16, [@CMX_NN, 0]>)
+        -> memref<1x8x384x384xf16, [@CMX_NN, 0]>
+    %shape_copy0 = VPUIP.Copy inputs(%shape : memref<4xsi32>) outputs(%alloc_2: memref<4xsi32, [@CMX_NN, 0]>)
+        -> memref<4xsi32, [@CMX_NN, 0]>
 
 // COM:   prepare CMX output
     %alloc_3 = memref.alloc() : memref<1x8x384x384xf16, {order = #NHWC}, [@CMX_NN, 0]>
     %alloc_4 = memref.alloc() : memref<4xsi32, [@CMX_NN, 0]>
-    %2 = VPUIP.GroupBoundedBuffer(%alloc_3, %alloc_4) : memref<1x8x384x384xf16, {order = #NHWC}, [@CMX_NN, 0]>, memref<4xsi32, [@CMX_NN, 0]>
-        -> !VPUIP.BoundedBuffer<data=memref<1x8x384x384xf16, {order = #NHWC}, [@CMX_NN, 0]>, dynamic_shape=memref<4xsi32, [@CMX_NN, 0]>>
 
 // COM:   MemPermute
-    %permute = VPUIP.SW.Kernel {resultSegmentSizes = array<i32: 1, 0, 0>} @VPU.SW::@builtin_MemPermute
-      inputs(%1 as %arg1: !VPUIP.BoundedBuffer<data=memref<1x8x384x384xf16, [@CMX_NN, 0]>, dynamic_shape=memref<4xsi32, [@CMX_NN, 0]>>)
-      outputs(%2 as %arg2: !VPUIP.BoundedBuffer<data=memref<1x8x384x384xf16, {order = #NHWC}, [@CMX_NN, 0]>, dynamic_shape=memref<4xsi32, [@CMX_NN, 0]>>)
-        on tile 0 -> !VPUIP.BoundedBuffer<data=memref<1x8x384x384xf16, {order = #NHWC}, [@CMX_NN, 0]>, dynamic_shape=memref<4xsi32, [@CMX_NN, 0]>> {
-       VPUIP.SW.Kernel.run {attrs = [[2, 0, 1, 3]]}(%arg1, %arg2) : !VPUIP.BoundedBuffer<data=memref<1x8x384x384xf16, [@CMX_NN, 0]>, dynamic_shape=memref<4xsi32, [@CMX_NN, 0]>>, !VPUIP.BoundedBuffer<data=memref<1x8x384x384xf16, {order = #NHWC}, [@CMX_NN, 0]>, dynamic_shape=memref<4xsi32, [@CMX_NN, 0]>>
+    %permute, %permuteOutShape = VPUIP.SW.Kernel
+        {dynamicInputShapesMap = array<i32: 0>, dynamicOutputShapesMap = array<i32: 0>, resultSegmentSizes = array<i32: 1, 1, 0>}
+        @VPU.SW::@builtin_MemPermute
+        inputs(%data_copy0 as %arg1: memref<1x8x384x384xf16, [@CMX_NN, 0]>)
+        dynamicInputShapes(%shape_copy0 : memref<4xsi32, [@CMX_NN, 0]>)
+        outputs(%alloc_3 as %arg2: memref<1x8x384x384xf16, {order = #NHWC}, [@CMX_NN, 0]>)
+        dynamicOutputShapes(%alloc_4 : memref<4xsi32, [@CMX_NN, 0]>)
+        on tile 0 -> (memref<1x8x384x384xf16, {order = #NHWC}, [@CMX_NN, 0]>, memref<4xsi32, [@CMX_NN, 0]>)
+    {
+        VPUIP.SW.Kernel.run {attrs = [[2, 0, 1, 3]]}(%arg1, %arg2)
+        : memref<1x8x384x384xf16, [@CMX_NN, 0]>, memref<1x8x384x384xf16, {order = #NHWC}, [@CMX_NN, 0]>
     }
     //CHECK:        VPUIP.SW.Kernel
     //CHECK-SAME:   @VPU.SW::@builtin_MemPermute
@@ -1816,23 +1819,13 @@ func.func @FuseMemPermuteWithCopyNotApplicableDynamic(%arg0: !VPUIP.BoundedBuffe
 // COM:   CMX -> DDR
     %alloc_5 = memref.alloc() : memref<1x8x384x384xf16, {order = #NHWC}>
     %alloc_6 = memref.alloc() : memref<4xsi32>
-    %3 = VPUIP.GroupBoundedBuffer(%alloc_5, %alloc_6) : memref<1x8x384x384xf16, {order = #NHWC}>, memref<4xsi32>
-        -> !VPUIP.BoundedBuffer<data=memref<1x8x384x384xf16, {order = #NHWC}>, dynamic_shape=memref<4xsi32>>
-    %4 = VPUIP.Copy inputs(%permute : !VPUIP.BoundedBuffer<data=memref<1x8x384x384xf16, {order = #NHWC}, [@CMX_NN, 0]>, dynamic_shape=memref<4xsi32, [@CMX_NN, 0]>>)
-                    outputs(%3 : !VPUIP.BoundedBuffer<data=memref<1x8x384x384xf16, {order = #NHWC}>, dynamic_shape=memref<4xsi32>> )
-        -> !VPUIP.BoundedBuffer<data=memref<1x8x384x384xf16, {order = #NHWC}>, dynamic_shape=memref<4xsi32>>
+    %data_copy1 = VPUIP.Copy inputs(%permute : memref<1x8x384x384xf16, {order = #NHWC}, [@CMX_NN, 0]>)
+        outputs(%alloc_5 : memref<1x8x384x384xf16, {order = #NHWC}>)
+        -> memref<1x8x384x384xf16, {order = #NHWC}>
+    %shape_copy1 = VPUIP.Copy inputs(%permuteOutShape : memref<4xsi32, [@CMX_NN, 0]>)
+        outputs(%alloc_6 : memref<4xsi32>) -> memref<4xsi32>
 
-// COM:   DDR -> CMX
-    %alloc_7 = memref.alloc() : memref<1x8x384x384xf16, {order = #NHWC}, [@CMX_NN, 0]>
-    %alloc_8 = memref.alloc() : memref<4xsi32, [@CMX_NN, 0]>
-    %5 = VPUIP.GroupBoundedBuffer(%alloc_7, %alloc_8) : memref<1x8x384x384xf16, {order = #NHWC}, [@CMX_NN, 0]>, memref<4xsi32, [@CMX_NN, 0]>
-        -> !VPUIP.BoundedBuffer<data=memref<1x8x384x384xf16, {order = #NHWC}, [@CMX_NN, 0]>, dynamic_shape=memref<4xsi32, [@CMX_NN, 0]>>
-    %6 = VPUIP.Copy inputs(%4 : !VPUIP.BoundedBuffer<data=memref<1x8x384x384xf16, {order = #NHWC}>, dynamic_shape=memref<4xsi32>>)
-                    outputs(%5 : !VPUIP.BoundedBuffer<data=memref<1x8x384x384xf16, {order = #NHWC}, [@CMX_NN, 0]>, dynamic_shape=memref<4xsi32, [@CMX_NN, 0]>> )
-        -> !VPUIP.BoundedBuffer<data=memref<1x8x384x384xf16, {order = #NHWC}, [@CMX_NN, 0]>, dynamic_shape=memref<4xsi32, [@CMX_NN, 0]>>
-
-
-    return %6 : !VPUIP.BoundedBuffer<data=memref<1x8x384x384xf16, {order = #NHWC}, [@CMX_NN, 0]>, dynamic_shape=memref<4xsi32, [@CMX_NN, 0]>>
+    return %data_copy1, %shape_copy1 : memref<1x8x384x384xf16, {order = #NHWC}>, memref<4xsi32>
 }
 
 // -----

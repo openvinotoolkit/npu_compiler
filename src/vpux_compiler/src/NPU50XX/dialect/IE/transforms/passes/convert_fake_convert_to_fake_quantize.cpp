@@ -158,7 +158,7 @@ mlir::LogicalResult ConvertFakeConvertToFakeQuantize::FakeConvertRewriter::match
     // Create a dummy FakeQuantize, with equal input and output ranges
     const auto broadCastAttr = IE::AutoBroadcastTypeAttr::get(origOp.getContext(), IE::AutoBroadcastType::NUMPY);
     rewriter.replaceOpWithNewOp<IE::FakeQuantizeOp>(origOp, origOp.getInput(), inOutLowConst, inOutHighConst,
-                                                    inOutLowConst, inOutHighConst, nullptr, origOp.getDstTypeAttr(),
+                                                    inOutLowConst, inOutHighConst, origOp.getDstTypeAttr(),
                                                     broadCastAttr);
     return mlir::success();
 }

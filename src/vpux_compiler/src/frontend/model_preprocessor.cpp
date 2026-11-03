@@ -5,6 +5,7 @@
 
 #include "vpux/compiler/frontend/model_preprocessor.hpp"
 #include "vpux/utils/ov/config.hpp"
+#include "vpux/utils/ov/npu_op_extensions.hpp"
 #include "vpux/utils/ov/options.hpp"
 
 #include "vpux/compiler/frontend/xml_deserializer.hpp"
@@ -14,14 +15,6 @@
 #include <openvino/core/preprocess/pre_post_process.hpp>
 #include <openvino/core/rt_info/weightless_caching_attributes.hpp>
 #include <openvino/op/constant.hpp>
-#include <openvino/op/gated_delta_net.hpp>
-#include <openvino/op/group_query_attention.hpp>
-
-#include <ov_ops/dynamic_quantize.hpp>
-#include <ov_ops/rms.hpp>
-#include <ov_ops/rotary_positional_embeddings.hpp>
-
-#include <intel_npu/ops/flash_attention_tile.hpp>
 
 #include <regex>
 #include <utility>
@@ -296,8 +289,8 @@ void prepareConfig(const std::string& descOptions, const vcl_compiler_desc_t& co
         }
     }
 
-    /// Parse the compilation options
-    std::vector<std::string> options;
+    /// Parse the compilation options, user options will overwrite default values in config
+    std::map<std::string, std::string> configOptions;
     if (configSeparator != std::string::npos) {
         /// Skip "--config" during parsing, The content may like:
         /// NPU_PLATFORM="3720"  NPU_COMPILATION_MODE_PARAMS="swap-transpose-with-fq=1 force-z-major-concat=1"
@@ -334,66 +327,11 @@ void prepareConfig(const std::string& descOptions, const vcl_compiler_desc_t& co
         // Replace NPU_DPU_GROUPS with NPU_TILES since NPU_DPU_GROUPS is deprecated in OV
         content = std::regex_replace(content, std::regex("NPU_DPU_GROUPS"), "NPU_TILES");
 
-        std::stringstream input(content);
-
-        /// A singleOption is consist of one or more words, like value of VPUX_COMPILATION_MODE_PARAMS
-        std::string word;
-        std::string singleOption = "";
-        while (input >> word) {
-            if (singleOption.compare("") == 0) {
-                /// Save the first word
-                singleOption = word;
-            } else {
-                /// Save the word that belongs to this option
-                singleOption = singleOption + " " + word;
-            }
-
-            /// If this is not the last word of this option, contine for this option
-            if (word[word.size() - 1] != '"') {
-                continue;
-            }
-
-            /// Save current option
-            options.push_back(singleOption);
-            /// Clean for the next option
-            singleOption = "";
-        }
-        /// Save the last option
-        if (singleOption.compare("") != 0) {
-            options.push_back(std::move(singleOption));
-        }
+        configOptions = vpux::OV::parseConfigString(content);
     }
 
-    /// Show all parsed options
-    for (auto& op : options) {
-        log.debug("option : {0}", op);
-    }
-
-    /// Save the parsed configs from user
-    std::map<std::string, std::string> configOptions;
-
-    /// Parse compilation options and save to config
-    /// User options will overwrite default values in config
-    for (auto& option : options) {
-        if (option.find_first_not_of(' ') == std::string::npos) {
-            continue;
-        }
-        size_t length = option.size();
-        /// Skip the terminator of string
-        if (option[length - 1] == '\0') {
-            length--;
-        }
-
-        std::size_t lastDelimPos = option.find_first_of('=');
-        /// Use 2 to skip =" , the format shall follow key="value"
-        if (lastDelimPos == std::string::npos || lastDelimPos + 2 > length) {
-            throw std::logic_error(option + " is in bad format!");
-        }
-        std::string key = option.substr(0, lastDelimPos);
-        /// For key="value", the val shall be value
-        /// Skip =" in the front and " at the end
-        configOptions[key] = option.substr(lastDelimPos + 2, length - 1 - (lastDelimPos + 2));
-        log.debug("config options - key: {0} value: {1}", key, configOptions[key]);
+    for (const auto& [key, value] : configOptions) {
+        log.debug("config options - key: {0} value: {1}", key, value);
     }
 
     bool deviceDescHasValidInfo = !isDeviceDescEmpty;
@@ -444,6 +382,16 @@ void prepareConfig(const std::string& descOptions, const vcl_compiler_desc_t& co
                     }
                 }
             }
+        }
+    }
+
+    std::string_view ignoredConfigs[] = {"NPU_COMPILER_TYPE", "DEVICE_ID"};
+
+    for (const auto& ignored : ignoredConfigs) {
+        const auto iter = configOptions.find(std::string{ignored});
+        if (iter != configOptions.end()) {
+            log.warning("{0} is not a compiler option. Update OpenVINO.", ignored);
+            configOptions.erase(iter);
         }
     }
 
@@ -582,13 +530,7 @@ std::shared_ptr<ov::Model> prepareModel(const uint8_t* modelIR, uint64_t modelIR
     Logger log = Logger::global();
 
     const vcl_version_info_t currentAPIVersion = compilerProp.version;
-    const std::vector<ov::Extension::Ptr> extensionsVector{
-            std::make_shared<ov::OpExtension<ov::op::internal::DynamicQuantize>>(),
-            std::make_shared<ov::OpExtension<ov::op::internal::RMS>>(),
-            std::make_shared<ov::OpExtension<ov::op::internal::RoPE>>(),
-            std::make_shared<ov::OpExtension<ov::op::internal::GroupQueryAttention>>(),
-            std::make_shared<ov::OpExtension<ov::op::internal::GatedDeltaNet>>(),
-            std::make_shared<ov::OpExtension<ov::intel_npu::op::FlashAttentionTile>>()};
+    const std::vector<ov::Extension::Ptr> extensionsVector = getNpuOpExtensions();
 
     if (!config.has<vpux::OV::MODEL_SERIALIZER_VERSION>()) {
         // Plugin versions older than the "model_serializer_version" config option won't specify a serialization

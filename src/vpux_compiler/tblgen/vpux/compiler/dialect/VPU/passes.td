@@ -262,8 +262,8 @@ def SCFVerticalFusion : PassBase<"scf-vertical-fusion", "vpux::FunctionPass"> {
           check is applied.
         - COST_BASED: evaluates split options across dimensions with the cost model and
           keeps only candidates the cost model finds profitable relative to the unfused
-          operations. The `vf-merge-cost-mode` option selects either the VPUNN performance
-          objective or the DMA-byte power proxy. The fusion boundary is then chosen by
+          operations. The objective is the VPUNN performance model, or the DMA-byte power
+          proxy when the module is configured as power optimized. The fusion boundary is then chosen by
           bottom-up growth: starting from the smallest valid group nearest the anchor,
           the group is extended toward
           the inputs only while the fused cost of the enlarged group does not exceed the
@@ -293,16 +293,6 @@ def SCFVerticalFusion : PassBase<"scf-vertical-fusion", "vpux::FunctionPass"> {
             "enableDynamicDimAlignment", "enable-dynamic-dim-alignment",
             "bool", "false",
             "Align dynamic dimensions during tiling to make it easier to merge strided DMAs into batched DMAs"
-        >,
-
-        Option<
-            "vfMergeCostModeOpt", "vf-merge-cost-mode",
-            "vpux::VFMergeCostMode", "",
-            "Objective used by cost-based VF merging",
-            [{::llvm::cl::values(
-                clEnumValN(vpux::VFMergeCostMode::PERFORMANCE, "performance", "Select the existing VPUNN performance objective"),
-                clEnumValN(vpux::VFMergeCostMode::POWER, "power", "Select the DMA-byte power proxy")
-            )}]
         >
     ];
 }
@@ -565,12 +555,15 @@ def EfficientIROrder : PassBase<"efficient-ir-order", "vpux::FunctionPass"> {
     let summary = "Change the IR order to execute operation more efficiently";
 
     let description = [{
-        AI-generated summary
-
         Reorders operations in the IR to minimize live tensor memory by scheduling operations
         that free memory before those that allocate. Uses a topological sort heuristic that
         prioritizes operations consuming tensors with the fewest remaining users, reducing
         peak CMX memory pressure.
+
+        When moving an NCE op with a DequantizeOp producer for its second input (typically weights),
+        move the DequantizeOp closer to the NCE op, if possible. Thus we can avoid spilling from
+        needing to keep the dequantized buffer in CMX for a long time, until the NCE op is ready to
+        execute.
     }];
 
     let constructor = "vpux::VPU::createEfficientIROrderPass()";
@@ -663,12 +656,13 @@ def PatternBasedVF : PassBase<"pattern-based-vf", "vpux::FunctionPass"> {
     let summary = "Apply pattern-based VF merging before generic merging";
 
     let description = [{
-        Pattern-based vertical fusion pre-pass that applies only in FWLM modes.
-        It detects SDPA chains such as Conv -> Eltwise -> SoftMax -> Conv and
-        Conv -> SoftMax -> {Conv, Reduce -> Conv} -> Eltwise, and dynamic
-        dequantization weight chains such as DynamicDequantize -> AffineReshape ->
-        PermuteCast -> NCE.Convolution, optionally preceded by MemPermute. The pass
-        merges the matching chains before the generic VF merging algorithm runs.
+        Applies pattern-based vertical fusion before generic VF merging in FWLM modes.
+        The pass recognizes and merges the following operation chains:
+        1. SDPA: Convolution -> Eltwise -> SoftMax -> Convolution
+        2. SDPA: Convolution -> SoftMax -> {Convolution, Reduce -> Convolution} -> Eltwise
+        3. SDPA: MatMul -> Eltwise -> SoftMax -> MatMul
+        4. Dynamic dequantization: optional MemPermute -> DynamicDequantize -> Convolution
+        Matching chains are merged first so that the generic VF algorithm processes the resulting regions.
     }];
 
     let constructor = "vpux::VPU::createPatternBasedVFPass()";
@@ -681,16 +675,6 @@ def PatternBasedVF : PassBase<"pattern-based-vf", "vpux::FunctionPass"> {
             [{::llvm::cl::values(
                 clEnumValN(vpux::WorkloadManagementMode::PWLM_V0_1_PAGES, "PWLM_V0_1_PAGES", "PWLM with split into subgraphs (pages)"),
                 clEnumValN(vpux::WorkloadManagementMode::FWLM_V1_PAGES, "FWLM_V1_PAGES", "Full WLM with split into pages")
-            )}]
-        >,
-
-        Option<
-            "vfMergeCostModeOpt", "vf-merge-cost-mode",
-            "vpux::VFMergeCostMode", "",
-            "Objective used by pattern-based VF merging",
-            [{::llvm::cl::values(
-                clEnumValN(vpux::VFMergeCostMode::PERFORMANCE, "performance", "Select the existing VPUNN performance objective"),
-                clEnumValN(vpux::VFMergeCostMode::POWER, "power", "Select the DMA-byte power proxy")
             )}]
         >
     ];
@@ -751,16 +735,6 @@ def MergeVfSubgraphs : PassBase<"merge-vertical-fusion-subgraphs", "vpux::Functi
             [{::llvm::cl::values(
                 clEnumValN(vpux::WorkloadManagementMode::PWLM_V0_1_PAGES, "PWLM_V0_1_PAGES", "PWLM with split into subgraphs (pages)"),
                 clEnumValN(vpux::WorkloadManagementMode::FWLM_V1_PAGES, "FWLM_V1_PAGES", "Full WLM with split into pages")
-            )}]
-        >,
-
-        Option<
-            "vfMergeCostModeOpt", "vf-merge-cost-mode",
-            "vpux::VFMergeCostMode", "",
-            "Objective used by v2/FWLM VF merging",
-            [{::llvm::cl::values(
-                clEnumValN(vpux::VFMergeCostMode::PERFORMANCE, "performance", "Select the existing VPUNN performance objective"),
-                clEnumValN(vpux::VFMergeCostMode::POWER, "power", "Select the DMA-byte power proxy")
             )}]
         >
     ];
@@ -868,15 +842,6 @@ def VfTiling : PassBase<"vertical-fusion-tiling", "vpux::FunctionPass"> {
             [{::llvm::cl::values(
                 clEnumValN(vpux::WorkloadManagementMode::PWLM_V0_1_PAGES, "PWLM_V0_1_PAGES", "PWLM with split into subgraphs (pages)"),
                 clEnumValN(vpux::WorkloadManagementMode::FWLM_V1_PAGES, "FWLM_V1_PAGES", "Full WLM with split into pages")
-            )}]
-        >,
-        Option<
-            "vfMergeCostModeOpt", "vf-merge-cost-mode",
-            "vpux::VFMergeCostMode", "",
-            "Objective used by v2/FWLM VF tiling",
-            [{::llvm::cl::values(
-                clEnumValN(vpux::VFMergeCostMode::PERFORMANCE, "performance", "Select the existing VPUNN performance objective"),
-                clEnumValN(vpux::VFMergeCostMode::POWER, "power", "Select the DMA-byte power proxy")
             )}]
         >
     ];
@@ -2049,6 +2014,9 @@ def EnsureNCEOpsSizeRequirements : PassBase<"ensure-nce-ops-size-requirements", 
         Split-channel rewriting for DynamicDequantize weight chains can be enabled
         with enable-split-channel-for-dynamic-dequantize for platforms that support
         DynamicDequantize convolution vertical-fusion patterns.
+
+        For MatMuls that can be split over kernels split is deferred until strategy is
+        assigned. This is to allow SOK for MatMuls.
     }];
 
     let constructor = "vpux::VPU::createEnsureNCEOpsSizeRequirementsPass()";
@@ -2204,6 +2172,29 @@ def ConvertDepthToSpaceToNCEMaxPoolPass : PassBase<"convert-depth-to-space-to-nc
 }
 
 //
+// FuseDepthToSpaceToDpuPass
+//
+
+def FuseDepthToSpaceToDpuPass : PassBase<"fuse-depth-to-space-to-dpu", "vpux::FunctionPass"> {
+    let summary = "Fuse VPU.DepthToSpace into a preceding DPU operation using ODU D2S";
+
+    let description = [{
+        Fuses a VPU.DepthToSpace op into its producer VPU.NCE.Convolution by enabling the
+        ODU D2S feature on the producer, so that the DepthToSpace rearrangement is performed
+        directly by the DPU output pipeline instead of a separate op.
+
+        NOTE: this is an initial version of the pass, currently only VPU.NCE.Convolution
+        producers are supported.
+    }];
+
+    let constructor = "vpux::VPU::createFuseDepthToSpaceToDpuPass()";
+
+    let dependentDialects = [
+        "vpux::VPU::VPUDialect"
+    ];
+}
+
+//
 // OptimizeConcat
 //
 
@@ -2213,7 +2204,7 @@ def OptimizeConcat : PassBase<"optimize-concat", "vpux::FunctionPass"> {
     let description = [{
         AI-generated summary
 
-        Optimizes redundant Concat operations introduced by tiling. Applies three patterns:
+        Optimizes redundant Concat operations introduced by tiling. Applies these patterns:
         - EliminateConcat: removes a Concat when all users are Slice ops whose output is a
           sub-tensor of one of the Concat inputs. Also handles an intermediate PermuteCast
           between Concat and Slice when present.
@@ -2224,6 +2215,9 @@ def OptimizeConcat : PassBase<"optimize-concat", "vpux::FunctionPass"> {
         - FuseMultipleConcatOpsAroundGatherDMA: fuses nested Concat ops produced by
           separate Gather DMA tiling passes (TileGather + general tiling) into a single
           Concat, recalculating offsets through optional AffineReshape ops.
+        - AbsorbConcatIntoForOpAroundGatherDMA: Similar to the previous pattern, absorbs
+          Concat ops into tensor.insert_slice ops within an scf.for loop generated by scf
+          tiling of Gather DMAs. The loop's output is the final concatenated tensor.
     }];
 
     let constructor = "vpux::VPU::createOptimizeConcatPass()";
@@ -2233,11 +2227,6 @@ def OptimizeConcat : PassBase<"optimize-concat", "vpux::FunctionPass"> {
             "optimizeOnlyOuterConcat", "optimize-only-outer-concat",
             "bool", "false",
             "Flag to check dimension and only optimize concat when the dimension is the highest."
-        >,
-        Option<
-            "disablePassOnEntryFunction", "disable-pass-on-entry-function",
-            "bool", "false",
-            "Flag to disable the pass on entry function for host compilation."
         >
     ];
 
@@ -2308,9 +2297,11 @@ def SetupNpuConstraint : PassBase<"setup-npu-constraint", "vpux::ModulePass"> {
         - Adds per-barrier variant constraints: BarrierMaxVariantSum, BarrierMaxVariantCount.
         - Adds DPU and SHV register FIFO addresses, barrier FIFO address and depth.
         - Adds CMX metadata limits: MetadataMaxVariantCount, MetadataMaxInvariantCount,
-          MetadataMaxKernelInvocationCount, MetadataMaxKernelRangeCount, and
-          MetadataMaxMediaCount (NPU40XX and later).
+          MetadataMaxKernelInvocationCount, and MetadataMaxKernelRangeCount.
         - On supported architectures, sets MaxBarriersPerTask to 8 for 4K barrier task descriptors.
+        - On platforms that define it, sets MinTiles: the smallest number of NCE tiles among the
+          devices of the platform, which may differ from device to device. Code compiled for at most
+          MinTiles tiles runs on every device of the platform.
     }];
 
     let constructor = "vpux::VPU::createSetupNpuConstraintPass()";
@@ -2320,11 +2311,6 @@ def SetupNpuConstraint : PassBase<"setup-npu-constraint", "vpux::ModulePass"> {
             "allowCustomValues", "allow-custom-values",
             "bool", "",
             "[Optional] Allows keep predefined values in IR"
-        >,
-        Option<
-            "enableSwKernelFifoPerShaveEngine", "enable-sw-kernel-fifo-per-shave-engine",
-            "bool", "",
-            "Enable separate SW kernel FIFO for each Shave engine"
         >
     ];
 
@@ -2341,12 +2327,27 @@ def SetupCustomConstraints : PassBase<"setup-custom-constraints", "vpux::ModuleP
     let summary = "Setup custom constraints";
 
     let description = [{
-        Reads CustomConstraints from the IR and exposes custom constraints globally.
-        Overrides NPUConstraints from config.CustomConstraints when the IR provides custom values.
-        This pass is used for testing purposes only.
+        The MLIR pass is for testing purposes only.
+
+        The pass is to override the NPU constraints (capabilities) based on the
+        content of a given IR and the passed options.
+
+        To override the NPU constraints with the IR, add the block
+        config.CustomConstraints into the IR.
+
+        To override the NPU constraints with the command line options, add the
+        options inside --init-compiler.
     }];
 
     let constructor = "vpux::VPU::createSetupCustomConstraintsPass()";
+
+    let options = [
+        Option<
+            "enableAsymmetricPerTensorZP", "enable-asymmetric-per-tensor-zp",
+            "bool", "false",
+            "[Optional] Enable asymmetric weights with per tensor zero point to run on NCE without dequantization"
+        >,
+    ];
 }
 
 //
@@ -2365,7 +2366,7 @@ def SetTargetIndependentPassOptions : PassBase<"set-target-independent-options",
 
         Categories of options stored include: auto-padding (ODU/IDU), NCE reduce support,
         FP16 compressed convolution, VPUNN pre-split, ODU local region, SE-pointer operations,
-        QDQ optimization, adaptive stripping, weights table reuse mode, profiling,
+        QDQ optimization, adaptive stripping, weights table reuse mode, unbounded dynamism mode, profiling,
         asymmetric zero-point handling, weights dynamic dequantization, and architecture-specific
         options such as sprLUT, DCIM, and power optimization.
     }];
@@ -2416,6 +2417,17 @@ def SetTargetIndependentPassOptions : PassBase<"set-target-independent-options",
                 clEnumValN(vpux::WeightsTableReuseMode::ENABLED, "ENABLED", "Weights table can be reused for all operations that support it"),
                 clEnumValN(vpux::WeightsTableReuseMode::VF_ENABLED, "VF_ENABLED", "Weights table can be reused for operations in pure-vertical-fusion region, to avoid possible memory fragmentation"),
                 clEnumValN(vpux::WeightsTableReuseMode::DISABLED, "DISABLED", "Weights table cannot be reused")
+            )}]
+        >,
+        Option<
+            "unboundedDynamismMode", "unbounded-dynamism-mode",
+            "vpux::UnboundedDynamismMode", "",
+            "Setting the unbounded dynamism mode",
+            [{::llvm::cl::values(
+                clEnumValN(vpux::UnboundedDynamismMode::DISABLED, "DISABLED", "Disable unbounded dynamism"),
+                clEnumValN(vpux::UnboundedDynamismMode::LOWER, "LOWER", "Enable lower unbounded dynamism"),
+                clEnumValN(vpux::UnboundedDynamismMode::UPPER, "UPPER", "Enable upper unbounded dynamism"),
+                clEnumValN(vpux::UnboundedDynamismMode::LOWER_UPPER, "LOWER_UPPER", "Enable lower and upper unbounded dynamism")
             )}]
         >,
         Option<
@@ -2492,6 +2504,11 @@ def SetTargetIndependentPassOptions : PassBase<"set-target-independent-options",
             "enableWeightsDynamicDequantization", "enable-weights-dynamic-dequantization",
             "bool", "false",
             "[Optional] Set WeightsDynamicDequantization to true/false"
+        >,
+        Option<
+            "enableNativeFP4Weights", "enable-native-fp4-weights",
+            "bool", "false",
+            "[Optional] Enable native FP4 weights"
         >
     ];
 
@@ -2741,6 +2758,8 @@ def ConcatRepeatingBlocksOutlining : PassBase<"concat-repeating-blocks-outlining
 
         The pass can be configured with the following options:
         - min-seq-length: minimum number of compute operations that should be found on an input branch
+        - sdpa-min-seq-length: minimum number of compute operations for an SDPA input branch, applied only on
+                               newer platforms so that short SDPA branches can be outlined
         - sdpa-head-threshold: maximum number of SDPA input branches for skipping concat outlining
         - single-function-per-concat: decides whether to outline each input branch into an individual function (false)
                                       or outline all input branches and the concat into a single function (true)
@@ -2757,6 +2776,12 @@ def ConcatRepeatingBlocksOutlining : PassBase<"concat-repeating-blocks-outlining
             "minSeqLength", "min-seq-length",
             "int", "",
             "Minimum threshold for the length of an input branch"
+        >,
+
+        Option<
+            "sdpaMinSeqLength", "sdpa-min-seq-length",
+            "int", "4",
+            "Minimum threshold for the length of an SDPA input branch on newer platforms"
         >,
 
         Option<
@@ -3049,6 +3074,42 @@ def DynamicDimsMaskToBoundedTensors : PassBase<"dynamic-dims-mask-to-bounded-ten
 }
 
 //
+// PopulateDynamicDimensionsHW
+//
+
+def PopulateDynamicDimensionsHW : PassBase<"populate-dynamic-dimensions-hw-vpu", "vpux::FunctionPass"> {
+    let summary = "Adapter for `mlir::bufferization::populateDynamicDimSizes` that targets HW operations";
+
+    let description = [{
+        VPU-dialect counterpart of the IE `populate-dynamic-dimensions-hw` pass.
+
+        1. Decide whether the operation is a tail of a HW executed operation chain, i.e. the operation
+           requires static shape (`StaticShapeOpInterface`, e.g. NCE.Convolution) and its single consumer does not.
+           Operands with non-default dims order are skipped, since `VPU.DynamicReshape` supports only the default order.
+        2. Call `populateDynamicDimSizes` to insert `tensor.dim` operations into the graph.
+        3. Concatenate values of static dimensions with dynamic dimensions.
+           a. Cast `tensor.dim` to i32 via `mlir::arith::IndexCastOp`
+           b. Cast i32 to tensor<1xi32> via `mlir::tensor::FromElementsOp`
+           c. Cast tensor<1xi32> to tensor<1xsi32> with `mlir::tensor::BitcastOp`
+           d. These steps are necessary because VPU.DynamicReshape and VPU.StridedSlice expect si32 shape tensors.
+        4. Create a `VPU.StridedSlice` operation to slice the output (only when dynamic data is not contiguous).
+        5. Insert a `VPU.DynamicReshape` operation to reconcile type differences.
+           a. One of the inputs of the `VPU.StridedSlice` is the output of `VPU.Concat`
+           b. `VPU.StridedSlice` infers tensor<?x?x?x?xf16> if any of its inputs are unknown at compile time.
+           c. Consumer does not always expect every dimension to be ?, so the `VPU.DynamicReshape` is required.
+    }];
+
+    let constructor = "vpux::VPU::createPopulateDynamicDimensionsHWPass()";
+
+    let dependentDialects = [
+        "mlir::arith::ArithDialect",
+        "mlir::tensor::TensorDialect",
+        "vpux::Const::ConstDialect",
+        "vpux::VPU::VPUDialect"
+    ];
+}
+
+//
 // SCF compute outlining
 //
 
@@ -3109,6 +3170,77 @@ def ScfComputeOpsOutlining : PassBase<"scf-compute-ops-outlining", "vpux::Module
         "vpux::VPU::VPUDialect",
         "mlir::scf::SCFDialect",
         "mlir::tensor::TensorDialect"
+    ];
+}
+
+def PrepareDynamicKernelAllocationSizes : PassBase<"prepare-dynamic-kernel-allocation-sizes", "vpux::ModulePass"> {
+    let summary = "Prepare exact allocation sizes for dynamic kernel results";
+
+    let description = [{
+        Prepares the VPU operations that will later be outlined into dynamic compute functions.
+
+        For eligible VPU ops outside scf.for regions, the pass reifies result shapes and inserts an
+        exact-sized tensor.empty followed by tensor.insert_slice. This mimics destination-passing
+        style (DPS) at the boundary so downstream bufferization can reuse the destination buffer
+        prepared here instead of materializing an additional upper-bounded allocation and copy.
+    }];
+
+    let constructor = "vpux::VPU::createPrepareDynamicKernelAllocationSizesPass()";
+
+    let dependentDialects = [
+        "vpux::VPU::VPUDialect",
+        "mlir::scf::SCFDialect",
+        "mlir::tensor::TensorDialect",
+        "mlir::arith::ArithDialect"
+    ];
+}
+
+//
+// AssignTilesForSwIoDmaModules
+//
+
+def AssignTilesForSwIoDmaModules : PassBase<"assign-tiles-for-sw-io-dma-modules", "vpux::ModulePass"> {
+    let summary = "Compile kernel modules holding only SW IO DMA ops for multiple tiles";
+
+    let description = [{
+        The pass runs on every nested kernel module, right after PackNestedModules in the SCF compute
+        ops outlining pipeline, which only host compilation uses. Each kernel module holds a single
+        function and gets a copy of the parent config.Resources, so all kernels are compiled for the
+        same number of tiles. When MinTiles is above one, the pass fails on a single-tile module that
+        holds more than one function.
+
+        A module is changed only when all of the following hold:
+          - the config.MinTiles pipeline option (set per platform by SetupNpuConstraint) exists
+            and is larger than 1;
+          - the module is compiled for exactly one tile; modules compiled for more tiles keep them;
+          - all its compute ops implement VPU::SwIoDmaOpInterface (for example VPU.InterpolateDMA).
+            Only constants, aux buffer allocations and function boundary casts may appear next to
+            them;
+          - at least one of these ops supports the Clustering strategy on MinTiles tiles.
+
+        The pass then sets the NCE tile count of the module to MinTiles. Multi-cluster strategies
+        were assigned for the network tile count before the kernel modules were created, so the pass
+        sets Clustering on the ops that support it, as MultiClusterStrategyAssignment would. Ops that
+        do not support it (for example single-tile kernels) get no strategy and stay on one tile, as
+        in a multi-tile compilation. Other modules and the parent module keep their tile count.
+        A MinTiles value above the tile count of the platform fails the pass.
+
+        SW IO DMA ops keep whole input and output tensors in DDR and split the work across tiles
+        and SHAVEs at runtime. Clustering does not tile them; it only makes MakeOpsWithDistributedTensor
+        duplicate the CMX aux buffer on every tile, so that later passes create one kernel run per
+        tile and SHAVE and the kernel receives the tile count.
+
+            module @ModuleN {                            module @ModuleN {
+              config.Resources 1 of @NCE {...}             config.Resources N of @NCE {...}
+              func.func @main_func0(...) {       ->       func.func @main_func0(...) {
+                VPU.InterpolateDMA(...)                      VPU.InterpolateDMA(...)
+                                                               {multiClusterStrategy = Clustering}
+    }];
+
+    let constructor = "vpux::VPU::createAssignTilesForSwIoDmaModulesPass()";
+
+    let dependentDialects = [
+        "vpux::VPU::VPUDialect"
     ];
 }
 
@@ -3261,6 +3393,29 @@ def ConvertDynamicToStaticKernels : PassBase<"convert-dynamic-to-static-kernels"
 }
 
 //
+// FoldAvgPoolChannelExpand
+//
+
+def FoldAvgPoolChannelExpand : PassBase<"fold-avgpool-channel-expand", "vpux::FunctionPass"> {
+    let summary = "Folds width into channels for eltwise NCE.AveragePool ops fed by a channel-alignment Expand";
+
+    let description = [{
+        When an eltwise `VPU.NCE.AveragePool` (kernel=[1,1], stride=[1,1]) is fed by a `VPU.Expand` that only pads
+        the channel dimension for HW alignment (e.g. 3 channels padded to 16), the padding overhead can be large
+        for small channel counts. This pass instead folds part of the width dimension into channels via
+        `VPU.ShapeCast`, replacing the large channel Expand with a much smaller width-padding Expand. This is
+        valid because the op is purely elementwise and both operands are NHWC, so width/channel regrouping is a
+        lossless bitcast. Requires static shapes.
+    }];
+
+    let constructor = "vpux::VPU::createFoldAvgPoolChannelExpandPass()";
+
+    let dependentDialects = [
+        "vpux::VPU::VPUDialect"
+    ];
+}
+
+//
 // ExtractWeights
 //
 
@@ -3301,6 +3456,7 @@ def ConcatHostConsts : PassBase<"concat-host-consts", "vpux::ModulePass"> {
 
     let dependentDialects = [
         "vpux::VPU::VPUDialect",
+        "vpux::Core::CoreDialect",
         "mlir::tensor::TensorDialect",
         "mlir::arith::ArithDialect",
     ];
@@ -3365,6 +3521,34 @@ def SplitRealDFTOps : PassBase<"split-real-dft-ops", "vpux::FunctionPass"> {
     }];
 
     let constructor = "vpux::VPU::createSplitRealDFTOpsPass()";
+
+    let dependentDialects = [
+        "vpux::VPU::VPUDialect"
+    ];
+}
+
+//
+// InsertIdentityPoolBetweenD2SAndConv
+//
+
+def InsertIdentityPoolBetweenD2SAndConv : PassBase<"insert-identity-pool-between-d2s-and-conv", "vpux::FunctionPass"> {
+    let summary = "Insert an identity NCE average pool between DepthToSpace and convolution users";
+
+    let description = [{
+        Inserts a 1x1 identity VPU.NCE.AveragePool between VPU.DepthToSpace and its users when
+        at least one user is a VPU.NCE.Convolution with a non-1x1 kernel. All DepthToSpace users
+        are redirected through the identity pool so they can be handled as a single VF producer.
+
+        This is an intentional workaround for incompatible VF distribution requirements. DepthToSpace
+        requires spatial tiles to satisfy its block-size alignment, while a non-1x1 convolution adds
+        input halo regions that can violate that alignment. The identity pool separates these constraints
+        so Vertical Fusion can distribute the operations independently.
+
+        The pass runs only when the module is configured as power optimized, since the extra pool pays
+        off only for the power-oriented vertical fusion objective.
+    }];
+
+    let constructor = "vpux::VPU::createInsertIdentityPoolBetweenD2SAndConvPass()";
 
     let dependentDialects = [
         "vpux::VPU::VPUDialect"
@@ -3568,6 +3752,38 @@ def RestorePadAttrAfterSCFTiling : PassBase<"restore-tensor-pad-after-scf-tiling
 }
 
 //
+// ConvertTensorPadToVPUPad
+//
+
+def ConvertTensorPadToVPUPad : PassBase<"convert-tensor-pad-to-vpu-pad", "vpux::FunctionPass"> {
+    let summary = "Convert the SCF-tiling tensor.pad subset into VPU.Pad";
+
+    let description = [{
+        Converts `tensor.pad` (CONSTANT mode, static low/high padding, static or bounded-dynamic
+        input) into `VPU.Pad` so padding lowers through the existing VPU.Pad infrastructure
+        (dynamic/bounds/SW-kernel support + bufferization) instead of a tensor.pad-specific
+        bufferization that materialized generic linalg ops.
+
+        The rewrite is best effort: a pad outside the supported subset is left untouched and keeps
+        its tensor bufferization path. Pure-host functions are skipped entirely. A `nofold`
+        pad whose source and result types are equal is excluded, because `VPU::PadOp::fold` would
+        remove exactly the op `nofold` must preserve.
+
+        The pass is architecture agnostic and is scheduled once, in the DefaultHW pipeline under
+        scf-tiling after the NCE workloads pipeline. The device flow keeps tensor.pad explicit
+        through workloads-for-nce-ops-scf and move-tensor-ops-to-cmx, and full-unroll-scf-loop makes
+        further pad amounts static, so that is the last rewrite point before bufferization.
+    }];
+
+    let constructor = "vpux::VPU::createConvertTensorPadToVPUPadPass()";
+
+    let dependentDialects = [
+        "vpux::VPU::VPUDialect",
+        "mlir::tensor::TensorDialect"
+    ];
+}
+
+//
 // FlashSDPATiling
 //
 
@@ -3583,16 +3799,23 @@ def FlashSDPATiling : PassBase<"flash-sdpa-tiling", "vpux::FunctionPass"> {
         The head tiling stage consumes head_tile_size and splits the op on the Heads (C) dimension.
         A tile normally holds one whole GQA group, and a group-aligned subset of one group when that
         is what it takes to fit CMX with the Query pipelining reservation.
-        The KV unrolling stage consumes kv_num_tiles and unrolls each head tile into a chain of
-        FlashSDPA ops sliced along the Key/Value sequence length. In the decode case (target
+        KV unrolling consumes kv_num_tiles before Query sequence tiling consumes q_num_tiles,
+        producing Query tiles for each KV block. The resulting nesting is head, then KV block, then
+        Query tile, with Query tiles innermost to match the CMX reservation for pipelining
+        consecutive Q tiles. Decoder models have one Query tile, so the nesting reduces to head
+        followed by KV blocks. KV unrolling slices
+        FlashSDPA along the Key/Value sequence length. In the decode case (target
         sequence length 1) the CMX estimate reserves one extra KV block of Key and Value. That
         reservation makes a single full-KV block stop fitting, so the pass splits the Key/Value
         sequence, and it leaves room for the scheduler to prefetch the next block's Key and Value
         while the current block computes, overlapping block DMA with block compute instead of
         serializing them. Prefill keeps the tightest KV fit because its Query-tile loop already
         reuses each KV block across Q tiles.
-        The Query sequence tiling stage consumes q_num_tiles and tiles each op on the Query
-        sequence (H) dimension last, so that Q tiles form the innermost, pipelined loop.
+        Newly assigned head tiles receive separate tiling loop indices so loop allocation can schedule
+        each head's KV and Query pipeline independently; preassigned loop indices are preserved.
+        When head tiling introduces a removable concat/view/slice running-state chain, the pass
+        bypasses it, then reorders each original loop group into head-major KV chains while
+        preserving SSA dominance.
     }];
 
     let constructor = "vpux::VPU::createFlashSDPATilingPass()";
@@ -3640,10 +3863,38 @@ def AdjustBlockSizeForScfTiling : PassBase<"adjust-block-size-for-scf-tiling", "
         and step sizes. This pass adjusts the block sizes for input and output tensors to static sizes by backtracking the
         index for the last tile.
 
-        The pass does not handle scenarios where there are not enough elements to perform backtracking.
+        Backtracking requires every dynamic output dimension to hold at least one full tile (step size). By default the
+        pass emits a runtime `cf.assert` for this requirement before the loop nest.
+
+        With `enable-sub-tile-fallback` the assert is replaced by a runtime dispatch: the outermost scf.for of a loop nest
+        is wrapped into `scf.if`, whose condition is the OR over all dynamic output dimensions of `dim < step`. The `then`
+        branch holds a clone of the original loop nest taken before any block-size adjustment; every `func.call` in it
+        targets a dedicated clone of the callee named `<callee>_sub_tile` (uniquified when the name is taken), which keeps
+        dynamic operand types. The `else` branch holds the adjusted loop nest with static tile sizes. Loops in the `then`
+        branch and the cloned kernels are marked with the `sub_tile_fallback` attribute so that later static-shape
+        legalization passes skip them.
+
+        ```mlir
+        %is_sub_tile = arith.cmpi slt, %dim, %step : index
+        %result = scf.if %is_sub_tile -> (tensor<...>) {
+          %r = scf.for ... {sub_tile_fallback} { ... func.call @kernel_sub_tile(...) ... }
+          scf.yield %r
+        } else {
+          %r = scf.for ... { ... func.call @kernel_dims_W_cases_2(...) ... }
+          scf.yield %r
+        }
+        ```
     }];
 
     let constructor = "vpux::VPU::createAdjustBlockSizeForScfTilingPass()";
+
+    let options = [
+        Option<
+            "enableSubTileFallback", "enable-sub-tile-fallback",
+            "bool", "false",
+            "Route dynamic output dimensions smaller than the tile step to a dedicated dynamic kernel instead of asserting at runtime"
+        >
+    ];
 
     let dependentDialects = [
         "vpux::VPU::VPUDialect",
@@ -3665,10 +3916,32 @@ def UnrollSCFLoop : PassBase<"unroll-scf-loop", "vpux::ModulePass"> {
     let description = [{
         Unrolls scf.for loops by a specified unroll factor.
         This optimization can improve performance by reducing loop overhead.
+        The pass is used in the HostCompile pipeline.
 
         Option priority: loop-unroll-factor takes precedence over auto-unrolling-mode.
         For each dimension, if the manual factor from loop-unroll-factor is > 1 it is used
         directly. Auto-unrolling is applied only for dimensions where the manual factor is <= 1.
+
+        Auto-unrolling factor selection:
+        - Dynamic shapes with upper bounds: factor = max trip count derived from tensor bounds. The
+          runtime trip count may be smaller, so residual iterations are covered by cascade stages /
+          epilogue.
+        - Static shapes: factor = fullTiles / maxDpuTiles,
+          where fullTiles = (ub - lb) / step counts only complete source tiles and maxDpuTiles is
+          the platform maximum. The main stage runs once per DPU tile over full tiles; a partial
+          tail tile and any remaining full tiles fall into the residual loop, and cascade stages
+          are not applied in that case. This keeps the tail out of the merged main loop, whose
+          HostCompile body is expected to be a single Core.NestedCall or an scf.index_switch
+          selecting that call. Factors that would leave the main loop with a single iteration are
+          rejected, since such a loop is promoted to straight-line code and skips kernel merging.
+        Static residual loops run either zero or at least two iterations. The main loop is marked
+        no_await_all and its command list is submitted after the residual loop (no_reset_cmdlist),
+        but canonicalization promotes a single-iteration loop to straight-line code and drops these
+        attributes. When the residual loop would run a single iteration, one more main-loop
+        iteration (unroll-factor trips) is moved into it.
+        With cascaded unrolling on a static loop without a partial tail, a stage is skipped when it
+        would run fewer than two iterations or leave fewer than two iterations to the next loop.
+        Dynamic loops are not affected by these static-loop rules.
 
         The pass takes an unroll factor for each tensor dimension (N, C, H, W) and unrolls
         loops accordingly. Post unrolling,  tensor extract_slice and insert_slice operations
@@ -3791,9 +4064,8 @@ def UnrollSCFLoop : PassBase<"unroll-scf-loop", "vpux::ModulePass"> {
             "outer - unroll outermost loops; inner loops skipped when any ancestor loop in the candidate set has unroll factor > 1. "
             "all - unroll all loops without anti-nesting guard. "
             "biggest - unroll only the loop with the largest auto-assigned factor; skip all others. "
-            "Guards (active for all non-disabled modes unless manual factors are supplied): "
-            "1. Static upper bound: loops with compile-time constant bounds are skipped (E#218830). "
-            "2. Nesting guard: see mode description above. ",
+            "Nesting guard (active for all non-disabled modes unless manual factors are supplied): "
+            "see mode description above. ",
             [{::llvm::cl::values(
                 clEnumValN(vpux::AutoUnrollingMode::DISABLED, "disabled", "Auto-unrolling off"),
                 clEnumValN(vpux::AutoUnrollingMode::INNER, "inner",
@@ -3965,6 +4237,44 @@ def ConvertTileWithEltwiseToNCEPool : PassBase<"convert-tile-with-eltwise-to-nce
 
     let dependentDialects = [
         "vpux::Const::ConstDialect",
+        "vpux::VPU::VPUDialect",
+    ];
+}
+
+//
+// AddKernelsForOverlappingEdgeTiles
+//
+
+def AddKernelsForOverlappingEdgeTiles : PassBase<"add-kernels-for-overlapping-edge-tiles", "vpux::ModulePass"> {
+    let summary = "Adds the kernels of the overlapping edge tiles of a dim whose runtime size is in the 2-tile low "
+                  "resolution range";
+
+    let description = [{
+        AdjustBlockSizeForScfTiling computes a dim whose runtime size D is in S < D <= S + halo (S is the loop step)
+        with two FULLBLK tiles: tile 0 at 0 and tile 1 at bt = D - S, both with full pads. It marks such a dim with a
+        `vpux.lowres` loop attribute, the pre-loop low resolution predicate with `vpux.lowres_pred`, and the input
+        slices of the FULLBLK cases with `vpux.lowres_slice`.
+
+        A low resolution tile runs only in a loop whose step is S (not unrolled, or the residual loop of UnrollSCF).
+        For each such loop the pass:
+        - sets the offset of the tagged FULLBLK input slices on the dim to bt, the offset of the output tile;
+        - adds a tile-1 case for every FULLBLK case of the dispatch switch. It calls a clone of the kernel that takes
+          the accumulator part [bt, bt + O_l) as one more input (the outputs of tile 0) and returns
+          concat(that part, its own outputs [O_l, S)): O_l outputs at the start of a tile computed with full left pad
+          are invalid. The selector adds a case offset when the predicate is set and bt != 0. The switch keeps one
+          result and the output insert is unchanged.
+        Unrolled main loops (step f * S) never run a low resolution tile and are not changed. The tags are removed.
+
+        This pass must run after the UnrollSCF pass
+    }];
+
+    let constructor = "vpux::VPU::createAddKernelsForOverlappingEdgeTilesPass()";
+
+    let dependentDialects = [
+        "mlir::tensor::TensorDialect",
+        "mlir::arith::ArithDialect",
+        "mlir::scf::SCFDialect",
+        "mlir::func::FuncDialect",
         "vpux::VPU::VPUDialect",
     ];
 }

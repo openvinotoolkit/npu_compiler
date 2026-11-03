@@ -41,6 +41,58 @@ SmallVector<mlir::Operation*> TilingContext::applySCFTilingAndFusion(mlir::Rewri
     return _tilingAlgorithm->applySCFTilingAndFusion(_operation, builder, mergeConfig, log);
 }
 
+namespace {
+
+// Scales and zero points of a per-axis quantized type are part of the element type, which is shared by
+// every iteration of the generated scf.for, so a tile cannot carry its own slice of them. Such tiling is
+// handed over to the non-SCF algorithm, which materializes a separate tile type per slice.
+bool tilesPerAxisQuantDim(mlir::Operation* operation, ShapeRef strategy) {
+    const auto getPerAxisQuantDim = [](mlir::Value value) -> std::optional<int64_t> {
+        const auto ndType = mlir::dyn_cast<vpux::NDTypeInterface>(value.getType());
+        if (ndType == nullptr) {
+            return std::nullopt;
+        }
+        const auto perAxisQType = mlir::dyn_cast<mlir::quant::UniformQuantizedPerAxisType>(ndType.getElementType());
+        if (perAxisQType == nullptr) {
+            return std::nullopt;
+        }
+        return perAxisQType.getQuantizedDimension();
+    };
+
+    const auto isTiledDim = [&](int64_t dimInd) {
+        return dimInd >= 0 && checked_cast<size_t>(dimInd) < strategy.size() && strategy[Dim(dimInd)] > 1;
+    };
+
+    for (auto result : operation->getResults()) {
+        const auto quantDim = getPerAxisQuantDim(result);
+        if (quantDim.has_value() && isTiledDim(quantDim.value())) {
+            return true;
+        }
+    }
+
+    auto nceOperation = mlir::dyn_cast<VPU::NCEOpInterface>(operation);
+    const auto channelDim = getShape(operation->getResult(0)).size() == 5 ? DimsGroups5D::Act::C : Dims4D::Act::C;
+
+    for (auto operand : operation->getOperands()) {
+        const auto quantDim = getPerAxisQuantDim(operand);
+        if (!quantDim.has_value()) {
+            continue;
+        }
+        // NCE weights hold one entry per output channel, so their quantized axis follows the output
+        // channel dimension instead of the operand dimension with the same index.
+        const auto tiledDim = (nceOperation != nullptr && nceOperation.getWeightsOperand() == operand)
+                                      ? channelDim.ind()
+                                      : quantDim.value();
+        if (isTiledDim(tiledDim)) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+}  // namespace
+
 bool isSCFSupported(mlir::Operation* operation) {
     const auto outShape = getShape(operation->getResult(0));
 
@@ -59,6 +111,10 @@ bool isSCFSupported(mlir::Operation* operation) {
             }
         }
         if (mlir::isa<VPU::SparseTensorType>(operation->getOperand(sparseCheckOperandInd).getType())) {
+            return false;
+        }
+
+        if (tilesPerAxisQuantDim(operation, strategy)) {
             return false;
         }
     }

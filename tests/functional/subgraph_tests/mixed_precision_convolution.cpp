@@ -67,8 +67,8 @@ public:
 
         // Weights: f4e2m1 constants dequantized to f16 via Convert + per-output-channel Multiply.
         const std::vector<size_t> weightsShapes = {convOutChannels, inputShape[1], kernel[0], kernel[1]};
-        static const std::vector<float> fp4Vals = {0.0f,  0.5f,  1.0f,  1.5f,  2.0f,  3.0f,  4.0f, 6.0f,
-                                                   -0.5f, -1.0f, -1.5f, -2.0f, -3.0f, -4.0f, -6.0f};
+        static const std::vector<float> fp4Vals = {0.0f,  0.5f,  1.0f,  1.5f,  2.0f,  3.0f,  4.0f,  6.0f,
+                                                   -0.0f, -0.5f, -1.0f, -1.5f, -2.0f, -3.0f, -4.0f, -6.0f};
         std::mt19937 fp4Engine(0);
         std::uniform_int_distribution<> fp4IdxDist(0, static_cast<int>(fp4Vals.size()) - 1);
         std::vector<ov::float4_e2m1> fp4Data(ov::shape_size(weightsShapes));
@@ -87,6 +87,124 @@ public:
                                                               dilation, padType);
         function = std::make_shared<ov::Model>(ov::ResultVector{std::make_shared<ov::op::v0::Result>(conv)}, params,
                                                "MixedPrecisionConvFP8ActFP4Weights");
+    }
+};
+
+// Same as MixedPrecisionConvSubGraphTestFP8ActFP4Weights, but runs with the native FP4 weights
+// compiler option enabled, so the FP4 weights are consumed directly by NCE instead of being
+// palletized to a float LUT.
+class MixedPrecisionConvSubGraphTestFP8ActFP4WeightsNative : public MixedPrecisionConvSubGraphTestFP8ActFP4Weights {
+    void configure_model() override {
+        configuration[ov::intel_npu::compilation_mode_params.name()] = "enable-native-fp4-weights=true";
+    }
+};
+
+// Test for Convolution with FP8 fake-quantized activations and per-channel FP4 dequantized
+// weights (distinct scale value per output channel, not just a per-channel-shaped constant scale).
+class MixedPrecisionConvSubGraphTestFP8ActFP4WeightsPerChannel : public MixedPrecisionConvSubGraphTest {
+public:
+    void SetUp() override {
+        abs_threshold = 1.0f;
+
+        mixedPrecisionConvSpecificParams mixedPrecisionConvParams;
+        ov::element::Type modelType;
+        std::vector<size_t> inputShape;
+        std::tie(mixedPrecisionConvParams, modelType, inputShape, std::ignore) = this->GetParam();
+
+        ov::op::PadType padType = ov::op::PadType::AUTO;
+        std::vector<size_t> kernel, stride, dilation;
+        std::vector<ptrdiff_t> padBegin, padEnd;
+        size_t convOutChannels;
+        std::tie(kernel, stride, padBegin, padEnd, dilation, convOutChannels, std::ignore, std::ignore, std::ignore) =
+                mixedPrecisionConvParams;
+
+        init_input_shapes(static_shapes_to_test_representation({inputShape}));
+
+        ov::ParameterVector params{std::make_shared<ov::op::v0::Parameter>(modelType, inputDynamicShapes.front())};
+        const auto actScale = ov::op::v0::Constant::create(ov::element::f16, ov::Shape{1}, {2.0f});
+        const auto actFakeConvert =
+                std::make_shared<ov::op::v13::FakeConvert>(params[0], actScale, ov::element::f8e4m3);
+
+        const std::vector<size_t> weightsShapes = {convOutChannels, inputShape[1], kernel[0], kernel[1]};
+        static const std::vector<float> fp4Vals = {0.0f,  0.5f,  1.0f,  1.5f,  2.0f,  3.0f,  4.0f,  6.0f,
+                                                   -0.0f, -0.5f, -1.0f, -1.5f, -2.0f, -3.0f, -4.0f, -6.0f};
+        std::mt19937 fp4Engine(0);
+        std::uniform_int_distribution<> fp4IdxDist(0, static_cast<int>(fp4Vals.size()) - 1);
+        std::vector<ov::float4_e2m1> fp4Data(ov::shape_size(weightsShapes));
+        std::generate(fp4Data.begin(), fp4Data.end(), [&]() {
+            return ov::float4_e2m1(fp4Vals[fp4IdxDist(fp4Engine)]);
+        });
+        const auto weightsConst = std::make_shared<ov::op::v0::Constant>(ov::element::f4e2m1, weightsShapes, fp4Data);
+        const auto weightsConvert = std::make_shared<ov::op::v0::Convert>(weightsConst, ov::element::f16);
+        // Distinct per-output-channel scale values (not a uniform constant), so the quantized weight type
+        // stays a genuine per-axis (UniformQuantizedPerAxisType) type instead of folding to per-tensor.
+        std::vector<double> scaleData(convOutChannels);
+        for (size_t i = 0; i < convOutChannels; ++i) {
+            scaleData[i] = (1.0 + static_cast<double>(i % 4) * 0.5) / 6.0;
+        }
+        const auto scaleConst = std::make_shared<ov::op::v0::Constant>(ov::element::f16,
+                                                                       ov::Shape{convOutChannels, 1, 1, 1}, scaleData);
+        const auto weightsMultiply = std::make_shared<ov::op::v1::Multiply>(weightsConvert, scaleConst);
+
+        auto conv = std::make_shared<ov::op::v1::Convolution>(actFakeConvert, weightsMultiply, stride, padBegin, padEnd,
+                                                              dilation, padType);
+        function = std::make_shared<ov::Model>(ov::ResultVector{std::make_shared<ov::op::v0::Result>(conv)}, params,
+                                               "MixedPrecisionConvFP8ActFP4WeightsPerChannel");
+    }
+};
+
+// Same as MixedPrecisionConvSubGraphTestFP8ActFP4WeightsPerChannel, but runs with the native FP4 weights
+// compiler option enabled, so the per-channel FP4 weights are consumed directly by NCE instead of being
+// palletized to a float LUT.
+class MixedPrecisionConvSubGraphTestFP8ActFP4WeightsPerChannelNative :
+        public MixedPrecisionConvSubGraphTestFP8ActFP4WeightsPerChannel {
+    void configure_model() override {
+        configuration[ov::intel_npu::compilation_mode_params.name()] = "enable-native-fp4-weights=true";
+    }
+};
+
+// Test for Convolution with FP16 activations and FP4 dequantized weights.
+class MixedPrecisionConvSubGraphTestFP16ActFP4Weights : public MixedPrecisionConvSubGraphTest {
+public:
+    void SetUp() override {
+        abs_threshold = 1.0f;
+
+        mixedPrecisionConvSpecificParams mixedPrecisionConvParams;
+        ov::element::Type modelType;
+        std::vector<size_t> inputShape;
+        std::tie(mixedPrecisionConvParams, modelType, inputShape, std::ignore) = this->GetParam();
+
+        ov::op::PadType padType = ov::op::PadType::AUTO;
+        std::vector<size_t> kernel, stride, dilation;
+        std::vector<ptrdiff_t> padBegin, padEnd;
+        size_t convOutChannels;
+        std::tie(kernel, stride, padBegin, padEnd, dilation, convOutChannels, std::ignore, std::ignore, std::ignore) =
+                mixedPrecisionConvParams;
+
+        init_input_shapes(static_shapes_to_test_representation({inputShape}));
+
+        ov::ParameterVector params{std::make_shared<ov::op::v0::Parameter>(modelType, inputDynamicShapes.front())};
+
+        const std::vector<size_t> weightsShapes = {convOutChannels, inputShape[1], kernel[0], kernel[1]};
+        static const std::vector<float> fp4Vals = {0.0f,  0.5f,  1.0f,  1.5f,  2.0f,  3.0f,  4.0f,  6.0f,
+                                                   -0.0f, -0.5f, -1.0f, -1.5f, -2.0f, -3.0f, -4.0f, -6.0f};
+        std::mt19937 fp4Engine(0);
+        std::uniform_int_distribution<> fp4IdxDist(0, static_cast<int>(fp4Vals.size()) - 1);
+        std::vector<ov::float4_e2m1> fp4Data(ov::shape_size(weightsShapes));
+        std::generate(fp4Data.begin(), fp4Data.end(), [&]() {
+            return ov::float4_e2m1(fp4Vals[fp4IdxDist(fp4Engine)]);
+        });
+        const auto weightsConst = std::make_shared<ov::op::v0::Constant>(ov::element::f4e2m1, weightsShapes, fp4Data);
+        const auto weightsConvert = std::make_shared<ov::op::v0::Convert>(weightsConst, ov::element::f16);
+        const std::vector<double> scaleData(convOutChannels, 1.0 / 6.0);
+        const auto scaleConst = std::make_shared<ov::op::v0::Constant>(ov::element::f16,
+                                                                       ov::Shape{convOutChannels, 1, 1, 1}, scaleData);
+        const auto weightsMultiply = std::make_shared<ov::op::v1::Multiply>(weightsConvert, scaleConst);
+
+        auto conv = std::make_shared<ov::op::v1::Convolution>(params[0], weightsMultiply, stride, padBegin, padEnd,
+                                                              dilation, padType);
+        function = std::make_shared<ov::Model>(ov::ResultVector{std::make_shared<ov::op::v0::Result>(conv)}, params,
+                                               "MixedPrecisionConvFP16ActFP4Weights");
     }
 };
 

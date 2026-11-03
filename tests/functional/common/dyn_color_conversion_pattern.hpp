@@ -25,6 +25,7 @@ namespace ov::test::subgraph {
 //
 // Returns the CSC output in NHWC layout: [1, H, W, 3], f16, BGR channel order.
 std::shared_ptr<ov::Node> buildDynYuvToRgbPattern(const std::shared_ptr<ov::op::v0::Parameter>& yInput,
-                                                  const std::shared_ptr<ov::op::v0::Parameter>& uvInput);
+                                                  const std::shared_ptr<ov::op::v0::Parameter>& uvInput,
+                                                  bool addOutputConv = false);
 
 }  // namespace ov::test::subgraph

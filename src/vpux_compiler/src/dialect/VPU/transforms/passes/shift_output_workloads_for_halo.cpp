@@ -133,14 +133,12 @@ void ShiftOutputWorkloadsForHaloPass::safeRunOnFunc() {
         // DPU workloads are in pre-ODU coordinates. For s2dd2s ops, distributed buffer
         // offsets are post-ODU, so convert offsets back before shifting workloads.
         const auto oduScales = VPU::getODUScaling(nceOp.getOperation());
-        if (!oduScales.empty()) {
-            for (auto& offset : clusteringOffsets) {
-                auto preODUOffsetResult = VPU::invertODUScaling(oduScales, offset, nceOp->getLoc());
-                VPUX_THROW_UNLESS(mlir::succeeded(preODUOffsetResult),
-                                  "Failed to invert ODU clustering offset for operation '{0}' at '{1}'",
-                                  nceOp->getName(), nceOp->getLoc());
-                offset = preODUOffsetResult.value();
-            }
+        for (auto& offset : clusteringOffsets) {
+            auto preODUOffsetResult = VPU::invertODUScaling(oduScales, offset, nceOp->getLoc());
+            VPUX_THROW_UNLESS(mlir::succeeded(preODUOffsetResult),
+                              "Failed to invert ODU clustering offset for operation '{0}' at '{1}'", nceOp->getName(),
+                              nceOp->getLoc());
+            offset = preODUOffsetResult.value();
         }
 
         for (auto workloadOp : workloads) {

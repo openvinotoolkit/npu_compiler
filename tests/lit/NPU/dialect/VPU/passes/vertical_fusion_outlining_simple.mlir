@@ -52,8 +52,7 @@ module @MultipleOpsInVF {
 
 // CHECK: func.func @main([[INPUT1:%.+]]: tensor<1x48x1024x4xf16, {order = #NHWC}>, [[INPUT2:%.+]]: tensor<4096x48x1x1xf16, {order = #NHWC}>, [[INPUT3:%.+]]: tensor<48x4096x1x1xf16, {order = #NHWC}>) -> tensor<1x48x1024x4xf16, {order = #NHWC}> {
 // CHECK:  [[CALL:%.+]] = call @main_vf1([[INPUT1]], [[INPUT2]], [[INPUT3]]) : (tensor<1x48x1024x4xf16, {order = #NHWC}>, tensor<4096x48x1x1xf16, {order = #NHWC}>, tensor<48x4096x1x1xf16, {order = #NHWC}>) -> tensor<1x48x1024x4xf16, {order = #NHWC}>
-
-// CHECK:  return [[CALL]] : tensor<1x48x1024x4xf16, {order = #NHWC}>
+// CHECK-NEXT:  return [[CALL]] : tensor<1x48x1024x4xf16, {order = #NHWC}>
 
 // -----
 
@@ -140,9 +139,8 @@ module @ParallelConcatInput {
 
 // CHECK: func.func @main([[INPUT:%.+]]: tensor<1x32x256x256xf16, {order = #NHWC}>) -> (tensor<1x64x256x256xf16, {order = #NHWC}>, tensor<1x64x256x256xf16, {order = #NHWC}>) {
 // CHECK:  [[CALL0:%.+]]:2 = call @main_vf1([[INPUT]]) : (tensor<1x32x256x256xf16, {order = #NHWC}>) -> (tensor<1x64x256x256xf16, {order = #NHWC}>, tensor<1x64x256x256xf16, {order = #NHWC}>)
-// CHECK:  [[CALL1:%.+]] = call @main_vf2([[CALL0]]#1) : (tensor<1x64x256x256xf16, {order = #NHWC}>) -> tensor<1x64x256x256xf16, {order = #NHWC}>
-
-// CHECK:  return [[CALL0]]#0, [[CALL1]] : tensor<1x64x256x256xf16, {order = #NHWC}>, tensor<1x64x256x256xf16, {order = #NHWC}>
+// CHECK-NEXT:  [[CALL1:%.+]] = call @main_vf2([[CALL0]]#1) : (tensor<1x64x256x256xf16, {order = #NHWC}>) -> tensor<1x64x256x256xf16, {order = #NHWC}>
+// CHECK-NEXT:  return [[CALL0]]#0, [[CALL1]] : tensor<1x64x256x256xf16, {order = #NHWC}>, tensor<1x64x256x256xf16, {order = #NHWC}>
 
 // -----
 
@@ -225,7 +223,7 @@ module @ParallelConcatInputWithMultiTilingDim {
 
 // CHECK: func.func @main([[INPUT:%.+]]: tensor<1x32x256x256xf16, {order = #NHWC}>) -> (tensor<1x64x256x256xf16, {order = #NHWC}>, tensor<1x64x256x256xf16, {order = #NHWC}>) {
 // CHECK:  [[CALL0:%.+]]:2 = call @main_vf1([[INPUT]]) : (tensor<1x32x256x256xf16, {order = #NHWC}>) -> (tensor<1x64x256x256xf16, {order = #NHWC}>, tensor<1x64x256x256xf16, {order = #NHWC}>)
-// CHECK:  return [[CALL0]]#0, [[CALL0]]#1 : tensor<1x64x256x256xf16, {order = #NHWC}>, tensor<1x64x256x256xf16, {order = #NHWC}>
+// CHECK-NEXT:  return [[CALL0]]#0, [[CALL0]]#1 : tensor<1x64x256x256xf16, {order = #NHWC}>, tensor<1x64x256x256xf16, {order = #NHWC}>
 
 // -----
 
@@ -283,8 +281,8 @@ module @ConcatSliceUsers {
 
 // CHECK: func.func @main([[ARG0:%.+]]: tensor<1x32x256x256xf16, {order = #NHWC}>) -> tensor<1x48x256x256xf16, {order = #NHWC}> {
 // CHECK:  [[CALL0:%.+]]:2 = call @main_vf1([[ARG0]]) : (tensor<1x32x256x256xf16, {order = #NHWC}>) -> (tensor<1x32x256x256xf16, {order = #NHWC}>, tensor<1x16x256x256xf16, {order = #NHWC}>)
-// CHECK:  [[CALL1:%.+]] = call @main_vf2([[CALL0]]#0, [[CALL0]]#1) : (tensor<1x32x256x256xf16, {order = #NHWC}>, tensor<1x16x256x256xf16, {order = #NHWC}>) -> tensor<1x48x256x256xf16, {order = #NHWC}>
-// CHECK:  return [[CALL1]] : tensor<1x48x256x256xf16, {order = #NHWC}>
+// CHECK-NEXT:  [[CALL1:%.+]] = call @main_vf2([[CALL0]]#0, [[CALL0]]#1) : (tensor<1x32x256x256xf16, {order = #NHWC}>, tensor<1x16x256x256xf16, {order = #NHWC}>) -> tensor<1x48x256x256xf16, {order = #NHWC}>
+// CHECK-NEXT:  return [[CALL1]] : tensor<1x48x256x256xf16, {order = #NHWC}>
 
 // -----
 
@@ -340,8 +338,8 @@ module @ConcatMultiUsers {
 
 // CHECK: func.func @main([[ARG0:%.+]]: tensor<1x32x256x256xf16, {order = #NHWC}>) -> tensor<1x80x256x256xf16, {order = #NHWC}> {
 // CHECK:  [[CALL0:%.+]] = call @main_vf1([[ARG0]]) : (tensor<1x32x256x256xf16, {order = #NHWC}>) -> tensor<1x48x256x256xf16, {order = #NHWC}>
-// CHECK:  [[CALL1:%.+]] = call @main_vf2([[CALL0]]) : (tensor<1x48x256x256xf16, {order = #NHWC}>) -> tensor<1x80x256x256xf16, {order = #NHWC}>
-// CHECK:  return [[CALL1]] : tensor<1x80x256x256xf16, {order = #NHWC}>
+// CHECK-NEXT:  [[CALL1:%.+]] = call @main_vf2([[CALL0]]) : (tensor<1x48x256x256xf16, {order = #NHWC}>) -> tensor<1x80x256x256xf16, {order = #NHWC}>
+// CHECK-NEXT:  return [[CALL1]] : tensor<1x80x256x256xf16, {order = #NHWC}>
 
 // -----
 
@@ -554,3 +552,56 @@ module @NotOutliningPotentiallyOptimizableDDR2DDRCopy {
 // CHECK:   [[OUTLINE:%.+]] = call @main_vf1
 // CHECK:  return [[OUTLINE]]
 }
+
+// -----
+
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+module @TiledConvolutionSlicesWithInterveningVF {
+  net.NetworkInfo entryPoint : @main
+    inputsInfo : {
+      DataInfo "input1" : tensor<1x3072x576x8xf16>
+      DataInfo "input2" : tensor<27648x3072x1x1xf16>
+    }
+    outputsInfo : {
+      DataInfo "output1" : tensor<1x3072x576x8xf16>
+      DataInfo "output2" : tensor<1x9216x576x8xf16>
+    }
+
+  func.func @main(%input1: tensor<1x3072x576x8xf16, {order = #NHWC}>, %input2: tensor<27648x3072x1x1xf16, {order = #NHWC}>) -> (tensor<1x3072x576x8xf16, {order = #NHWC}>, tensor<1x9216x576x8xf16, {order = #NHWC}>) {
+    %conv = VPU.NCE.Convolution(%input1, %input2) rawFilterShape [27648, 3072, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEStub<>, strides = [1, 1], tilingStrategy = [1, 432, 6, 1]} : tensor<1x3072x576x8xf16, {order = #NHWC}>, tensor<27648x3072x1x1xf16, {order = #NHWC}> -> tensor<1x27648x576x8xf16, {order = #NHWC}>
+    %0 = VPU.Slice %conv [0, 18432, 0, 0] [1, 9216, 576, 8] : tensor<1x27648x576x8xf16, {order = #NHWC}> to tensor<1x9216x576x8xf16, {order = #NHWC}>
+    %1 = VPU.Slice %conv [0, 9216, 0, 0] [1, 9216, 576, 8] : tensor<1x27648x576x8xf16, {order = #NHWC}> to tensor<1x9216x576x8xf16, {order = #NHWC}>
+    %2 = VPU.Slice %conv [0, 0, 0, 0] [1, 3072, 576, 8] : tensor<1x27648x576x8xf16, {order = #NHWC}> to tensor<1x3072x576x8xf16, {order = #NHWC}>
+    %3 = VPU.VerticalFusion (%2 as %arg0: tensor<1x3072x576x8xf16, {order = #NHWC}>) attributes {tilingStrategy = [1, 1, 18, 1]} -> tensor<1x3072x576x8xf16, {order = #NHWC}> {
+      %4 = VPU.Swish(%arg0) {beta_value = 1.0 : f64, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>} : tensor<1x3072x576x8xf16, {order = #NHWC}> -> tensor<1x3072x576x8xf16, {order = #NHWC}>
+      VPU.Yield %4
+    }
+    %5 = VPU.VerticalFusion (%1 as %arg0: tensor<1x9216x576x8xf16, {order = #NHWC}>, %0 as %arg1: tensor<1x9216x576x8xf16, {order = #NHWC}>) attributes {tilingStrategy = [1, 45, 1, 1]} -> tensor<1x9216x576x8xf16, {order = #NHWC}> {
+      %6 = VPU.Swish(%arg0) {beta_value = 1.0 : f64, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>} : tensor<1x9216x576x8xf16, {order = #NHWC}> -> tensor<1x9216x576x8xf16, {order = #NHWC}>
+      %7 = VPU.NCE.Eltwise(%6, %arg1) {resultSegmentSizes = array<i32: 1, 0, 0, 0>, is_inplace = true, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, op_type = #VPU.eltwise_type<MULTIPLY>, ppe = #VPU.PPEStub<>} -> tensor<1x9216x576x8xf16, {order = #NHWC}>
+      VPU.Yield %7
+    }
+    return %3, %5 : tensor<1x3072x576x8xf16, {order = #NHWC}>, tensor<1x9216x576x8xf16, {order = #NHWC}>
+  }
+}
+
+// CHECK-LABEL: module @TiledConvolutionSlicesWithInterveningVF
+
+// CHECK:     func.func nested @main_vf1
+// CHECK:       [[CONV:%.+]] = VPU.NCE.Convolution
+// CHECK:       [[SLICE0:%.+]] = VPU.Slice [[CONV]] [0, 18432, 0, 0] [1, 9216, 576, 8]
+// CHECK:       [[SLICE1:%.+]] = VPU.Slice [[CONV]] [0, 9216, 0, 0] [1, 9216, 576, 8]
+// CHECK:       [[SLICE2:%.+]] = VPU.Slice [[CONV]] [0, 0, 0, 0] [1, 3072, 576, 8]
+// CHECK-NOT:   return
+// CHECK-NOT: func.func nested
+// CHECK:       [[VF0:%.+]] = VPU.VerticalFusion
+// CHECK-SAME:    [[SLICE2]] as %arg{{[0-9]+}}
+// CHECK-NOT:   return
+// CHECK-NOT: func.func nested
+// CHECK:       [[VF1:%.+]] = VPU.VerticalFusion
+// CHECK-SAME:    [[SLICE1]] as %arg{{[0-9]+}}
+// CHECK-SAME:    [[SLICE0]] as %arg{{[0-9]+}}
+// CHECK:       return [[VF0]], [[VF1]]
+// CHECK:     func.func @main
+// CHECK:       [[OUTLINE:%[0-9]+]]:2 = call @main_vf1
+// CHECK:       return [[OUTLINE]]#0, [[OUTLINE]]#1

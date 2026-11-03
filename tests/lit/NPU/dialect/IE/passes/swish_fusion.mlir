@@ -16,16 +16,16 @@ func.func @SwishFusion(%arg0: tensor<1x24x640x640xf16>) -> tensor<1x24x640x640xf
   %cst_4 = const.Declare tensor<1x1x1x1xf16> = dense<-2.845580e-01> : tensor<1x1x1x1xf32>, [#const.CastElemType<f16>]
   %cst_5 = const.Declare tensor<1x1x1x1xf16> = dense<10.0814838> : tensor<1x1x1x1xf32>, [#const.CastElemType<f16>]
   %cst_6 = const.Declare tensor<1x1x1x1xf16> = dense<0.000000e+00> : tensor<1x1x1x1xf32>, [#const.CastElemType<f16>]
-  %0 = IE.FakeQuantize(%arg0, %cst_1, %cst_2, %cst_1, %cst_2) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i64} : tensor<1x24x640x640xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<1x24x640x640xf16>
+  %0 = IE.FakeQuantize(%arg0, %cst_1, %cst_2, %cst_1, %cst_2) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256 : i64} : tensor<1x24x640x640xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<1x24x640x640xf16>
   %1 = IE.Sigmoid(%0) : tensor<1x24x640x640xf16> -> tensor<1x24x640x640xf16>
-  %2 = IE.FakeQuantize(%1, %cst_6, %cst_3, %cst_6, %cst_3) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i64} : tensor<1x24x640x640xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<1x24x640x640xf16>
+  %2 = IE.FakeQuantize(%1, %cst_6, %cst_3, %cst_6, %cst_3) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256 : i64} : tensor<1x24x640x640xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<1x24x640x640xf16>
   %3 = IE.Multiply(%0, %2) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x24x640x640xf16>, tensor<1x24x640x640xf16> -> tensor<1x24x640x640xf16>
 
   return %3 : tensor<1x24x640x640xf16>
 
   // CHECK:  [[CST:%.+]] = const.Declare tensor<1x1x1x1xf16> = dense<-10.0031395> : tensor<1x1x1x1xf32>, [#const.CastElemType<f16>]
   // CHECK:  [[CST_0:%.+]] = const.Declare tensor<1x1x1x1xf16> = dense<10.0819044> : tensor<1x1x1x1xf32>, [#const.CastElemType<f16>]
-  // CHECK:  [[FAKE_QUANT:%.+]] = IE.FakeQuantize([[INPUT]], [[CST]], [[CST_0]], [[CST]], [[CST_0]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i64} : tensor<1x24x640x640xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<1x24x640x640xf16>
+  // CHECK:  [[FAKE_QUANT:%.+]] = IE.FakeQuantize([[INPUT]], [[CST]], [[CST_0]], [[CST]], [[CST_0]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256 : i64} : tensor<1x24x640x640xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<1x24x640x640xf16>
   // CHECK:  [[SWISH:%.+]] = IE.Swish([[FAKE_QUANT]]) {beta_value = 1.000000e+00 : f64} : tensor<1x24x640x640xf16> -> tensor<1x24x640x640xf16>
   // CHECK:  return [[SWISH]] : tensor<1x24x640x640xf16>
 

@@ -7,6 +7,7 @@
 #define VPUX_COMPILER_DIALECT_VPU_OPS_DPU
 
 include "vpux/compiler/dialect/core/constraints.td"
+include "vpux/compiler/dialect/core/ops_interfaces.td"
 include "vpux/compiler/dialect/core/types.td"
 include "vpux/compiler/dialect/VPU/ops/base.td"
 include "vpux/compiler/dialect/VPU/attributes.td"
@@ -154,7 +155,8 @@ def VPU_NCEConvolutionOp :
                 DeclareOpInterfaceMethods<VPU_SparseOpInterface>,
                 DeclareOpInterfaceMethods<VPU_ShapeInfoOpInterface>,
                 DeclareOpInterfaceMethods<VPU_VerticalFusionOpInterface>,
-                DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface, ["reifyResultShapes"]>
+                DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface, ["reifyResultShapes"]>,
+                DeclareOpInterfaceMethods<StaticShapeOpInterface>
             ]
         > {
     let summary = "NCE version of Convolution layer";
@@ -900,7 +902,7 @@ def VPU_NCEEltwiseOp :
         bool isVFSupported();
     }] # baseExtraClassDeclaration;
 
-    let elemComparisonModes = [IE_TypeComparisonMode_ALLOW_MIXED_PRECISION, IE_TypeComparisonMode_ALLOW_GROUPED_OUTPUT, IE_TypeComparisonMode_ALLOW_DISTRIBUTED_OUTPUT];
+    let elemComparisonModes = [IE_TypeComparisonMode_ALLOW_MIXED_PRECISION, IE_TypeComparisonMode_ALLOW_GROUPED_OUTPUT, IE_TypeComparisonMode_ALLOW_DISTRIBUTED_OUTPUT, IE_TypeComparisonMode_ALLOW_DIFFERENT_QUANT];
 }
 
 

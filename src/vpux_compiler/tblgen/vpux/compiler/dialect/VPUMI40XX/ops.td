@@ -149,7 +149,6 @@ def VPUMI40XX_MappedInferenceOp :
         DenseI32ArrayAttr:$actKernelRangesSizes,
         VariadicOfVariadic<VPURegMapped_IndexType, "actKernelInvocationsSizes">:$actKernelInvocations,
         DenseI32ArrayAttr:$actKernelInvocationsSizes,
-        Optional<VPURegMapped_IndexType>:$mediaTasks,
         Optional<VPURegMapped_IndexType>:$barrierTasks,
         Optional<VPURegMapped_IndexType>:$workItemTasks,
         Optional<VPURegMapped_IndexType>:$bootstrapBarriers,
@@ -162,7 +161,6 @@ def VPUMI40XX_MappedInferenceOp :
         I64ArrayAttr:$variantCount,
         I64ArrayOfArraysAttr:$actKernelRangesCount,
         I64ArrayOfArraysAttr:$actKernelInvocationsCount,
-        I64Attr:$mediaCount,
         I64Attr:$barrierCount,
         OptionalAttr<I64Attr>:$workItemCount,
         OptionalAttr<I64Attr>:$bootstrapBarriersCount,
@@ -201,7 +199,6 @@ def VPUMI40XX_MappedInferenceOp :
         (`variants` `(` $variantTasks^ `:` type($variantTasks) `)`)?
         (`actKernelRanges` `(` $actKernelRanges^ `:` type($actKernelRanges) `)`)?
         (`actKernelInvocations` `(` $actKernelInvocations^ `:` type($actKernelInvocations) `)`)?
-        (`mediaTasks` `(` $mediaTasks^ `:` type($mediaTasks) `)`)?
         (`barriers` `(` $barrierTasks^ `:` type($barrierTasks) `)` )?
         (`workItemTasks` `(` $workItemTasks^ `:` type($workItemTasks) `)` )?
         (`bootstrapBarriers` `(` $bootstrapBarriers^ `:` type($bootstrapBarriers) `)` )?
@@ -216,7 +213,6 @@ def VPUMI40XX_MappedInferenceOp :
         `variantCount` `(` $variantCount `)`
         `actKernelRangesCount` `(` $actKernelRangesCount `)`
         `actKernelInvocationsCount` `(` $actKernelInvocationsCount `)`
-        `mediaCount` `(` $mediaCount `)`
         `barrierCount` `(` $barrierCount `)`
         (`workItemCount` `(` $workItemCount^ `)`)?
         (`bootstrapBarriersCount` `(` $bootstrapBarriersCount^ `)`)?
@@ -239,7 +235,8 @@ def VPUMI40XX_NNDMAOp :
                 DeclareOpInterfaceMethods<VPUMI40XX_ExecutableTaskOpInterface>,
                 VPURegMapped_DMATypeOpInterface,
                 VPUMI40XX_SymbolicNameOpInterface,
-                AttrSizedOperandSegments
+                AttrSizedOperandSegments,
+                DMAOpTrait
             ]
         > {
     let summary = "NN DMA task";
@@ -272,7 +269,8 @@ def VPUMI40XX_NNDMAOp :
         OptionalAttr<VPUIP_PhysicalBarrierRangeAttr>:$physical_barrier_range,
         OptionalAttr<VPUIP_EnqueueDMAAttr>:$enqueue_dma_attr,
         OptionalAttr<VPUIP_FetchDMAAttr>:$fetch_dma,
-        OptionalAttr<VPUIP_GatherAddressingMode>:$addressingMode,
+        OptionalAttr<VPUIP_GatherAddressingModeAttr>:$addressingMode,
+        OptionalAttr<VPUIP_GatherListOOBModeAttr>:$listOOBMode,
         OptionalAttr<VPUIP_SkipDMAAttr>:$skip_dma,
         OptionalAttr<UI16Attr>:$task_dyn_id,
         Optional<AnyMemRef>:$dynamic_sequence_length_buff

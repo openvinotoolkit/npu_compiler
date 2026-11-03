@@ -395,7 +395,7 @@ TEST_F(MLIR_FunctionOutliningSplitterNaive, IndirectConstant) {
                 %output_low = const.Declare tensor<f32> = dense<0.0> : tensor<f32>
                 %output_high = const.Declare tensor<f32> = dense<255.0> : tensor<f32>
                 %filter_fq = IE.FakeQuantize(%filter, %input_low, %input_high, %output_low, %output_high) {
-                        auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256
+                        auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256
                     } : tensor<3x3x3x3xf32>, tensor<f32>, tensor<f32>, tensor<f32>, tensor<f32> -> tensor<3x3x3x3xf32>
                 %conv = IE.Convolution(%input, %filter_fq) {
                         strides = [1, 1], pads_begin = [1, 1], pads_end = [1, 1], dilations = [1, 1]

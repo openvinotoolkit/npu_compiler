@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-// RUN: vpux-opt --split-input-file --init-compiler="platform=%platform% compilation-mode=HostCompile" --fold-shapeof-gather-dynamic-reshape-to-transpose %s | FileCheck %s
+// RUN: vpux-opt --split-input-file --init-compiler="platform=%platform% compilation-mode=HostCompile_Interpreter" --fold-shapeof-gather-dynamic-reshape-to-transpose %s | FileCheck %s
 // REQUIRES: platform-NPU4000 || platform-NPU5010
 
 #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>

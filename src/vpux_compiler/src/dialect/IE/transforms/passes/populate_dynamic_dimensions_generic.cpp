@@ -88,7 +88,7 @@ void populateDynamicResult(mlir::Operation* op, const unsigned resultIdx) {
             return reshape.getResult();
         }
 
-        return repackDynamicTensor(builder, op, resultType, concat);
+        return repackDynamicTensor(appendLoc(op->getLoc(), "repack"), builder, op, resultType, concat);
     }();
 
     for (auto oldUse : oldUses) {

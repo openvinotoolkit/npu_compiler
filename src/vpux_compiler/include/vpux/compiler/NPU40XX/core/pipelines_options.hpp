@@ -31,20 +31,6 @@ struct DefaultHWOptionsDeviceBase : public virtual vpux::DefaultHWOptionsBase {
             llvm::cl::desc("Enable DistributionInfoAttr with explicit per cluster memory/compute shapes & offsets"),
             llvm::cl::init(true)};
 
-    BoolOption workloadManagementEnable{*this, "workload-management-enable",
-                                        llvm::cl::desc("Enable partial workload management"), llvm::cl::init(true)};
-
-    mlir::detail::PassOptions::Option<DMAFifoType> workloadManagementDmaFifoType{
-            *this, "workload-management-dma-fifo-type",
-            ::llvm::cl::desc("Option to switch behaviour between software and hardware DMA FIFO types"),
-            ::llvm::cl::init(DMAFifoType::SW),
-            ::llvm::cl::values(clEnumValN(DMAFifoType::SW, "SW", "Enable SW DMA FIFO upfront HW DMA FIFO type"),
-                               clEnumValN(DMAFifoType::HW, "HW", "Use HW DMA FIFO directly"))};
-
-    BoolOption enableSwKernelFifoPerShaveEngine{*this, "enable-sw-kernel-fifo-per-shave-engine",
-                                                llvm::cl::desc("Enable dedicated FIFO for each ActShave engine"),
-                                                llvm::cl::init(false)};
-
     BoolOption enableGroupedMatMul{*this, "enable-grouped-matmul",
                                    llvm::cl::desc("Enable execution of grouped MatMul as a single operation."),
                                    llvm::cl::init(true)};

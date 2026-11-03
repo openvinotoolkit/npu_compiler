@@ -20,7 +20,6 @@ module @TwoDmaFifosEnqueueOpsForSameBarrierNotNextToEachOther attributes {config
     config.ExecutorResource 2 of @SHAVE_ACT
     config.ExecutorResource 1 of @DPU
   }
-  config.ExecutorResource 1 of @M2I
   config.ExecutorResource 1 of @DMA_NN
   config.MemoryResource 67108864000 bytes of @DDR {config.bandwidth = 64 : i64, config.derateFactor = 6.000000e-01 : f64}
   net.NetworkInfo entryPoint : @main inputsInfo : {
@@ -48,7 +47,7 @@ module @TwoDmaFifosEnqueueOpsForSameBarrierNotNextToEachOther attributes {config
     %dma_cmx_1 = VPUMI40XX.NNDMA <{port = 0 : i64}> inputs(%dummy_buf_cmx : memref<1x16x16x16xf16, [@CMX_NN, 0]>) outputs(%dummy_buf_ddr : memref<1x16x16x16xf16, @DDR>) previousDMA(%dma_cmx_0 : !VPURegMapped.Index<0:1:0>) waits(%bar4 : !VPURegMapped.Index<0:0:4>) updates(%bar5 : !VPURegMapped.Index<0:0:5>) enqueueBarrier(%bar0 : !VPURegMapped.Index<0:0:0>) start_after(5) clean_after(4) acceleration_mode(<DISABLE>) -> !VPURegMapped.Index<0:1:1>
     %dma_ddr_3 = VPUMI40XX.NNDMA <{port = 0 : i64}> inputs(%dummy_buf_ddr : memref<1x16x16x16xf16, @DDR>) outputs(%dummy_buf_cmx : memref<1x16x16x16xf16, [@CMX_NN, 0]>) previousDMA(%dma_ddr_2 : !VPURegMapped.Index<0:0:2>) waits(%bar5 : !VPURegMapped.Index<0:0:5>) updates(%bar6 : !VPURegMapped.Index<0:0:6>) enqueueBarrier(%bar2 : !VPURegMapped.Index<0:0:2>) start_after(6) clean_after(5) acceleration_mode(<DISABLE>) -> !VPURegMapped.Index<0:0:3>
 
-    %30 = VPUMI40XX.MappedInference dmas((%dma_ddr_0, %dma_cmx_0) : (!VPURegMapped.Index<0:0:0>, !VPURegMapped.Index<0:1:0>)) barriers(%bar0 : !VPURegMapped.Index<0:0:0>) dmaCount([[4, 2]]) invariantCount([0]) variantCount([0]) actKernelRangesCount([[0, 0]]) actKernelInvocationsCount([[0, 0]]) mediaCount(0) barrierCount(7) -> !VPURegMapped.Index<0:0:0>
+    %30 = VPUMI40XX.MappedInference dmas((%dma_ddr_0, %dma_cmx_0) : (!VPURegMapped.Index<0:0:0>, !VPURegMapped.Index<0:1:0>)) barriers(%bar0 : !VPURegMapped.Index<0:0:0>) dmaCount([[4, 2]]) invariantCount([0]) variantCount([0]) actKernelRangesCount([[0, 0]]) actKernelInvocationsCount([[0, 0]]) barrierCount(7) -> !VPURegMapped.Index<0:0:0>
     return %arg1 : memref<1x16x16x16xf16, @DDR>
   }
 }

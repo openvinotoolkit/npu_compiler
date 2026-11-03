@@ -39,8 +39,7 @@ public:
 
         // E-208406: Uniquify the software layer interfaces
         constexpr bool opIsSwLayerOperation = MainOpType::template hasTrait<VPU::LayerOpInterface::Trait>() ||
-                                              MainOpType::template hasTrait<VPUIP::SoftwareLayerOpInterface::Trait>() ||
-                                              MainOpType::template hasTrait<Shave::KernelWrapperOpInterface::Trait>();
+                                              MainOpType::template hasTrait<VPUIP::SoftwareLayerOpInterface::Trait>();
 
         static_assert(opIsSwLayerOperation, "MainOpType is not a Software layer operation");
 

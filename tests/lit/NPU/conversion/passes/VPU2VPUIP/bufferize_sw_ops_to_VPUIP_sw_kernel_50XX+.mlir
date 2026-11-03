@@ -159,3 +159,21 @@ func.func @ConvertFP16ToSI16UsingSW(%arg0: tensor<1x3x4x4xf16>) -> tensor<1x3x4x
     // CHECK-SAME: @VPU.SW::@builtin_Convert
     // CHECK: return [[SW]]
 }
+
+// -----
+
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+
+// CHECK: func.func nested @builtin_Multiply(memref<*xf16>, memref<*xf16>, memref<*xf16>)
+// CHECK-SAME: VPU.kernel_code = "eltwise_mul_inner_bcst3.cpp", VPU.kernel_entry = "eltwise_mul_inner_bcst3"
+// CHECK-LABEL: func.func @MultiplyInnerBcst3Shape
+func.func @MultiplyInnerBcst3Shape(%arg0: tensor<1x3x256x256xf16, {order = #NHWC}>, %arg1: tensor<1x1x256x256xf16, {order = #NHWC}>) -> tensor<1x3x256x256xf16, {order = #NHWC}> {
+    %result = VPU.Multiply(%arg0, %arg1) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x3x256x256xf16, {order = #NHWC}>, tensor<1x1x256x256xf16, {order = #NHWC}> -> tensor<1x3x256x256xf16, {order = #NHWC}>
+    return %result : tensor<1x3x256x256xf16, {order = #NHWC}>
+
+    // CHECK-NOT: VPU.Multiply
+    // CHECK: [[ALLOC:%.+]] = memref.alloc() : memref<1x3x256x256xf16, {order = #NHWC}>
+    // CHECK: [[RESULTS:%.+]] = VPUIP.SW.Kernel {resultSegmentSizes = array<i32: 1, 0, 0>} @VPU.SW::@builtin_Multiply inputs([[ARG0:%.+]] as [[INNER_ARG0:[^:]+]]: memref<1x3x256x256xf16, {order = #NHWC}>, [[ARG1:%.+]] as [[INNER_ARG1:[^:]+]]: memref<1x1x256x256xf16, {order = #NHWC}>) outputs([[ALLOC]] as [[INNER_ARG2:[^:]+]]: memref<1x3x256x256xf16, {order = #NHWC}>) on tile 0 -> memref<1x3x256x256xf16, {order = #NHWC}>
+    // CHECK: VPUIP.SW.Kernel.run([[INNER_ARG0]], [[INNER_ARG1]], [[INNER_ARG2]]) : memref<1x3x256x256xf16, {order = #NHWC}>, memref<1x1x256x256xf16, {order = #NHWC}>, memref<1x3x256x256xf16, {order = #NHWC}>
+    // CHECK: return [[RESULTS]] : memref<1x3x256x256xf16, {order = #NHWC}>
+}

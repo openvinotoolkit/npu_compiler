@@ -20,8 +20,10 @@ namespace {
 
 PRETTY_PARAM(Height, BoundedDim);
 PRETTY_PARAM(Width, BoundedDim);
+PRETTY_PARAM(Precision, ov::element::Type);
+PRETTY_PARAM(AddOutputConv, bool);
 
-using FuseDynColorConversionParams = std::tuple<Height, Width>;
+using FuseDynColorConversionParams = std::tuple<Height, Width, Precision, AddOutputConv>;
 
 class FuseDynColorConversionTest :
         public VpuOv2LayerTest,
@@ -40,10 +42,11 @@ public:
     }
 
     void SetUp() override {
-        const auto& [height, width] = GetParam();
+        const auto& [height, width, precision, addOutputConv] = GetParam();
 
         const auto heightDim = height.value();
         const auto widthDim = width.value();
+        const auto elementType = precision.value();
 
         // UV plane is half resolution
         const auto halfHeight =
@@ -61,13 +64,13 @@ public:
 
         init_input_shapes({yShape, uvShape});
 
-        const auto yInput = std::make_shared<ov::op::v0::Parameter>(ov::element::f16, inputDynamicShapes.at(0));
+        const auto yInput = std::make_shared<ov::op::v0::Parameter>(elementType, inputDynamicShapes.at(0));
         yInput->set_friendly_name("Y");
 
-        const auto uvInput = std::make_shared<ov::op::v0::Parameter>(ov::element::f16, inputDynamicShapes.at(1));
+        const auto uvInput = std::make_shared<ov::op::v0::Parameter>(elementType, inputDynamicShapes.at(1));
         uvInput->set_friendly_name("UV");
 
-        auto result = buildDynYuvToRgbPattern(yInput, uvInput);
+        auto result = buildDynYuvToRgbPattern(yInput, uvInput, addOutputConv.value());
 
         // Output is NHWC: [1,H,W,3] in f16
         const ov::ResultVector results{std::make_shared<ov::op::v0::Result>(result)};
@@ -90,8 +93,13 @@ TEST_P(FuseDynColorConversionTest, NPU5010_HC_TestKindSubgraph) {
     run(Platform::NPU5010);
 }
 
+// Precision and AddOutputConv are paired rather than combined: not every combination compiles
+// (compilation limitations), so only the two supported combos are exercised.
 INSTANTIATE_TEST_SUITE_P(precommit, FuseDynColorConversionTest,
-                         ::testing::Combine(::testing::Values(Height{1440_Dyn}), ::testing::Values(Width{2560_Dyn})),
+                         ::testing::ValuesIn(std::vector<FuseDynColorConversionParams>{
+                                 {Height{1440_Dyn}, Width{2560_Dyn}, Precision{ov::element::f16}, AddOutputConv{false}},
+                                 {Height{1440_Dyn}, Width{2560_Dyn}, Precision{ov::element::u8}, AddOutputConv{true}},
+                         }),
                          PrintTestCaseName());
 
 }  // namespace

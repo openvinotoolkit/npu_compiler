@@ -259,3 +259,45 @@ func.func @EltwiseSameInputTwoDeclareBuffersSameLocation() -> memref<1x16x224x10
     // CHECK-SAME:           weights([[WEIGHTS]] : memref<1x16x224x100xf16, #NHWC, [@CMX_NN, 0]>)
     // CHECK:        return [[NCE_TASK]] : memref<1x16x224x100xf16, #NHWC, [@CMX_NN, 0]>
 }
+
+// -----
+
+#GNHWC = affine_map<(d0, d1, d2, d3, d4) -> (d0, d1, d3, d4, d2)>
+
+// CHECK-LABEL: @WeightTableSizeGroupedMatMul
+func.func @WeightTableSizeGroupedMatMul(%arg0: memref<32x1x32x16x16xf16, {order = #GNHWC}, @CMX_NN>) -> memref<32x1x16x14x14xf16, {order = #GNHWC}, @CMX_NN> {
+    %weights = const.Declare memref<32x16x32x3x3xf16, {order = #GNHWC}, @CMX_NN>
+                = dense<1.000000e+00> : tensor<32x16x32x3x3xf16>, [#const.Reorder<#GNHWC>]
+
+    %out_buff_cmx = memref.alloc() : memref<32x1x16x14x14xf16, {order = #GNHWC}, @CMX_NN>
+    %weight_table = const.Declare memref<1x16x1x1x4xsi32> = dense<10> : tensor<1x16x1x1x4xsi32>
+    %weight_table_buff_cmx = memref.alloc() : memref<1x16x1x1x4xsi32, @CMX_NN>
+    %weight_table_cmx = VPUIP.Copy inputs(%weight_table : memref<1x16x1x1x4xsi32>) outputs(%weight_table_buff_cmx : memref<1x16x1x1x4xsi32, @CMX_NN>) -> memref<1x16x1x1x4xsi32, @CMX_NN>
+
+    %0 = VPUIP.NCEClusterTask <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>,
+            kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
+            kernel_size = [3, 3],
+            kernel_strides = [1, 1],
+            task_type = #VPUIP.nce_task_type<CONV>
+        }>  input(%arg0 : memref<32x1x32x16x16xf16, {order = #GNHWC}, @CMX_NN>)
+            weights(%weights : memref<32x16x32x3x3xf16, {order = #GNHWC}, @CMX_NN>)
+            weight_table(%weight_table_cmx : memref<1x16x1x1x4xsi32, @CMX_NN>)
+            parent_input(%arg0 : memref<32x1x32x16x16xf16, {order = #GNHWC}, @CMX_NN>)
+            parent_output(%out_buff_cmx : memref<32x1x16x14x14xf16, {order = #GNHWC}, @CMX_NN>)
+            outputs(%out_buff_cmx : memref<32x1x16x14x14xf16, {order = #GNHWC}, @CMX_NN>)
+                -> memref<32x1x16x14x14xf16, {order = #GNHWC}, @CMX_NN> variants :  {
+            DPUTask {
+                outStart = [0, 0, 0], outEnd = [15, 13, 13],
+                mpe_mode = #VPU.mpe_mode<VECTOR_FP16>,
+                pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>
+            }
+            } PPE :  {
+            }
+
+    return %0 : memref<32x1x16x14x14xf16, {order = #GNHWC}, @CMX_NN>
+
+    // CHECK:        [[NCE_TASK:%.+]] = VPUIP.NCEClusterTask
+    // CHECK-SAME:           weights({{[^:]+}} : memref<32x16x32x3x3xf16, {order = #GNHWC}, @CMX_NN>)
+    // CHECK-SAME:           weight_table({{[^:]+}} : memref<1x16x1x1x4xsi32, @CMX_NN>)
+    // CHECK:        return [[NCE_TASK]] : memref<32x1x16x14x14xf16, {order = #GNHWC}, @CMX_NN>
+}

@@ -20,3 +20,5 @@ add_npu_library(${TARGET_NAME}
         npu_compiler_dialect_config
         npu_compiler_dialect_const
 )
+enable_lto_if_possible(${TARGET_NAME})
+

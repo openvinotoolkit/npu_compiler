@@ -39,6 +39,7 @@ mlir::Value padConvFilter(mlir::PatternRewriter& rewriter, mlir::Operation* orig
                           const int64_t outChanPadEnd, const Logger& log);
 
 bool beneficialToKeepExpand(ShapeRef unExpandedShape, ShapeRef expandedShape, mlir::Operation* op);
+bool shouldSkipFoldForSliceExpandDifferentPadding(IE::SliceOp sliceOp, IE::ExpandOp expandOp);
 
 // convert expand op to convolution utils
 enum class ReshapeMode { RESHAPE_H_TO_C, PAD_W_RESHAPE, PAD_H_RESHAPE };

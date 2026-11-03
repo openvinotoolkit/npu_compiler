@@ -34,6 +34,27 @@ bool isTiledOnLowestDim(ShapeRef tileAxis, const DimsOrder& dimOrder) {
     return axis > 1;
 }
 
+// Mirrors VRF_BITS in sw_runtime_kernels/kernels/inc/shave_hal.hpp, which is device-side only
+// (MoviCompile vector types) and selects halfx at kernel build time, so it cannot be included here.
+constexpr int64_t SHAVE_VRF_BITS_NPU37XX = 128;
+constexpr int64_t SHAVE_VRF_BITS_NPU40XX_PLUS = 512;
+
+// Width of a SHAVE vector register in fp16 elements: half8 on NPU37XX, half32 from NPU40XX on.
+int64_t getShaveVectorSizeFP16(config::ArchKind arch) {
+    const auto vrfBits = arch == config::ArchKind::NPU37XX ? SHAVE_VRF_BITS_NPU37XX : SHAVE_VRF_BITS_NPU40XX_PLUS;
+    return vrfBits / Bit(Byte(sizeof(vpux::type::float16))).count();
+}
+
+// Mirrors the path selection of the prelu_fp16 kernel: it vectorizes only when the slope is laid out
+// along the innermost dim and its element count either divides or is a multiple of the vector width.
+bool isPReluSlopeVectorized(vpux::NDTypeInterface slopeType, int64_t vectorSize) {
+    const auto slopeElems = slopeType.getShape().totalSize();
+    if (slopeType.getRank() == 0 || slopeElems != slopeType.getMemShape().raw().back()) {
+        return false;
+    }
+    return vectorSize % slopeElems == 0 || slopeElems % vectorSize == 0;
+}
+
 }  // namespace
 
 //
@@ -94,12 +115,23 @@ std::shared_ptr<VPUNN::VPULayerCostModel> vpux::VPU::LayerCostModelAnalysis::get
 constexpr int64_t SW_COST_CORRECTION_FACTOR_FOR_MEM_PERMUTE = 10;
 constexpr int64_t DEPTH_TO_SPACE_MIN_OPTIMIZED_WIDTH = 128;
 
+// Tiling PRelu over channels can shrink the per-channel slope so that the prelu_fp16 kernel drops from
+// its vectorized loop to a scalar one. Profiling on NPU50XX measured ~17x more cycles per element for
+// such tiles (0.26 -> 5.29 cycles/element when 224 channels are split into 112). VPUNN derives the cost
+// from the tile shape only and would otherwise report the split as a 2x win.
+constexpr int64_t SW_COST_CORRECTION_FACTOR_FOR_PRELU = 17;
+constexpr size_t PRELU_SLOPE_OPERAND_IDX = 1;
+
 // E#154343: Inaccurate VPUNN cost. For some small SW ops, the cost model usually underestimates the actual cost. This
 // experimental value is set as the minimum cost for those ops
 constexpr StrategyCost SMALL_SW_COST_THRESHOLD = 12000;
 
 StrategyCost vpux::VPU::correctSwOpCost(VPU::SWOpInterface swOp, ArrayRef<vpux::NDTypeInterface> tiledInputTypes,
                                         StrategyCost cost) {
+    // avoid scaling: could overflow uint32_t and wrap below the invalid-cost threshold
+    if (cost >= VPU::INVALID_COST_BASE) {
+        return cost;
+    }
     if (auto memPermute = mlir::dyn_cast<VPU::MemPermuteOp>(swOp.getOperation())) {
         // Currently only MemPermuteOp needs cost correction
         auto inputType = mlir::cast<NDTypeInterface>(memPermute.getInput().getType());
@@ -123,6 +155,15 @@ StrategyCost vpux::VPU::correctSwOpCost(VPU::SWOpInterface swOp, ArrayRef<vpux::
             if (origInShape[Dims4D::Act::W] > DEPTH_TO_SPACE_MIN_OPTIMIZED_WIDTH &&
                 inShape[Dims4D::Act::W] < DEPTH_TO_SPACE_MIN_OPTIMIZED_WIDTH) {
                 cost *= origInShape[Dims4D::Act::W] / DEPTH_TO_SPACE_MIN_OPTIMIZED_WIDTH;
+            }
+        }
+    } else if (auto prelu = mlir::dyn_cast<VPU::PReluOp>(swOp.getOperation())) {
+        if (tiledInputTypes.size() > PRELU_SLOPE_OPERAND_IDX) {
+            const auto vectorSize = getShaveVectorSizeFP16(config::getArch(swOp.getOperation()));
+            const auto slopeType = mlir::cast<NDTypeInterface>(prelu.getNegativeSlope().getType());
+            if (isPReluSlopeVectorized(slopeType, vectorSize) &&
+                !isPReluSlopeVectorized(tiledInputTypes[PRELU_SLOPE_OPERAND_IDX], vectorSize)) {
+                cost *= SW_COST_CORRECTION_FACTOR_FOR_PRELU;
             }
         }
     }
@@ -262,9 +303,17 @@ SmallVector<StrategyCost> LayerVPUNNCost::getSpillingWriteCostsForAllTiles(
                |
             Other op
     Ticket to apply this correct for other related DMC cost calculation: E#167797
+
+    Warning: this correction only compensates for a DMA cost model that cannot see strides. On architectures
+    whose DMA cost model already prices striding (usesStrideAwareDMACostModel), the lambda below returns
+    failure so that the striding is not paid for twice.
     */
 
     auto hasInefficientSliceLikeSingleUserOp = [&]() -> mlir::FailureOr<double> {
+        // The stride-aware VPUNN interface already prices the resulting striding, no correction needed
+        if (usesStrideAwareDMACostModel(_arch)) {
+            return mlir::failure();
+        }
         mlir::Operation* userOp = nullptr;
         if (auto vfOp = operation->getParentOfType<VPU::VerticalFusionOp>()) {
             auto innerOps = vfOp.getBody()->without_terminator();
@@ -278,8 +327,8 @@ SmallVector<StrategyCost> LayerVPUNNCost::getSpillingWriteCostsForAllTiles(
         if (userOp == nullptr || !VPU::isPureViewOp(userOp)) {
             return mlir::failure();
         }
-        auto inShape = getShape(userOp->getOperand(0));
-        auto outShape = getShape(userOp->getResult(0));
+        auto inShape = getBoundedShape(userOp->getOperand(0));
+        auto outShape = getBoundedShape(userOp->getResult(0));
         if (inShape.totalSize() <= outShape.totalSize()) {
             return mlir::failure();
         }
@@ -296,6 +345,8 @@ SmallVector<StrategyCost> LayerVPUNNCost::getSpillingWriteCostsForAllTiles(
         return checked_cast<double>(strideDMACorrectionThreshold) / continousBytes;
     };
 
+    // Failure means no correction is applied: either there is no inefficient slice-like user, or the DMA cost
+    // model of this architecture already prices striding
     auto factor = hasInefficientSliceLikeSingleUserOp();
 
     const auto tiling =
@@ -526,6 +577,10 @@ StrategyCost LayerVPUNNCost::getSWLayerCost(VPU::SWOpInterface swOp, const VPUNN
         vpunnLayerSWCosts =
                 getSHAVECostForSwOpPreSplit(swOp, outputTiling, swCostParam, _vpunnCostModel, _numShaveActs, _log);
         for (const auto& cost : vpunnLayerSWCosts) {
+            // summing invalid costs could wrap below the invalid-cost threshold
+            if (cost >= VPU::INVALID_COST_BASE) {
+                return cost;
+            }
             fullCost += cost;
         }
     } else {
@@ -587,7 +642,10 @@ StrategyCost LayerVPUNNCost::getSWLayerCost(VPU::SWOpInterface swOp, const VPUNN
 
                 auto vpunnStrategy = VPU::getVPULayerStrategy(parameters._strategy, _numDPUs, _numTiles, _arch,
                                                               _numShaveActs, false, distributionMode, swOp);
-                currentCost = _vpunnCostModel->Layer(vpunnLayer.value(), vpunnStrategy);
+                currentCost = VPU::checkAndReturnCost(_vpunnCostModel->Layer(vpunnLayer.value(), vpunnStrategy), _log);
+            }
+            if (currentCost >= VPU::INVALID_COST_BASE) {
+                return currentCost;
             }
             fullCost += vpux::VPU::correctSwOpCost(swOp, inputNDTypes, currentCost);
         }

@@ -140,3 +140,25 @@ func.func @ReassociateMultiplyDynamicShape(%arg0: tensor<1x16x?x1920xf16, {bound
 
   //CHECK:  return [[MULTIPLY_2]]
 }
+
+// -----
+
+// Reassociation would fuse the two smaller-size constants (300 * 300 = 90000) into a single scale that
+// exceeds the FP16 max (65504), so the pass must leave the two Multiplies untouched.
+// CHECK-LABEL: func.func @NotReassociateMultiplyScaleExceedsFP16
+// CHECK-SAME:  ([[INPUT0:%.+]]: tensor<1x32x1024x96xf16>)
+func.func @NotReassociateMultiplyScaleExceedsFP16(%arg0: tensor<1x32x1024x96xf16>) -> tensor<1x32x1024x96xf16> {
+  %cst_mid = const.Declare tensor<1x32x1x1xf16> = dense<3.000000e+02> : tensor<1x32x1x1xf16>
+  %cst_small = const.Declare tensor<1x1x1x1xf16> = dense<3.000000e+02> : tensor<1x1x1x1xf16>
+
+  %0 = IE.Multiply(%arg0, %cst_mid) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x32x1024x96xf16>, tensor<1x32x1x1xf16> -> tensor<1x32x1024x96xf16>
+  %1 = IE.Multiply(%0, %cst_small) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x32x1024x96xf16>, tensor<1x1x1x1xf16> -> tensor<1x32x1024x96xf16>
+
+  return %1 : tensor<1x32x1024x96xf16>
+
+  //CHECK-DAG: [[CST_MID:%.+]] = const.Declare tensor<1x32x1x1xf16> = dense<3.000000e+02> : tensor<1x32x1x1xf16>
+  //CHECK-DAG: [[CST_SMALL:%.+]] = const.Declare tensor<1x1x1x1xf16> = dense<3.000000e+02> : tensor<1x1x1x1xf16>
+  //CHECK: [[MULTIPLY_1:%.+]] = IE.Multiply([[INPUT0]], [[CST_MID]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x32x1024x96xf16>, tensor<1x32x1x1xf16> -> tensor<1x32x1024x96xf16>
+  //CHECK: [[MULTIPLY_2:%.+]] = IE.Multiply([[MULTIPLY_1]], [[CST_SMALL]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x32x1024x96xf16>, tensor<1x1x1x1xf16> -> tensor<1x32x1024x96xf16>
+  //CHECK: return [[MULTIPLY_2]]
+}

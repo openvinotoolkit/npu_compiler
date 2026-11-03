@@ -113,7 +113,7 @@ mlir::LogicalResult finishDynamicDequantizeRewrite(mlir::PatternRewriter& rewrit
             IE::DynamicDequantizeOp::create(rewriter, appendLoc(loc, "ddq"), rawWeights, scaleValue, zpValue, dstType);
 
     // Mark the op for the DynDeq -> FakeQuantize bridge pass.
-    if (wdInfo.isKVcachedPattern() || !zpElemType.isInteger(2)) {
+    if (wdInfo.isDataBoundPattern() || !zpElemType.isInteger(2)) {
         dynamicDequant->setAttr(IE::WEIGHTS_IMPORT_DYN_DEQUANT_ATTR, mlir::UnitAttr::get(rewriter.getContext()));
     }
 

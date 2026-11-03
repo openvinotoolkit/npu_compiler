@@ -6,6 +6,7 @@
 #include "vpux/compiler/dialect/VPU/utils/vertical_fusion/v2/vertical_fusion_scheduling_factory.hpp"
 #include "vpux/compiler/dialect/VPU/utils/vertical_fusion/v2/full_prefetch_vf_scheduling.hpp"
 #include "vpux/compiler/dialect/VPU/utils/vertical_fusion/v2/minimal_vf_scheduling.hpp"
+#include "vpux/compiler/dialect/VPU/utils/vertical_fusion/v2/pipelining_double_buffering_vf_scheduling.hpp"
 #include "vpux/compiler/dialect/VPU/utils/vertical_fusion/v2/pipelining_vf_scheduling.hpp"
 #include "vpux/compiler/dialect/VPU/utils/vertical_fusion/v2/prefetch_lastop_vf_scheduling.hpp"
 #include "vpux/compiler/dialect/VPU/utils/vertical_fusion/v2/weights_prefetch_vf_scheduling.hpp"
@@ -32,6 +33,9 @@ std::shared_ptr<IVFScheduling<VFConfig>> VFSchedulingFactory::createVFScenario(V
     }
     case VFScenario::VF_PIPELINING: {
         return std::make_shared<VPU::VF::v2::PipeliningVFScheduling>(log, _prefetching, _costStrategy);
+    }
+    case VFScenario::VF_DPU_SHV_DOUBLE_BUFFERING: {
+        return std::make_shared<VPU::VF::v2::PipeliningDoubleBufferingVFScheduling>(log, _prefetching, _costStrategy);
     }
     default: {
         VPUX_THROW("No scheduling implemented for {0}", scenarioCode);

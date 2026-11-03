@@ -42,9 +42,7 @@ public:
     static void setupOptionsCommon(DefaultHWOptions40XX& options, LogLevel logLevel = LogLevel::None) {
         setupParamsAccordingToOptimizationLevel(options.optimizationLevel, options);
         setupPWLMParams(options, logLevel);
-        if (options.enableSCFTiling) {
-            overwriteIfUnset(options.enableBoundedTensorsToDynamicDimsMask, false);
-        }
+        setupDefaultHWOptionsCommon<DefaultHWOptions40XX>(options);
         // NPU40XX has no native SDPA execution, so every Attention op is decomposed.
         overwriteIfUnset(options.forceAttentionDecomposition, true);
     }
@@ -63,25 +61,15 @@ public:
     }
 
     static void setupOptionsCommon(DefaultHWOptions40XX& options) {
-        // ReferenceSW specific values
-        overwriteIfUnset(options.enableForceZMajorConcat, false);
-        overwriteIfUnset(options.enableSwapTransposeWithFQ, false);
-        overwriteIfUnset(options.enableAlignScales, false);
-        overwriteIfUnset(options.enableConvertFCToConv, false);
-        overwriteIfUnset(options.enableAdjustNonZeroFakeQuant, false);
-        overwriteIfUnset(options.enableExtraStaticShapeOps, false);
-        overwriteIfUnset(options.enableOptimizeReorders, false);
-        overwriteIfUnset(options.enableVPUNNPreSplit, false);
-        overwriteIfUnset(options.enableODULocalRegion, false);
-        overwriteIfUnset(options.enableRuntimeDequant, false);
+        setupReferenceSWOptionsCommon<DefaultHWOptions40XX>(options);
 
-        overwriteIfUnset(options.enableConvertFFTToConv, false);
+        // NPU40XX specific values
         overwriteIfUnset(options.enableConvertToAttention, false);
         // NPU40XX has no native SDPA execution, so every Attention op is decomposed.
         overwriteIfUnset(options.forceAttentionDecomposition, true);
         overwriteIfUnset(options.enableConvertToReduceSquare, true);
-        overwriteIfUnset(options.enableDecomposeGRUSequence, false);
         overwriteIfUnset(options.workloadManagementMode, WorkloadManagementMode::PWLM_V0_1_PAGES);
+        overwriteIfUnset(options.useMemrefForHostFunctionBufferization, false);
     }
 };
 
@@ -90,15 +78,20 @@ public:
     using Base = OptionsSetupBase<HostCompileSetup40XX, DefaultHWOptions40XX>;
     using Base::Base;
 
+    // NPU4000 HostCompile is compiled for 5 NCE tiles out of 6 of the platform
+    static constexpr int HOST_COMPILE_NUM_TILES = 5;
+
     static void setupLitTestOptionsImpl(DefaultHWOptions40XX& options, VPU::InitCompilerOptions& initCompilerOptions) {
-        overwriteIfUnset(options.enableDynamicDimAlignment, false);
+        if (!initCompilerOptions.numberOfDPUGroups.hasValue()) {
+            initCompilerOptions.numberOfDPUGroups = HOST_COMPILE_NUM_TILES;
+        }
         setupHostPipelineOptionsCommon<DefaultHWOptions40XX>(options);
         DefaultHWSetup40XX::setupLitTestOptionsImpl(options, initCompilerOptions);
     }
 
     static void setupOptionsImpl(DefaultHWOptions40XX& options, VPU::InitCompilerOptions& initCompilerOptions,
                                  const vpux::OV::Config& config) {
-        overwriteIfUnset(options.enableDynamicDimAlignment, false);
+        overrideHostTiles(initCompilerOptions, config, HOST_COMPILE_NUM_TILES);
         setupHostPipelineOptionsCommon<DefaultHWOptions40XX>(options);
         DefaultHWSetup40XX::setupOptionsImpl(options, initCompilerOptions, config);
     }
@@ -174,9 +167,7 @@ public:
     }
 
     void buildLowerVPU2VPUIPPipeline(mlir::OpPassManager& pm, Logger log) override {
-        vpux::buildLowerVPU2VPUIPPipeline(pm, _optionsContainer->getPipelineOptions().enableInPlaceBufferization,
-                                          _optionsContainer->getPipelineOptions().useMemrefForHostFunctionBufferization,
-                                          log);
+        vpux::buildLowerVPU2VPUIPPipeline(pm, _optionsContainer->getPipelineOptions(), log);
     }
 
     void buildVPUIPPipeline(mlir::OpPassManager& pm, Logger log) override {
@@ -224,8 +215,7 @@ public:
     }
 
     void buildLowerVPU2VPUIPPipeline(mlir::OpPassManager& pm, Logger log) override {
-        vpux::buildLowerVPU2VPUIPPipeline(pm, _optionsContainer->getPipelineOptions().enableInPlaceBufferization,
-                                          /*useMemrefForHostFunctionBufferization*/ false, log);
+        vpux::buildLowerVPU2VPUIPPipeline(pm, _optionsContainer->getPipelineOptions(), log);
     }
 
     void buildVPUIPPipeline(mlir::OpPassManager& pm, Logger log) override {
@@ -252,7 +242,7 @@ std::unique_ptr<IDialectPipelineStrategy> vpux::createDialectPipelineStrategy40X
         // return std::make_unique<DialectPipelineStrategy40XX<ReferenceSWSetup40XX>>(config);
         return std::make_unique<DialectPipelineStrategyReferenceSW40XX>(config);
     }
-    case config::CompilationMode::HostCompile: {
+    case config::CompilationMode::HostCompile_Interpreter: {
         return std::make_unique<DialectPipelineStrategy40XX<HostCompileSetup40XX>>(config);
     }
     case config::CompilationMode::WSInit: {
@@ -288,7 +278,7 @@ template <>
 std::unique_ptr<IDialectPipelineStrategy> vpux::createDialectPipelineStrategy40XXHostCompile(
         config::CompilationMode compilationMode, const VPU::InitCompilerOptions* initCompilerOptions,
         const DefaultHWOptions40XX* options) {
-    VPUX_THROW_UNLESS(compilationMode == config::CompilationMode::HostCompile,
+    VPUX_THROW_UNLESS(compilationMode == config::CompilationMode::HostCompile_Interpreter,
                       "Unsupported compilation mode {0} for Host Compile.", config::stringifyEnum(compilationMode));
 
     auto wrapper = std::make_unique<HostCompileSetup40XX>(initCompilerOptions, options);

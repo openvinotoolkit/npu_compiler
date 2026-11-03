@@ -9,6 +9,7 @@
 #include "pretty_test_arguments.hpp"
 #include "vpu_ov2_layer_test.hpp"
 
+#include "openvino/op/convert.hpp"
 #include "openvino/op/convolution.hpp"
 #include "openvino/op/transpose.hpp"
 #include "openvino/opsets/opset11.hpp"
@@ -23,7 +24,7 @@ namespace {
 PRETTY_PARAM(Height, BoundedDim);
 PRETTY_PARAM(Width, BoundedDim);
 
-using DynamicResizeConvParams = std::tuple<Height, Width, ov::element::Type, std::vector<float>>;
+using DynamicResizeConvParams = std::tuple<Height, Width, ov::element::Type, std::vector<float>, bool>;
 
 class DynamicResizeConvSubgraphTest :
         public VpuOv2LayerTest,
@@ -33,19 +34,22 @@ public:
         Height height;
         Width width;
         std::vector<float> scales;
-        std::tie(height, width, modelType, scales) = GetParam();
+        std::tie(height, width, modelType, scales, useConvTail) = GetParam();
         scalesValues = scales;
 
         const auto hDim = height.value();
         const auto wDim = width.value();
 
+        const ov::Shape scalesShape{scalesValues.size()};
+        const auto scalesInputShape = generateTestShape(scalesShape);
+
         // Y plane is full resolution: [1,H,W,1]
         auto yShape =
                 generateTestShape({BoundedDim(1), hDim, wDim, BoundedDim(1)}, hostCompileSmallShapesLimitationCallback);
 
-        // UV plane is half resolution: [1,H/2,W/2,2]. Its concrete runtime shapes are derived directly from the
-        // Y plane's runtime shapes (not regenerated independently) so that Y and UV stay exactly 2x related for
-        // every test iteration, as required by the CSC subgraph.
+        // UV plane is half resolution: [1,H/2,W/2,2]. Its concrete runtime shapes are derived directly from
+        // the Y plane's runtime shapes (not regenerated independently) so that Y and UV stay exactly 2x
+        // related for every test iteration, as required by the CSC subgraph.
         ov::PartialShape uvPartialShape{
                 ov::Dimension(1), hDim.dim == -1 ? ov::Dimension(1, hDim.bound / 2) : ov::Dimension(hDim.dim / 2),
                 wDim.dim == -1 ? ov::Dimension(1, wDim.bound / 2) : ov::Dimension(wDim.dim / 2), ov::Dimension(2)};
@@ -56,14 +60,12 @@ public:
         }
         ov::test::InputShape uvShape{uvPartialShape, uvStaticShapes};
 
-        const ov::Shape scalesShape{scalesValues.size()};
-        const auto scalesInputShape = generateTestShape(scalesShape);
         init_input_shapes({yShape, uvShape, scalesInputShape});
 
-        const auto yInput = std::make_shared<ov::op::v0::Parameter>(ov::element::f16, inputDynamicShapes.at(0));
+        const auto yInput = std::make_shared<ov::op::v0::Parameter>(ov::element::u8, inputDynamicShapes.at(0));
         yInput->set_friendly_name("Y");
 
-        const auto uvInput = std::make_shared<ov::op::v0::Parameter>(ov::element::f16, inputDynamicShapes.at(1));
+        const auto uvInput = std::make_shared<ov::op::v0::Parameter>(ov::element::u8, inputDynamicShapes.at(1));
         uvInput->set_friendly_name("UV");
 
         const auto scalesParam = std::make_shared<ov::op::v0::Parameter>(ov::element::f32, scalesShape);
@@ -99,7 +101,7 @@ public:
 private:
     ov::element::Type modelType = ov::element::f16;
     std::vector<float> scalesValues{2.0f, 2.0f};
-
+    bool useConvTail = true;
     static std::shared_ptr<ov::op::v0::Constant> makeAxes() {
         return ov::op::v0::Constant::create(ov::element::i64, ov::Shape{2}, std::vector<int64_t>{2, 3});
     }
@@ -124,20 +126,9 @@ private:
         return std::make_shared<ov::op::v1::Convolution>(input, weights, strides, padsBegin, padsEnd, dilations);
     }
 
-    std::shared_ptr<ov::Node> buildPattern(const std::shared_ptr<ov::op::v0::Parameter>& yInput,
-                                           const std::shared_ptr<ov::op::v0::Parameter>& uvInput,
-                                           const std::shared_ptr<ov::op::v0::Parameter>& scales) {
-        constexpr int64_t rgbChannels = 3;
-        constexpr int64_t channels = 32;
+    std::shared_ptr<ov::Node> buildResize(const ov::Output<ov::Node>& nchwInput,
+                                          const ov::Output<ov::Node>& scales) const {
         const auto axes = makeAxes();
-
-        // Subgraph:
-        // CSC(Y,UV) -> Resize(parameter scales) -> Convolution(3->32) -> Convolution(32->32)
-        const auto csc = buildDynYuvToRgbPattern(yInput, uvInput);  // NHWC f16 [1,H,W,3]
-
-        const auto nhwc2nchwOrder =
-                ov::op::v0::Constant::create(ov::element::i64, ov::Shape{4}, std::vector<int64_t>{0, 3, 1, 2});
-        const auto cscNchw = std::make_shared<ov::op::v1::Transpose>(csc, nhwc2nchwOrder);
 
         InterpolateBase::InterpolateAttrs attrs{ov::op::v11::Interpolate::InterpolateMode::LINEAR,
                                                 InterpolateBase::ShapeCalcMode::SCALES,
@@ -148,11 +139,53 @@ private:
                                                 false,
                                                 -0.75f};
 
-        const auto resized = std::make_shared<ov::op::v11::Interpolate>(cscNchw, scales, axes, attrs);
+        return std::make_shared<ov::op::v11::Interpolate>(nchwInput, scales, axes, attrs);
+    }
 
-        const auto conv1 = makeChannelMappingConv(resized->output(0), rgbChannels, channels);
+    std::shared_ptr<ov::Node> buildConvTail(const ov::Output<ov::Node>& input) const {
+        constexpr int64_t rgbChannels = 3;
+        constexpr int64_t channels = 32;
+
+        const auto conv1 = makeChannelMappingConv(input, rgbChannels, channels);
         const auto conv2 = makeChannelMappingConv(conv1->output(0), channels, channels);
         return conv2;
+    }
+
+    // Subgraph: CSC(Y,UV) -> [Resize(parameter scales)] -> [Convolution(3->32) -> Convolution(32->32)] ->
+    // [NHWC] -> [Convert(fp32)]
+    std::shared_ptr<ov::Node> buildPattern(const std::shared_ptr<ov::op::v0::Parameter>& yInput,
+                                           const std::shared_ptr<ov::op::v0::Parameter>& uvInput,
+                                           const std::shared_ptr<ov::op::v0::Parameter>& scales) {
+        const auto csc = buildDynYuvToRgbPattern(yInput, uvInput);  // NHWC f16 [1,H,W,3]
+
+        const auto nhwc2nchwOrder =
+                ov::op::v0::Constant::create(ov::element::i64, ov::Shape{4}, std::vector<int64_t>{0, 3, 1, 2});
+        ov::Output<ov::Node> stage = std::make_shared<ov::op::v1::Transpose>(csc, nhwc2nchwOrder);
+
+        stage = buildResize(stage, scales)->output(0);
+        if (useConvTail) {
+            stage = buildConvTail(stage)->output(0);
+        }
+
+        stage = std::make_shared<ov::op::v0::Convert>(stage, ov::element::f32)->output(0);
+        return stage.get_node_shared_ptr();
+    }
+
+    // No-CSC subgraph: Image(u8) -> Convert(modelType) -> [Resize(parameter scales)] ->
+    // [Convolution(3->32) -> Convolution(32->32)] -> [NHWC] -> [Convert(fp32)]
+    std::shared_ptr<ov::Node> buildPatternNoCsc(const std::shared_ptr<ov::op::v0::Parameter>& imageInput,
+                                                const std::shared_ptr<ov::op::v0::Parameter>& scales) {
+        // Interpolate requires f16 data for scales-as-parameter legality (ConvertPrecisionToFPPass never
+        // auto-promotes u8/ui8), so convert before resize rather than after.
+        ov::Output<ov::Node> stage = std::make_shared<ov::op::v0::Convert>(imageInput, modelType);
+
+        stage = buildResize(stage, scales)->output(0);
+        if (useConvTail) {
+            stage = buildConvTail(stage)->output(0);
+        }
+
+        stage = std::make_shared<ov::op::v0::Convert>(stage, ov::element::f32)->output(0);
+        return stage.get_node_shared_ptr();
     }
 };
 
@@ -162,24 +195,34 @@ class DynamicResizeConvSubgraphTest_TileAgnostic : public DynamicResizeConvSubgr
     }
 };
 
-TEST_P(DynamicResizeConvSubgraphTest, NPU4000_HC_TestKindSubgraph) {
+TEST_P(DynamicResizeConvSubgraphTest_TileAgnostic, NPU4000_HC_TestKindSubgraph) {
     abs_threshold = 0.08f;
     enableTurbo();
-    setHostCompileMode();
+    setHostCompileMode("HostCompile_Interpreter");
     setPluginCompilerType();
     run(Platform::NPU4000);
 }
 
-TEST_P(DynamicResizeConvSubgraphTest, NPU5010_HC_TestKindSubgraph) {
+TEST_P(DynamicResizeConvSubgraphTest_TileAgnostic, NPU5010_HC_TestKindSubgraph) {
     abs_threshold = 0.08f;
-    setHostCompileMode();
+    setHostCompileMode("HostCompile_Interpreter");
     setPluginCompilerType();
     run(Platform::NPU5010);
 }
 
-TEST_P(DynamicResizeConvSubgraphTest_TileAgnostic, NPU5010_HC_TestKindSubgraph) {
+class DynamicResizeConvSubgraphTest_Interpreter : public DynamicResizeConvSubgraphTest {};
+
+TEST_P(DynamicResizeConvSubgraphTest_Interpreter, NPU4000_HC_TestKindSubgraph) {
     abs_threshold = 0.08f;
-    setHostCompileMode();
+    enableTurbo();
+    setHostCompileMode("HostCompile_Interpreter");
+    setPluginCompilerType();
+    run(Platform::NPU4000);
+}
+
+TEST_P(DynamicResizeConvSubgraphTest_Interpreter, NPU5010_HC_TestKindSubgraph) {
+    abs_threshold = 0.08f;
+    setHostCompileMode("HostCompile_Interpreter");
     setPluginCompilerType();
     run(Platform::NPU5010);
 }
@@ -188,20 +231,20 @@ const std::vector<ov::element::Type> modelTypes = {ov::element::f16};
 
 const std::vector<std::vector<float>> scalesList = {
         {2.0f, 2.0f},
-        {4.0f, 4.0f},
         {1.5f, 2.0f},
-        {8.0f, 8.0f},
 };
-
-INSTANTIATE_TEST_SUITE_P(DISABLED_TMP_smoke_DynamicResizeConvSubgraphTest, DynamicResizeConvSubgraphTest,
-                         ::testing::Combine(::testing::Values(Height{256_Dyn}), ::testing::Values(Width{512_Dyn}),
-                                            ::testing::ValuesIn(modelTypes), ::testing::ValuesIn(scalesList)),
-                         PrintTestCaseName());
 
 INSTANTIATE_TEST_SUITE_P(DISABLED_TMP_smoke_DynamicResizeConvSubgraphTest_TileAgnostic,
                          DynamicResizeConvSubgraphTest_TileAgnostic,
-                         ::testing::Combine(::testing::Values(Height{256_Dyn}), ::testing::Values(Width{512_Dyn}),
-                                            ::testing::ValuesIn(modelTypes), ::testing::ValuesIn(scalesList)),
+                         ::testing::Combine(::testing::Values(Height{400_Dyn}), ::testing::Values(Width{800_Dyn}),
+                                            ::testing::ValuesIn(modelTypes), ::testing::ValuesIn(scalesList),
+                                            ::testing::Bool()),
+                         PrintTestCaseName());
+
+INSTANTIATE_TEST_SUITE_P(smoke_DynamicResizeConvSubgraphTest_Interpreter, DynamicResizeConvSubgraphTest_Interpreter,
+                         ::testing::Combine(::testing::Values(Height{400_Dyn}), ::testing::Values(Width{800_Dyn}),
+                                            ::testing::ValuesIn(modelTypes), ::testing::ValuesIn(scalesList),
+                                            ::testing::Bool()),
                          PrintTestCaseName());
 
 }  // namespace

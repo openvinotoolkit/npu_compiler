@@ -6,12 +6,12 @@
 #pragma once
 
 #include <cstdint>
+#include <iostream>
 #include <sstream>
 #include <string>
 #include <string_view>
 #include <type_traits>
 #include <vector>
-
 // Logging utility for NPU bytecode reader and related components. Provides macros for logging at different levels
 // (Trace, Debug, Info, Warn, Error, Fatal) with support for formatted messages and color output. The log messages
 // include a timestamp, log level, and source information (file name / path and line number):
@@ -69,35 +69,55 @@ void dispatchLogMessage(LogLevel level, const char* file, int line, std::string_
                         const std::vector<std::string>& args);
 
 inline void dispatchLog(LogLevel level, const char* file, int line, std::string_view format) {
-    if (!isLogIncludedInFilter(file, line)) {
-        return;
+    try {
+        if (!isLogIncludedInFilter(file, line)) {
+            return;
+        }
+        const std::vector<std::string> args;
+        dispatchLogMessage(level, file, line, format, args);
+    } catch (const std::exception& e) {
+        try {
+            std::cerr << "Exception during log printing: " << e.what() << std::endl;
+        } catch (...) {
+            // Swallow exceptions from fallback logging to keep logging noexcept.
+        }
+    } catch (...) {
+        // Swallow any non-std exception to keep logging noexcept.
     }
-    const std::vector<std::string> args;
-    dispatchLogMessage(level, file, line, format, args);
 }
 
 template <typename... Args>
 void dispatchLog(LogLevel level, const char* file, int line, std::string_view format, const Args&... args) {
-    const auto toLogString = [](const auto& value) -> std::string {
-        using ValueType = std::decay_t<decltype(value)>;
-        if constexpr (std::is_same_v<ValueType, std::string>) {
-            return value;
-        } else if constexpr (std::is_same_v<ValueType, std::string_view>) {
-            return std::string(value);
-        } else if constexpr (std::is_same_v<ValueType, const char*> || std::is_same_v<ValueType, char*>) {
-            const char* strValue = value;  // NOLINT(cppcoreguidelines-pro-bounds-array-to-pointer-decay)
-            return strValue == nullptr ? std::string{} : std::string(strValue);
-        } else {
-            std::ostringstream stream;
-            stream << value;
-            return stream.str();
+    try {
+        const auto toLogString = [](const auto& value) -> std::string {
+            using ValueType = std::decay_t<decltype(value)>;
+            if constexpr (std::is_same_v<ValueType, std::string>) {
+                return value;
+            } else if constexpr (std::is_same_v<ValueType, std::string_view>) {
+                return std::string(value);
+            } else if constexpr (std::is_same_v<ValueType, const char*> || std::is_same_v<ValueType, char*>) {
+                const char* strValue = value;  // NOLINT(cppcoreguidelines-pro-bounds-array-to-pointer-decay)
+                return strValue == nullptr ? std::string{} : std::string(strValue);
+            } else {
+                std::ostringstream stream;
+                stream << value;
+                return stream.str();
+            }
+        };
+        if (!isLogIncludedInFilter(file, line)) {
+            return;
         }
-    };
-    if (!isLogIncludedInFilter(file, line)) {
-        return;
+        const std::vector<std::string> serializedArgs{toLogString(args)...};
+        dispatchLogMessage(level, file, line, format, serializedArgs);
+    } catch (const std::exception& e) {
+        try {
+            std::cerr << "Exception during log printing: " << e.what() << std::endl;
+        } catch (...) {
+            // Swallow exceptions from fallback logging to keep logging noexcept.
+        }
+    } catch (...) {
+        // Swallow any non-std exception to keep logging noexcept.
     }
-    const std::vector<std::string> serializedArgs{toLogString(args)...};
-    dispatchLogMessage(level, file, line, format, serializedArgs);
 }
 
 }  // namespace detail

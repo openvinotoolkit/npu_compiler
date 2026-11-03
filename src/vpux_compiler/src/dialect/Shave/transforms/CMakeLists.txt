@@ -12,9 +12,12 @@ add_npu_library(npu_compiler_dialect_shave_transforms
         npu_compiler_dialect_shave
         npu_logger
       PRIVATE
+        npu_compiler_dialect_shave_utils
         npu_compiler_utils
         npu_compiler_dialect_config
         npu_core_utils
         npu_compiler_act_kernels
         npu_compiler_dialect_shave_utils
         )
+enable_lto_if_possible(npu_compiler_dialect_shave_transforms)
+

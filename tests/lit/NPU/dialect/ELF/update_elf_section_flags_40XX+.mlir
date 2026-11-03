@@ -85,7 +85,7 @@ func.func @main() {
     // CHECK:   ELF.CreateSection @program.mapped_inference
     // CHECK-SAME:    secFlags("SHF_ALLOC|SHF_EXECINSTR")
     ELF.CreateSection @program.mapped_inference aligned(64) secType(SHT_PROGBITS) secFlags(SHF_ALLOC) secLocation(<DDR>) {
-      VPUASM.MappedInference @MappedInference : dmas([]) actKernelRanges([@ActKernelRange_0_0]) actKernelInvocations([@ActKernelInvocation_0_0]) barriers(@program.barrier::@ConfigureBarrier_0_0) actShaveRt(@shave.runtime::@ActShaveRt) dmaCount([[0, 0], [0, 0]]) invariantCount([0, 0]) variantCount([0, 0]) actKernelRangesCount([2, 0]) actKernelInvocationsCount([2, 0]) mediaCount(0) barrierCount(3) mappedInferenceVersion(@note.MappedInferenceVersion::@MappedInferenceVersion_0_0)
+      VPUASM.MappedInference @MappedInference : dmas([]) actKernelRanges([@ActKernelRange_0_0]) actKernelInvocations([@ActKernelInvocation_0_0]) barriers(@program.barrier::@ConfigureBarrier_0_0) actShaveRt(@shave.runtime::@ActShaveRt) dmaCount([[0, 0], [0, 0]]) invariantCount([0, 0]) variantCount([0, 0]) actKernelRangesCount([2, 0]) actKernelInvocationsCount([2, 0]) barrierCount(3) mappedInferenceVersion(@note.MappedInferenceVersion::@MappedInferenceVersion_0_0)
     }
     ELF.CreateSection @note.LoaderABIVersion aligned(4) secType(SHT_NOTE) secFlags("SHF_NONE") secLocation(<DDR>) {
       ELF.ABIVersion

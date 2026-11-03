@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-// RUN: vpux-opt --split-input-file --init-compiler="platform=%platform% compilation-mode=HostCompile allow-custom-values=true" --unroll-scf-loop="auto-unrolling-mode=inner enable-cascaded-unrolling=false" --canonicalize  %s | FileCheck %s
+// RUN: vpux-opt --split-input-file --init-compiler="platform=%platform% compilation-mode=HostCompile_Interpreter allow-custom-values=true" --unroll-scf-loop="auto-unrolling-mode=inner enable-cascaded-unrolling=false" --canonicalize  %s | FileCheck %s
 
 // REQUIRES: platform-NPU4000 || platform-NPU5010
 
@@ -117,7 +117,7 @@ module @NPUModule {
     return %3 : tensor<1x16x?x1280xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 96, 1280]> : tensor<4xsi64>, order = #NHWC}>
   }
 
-  // CHECK:   func.func @merged_vpu_func_0_1([[VAL_0:%.+]]: tensor<1x16x50x1280xf16
+  // CHECK:   func.func private @merged_vpu_func_0_1([[VAL_0:%.+]]: tensor<1x16x50x1280xf16
   // CHECK:           [[VAL_1:%.+]] = VPU.NCE.Convolution([[VAL_0]]
   // CHECK-SAME:        pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 0 : i64, bottom = 0 : i64>
   // CHECK:           [[VAL_2:%.+]] = VPU.Slice [[VAL_0]] [0, 0, 0, 0] [1, 16, 49, 1280]
@@ -127,9 +127,13 @@ module @NPUModule {
   // CHECK:           return [[VAL_4]] : tensor<1x16x96x1280xf16>
   // CHECK:         }
 
-  // CHECK-DAG:   func.func @merged_vpu_func_0_0(
-  // CHECK-DAG:   func.func @merged_vpu_func_2_1
-  // CHECK-DAG:   func.func @merged_vpu_func_2_0(
+  // The extract slices of the merged tiles are combined into one input region. Adjacent tiles overlap by the
+  // convolution halo, so the 49- and 50-row tiles are recreated at their original offsets 0 and 47 within the
+  // 97-row region. The merged function keeps the HostCompile stride ABI attribute.
+  // CHECK-LABEL:   func.func private @merged_vpu_func_2_0(
+  // CHECK-SAME:    [[INPUT_REGION:%.+]]: tensor<1x16x97x1280xf16, {order = #NHWC}> {func.dynamicStrides = true}) -> (tensor<1x16x96x1280xf16> {func.dynamicStrides = true}) {
+  // CHECK:           VPU.Slice [[INPUT_REGION]] [0, 0, 0, 0] [1, 16, 49, 1280]
+  // CHECK:           VPU.Slice [[INPUT_REGION]] [0, 0, 47, 0] [1, 16, 50, 1280]
   // CHECK-DAG:   func.func @main_func1_dims_H_cases_2_static(
   // CHECK-DAG:   func.func @main_func1_dims_H_cases_1_static(
   // CHECK-DAG:   func.func @main_func1_dims_H_cases_0_static(
@@ -275,7 +279,7 @@ module @NPUModule {
     return %result : tensor<1x16x96x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 96, 128]> : tensor<4xsi64>, order = #NHWC}>
   }
 
-  // CHECK:   func.func @merged_vpu_func_0_1([[VAL_W0:%.+]]: tensor<1x16x96x66xf16
+  // CHECK:   func.func private @merged_vpu_func_0_1([[VAL_W0:%.+]]: tensor<1x16x96x66xf16
   // CHECK:           [[VAL_W1:%.+]] = VPU.NCE.Convolution([[VAL_W0]]
   // CHECK-SAME:        pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 1 : i64, bottom = 1 : i64>
   // CHECK:           [[VAL_W2:%.+]] = VPU.Slice [[VAL_W0]] [0, 0, 0, 0] [1, 16, 96, 65]
@@ -285,9 +289,9 @@ module @NPUModule {
   // CHECK:           return [[VAL_W4]] : tensor<1x16x96x128xf16>
   // CHECK:         }
 
-  // CHECK-DAG:   func.func @merged_vpu_func_0_0(
-  // CHECK-DAG:   func.func @merged_vpu_func_2_1(
-  // CHECK-DAG:   func.func @merged_vpu_func_2_0(
+  // CHECK-DAG:   func.func private @merged_vpu_func_0_0(
+  // CHECK-DAG:   func.func private @merged_vpu_func_2_1(
+  // CHECK-DAG:   func.func private @merged_vpu_func_2_0(
   // CHECK-DAG:   func.func @main_func1_dims_W_cases_2_static(
   // CHECK-DAG:   func.func @main_func1_dims_W_cases_1_static(
   // CHECK-DAG:   func.func @main_func1_dims_W_cases_0_static(
@@ -525,7 +529,7 @@ module @TwoSequentialLoopsAutoUnroll {
         tensor<1x16x?x1280xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 96, 1280]> : tensor<4xsi64>, order = #NHWC}>
   }
 
-  // CHECK:   func.func @merged_vpu_func_3_4([[VAL_0:%.+]]: tensor<1x16x50x1280xf16
+  // CHECK:   func.func private @merged_vpu_func_3_4([[VAL_0:%.+]]: tensor<1x16x50x1280xf16
   // CHECK:           [[VAL_1:%.+]] = VPU.NCE.Convolution([[VAL_0]]
   // CHECK-SAME:        pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 0 : i64, bottom = 0 : i64>
   // CHECK:           [[VAL_2:%.+]] = VPU.Slice [[VAL_0]] [0, 0, 0, 0] [1, 16, 49, 1280]
@@ -535,13 +539,13 @@ module @TwoSequentialLoopsAutoUnroll {
   // CHECK:           return [[VAL_4]] : tensor<1x16x96x1280xf16>
   // CHECK:         }
 
-  // CHECK-DAG:   func.func @merged_vpu_func_3_3(
-  // CHECK-DAG:   func.func @merged_vpu_func_5_4(
-  // CHECK-DAG:   func.func @merged_vpu_func_5_3(
-  // CHECK-DAG:   func.func @merged_vpu_func_0_1(
-  // CHECK-DAG:   func.func @merged_vpu_func_0_0(
-  // CHECK-DAG:   func.func @merged_vpu_func_2_1(
-  // CHECK-DAG:   func.func @merged_vpu_func_2_0(
+  // CHECK-DAG:   func.func private @merged_vpu_func_3_3(
+  // CHECK-DAG:   func.func private @merged_vpu_func_5_4(
+  // CHECK-DAG:   func.func private @merged_vpu_func_5_3(
+  // CHECK-DAG:   func.func private @merged_vpu_func_0_1(
+  // CHECK-DAG:   func.func private @merged_vpu_func_0_0(
+  // CHECK-DAG:   func.func private @merged_vpu_func_2_1(
+  // CHECK-DAG:   func.func private @merged_vpu_func_2_0(
   // CHECK-DAG:   func.func @main_loop1_dims_H_cases_2_static(
   // CHECK-DAG:   func.func @main_loop1_dims_H_cases_1_static(
   // CHECK-DAG:   func.func @main_loop1_dims_H_cases_0_static(

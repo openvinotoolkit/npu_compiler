@@ -423,7 +423,6 @@ void vpux::IE::buildOperationConversionPipeline(mlir::OpPassManager& pm, const I
     // Resolve group quant MatMul pattern
     pm.addPass(mlir::createCSEPass());
     pm.addPass(IE::createMergeParallelFullyConnectedPass(log));
-    pm.addPass(IE::createConvertDynamicDequantizeToFakeQuantizePass(log));
 
     // this pass is added here so that every DynamicDequant op will have a quantized input.
     // For now Dequantize op can only receive quantized inputs, with the current refactoring ongoing (Deq->DynamicDeq
@@ -465,6 +464,7 @@ void vpux::IE::buildSplitLargeOpsPipeline(mlir::OpPassManager& pm, Logger log) {
     pm.addPass(IE::createSplitInterpolateAxesPass(log));
     pm.addPass(IE::createHandleExcludePadForAvgPoolPass(log));
     pm.addPass(IE::createHandleLargeKernelsPass(log));
+    pm.addPass(IE::createConvertDynamicDequantizeToFakeQuantizePass(log));
 }
 
 void vpux::IE::buildConvertToEfficientOpsPipeline(mlir::OpPassManager& pm, const ConvertToEfficientOpsOptions& options,
@@ -478,7 +478,7 @@ void vpux::IE::buildConvertToEfficientOpsPipeline(mlir::OpPassManager& pm, const
     // NOTE: Canonicalizer required after ConvertShapeTo4DPass
     pm.addPass(mlir::createCanonicalizerPass(grc));
     pm.addPass(IE::createConvertGatherElementsToGatherPass(log));
-    pm.addPass(IE::createConvertToSpatialOpPass(false, log));
+    pm.addPass(IE::createConvertToSpatialOpPass(log));
     pm.addPass(IE::createConvertSubtractToAddPass(log));
     pm.addPass(IE::createSwapTransposeConcatPass(log));
     pm.addPass(IE::createConvertSplitConcatToAffineReshapePass(log));
@@ -561,15 +561,6 @@ void vpux::IE::registerIEPipelines() {
             "depthwise convolution and optimize final subgraph to run more efficiently",
             [](mlir::OpPassManager& pm) {
                 IE::buildScaleShiftProcessingPipeline(pm);
-            });
-
-    mlir::PassPipelineRegistration<OperationConversionOptions>(
-            "operation-conversion",
-            "[OPTIMIZATION] Operation Conversion pipeline is responsible for changing type of existing operations."
-            "Main purpose is reducing subset of ops"
-            "which using in our graph for improve pattern matching of next passes ",
-            [](mlir::OpPassManager& pm, const OperationConversionOptions& options) {
-                IE::buildOperationConversionPipeline(pm, options);
             });
 
     mlir::PassPipelineRegistration<IE::TransformOptions>(

@@ -1209,12 +1209,12 @@ mlir::LogicalResult MoveThroughMultiply::processMultiplyOpWithBroadCastConstInpu
         }
         auto newConstInputShape = Shape(affineReshapeOutShape.size(), 1);
         newConstInputShape[nonBroadCastDimBeforeReshape] = nonBroadCastDimSize;
-        constInput = rewriter.createOrFold<IE::ReshapeOp>(appendLoc(constInput.getLoc(), "reshape_const"), constInput,
+        constInput = rewriter.createOrFold<IE::ReshapeOp>(takeOpLoc(origOp, "reshape_const"), constInput,
                                                           getIntArrayAttr(origOp->getContext(), newConstInputShape));
         // New constant should have the same memory order as AffineReshape input
         const auto affineReshapeInputDimOrder = DimsOrder::fromValue(affineReshapeOp.getInput());
         constInput = rewriter.createOrFold<IE::ReorderOp>(
-                appendLoc(constInput.getLoc(), "reorder_const"), constInput,
+                takeOpLoc(origOp, "reorder_const"), constInput,
                 mlir::AffineMapAttr::get(affineReshapeInputDimOrder.toAffineMap(getContext())));
     }
     // Pass an explicit result type derived from the AffineReshape input type with only the element type
@@ -1342,8 +1342,8 @@ mlir::LogicalResult MoveThroughAdd::matchAndRewrite(IE::AddOp origOp, mlir::Patt
     }
 
     auto inputShape = getShape(inputAffineReshapeOp.getInput());
-    auto newInputShapeCast = IE::ShapeCastOp::create(rewriter, appendLoc(anotherInput.getLoc(), "shapecast_in"),
-                                                     anotherInput, getIntArrayAttr(ctx, inputShape));
+    auto newInputShapeCast = IE::ShapeCastOp::create(rewriter, takeOpLoc(origOp, "shapecast_in"), anotherInput,
+                                                     getIntArrayAttr(ctx, inputShape));
 
     auto newInput1 =
             affineReshapeInput == origOp.getInput1() ? inputAffineReshapeOp.getInput() : newInputShapeCast.getResult();

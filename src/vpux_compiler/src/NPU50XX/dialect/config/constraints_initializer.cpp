@@ -4,6 +4,7 @@
 //
 
 #include "vpux/compiler/NPU50XX/dialect/config/constraints_initializer.hpp"
+#include "vpux/compiler/NPU37XX/dialect/config/constraints.hpp"
 #include "vpux/compiler/NPU40XX/dialect/config/constraints.hpp"
 #include "vpux/compiler/NPU50XX/dialect/config/constraints.hpp"
 #include "vpux/compiler/dialect/config/IR/attributes.hpp"
@@ -24,6 +25,7 @@ void config::ConstraintsInitializer50XX::initialize(mlir::MLIRContext* context) 
     constraints.mappedInferenceFormat = NPUConstraints::MappedInferenceFormat::MappedInference;
     constraints.baseElfAbiVersion = config::Version(2, 0, 0);
     constraints.dynamicStridesMinElfAbiVersion = config::Version(2, 1, 0);
+    constraints.dynamicStridesSubByteMinElfAbiVersion = config::Version(2, 4, 0);
     if (_platform == config::Platform::NPU5020) {
         constraints.mappedInferenceFormat = NPUConstraints::MappedInferenceFormat::ManagedMappedInference;
         constraints.baseElfAbiVersion = config::Version(2, 2, 0);
@@ -33,5 +35,6 @@ void config::ConstraintsInitializer50XX::initialize(mlir::MLIRContext* context) 
     constraints.legalRoPEConfigs = getDefaultLegalRoPEConfigs();
     constraints.legalRoPEConfigs.push_back({8, 128});
 
+    constraints.asymmetricPerTensorZP = arch37xx::ASYMMETRIC_PER_TENSOR_ZP;
     setNPUConstraints(context, constraints);
 }

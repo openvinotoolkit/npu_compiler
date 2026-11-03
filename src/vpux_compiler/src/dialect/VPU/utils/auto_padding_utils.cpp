@@ -9,6 +9,7 @@
 #include "vpux/compiler/dialect/VPU/IR/ops/dpu.hpp"
 #include "vpux/compiler/dialect/VPU/IR/types.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_invariant.hpp"
+#include "vpux/compiler/dialect/VPU/utils/nce_utils.hpp"
 #include "vpux/compiler/dialect/config/utils/config_option_utils.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
 #include "vpux/utils/core/numeric.hpp"
@@ -34,13 +35,24 @@ bool VPU::inputCompatibleWithAutoPad(vpux::NDTypeInterface type) {
     return areChannelsCompatibleWithIDUAutoPad(inShape[Dims4D::Act::C], elemTypeBitWidth);
 }
 
-bool VPU::outputCompatibleWithAutoPad(vpux::NDTypeInterface type) {
+bool VPU::outputCompatibleWithAutoPad(mlir::Operation* op, vpux::NDTypeInterface type) {
     if (type.getRank() != 4) {
         return false;
     }
-    const auto outShape = type.getShape();
-    const auto elemTypeBitWidth = type.getElemTypeSize().count();
-    return areChannelsCompatibleWithODUAutoPad(outShape[Dims4D::Act::C], elemTypeBitWidth);
+    // type is assumed to be in post-ODU space; invert an active S2D/D2S transform so the channel
+    // count checked below matches what the DPU core actually operates on.
+    const auto preODUShapeInfoResult = VPU::invertODUScaling(VPU::getODUScaling(op), ShapeInfo::fromNDType(type));
+    VPUX_THROW_UNLESS(mlir::succeeded(preODUShapeInfoResult), "Failed to invert ODU scaling for '{0}'", *op);
+    return outputCompatibleWithAutoPad(AutoPadPreS2DD2SInfo{preODUShapeInfoResult->rank(),
+                                                            preODUShapeInfoResult->shape[Dims4D::Act::C.ind()],
+                                                            type.getElemTypeSize().count()});
+}
+
+bool VPU::outputCompatibleWithAutoPad(const AutoPadPreS2DD2SInfo& info) {
+    if (info.rank != 4) {
+        return false;
+    }
+    return areChannelsCompatibleWithODUAutoPad(info.channels, info.elemTypeBitWidth);
 }
 
 bool VPU::canAutopadInput(mlir::Operation* op) {
@@ -53,7 +65,20 @@ bool VPU::canAutopadInput(mlir::Operation* op) {
 
 bool VPU::canAutopadOutput(mlir::Operation* op, std::optional<vpux::NDTypeInterface> optType) {
     const auto outputType = optType.value_or(mlir::cast<vpux::NDTypeInterface>(op->getResult(0).getType()));
-    return outputCompatibleWithAutoPad(outputType) && config::hasAutoPaddingODU(getModuleOp(op));
+    if (outputType.getRank() != 4) {
+        return false;
+    }
+    // Invert an active S2D/D2S transform so the channel count checked below matches what the DPU
+    // core actually operates on, then delegate to the pre-ODU-info overload.
+    const auto preODUShapeInfoResult = VPU::invertODUScaling(VPU::getODUScaling(op), ShapeInfo::fromNDType(outputType));
+    VPUX_THROW_UNLESS(mlir::succeeded(preODUShapeInfoResult), "Failed to invert ODU scaling for '{0}'", *op);
+    return canAutopadOutput(
+            op, AutoPadPreS2DD2SInfo{preODUShapeInfoResult->rank(), preODUShapeInfoResult->shape[Dims4D::Act::C.ind()],
+                                     outputType.getElemTypeSize().count()});
+}
+
+bool VPU::canAutopadOutput(mlir::Operation* op, const AutoPadPreS2DD2SInfo& info) {
+    return outputCompatibleWithAutoPad(info) && config::hasAutoPaddingODU(getModuleOp(op));
 }
 
 bool VPU::canConsumeIDUAutopad(VPU::NCEConvolutionOp nceConvOp, LogCb logCb) {
@@ -111,10 +136,31 @@ bool VPU::canConsumeODUAutopad(VPU::NCEOpInterface nceOp, LogCb logCb) {
     return true;
 }
 
-std::optional<int64_t> VPU::getWeightsChannelsAutopad(mlir::Operation* op) {
-    if (VPU::canAutopadOutput(op)) {
-        const auto outputShape = getShape(op->getResult(0));
-        return alignValUp(outputShape[Dims4D::Act::C], vpux::VPU::NCEInvariant::VPU_CHANNEL_ALIGNMENT);
+std::optional<int64_t> VPU::getWeightsChannelsAutopad(mlir::Operation* op,
+                                                      std::optional<vpux::NDTypeInterface> optType) {
+    // WeightsTable-like operands are always sized in pre-ODU space, so autopad eligibility and the
+    // aligned channel count must be evaluated against the pre-ODU (real convolution) output rather
+    // than the op's post-ODU result (e.g. after an active S2D/D2S transform).
+    const auto outputType = optType.value_or(mlir::cast<vpux::NDTypeInterface>(op->getResult(0).getType()));
+    if (outputType.getRank() != 4) {
+        return std::nullopt;
     }
-    return std::nullopt;
+
+    // Use ShapeInfo rather than a plain shape vector: its shape field skips ShapedType::kDynamic entries
+    const auto preODUShapeInfoResult = VPU::invertODUScaling(VPU::getODUScaling(op), ShapeInfo::fromNDType(outputType));
+    VPUX_THROW_UNLESS(mlir::succeeded(preODUShapeInfoResult), "Failed to invert ODU scaling for '{0}'", *op);
+    const auto preODUChannels = preODUShapeInfoResult->shape[Dims4D::Act::C.ind()];
+
+    return VPU::getWeightsChannelsAutopad(op, AutoPadPreS2DD2SInfo{preODUShapeInfoResult->rank(), preODUChannels,
+                                                                   outputType.getElemTypeSize().count()});
+}
+
+std::optional<int64_t> VPU::getWeightsChannelsAutopad(mlir::Operation* op, const AutoPadPreS2DD2SInfo& info) {
+    if (info.rank != 4) {
+        return std::nullopt;
+    }
+    if (!VPU::canAutopadOutput(op, info)) {
+        return std::nullopt;
+    }
+    return alignValUp(info.channels, vpux::VPU::NCEInvariant::VPU_CHANNEL_ALIGNMENT);
 }

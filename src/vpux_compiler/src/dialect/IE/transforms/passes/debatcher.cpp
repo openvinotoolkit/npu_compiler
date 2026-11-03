@@ -1015,7 +1015,7 @@ void DebatcherPass::safeRunOnModule() {
 
     _log.trace("restoration of original ReturnOps args of 'main'");
     auto resultOriginalTypes = main.getResultTypes();
-    main.walk([&builder, &resultOriginalTypes](mlir::func::ReturnOp op) {
+    main.walk([&builder, resultOriginalTypes](mlir::func::ReturnOp op) {
         auto operands = op->getOperands();
         builder.setInsertionPoint(op);
         for (auto resultOpDescriptor : zip(operands, resultOriginalTypes)) {

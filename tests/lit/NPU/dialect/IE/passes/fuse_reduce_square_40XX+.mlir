@@ -38,7 +38,7 @@ func.func @FuseReduceSquareMultiply(%arg0: tensor<1x32x32x96xf32>) -> tensor<1x3
 // CHECK-LABEL: @FuseReduceSquareWithAdd
 // CHECK-SAME:  ([[ARG0:%.+]]: tensor<1x32x32x96xf16>)
 func.func @FuseReduceSquareWithAdd(%arg0: tensor<1x32x32x96xf16>) -> tensor<1x32x32x1xf16> {
-    %cst = const.Declare tensor<1x1x1x1xf32> = dense<3.0> : tensor<1x1x1x1xf32>
+    %cst = const.Declare tensor<1x1x1x1xf32> = dense<3.0> : tensor<1x1x1x1xf32> 
     %cst_0 = const.Declare tensor<1x1x1x1xf32> = dense<2.0> : tensor<1x1x1x1xf32>
     %0 = IE.Power(%arg0, %cst_0) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x32x32x96xf16>, tensor<1x1x1x1xf32> -> tensor<1x32x32x96xf16>
     %1 = IE.ReduceMean(%0) {axes_value = [3], keep_dims} : tensor<1x32x32x96xf16> -> tensor<1x32x32x1xf16>
@@ -89,7 +89,7 @@ func.func @FuseReduceSquareWithAddAndPowerHalf(%arg0: tensor<1x32x32x96xf16>) ->
 // CHECK-LABEL: @NoFuseReduceSquareEpsilonNonInnermost
 // CHECK-SAME:  ([[ARG0:%.+]]: tensor<1x32x32x96xf16>)
 func.func @NoFuseReduceSquareEpsilonNonInnermost(%arg0: tensor<1x32x32x96xf16>) -> tensor<1x1x32x96xf16> {
-    %cst = const.Declare tensor<1x1x1x1xf32> = dense<3.0> : tensor<1x1x1x1xf32>
+    %cst = const.Declare tensor<1x1x1x1xf32> = dense<3.0> : tensor<1x1x1x1xf32> 
     %cst_0 = const.Declare tensor<1x1x1x1xf32> = dense<2.0> : tensor<1x1x1x1xf32>
     %0 = IE.Power(%arg0, %cst_0) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x32x32x96xf16>, tensor<1x1x1x1xf32> -> tensor<1x32x32x96xf16>
     %1 = IE.ReduceMean(%0) {axes_value = [1], keep_dims} : tensor<1x32x32x96xf16> -> tensor<1x1x32x96xf16>
@@ -179,3 +179,4 @@ func.func @FuseReduceSumSquareF16WithPowerHalf(%arg0: tensor<1x512x18x80xf16>) -
     // CHECK: [[ReduceL2:%.+]] = IE.ReduceL2([[ARG0]]) {axes_value = [3], keep_dims} : tensor<1x512x18x80xf16> -> tensor<1x512x18x1xf16>
     // CHECK: return [[ReduceL2]] : tensor<1x512x18x1xf16>
 }
+

@@ -6,6 +6,7 @@
 #ifndef VPUX_COMPILER_DIALECT_VPU_OPS_DATA_TYPE
 #define VPUX_COMPILER_DIALECT_VPU_OPS_DATA_TYPE
 
+include "vpux/compiler/dialect/core/ops_interfaces.td"
 include "vpux/compiler/dialect/core/types.td"
 include "vpux/compiler/dialect/VPU/ops/base.td"
 include "vpux/compiler/dialect/VPU/attributes.td"
@@ -28,7 +29,8 @@ def VPU_ConvertOp :
                                                                      "isOperationSplitOverKernelCompatible",
                                                                      "isOperationSplitOverWidthCompatible"]>,
                 DeclareOpInterfaceMethods<VPU_VerticalFusionOpInterface>,
-                DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface, ["reifyResultShapes"]>
+                DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface, ["reifyResultShapes"]>,
+                DeclareOpInterfaceMethods<StaticShapeOpInterface>
             ]
         > {
     let summary = "Convert VPU layer";
@@ -295,10 +297,10 @@ def VPU_FakeQuantizeOp :
 
     let description = [{
         The operation works in two modes:
-         * integral quantization: specified by the 'levels' attribute
-         * floating-point quantization: specified by the 'low_fp_type' attribute, [f8E4M3FN | f8E5M2 | f4E2M1FN]
+         * integral quantization: specified by an IntegerAttr in 'levels_or_low_fp_type'
+         * type-based quantization: specified by a TypeAttr in 'levels_or_low_fp_type' (supported low-fp types)
 
-        Only one of these attributes should be provided.
+        Exactly one of these attribute kinds must be provided.
     }];
 
     let arguments = (ins
@@ -308,8 +310,7 @@ def VPU_FakeQuantizeOp :
         AnyTypeOf<[RankedTensorOf<[F16, F32]>, VPU_DistributedTensor]>:$output_low,
         AnyTypeOf<[RankedTensorOf<[F16, F32]>, VPU_DistributedTensor]>:$output_high,
 
-        OptionalAttr<IntAttr>:$levels,
-        OptionalAttr<TypeAttr>:$low_fp_type,
+        AnyAttrOf<[IntAttr, TypeAttr]>:$levels_or_low_fp_type,
         IE_AutoBroadcastTypeAttr:$auto_broadcast,
 
         OptionalAttr<VPU_MultiClusterStrategyAttr>:$multiClusterStrategy
@@ -323,6 +324,32 @@ def VPU_FakeQuantizeOp :
         bool fitIntoCMX(::llvm::ArrayRef<vpux::NDTypeInterface> buffers, Byte reservedMem);
 
         bool fitIntoCMX(::llvm::ArrayRef<vpux::NDTypeInterface> buffers);
+
+        // Facade: decode merged attribute to optional<int64_t> for integer quantization levels
+        std::optional<int64_t> getLevels() {
+            if (auto intAttr = ::mlir::dyn_cast_or_null<::mlir::IntegerAttr>(getLevelsOrLowFpTypeAttr())) {
+                return intAttr.getInt();
+            }
+            return std::nullopt;
+        }
+
+        // Facade: decode merged attribute to optional<Type> for low-precision FP type
+        std::optional<::mlir::Type> getLowFpType() {
+            if (auto typeAttr = ::mlir::dyn_cast_or_null<::mlir::TypeAttr>(getLevelsOrLowFpTypeAttr())) {
+                return typeAttr.getValue();
+            }
+            return std::nullopt;
+        }
+
+        // For call sites that clone the attribute (returns nullptr if not IntegerAttr)
+        ::mlir::IntegerAttr getLevelsAttr() {
+            return ::mlir::dyn_cast_or_null<::mlir::IntegerAttr>(getLevelsOrLowFpTypeAttr());
+        }
+
+        // For call sites that clone the attribute (returns nullptr if not TypeAttr)
+        ::mlir::TypeAttr getLowFpTypeAttr() {
+            return ::mlir::dyn_cast_or_null<::mlir::TypeAttr>(getLevelsOrLowFpTypeAttr());
+        }
     }] # baseExtraClassDeclaration;
 
     let builders = [
@@ -332,8 +359,7 @@ def VPU_FakeQuantizeOp :
             "::mlir::Value":$input_high,
             "::mlir::Value":$output_low,
             "::mlir::Value":$output_high,
-            "::mlir::IntegerAttr":$levels,
-            "::mlir::TypeAttr":$low_fp_type,
+            "::mlir::Attribute":$levels_or_low_fp_type,
             "vpux::IE::AutoBroadcastTypeAttr":$auto_broadcast
         )>
     ];

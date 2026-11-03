@@ -4,14 +4,13 @@
 //
 
 #include "vpux/compiler/core/tiling.hpp"
+#include "vpux/compiler/dialect/IE/utils/dynamic_shape_utils.hpp"
 #include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
-#include "vpux/compiler/dialect/VPU/IR/ops/dpu.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
 #include "vpux/compiler/dialect/VPU/utils/cost_model/cost_model.hpp"
 #include "vpux/compiler/dialect/VPU/utils/cost_model/layer_vpunn_cost.hpp"
 #include "vpux/compiler/dialect/VPU/utils/generate_tiling.hpp"
 #include "vpux/compiler/dialect/VPU/utils/manual_strategy_utils.hpp"
-#include "vpux/compiler/dialect/VPU/utils/nce_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/op_tiling_cache.hpp"
 #include "vpux/compiler/dialect/VPU/utils/precomputed_strategy_table_cache.hpp"
 #include "vpux/compiler/dialect/VPU/utils/scheduling/temporal_tiling_driver.hpp"
@@ -19,10 +18,8 @@
 #include "vpux/compiler/dialect/VPU/utils/singleton_cache.hpp"
 #include "vpux/compiler/dialect/VPU/utils/tiling_pass_config_utils.hpp"
 #include "vpux/compiler/dialect/VPUIP/IR/dialect.hpp"
-#include "vpux/compiler/dialect/config/IR/attributes.hpp"
-#include "vpux/compiler/dialect/config/IR/utils.hpp"
-#include "vpux/compiler/dialect/config/utils/config_option_utils.hpp"
 #include "vpux/compiler/utils/loop.hpp"
+#include "vpux/utils/core/error.hpp"
 
 #include <mutex>
 
@@ -174,6 +171,12 @@ void TilingStrategyAssignmentPass::safeRunOnFunc() {
     llvm::DenseMap<VPU::TilingBuilderOpInterface, std::vector<vpux::VPU::StrategyWithCost>> strategiesForOp{};
     std::mutex prefetchSetMutex;
     std::mutex strategiesMapMutex;
+    auto cleanup = [&]() {
+        auto& cache = VPU::getGlobalOpTilingCache();
+        cache.printStats(_log);
+        cache.cleanUp();
+        VPU::removeDynamicDimAlignment(func);
+    };
     const auto opsToTile = func.getOps<VPU::TilingBuilderOpInterface>();
     const std::vector<VPU::TilingBuilderOpInterface> tilingOps(opsToTile.begin(), opsToTile.end());
     const auto numOps = tilingOps.size();
@@ -287,6 +290,41 @@ void TilingStrategyAssignmentPass::safeRunOnFunc() {
         return bestStrategy;
     };
 
+    // strategiesForOp contains ops for which ISOLATED/PIPELINING strategies were evaluated. An empty strategy list
+    // is fatal only for ops that cannot fit into CMX without tiling: ApplyTilingPass only tiles ops carrying
+    // tilingStrategy, so silently continuing would let a non-fitting op pass through untiled. For optional
+    // PIPELINING candidates that already fit without tiling, an empty list only means the optimization is not applied.
+    for (auto& [tilingOp, strategies] : strategiesForOp) {
+        if (!strategies.empty()) {
+            continue;
+        }
+        auto op = tilingOp.getOperation();
+        // TODO E#229192 - remove this if when all search algos fixed
+        // Workaround for a greedy-search bug in getSWLayerTilingStrategyWithTileDimOrder:
+        // for dynamic-shape ops the search can exhaust the innermost dim (e.g. W up to its full
+        // bound) before applying dynamic-dim alignment, so valid strategies like [1,1,2,2] are
+        // never reached and getStrategies() returns {}.
+        if (IE::hasDynamicTensors(op)) {
+            _log.warning("Skipping CMX-fit check for dynamic op '{0}' at '{1}' — tiling search bug (E#229192)",
+                         op->getName(), op->getLoc());
+            continue;
+        }
+        auto tilingInfoOp = mlir::dyn_cast<VPU::TilingInfoOpInterface>(op);
+        VPUX_THROW_WHEN(tilingInfoOp == nullptr,
+                        "Operation '{0}' at '{1}' is present in strategiesForOp but doesn't implement "
+                        "TilingInfoOpInterface",
+                        op->getName(), op->getLoc());
+        if (!tilingInfoOp.requiresAllBuffersInCMX()) {
+            continue;
+        }
+        if (!VPU::fitsWithoutTiling(tilingInfoOp, _log)) {
+            op->emitOpError("failed to find a tiling strategy that fits the operation into CMX");
+            signalPassFailure();
+            cleanup();
+            return;
+        }
+    }
+
     // Choose best strategy based on whether it can be prefetched. Also tries to generate prefetching strategies for ops
     // that can be prefetched.
     func->walk([&](VPU::TilingBuilderOpInterface tilingOp) {
@@ -309,23 +347,7 @@ void TilingStrategyAssignmentPass::safeRunOnFunc() {
         }
     });
 
-    // Set minimum tiling strategy if any for unassigned ones
-    func->walk([&](VPU::TilingBuilderOpInterface tilingOp) {
-        auto op = tilingOp.getOperation();
-        if (!op->hasAttr(tilingStrategy)) {
-            const auto minNumTiles = getMinNumTiles(op);
-            if (llvm::any_of(minNumTiles, [](int64_t v) {
-                    return v > 1;
-                })) {
-                op->setAttr(tilingStrategy, getIntArrayAttr(op->getContext(), minNumTiles));
-            }
-        }
-    });
-
-    auto& cache = VPU::getGlobalOpTilingCache();
-    cache.printStats(_log);
-    cache.cleanUp();
-    VPU::removeDynamicDimAlignment(func);
+    cleanup();
     VPU::writePrecomputedStrategyTableJSON(func);
 }
 }  // namespace

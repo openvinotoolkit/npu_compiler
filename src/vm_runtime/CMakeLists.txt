@@ -40,6 +40,8 @@ target_link_libraries(${TARGET_NAME}
         openvino::level-zero-ext
         openvino::npu_zero_utils
         openvino::runtime
+        openvino::util
+        npu_ov_utils
         openvino::npu_al
 )
 

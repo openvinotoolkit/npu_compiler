@@ -233,6 +233,12 @@ class EltwiseLayerTestCrossBroadcast : public EltwiseLayerTestCommon {
     }
 };
 
+class EltwiseLayerTestInnerBroadcastSingleTile : public EltwiseLayerTestCommon {
+    void configure_model() override {
+        configuration["NPU_TILES"] = "1";
+    }
+};
+
 TEST_P(EltwiseLayerTestCommon, NPU3720_SW) {
     abs_threshold = 0.6;
     setReferenceSoftwareMode();
@@ -303,6 +309,10 @@ TEST_P(EltwiseLayerTestCommon, NPU5010_SW) {
     run(Platform::NPU5010);
 }
 
+TEST_P(EltwiseLayerTestInnerBroadcastSingleTile, NPU5010_SW) {
+    setReferenceSoftwareMode();
+    run(Platform::NPU5010);
+}
 TEST_P(EltwiseLayerTestF32Common, NPU5010_SW) {
     setReferenceSoftwareMode();
     run(Platform::NPU5010);
@@ -621,6 +631,22 @@ const auto crossBroadcastTestParams = ::testing::Combine(
 
 INSTANTIATE_TEST_SUITE_P(precommit_CrossBroadcastEltwise, EltwiseLayerTestCrossBroadcast, crossBroadcastTestParams,
                          EltwiseLayerTestCrossBroadcast::getTestCaseName);
+
+// [1,256,256,3]: the model's [1,3,256,256] tensor stored physically as NHWC (N,H,W,C).
+std::vector<std::vector<ov::Shape>> innerBroadcastSmallChannelShape = {
+        {{1, 256, 256, 3}, {1, 256, 256, 1}},
+        {{1, 256, 256, 1}, {1, 256, 256, 3}},
+};
+
+const auto innerBroadcastSmallChannelParams = ::testing::Combine(
+        ::testing::ValuesIn(ov::test::static_shapes_to_test_representation(innerBroadcastSmallChannelShape)),
+        ::testing::Values(EltwiseTypes::MULTIPLY), ::testing::Values(InputLayerType::PARAMETER),
+        ::testing::Values(ov::test::utils::OpType::VECTOR), ::testing::ValuesIn(netPrecisionsF16),
+        ::testing::Values(ov::element::dynamic), ::testing::Values(ov::element::dynamic),
+        ::testing::Values(test_utils::TARGET_DEVICE), ::testing::Values(ov::test::Config{}));
+
+INSTANTIATE_TEST_SUITE_P(smoke_MultiplyInnerBroadcastSmallChannel, EltwiseLayerTestInnerBroadcastSingleTile,
+                         innerBroadcastSmallChannelParams, EltwiseLayerTestInnerBroadcastSingleTile::getTestCaseName);
 
 std::set<EltwiseTypes> batchInputTestEltwiseTypes = {EltwiseTypes::ADD};
 

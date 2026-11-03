@@ -18,7 +18,19 @@ class LayerVPUNNCost;
 
 namespace vpux::VPU::VF::v2 {
 
+struct OpWithViewInputs;
+
 using VFSplit = std::map<Dim, std::optional<int64_t>>;
+using MultiClusterStrategyMap = DenseMap<VPU::ClusteredOpInterface, VPU::MultiClusterStrategy>;
+
+bool hasCompatibleDistributedTypes(const OpWithViewInputs& parentInfo, VPU::ClusteredOpInterface consumerOp,
+                                   const MultiClusterStrategyMap& strategies);
+
+bool isStrategySupported(VPU::ClusteredOpInterface op, VPU::MultiClusterStrategy strategy, size_t numClusters);
+
+bool tryAdjustStrategy(VPU::ClusteredOpInterface opToAdjust, const OpWithViewInputs& parentInfo,
+                       VPU::ClusteredOpInterface consumerOp, MultiClusterStrategyMap& strategies,
+                       ArrayRef<VPU::MultiClusterStrategy> candidates);
 
 // check if whole operation is in CMX
 bool isCmxOperation(mlir::Operation* operation, const bool checkTilingType);

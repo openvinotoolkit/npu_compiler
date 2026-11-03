@@ -135,7 +135,8 @@ mlir::LogicalResult MergeParallelGatherSameIndices::matchAndRewrite(IE::ConcatOp
 
     _log.trace("Merging {0} parallel GatherOps into single Gather+Reshape", numGathers);
 
-    auto concatTables = IE::ConcatOp::create(rewriter, concatOp->getLoc(), tableInputs, Dim(anchorAxis));
+    auto concatTables =
+            IE::ConcatOp::create(rewriter, takeOpLoc(concatOp, "concat_table"), tableInputs, Dim(anchorAxis));
     const auto offsetType = mlir::RankedTensorType::get({numGathers}, indicesElemType);
     auto makeOffsets = [&](auto zeroTag) -> mlir::Value {
         using T = decltype(zeroTag);
@@ -143,21 +144,21 @@ mlir::LogicalResult MergeParallelGatherSameIndices::matchAndRewrite(IE::ConcatOp
         for (int64_t i = 0; i < numGathers; ++i) {
             vals[i] = checked_cast<T>(i * tableSize);
         }
-        return Const::createConst(rewriter, concatOp->getLoc(), offsetType, ArrayRef<T>(vals));
+        return Const::createConst(rewriter, takeOpLoc(concatOp, "const_offset"), offsetType, ArrayRef<T>(vals));
     };
     mlir::Value offsetConst = indicesElemType.isInteger(64) ? makeOffsets(int64_t{0}) : makeOffsets(int32_t{0});
 
     auto numpyAttr = IE::AutoBroadcastTypeAttr::get(rewriter.getContext(), IE::AutoBroadcastType::NUMPY);
-    auto mergedIdx = IE::AddOp::create(rewriter, concatOp->getLoc(), indices, offsetConst, numpyAttr,
+    auto mergedIdx = IE::AddOp::create(rewriter, takeOpLoc(concatOp, "add_indices"), indices, offsetConst, numpyAttr,
                                        /*post_op=*/nullptr, /*clamp=*/nullptr,
                                        /*output_padding=*/nullptr, /*input_padding=*/nullptr);
 
-    auto mergedGather =
-            IE::GatherOp::create(rewriter, concatOp->getLoc(), concatTables.getOutput(), mergedIdx.getOutput(),
-                                 anchor.getAxisValue(), anchor.getBatchDims(), anchor.getIndicesRankAttr());
+    auto mergedGather = IE::GatherOp::create(rewriter, takeOpLoc(concatOp, "as_gather"), concatTables.getOutput(),
+                                             mergedIdx.getOutput(), anchor.getAxisValue(), anchor.getBatchDims(),
+                                             anchor.getIndicesRankAttr());
 
     const auto concatShape = getShape(concatOp.getOutput());
-    auto reshaped = IE::ReshapeOp::create(rewriter, concatOp->getLoc(), mergedGather.getOutput(),
+    auto reshaped = IE::ReshapeOp::create(rewriter, takeOpLoc(concatOp, "reshape_out"), mergedGather.getOutput(),
                                           getIntArrayAttr(rewriter.getContext(), concatShape));
 
     rewriter.replaceOp(concatOp, reshaped.getOutput());
@@ -313,7 +314,9 @@ Slice(1x1536)   Slice(1x1536)   ... Slice(1x1536)   Slice(1x1536)   ... Slice(1x
 
 mlir::Value ConvertToGather::convertSliceGroupToGather(SmallVector<IE::SliceOp> groupedSliceOps,
                                                        mlir::PatternRewriter& rewriter) const {
-    auto source = groupedSliceOps.front().getSource();
+    // Several groups may share the same source, so locations are derived from the group's first Slice
+    auto anchorSliceOp = groupedSliceOps.front();
+    auto source = anchorSliceOp.getSource();
     auto sourceShape = getShape(source);
 
     auto sliceShape = getShape(groupedSliceOps.front().getResult());
@@ -329,7 +332,7 @@ mlir::Value ConvertToGather::convertSliceGroupToGather(SmallVector<IE::SliceOp> 
     newInputShapeVec[0] = sourceShape.totalSize() / elementSize;
     newInputShapeVec[1] = elementSize;
     const auto newType = mlir::cast<NDTypeInterface>(source.getType()).changeShape(ShapeRef(newInputShapeVec));
-    auto newInput = IE::ReshapeOp::create(rewriter, source.getLoc(), newType, source,
+    auto newInput = IE::ReshapeOp::create(rewriter, takeOpLoc(anchorSliceOp, "reshape_in"), newType, source,
                                           getIntArrayAttr(rewriter.getContext(), ShapeRef(newInputShapeVec)));
 
     const auto numOfSliceOps = groupedSliceOps.size();
@@ -347,11 +350,13 @@ mlir::Value ConvertToGather::convertSliceGroupToGather(SmallVector<IE::SliceOp> 
     const auto indicesType =
             mlir::RankedTensorType::get(ShapeRef(indicesShapeVec), getSInt32Type(rewriter.getContext()));
 
-    const auto indices = Const::createConst(rewriter, source.getLoc(), indicesType, ArrayRef(indicesValues));
+    const auto indices = Const::createConst(rewriter, takeOpLoc(anchorSliceOp, "const_indices"), indicesType,
+                                            ArrayRef(indicesValues));
 
     int64_t batchDims = 0;
     int64_t axis = 0;
-    auto newGather = IE::GatherOp::create(rewriter, source.getLoc(), newInput, indices, axis, batchDims, nullptr);
+    auto newGather = IE::GatherOp::create(rewriter, takeOpLoc(anchorSliceOp, "as_gather"), newInput, indices, axis,
+                                          batchDims, nullptr);
 
     _log.trace("Created gather {0}", newGather);
     return newGather.getOutput();
@@ -367,7 +372,7 @@ mlir::Value ConvertToGather::reshape3DGatherTo2D(mlir::Value gather, mlir::Patte
     auto newGatherShape = ShapeRef(newShapeVec);
     _log.debug("Reshape Gather shape from {0} to {1}", origGatherShape, newGatherShape);
     auto newType = mlir::cast<NDTypeInterface>(gather.getType()).changeShape(newGatherShape);
-    auto reshape = IE::ReshapeOp::create(rewriter, gather.getLoc(), newType, gather,
+    auto reshape = IE::ReshapeOp::create(rewriter, appendLoc(gather.getLoc(), "reshape_out"), newType, gather,
                                          getIntArrayAttr(rewriter.getContext(), newGatherShape));
 
     _log.trace("Created Reshape {0}", reshape);

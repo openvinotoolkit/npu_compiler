@@ -155,7 +155,8 @@ def VPUMI37XX_NNDMAOp :
         VPUMI37XX_TaskOp<"NNDMA",
             [
                 DeclareOpInterfaceMethods<VPUMI37XX_ExecutableTaskOpInterface>,
-                AttrSizedOperandSegments
+                AttrSizedOperandSegments,
+                DMAOpTrait
             ]
         > {
     let summary = "NN DMA task";

@@ -44,6 +44,7 @@ std::unique_ptr<mlir::Pass> createInsertIdentityPoolBeforeOpPass(Logger log = Lo
 std::unique_ptr<mlir::Pass> createPropagateExpandPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createFuseReordersPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createFuseScalePass(Logger log = Logger::global());
+std::unique_ptr<mlir::Pass> createFuseAddToConvBiasPass(const Logger& log = Logger::global());
 std::unique_ptr<mlir::Pass> createConvertSubGRUSequenceToConvPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createFuseOutstandingDequant(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createFusePermuteQuantizeExpandPass(Logger log = Logger::global());
@@ -98,7 +99,9 @@ std::unique_ptr<mlir::Pass> createFoldShapeOfGatherDynamicReshapeToTransposePass
 std::unique_ptr<mlir::Pass> createFuseSDPAPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createAdjustQKVTransposeForUnrollSDPAPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createExpandAttentionPass(Logger log = Logger::global());
-std::unique_ptr<mlir::Pass> createFuseAttentionPass(Logger log = Logger::global());
+std::unique_ptr<mlir::Pass> createConvertGQAToAttentionDMAPass(Logger log = Logger::global());
+std::unique_ptr<mlir::Pass> createFuseAttentionPass(bool fuseOnlyAttentionDMAPatterns = false,
+                                                    Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createDecomposeAttentionPass(bool forceAttentionDecomposition = false,
                                                          Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createFuseDynamicQuantizePass(Logger log = Logger::global());
@@ -727,7 +730,7 @@ std::unique_ptr<mlir::Pass> createConvertFCToConvPass(Logger log = Logger::globa
 std::unique_ptr<mlir::Pass> createConvertAvgPoolToDWConvPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createAdjustScaleShiftForDWConvPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createConvertScaleShiftToDWPass(Logger log = Logger::global());
-std::unique_ptr<mlir::Pass> createConvertToSpatialOpPass(const bool m2iEnabled = false, Logger log = Logger::global());
+std::unique_ptr<mlir::Pass> createConvertToSpatialOpPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createConvertNearestToBroadCastOrStridedConcatPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createSplitBilinearIntoHAndWPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createSplitInterpolateAxesPass(Logger log = Logger::global());
@@ -768,6 +771,7 @@ std::unique_ptr<mlir::Pass> createConvertMemPermuteToOpPass(Logger log = Logger:
 std::unique_ptr<mlir::Pass> createLogOpOptimizationsPass();
 std::unique_ptr<mlir::Pass> createAdjustNonZeroFakeQuantPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createFuseConvWithSlicePass(Logger log = Logger::global());
+std::unique_ptr<mlir::Pass> createFuseMatMulWithSlicePass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createMVNFusionPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createConvertBranchesConcatToConvPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createPropagatePermuteCastPass(Logger log = Logger::global());

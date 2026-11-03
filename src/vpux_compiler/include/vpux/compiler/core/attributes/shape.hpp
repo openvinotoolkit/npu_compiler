@@ -68,6 +68,9 @@ ShapeRef getShape(mlir::Value val);
 ShapeRef getBoundedShape(mlir::Value val);
 ShapeRef getBoundedShape(mlir::Type type);
 
+bool hasUnboundedDynamicShape(mlir::Value val);
+bool hasUnboundedDynamicShape(mlir::Type type);
+
 //
 // MemShape
 //

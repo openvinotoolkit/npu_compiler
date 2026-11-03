@@ -78,8 +78,8 @@ int64_t getInputWorkloadSizeCh(NCEOpInterface nceOp, const int64_t outputSizeCh,
                 return outputSizeCh;
             })
             .Case<NCECompressConvolutionOp>([&](mlir::Operation* /*op*/) {
-                return VPU::NCEInvariant::getAlignment(
-                        mlir::cast<vpux::NDTypeInterface>(nceOp.getWeightsOperand().getType()).getElementType());
+                // Compressed input has a fixed hardware channel view, independent of weight storage width.
+                return VPU::NCEInvariant::VPU_CHANNEL_ALIGNMENT;
             })
             .Case<NCEPermuteOp>([&](mlir::Operation* /*op*/) {
                 if ((outputStartCh + outputSizeCh) > fullInputChannels) {

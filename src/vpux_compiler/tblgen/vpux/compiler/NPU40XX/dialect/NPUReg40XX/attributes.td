@@ -65,9 +65,6 @@ def ActKernelInvocationDescriptorProp : PropertyBase<"vpux::NPUReg40XX::Descript
 def ActKernelRangeDescriptorAttr : DescriptorAttrBase<NPUReg40XX_Dialect, "vpux::NPUReg40XX::Descriptors::VpuActKernelRange", "VpuActKernelRange"> {}
 def ActKernelRangeDescriptorProp : PropertyBase<"vpux::NPUReg40XX::Descriptors::VpuActKernelRange", "VpuActKernelRangeAttr", "NPUReg40XX"> {}
 
-def M2IDescriptorAttr : DescriptorAttrBase<NPUReg40XX_Dialect, "vpux::NPUReg40XX::Descriptors::VpuMediaTask", "VpuMediaTask"> {}
-def M2IDescriptorProp : PropertyBase<"vpux::NPUReg40XX::Descriptors::VpuMediaTask", "VpuMediaTaskAttr", "NPUReg40XX"> {}
-
 def ConfigureBarrierDescriptorAttr : DescriptorAttrBase<NPUReg40XX_Dialect, "vpux::NPUReg40XX::Descriptors::VpuBarrierCountConfig", "VpuBarrierCountConfig"> {}
 def ConfigureBarrierDescriptorProp : PropertyBase<"vpux::NPUReg40XX::Descriptors::VpuBarrierCountConfig", "VpuBarrierCountConfigAttr", "NPUReg40XX"> {}
 

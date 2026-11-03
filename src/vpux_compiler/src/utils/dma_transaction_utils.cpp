@@ -123,6 +123,16 @@ DMAPattern reduceDimsForDma(SmallVector<int64_t> memShape, SmallVector<vpux::Mem
         return DMAPattern({alignedElemSize}, {alignedElemSize});
     }
 
+    // For subbyte tensors with dynamic strides don't return real pattern as
+    // innermost stride is not byte aligned and will cause verifier failures.
+    // Instead return all 1's for all dimensions of the subbyte tensor. This
+    // will program the num_dim field correctly. Shape and stride fields will
+    // be set by loader during relocation so actual values there don't matter.
+    if (assumeDynamicStrides && memStrides[memShape.size() - 1].count() < 8) {
+        SmallVector<int64_t> ones(memShape.size(), 1);
+        return DMAPattern(ones, ones);
+    }
+
     // Extend shape and strides to accommodate for element type size and batch stride
     memShape.push_back(elemSize);
     memStrides.insert(memStrides.begin(), memStrides.front() * memShape.front());

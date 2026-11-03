@@ -19,6 +19,8 @@
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
 #include "vpux/compiler/dialect/VPU/utils/const_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_matmul_utils.hpp"
+#include "vpux/compiler/dialect/VPU/utils/nce_utils.hpp"
+#include "vpux/compiler/dialect/VPU/utils/ppe_version_config.hpp"
 #include "vpux/compiler/dialect/VPU/utils/type_infer.hpp"
 #include "vpux/compiler/dialect/config/IR/resources.hpp"
 #include "vpux/compiler/dialect/core/interfaces/type_interfaces.hpp"
@@ -819,33 +821,9 @@ private:
     Logger _log;
 };
 
-bool isEltwisePooling(VPU::NCEAveragePoolOp poolingOp) {
-    const auto inputType = mlir::cast<NDTypeInterface>(poolingOp.getInput().getType());
-    const auto outputType = mlir::cast<NDTypeInterface>(poolingOp.getOutput().getType());
-    if (inputType.getDimsOrder() != outputType.getDimsOrder()) {
-        return false;
-    }
-
-    const auto kernelSize = parseIntArrayAttr<int64_t>(poolingOp.getKernelSize());
-    const auto strides = parseIntArrayAttr<int64_t>(poolingOp.getStrides());
-
-    const auto paddingAttr = poolingOp.getPad();
-    const auto padTop = paddingAttr.getTop().getValue().getSExtValue();
-    const auto padBottom = paddingAttr.getBottom().getValue().getSExtValue();
-    const auto padLeft = paddingAttr.getLeft().getValue().getSExtValue();
-    const auto padRight = paddingAttr.getRight().getValue().getSExtValue();
-    auto noPadding = (padTop == 0 && padBottom == 0 && padLeft == 0 && padRight == 0);
-
-    const auto isOne = [](const int64_t val) -> bool {
-        return val == 1;
-    };
-
-    return llvm::all_of(kernelSize, isOne) && llvm::all_of(strides, isOne) && noPadding;
-}
-
 mlir::LogicalResult AdjustShapeForNCEAvgPool::matchAndRewrite(VPU::NCEAveragePoolOp origOp,
                                                               mlir::PatternRewriter& rewriter) const {
-    if (!isEltwisePooling(origOp)) {
+    if (!VPU::isEltwiseNCEPooling(origOp)) {
         return mlir::failure();
     }
 

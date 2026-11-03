@@ -635,3 +635,320 @@ func.func @EliminateConcatWithPermuteCast(%arg0: tensor<128x32x1x1xf16>, %arg1: 
     // CHECK:   [[PERMUTECAST_2:%.+]] = VPU.PermuteCast([[INPUT_2]]) {dst_order = #NHWC, mem_perm = #NHWC} : tensor<64x32x1x1xf16> -> tensor<64x32x1x1xf16, {order = #NHWC}>
     // CHECK:   return [[PERMUTECAST_1]], [[PERMUTECAST_2]] : tensor<128x32x1x1xf16, {order = #NHWC}>, tensor<64x32x1x1xf16, {order = #NHWC}>
 }
+
+
+// -----
+
+// CHECK-LABEL: AbsorbReshapeConcatIntoForOp
+// CHECK-SAME:  [[INPUT:%.+]]: tensor<128256x4096xf16>,
+// CHECK-SAME:  [[INDICES_0:%.+]]: tensor<1024x1xi64>,
+// CHECK-SAME:  [[INDICES_1:%.+]]: tensor<1024x1xi64>
+func.func @AbsorbReshapeConcatIntoForOp(%input: tensor<128256x4096xf16>, %indices0: tensor<1024x1xi64>, %indices1: tensor<1024x1xi64>) -> tensor<1x1024x4096xf16> {
+    %c1024 = arith.constant 1024 : index
+    %c2048 = arith.constant 2048 : index
+    %c0 = arith.constant 0 : index
+    %0 = VPU.Slice %input [0, 0] [128256, 2048] : tensor<128256x4096xf16> to tensor<128256x2048xf16>
+    %1 = tensor.empty() : tensor<1024x2048xf16>
+    %2 = scf.for %arg3 = %c0 to %c2048 step %c1024 iter_args(%arg4 = %1) -> (tensor<1024x2048xf16>) {
+        %extracted_slice = tensor.extract_slice %0[0, %arg3] [128256, 1024] [1, 1] : tensor<128256x2048xf16> to tensor<128256x1024xf16>
+        %9 = VPU.GatherDMA(%extracted_slice, %indices0) {axis_value = 0 : i64, batch_dims = 0 : i64} : tensor<128256x1024xf16>, tensor<1024x1xi64> -> tensor<1024x1024xf16>
+        %inserted_slice = tensor.insert_slice %9 into %arg4[0, %arg3] [1024, 1024] [1, 1] : tensor<1024x1024xf16> into tensor<1024x2048xf16>
+        scf.yield %inserted_slice : tensor<1024x2048xf16>
+    }
+    %3 = VPU.AffineReshape(%2) {dim_mapping = [[0, 1], [2]], shape_value = [1, 1024, 2048]} : tensor<1024x2048xf16> -> tensor<1x1024x2048xf16>
+    %4 = VPU.Slice %input [0, 2048] [128256, 2048] : tensor<128256x4096xf16> to tensor<128256x2048xf16>
+    %5 = tensor.empty() : tensor<1024x2048xf16>
+    %6 = scf.for %arg3 = %c0 to %c2048 step %c1024 iter_args(%arg4 = %5) -> (tensor<1024x2048xf16>) {
+        %extracted_slice = tensor.extract_slice %4[0, %arg3] [128256, 1024] [1, 1] : tensor<128256x2048xf16> to tensor<128256x1024xf16>
+        %9 = VPU.GatherDMA(%extracted_slice, %indices1) {axis_value = 0 : i64, batch_dims = 0 : i64} : tensor<128256x1024xf16>, tensor<1024x1xi64> -> tensor<1024x1024xf16>
+        %inserted_slice = tensor.insert_slice %9 into %arg4[0, %arg3] [1024, 1024] [1, 1] : tensor<1024x1024xf16> into tensor<1024x2048xf16>
+        scf.yield %inserted_slice : tensor<1024x2048xf16>
+    }
+    %7 = VPU.AffineReshape(%6) {dim_mapping = [[0, 1], [2]], shape_value = [1, 1024, 2048]} : tensor<1024x2048xf16> -> tensor<1x1024x2048xf16>
+    %8 = VPU.Concat(%3, %7) {static_offsets = [[0, 0, 0], [0, 0, 2048]]} : tensor<1x1024x2048xf16>, tensor<1x1024x2048xf16> -> tensor<1x1024x4096xf16>
+    return %8 : tensor<1x1024x4096xf16>
+
+    // CHECK:   [[SLICE_0:%.+]] = VPU.Slice [[INPUT]] [0, 0] [128256, 2048] : tensor<128256x4096xf16> to tensor<128256x2048xf16>
+    // CHECK:   [[SLICE_1:%.+]] = VPU.Slice [[INPUT]] [0, 2048] [128256, 2048] : tensor<128256x4096xf16> to tensor<128256x2048xf16>
+    // CHECK:   [[EMPTY:%.+]] = tensor.empty() : tensor<1024x4096xf16>
+
+    // CHECK:   [[FOR_0:%.+]] = scf.for [[ARG3:%.+]] = %c0 to %c2048 step %c1024 iter_args([[ARG4:%.+]] = [[EMPTY]]) -> (tensor<1024x4096xf16>) {
+    // CHECK:      [[EXT_SLICE_0:%.+]] = tensor.extract_slice [[SLICE_0]][0, [[ARG3]]] [128256, 1024] [1, 1]
+    // CHECK-SAME:         : tensor<128256x2048xf16> to tensor<128256x1024xf16>
+    // CHECK:      [[GATHER_DMA_0:%.+]] = VPU.GatherDMA([[EXT_SLICE_0]], [[INDICES_0]]) {axis_value = 0 : i64, batch_dims = 0 : i64}
+    // CHECK-SAME:         : tensor<128256x1024xf16>, tensor<1024x1xi64> -> tensor<1024x1024xf16>
+    // CHECK:      [[INS_SLICE_0:%.+]] = tensor.insert_slice [[GATHER_DMA_0]] into [[ARG4]][0, [[ARG3]]] [1024, 1024] [1, 1]
+    // CHECK-SAME:         : tensor<1024x1024xf16> into tensor<1024x4096xf16>
+    // CHECK:      scf.yield [[INS_SLICE_0]] : tensor<1024x4096xf16>
+    // CHECK:   }
+
+    // CHECK:   [[FOR_1:%.+]] = scf.for [[ARG3_1:%.+]] = %c0 to %c2048 step %c1024 iter_args([[ARG4_1:%.+]] = [[FOR_0]]) -> (tensor<1024x4096xf16>) {
+    // CHECK:      [[EXT_SLICE_1:%.+]] = tensor.extract_slice [[SLICE_1]][0, [[ARG3_1]]] [128256, 1024] [1, 1]
+    // CHECK-SAME:          : tensor<128256x2048xf16> to tensor<128256x1024xf16>
+    // CHECK:      [[GATHER_DMA_1:%.+]] = VPU.GatherDMA([[EXT_SLICE_1]], [[INDICES_1]]) {axis_value = 0 : i64, batch_dims = 0 : i64}
+    // CHECK-SAME:          : tensor<128256x1024xf16>, tensor<1024x1xi64> -> tensor<1024x1024xf16>
+    // CHECK:      [[SHIFTED_OFFSET:%.+]] = affine.apply {{.+}}([[ARG3_1]])
+    // CHECK:      [[INS_SLICE_1:%.+]] = tensor.insert_slice [[GATHER_DMA_1]] into [[ARG4_1]][0, [[SHIFTED_OFFSET]]] [1024, 1024] [1, 1]
+    // CHECK-SAME:          : tensor<1024x1024xf16> into tensor<1024x4096xf16>
+    // CHECK:      scf.yield [[INS_SLICE_1]] : tensor<1024x4096xf16>
+    // CHECK:   }
+
+    // CHECK:   [[RESHAPE:%.+]] = VPU.AffineReshape([[FOR_1]])
+    // CHECK-SAME{LITERAL}:  {dim_mapping = [[0, 1], [2]], shape_value = [1, 1024, 4096]}
+    // CHECK-SAME:          : tensor<1024x4096xf16> -> tensor<1x1024x4096xf16>
+    // CHECK-NOT:   VPU.Concat
+    // CHECK:   return [[RESHAPE]] : tensor<1x1024x4096xf16>
+}
+
+// -----
+
+#map = affine_map<(d0) -> (-d0 + 2048, 683)>
+
+// CHECK-LABEL: @AbsorbConcatIntoForOpCase1
+// CHECK-SAME:  ([[INPUT:%.+]]: tensor<128256x6144xf16>,
+// CHECK-SAME:   [[INDICES_0:%.+]]: tensor<1024x1xi64>, [[INDICES_1:%.+]]: tensor<1024x1xi64>, [[INDICES_2:%.+]]: tensor<1024x1xi64>)
+func.func @AbsorbConcatIntoForOpCase1(%input: tensor<128256x6144xf16>, %indices0: tensor<1024x1xi64>, %indices1: tensor<1024x1xi64>, %indices2: tensor<1024x1xi64>) -> tensor<3072x6144xf16> {
+  %c0 = arith.constant 0 : index
+  %c683 = arith.constant 683 : index
+  %c2048 = arith.constant 2048 : index
+  %0 = VPU.Slice %input [0, 0] [128256, 2048] : tensor<128256x6144xf16> to tensor<128256x2048xf16>
+  %1 = tensor.empty() : tensor<1024x2048xf16>
+  %2 = scf.for %arg3 = %c0 to %c2048 step %c683 iter_args(%arg4 = %1) -> (tensor<1024x2048xf16>) {
+    %8 = affine.min #map(%arg3)
+    %extracted_slice = tensor.extract_slice %0[0, %arg3] [128256, %8] [1, 1] : tensor<128256x2048xf16> to tensor<128256x?xf16>
+    %9 = VPU.GatherDMA(%extracted_slice, %indices0) {axis_value = 0 : i64, batch_dims = 0 : i64} : tensor<128256x?xf16>, tensor<1024x1xi64> -> tensor<1024x?xf16>
+    %inserted_slice = tensor.insert_slice %9 into %arg4[0, %arg3] [1024, %8] [1, 1] : tensor<1024x?xf16> into tensor<1024x2048xf16>
+    scf.yield %inserted_slice : tensor<1024x2048xf16>
+  }
+  %3 = VPU.Slice %input [0, 2048] [128256, 2048] : tensor<128256x6144xf16> to tensor<128256x2048xf16>
+  %4 = tensor.empty() : tensor<1024x2048xf16>
+  %5 = scf.for %arg3 = %c0 to %c2048 step %c683 iter_args(%arg4 = %4) -> (tensor<1024x2048xf16>) {
+    %8 = affine.min #map(%arg3)
+    %extracted_slice = tensor.extract_slice %3[0, %arg3] [128256, %8] [1, 1] : tensor<128256x2048xf16> to tensor<128256x?xf16>
+    %9 = VPU.GatherDMA(%extracted_slice, %indices1) {axis_value = 0 : i64, batch_dims = 0 : i64} : tensor<128256x?xf16>, tensor<1024x1xi64> -> tensor<1024x?xf16>
+    %inserted_slice = tensor.insert_slice %9 into %arg4[0, %arg3] [1024, %8] [1, 1] : tensor<1024x?xf16> into tensor<1024x2048xf16>
+    scf.yield %inserted_slice : tensor<1024x2048xf16>
+  }
+  %6 = VPU.Slice %input [0, 4096] [128256, 2048] : tensor<128256x6144xf16> to tensor<128256x2048xf16>
+  %7 = tensor.empty() : tensor<1024x2048xf16>
+  %8 = scf.for %arg3 = %c0 to %c2048 step %c683 iter_args(%arg4 = %7) -> (tensor<1024x2048xf16>) {
+    %11 = affine.min #map(%arg3)
+    %extracted_slice = tensor.extract_slice %6[0, %arg3] [128256, %11] [1, 1] : tensor<128256x2048xf16> to tensor<128256x?xf16>
+    %12 = VPU.GatherDMA(%extracted_slice, %indices2) {axis_value = 0 : i64, batch_dims = 0 : i64} : tensor<128256x?xf16>, tensor<1024x1xi64> -> tensor<1024x?xf16>
+    %inserted_slice = tensor.insert_slice %12 into %arg4[0, %arg3] [1024, %11] [1, 1] : tensor<1024x?xf16> into tensor<1024x2048xf16>
+    scf.yield %inserted_slice : tensor<1024x2048xf16>
+  }
+  %9 = VPU.Concat(%2, %5, %8) {static_offsets = [[0, 0], [1024, 2048], [2048, 4096]]} : tensor<1024x2048xf16>, tensor<1024x2048xf16>, tensor<1024x2048xf16> -> tensor<3072x6144xf16>
+  return %9 : tensor<3072x6144xf16>
+
+  // CHECK:   [[SLICE_0:%.+]] = VPU.Slice [[INPUT]] [0, 0] [128256, 2048] : tensor<128256x6144xf16> to tensor<128256x2048xf16>
+  // CHECK:   [[SLICE_1:%.+]] = VPU.Slice [[INPUT]] [0, 2048] [128256, 2048] : tensor<128256x6144xf16> to tensor<128256x2048xf16>
+  // CHECK:   [[SLICE_2:%.+]] = VPU.Slice [[INPUT]] [0, 4096] [128256, 2048] : tensor<128256x6144xf16> to tensor<128256x2048xf16>
+  // CHECK:   [[EMPTY:%.+]] = tensor.empty() : tensor<3072x6144xf16>
+
+  // CHECK:   [[FOR_0:%.+]] = scf.for [[ARG3:%.+]] = %c0 to %c2048 step %c683 iter_args([[ARG4:%.+]] = [[EMPTY]]) -> (tensor<3072x6144xf16>) {
+  // CHECK:      [[MIN_0:%.+]] = affine.min {{.+}}([[ARG3]])
+  // CHECK:      [[EXT_SLICE_0:%.+]] = tensor.extract_slice [[SLICE_0]][0, [[ARG3]]] [128256, [[MIN_0]]] [1, 1]
+  // CHECK-SAME:            : tensor<128256x2048xf16> to tensor<128256x?xf16>
+  // CHECK:      [[GATHER_0:%.+]] = VPU.GatherDMA([[EXT_SLICE_0]], [[INDICES_0]]) {axis_value = 0 : i64, batch_dims = 0 : i64}
+  // CHECK-SAME:            : tensor<128256x?xf16>, tensor<1024x1xi64> -> tensor<1024x?xf16>
+  // CHECK:      [[INS_SLICE_0:%.+]] = tensor.insert_slice [[GATHER_0]] into [[ARG4]][0, [[ARG3]]] [1024, [[MIN_0]]] [1, 1]
+  // CHECK-SAME:            : tensor<1024x?xf16> into tensor<3072x6144xf16>
+  // CHECK:      scf.yield [[INS_SLICE_0]] : tensor<3072x6144xf16>
+  // CHECK:   }
+
+  // CHECK:   [[FOR_1:%.+]] = scf.for [[ARG3_1:%.+]] = %c0 to %c2048 step %c683 iter_args([[ARG4_1:%.+]] = [[FOR_0]]) -> (tensor<3072x6144xf16>) {
+  // CHECK:      [[MIN_1:%.+]] = affine.min {{.+}}([[ARG3_1]])
+  // CHECK:      [[EXT_SLICE_1:%.+]] = tensor.extract_slice [[SLICE_1]][0, [[ARG3_1]]] [128256, [[MIN_1]]] [1, 1]
+  // CHECK-SAME:            : tensor<128256x2048xf16> to tensor<128256x?xf16>
+  // CHECK:      [[GATHER_1:%.+]] = VPU.GatherDMA([[EXT_SLICE_1]], [[INDICES_1]]) {axis_value = 0 : i64, batch_dims = 0 : i64}
+  // CHECK-SAME:            : tensor<128256x?xf16>, tensor<1024x1xi64> -> tensor<1024x?xf16>
+  // CHECK:      [[SHIFTED_OFFSET_1:%.+]] = affine.apply {{.+}}([[ARG3_1]])
+  // CHECK:      [[INS_SLICE_1:%.+]] = tensor.insert_slice [[GATHER_1]] into [[ARG4_1]][1024, [[SHIFTED_OFFSET_1]]] [1024, [[MIN_1]]] [1, 1]
+  // CHECK-SAME:            : tensor<1024x?xf16> into tensor<3072x6144xf16>
+  // CHECK:      scf.yield [[INS_SLICE_1]] : tensor<3072x6144xf16>
+  // CHECK:   }
+
+  // CHECK:   [[FOR_2:%.+]] = scf.for [[ARG3_2:%.+]] = %c0 to %c2048 step %c683 iter_args([[ARG4_2:%.+]] = [[FOR_1]]) -> (tensor<3072x6144xf16>) {
+  // CHECK:      [[MIN_2:%.+]] = affine.min {{.+}}([[ARG3_2]])
+  // CHECK:      [[EXT_SLICE_2:%.+]] = tensor.extract_slice [[SLICE_2]][0, [[ARG3_2]]] [128256, [[MIN_2]]] [1, 1]
+  // CHECK-SAME:            : tensor<128256x2048xf16> to tensor<128256x?xf16>
+  // CHECK:      [[GATHER_2:%.+]] = VPU.GatherDMA([[EXT_SLICE_2]], [[INDICES_2]]) {axis_value = 0 : i64, batch_dims = 0 : i64}
+  // CHECK-SAME:            : tensor<128256x?xf16>, tensor<1024x1xi64> -> tensor<1024x?xf16>
+  // CHECK:      [[SHIFTED_OFFSET_2:%.+]] = affine.apply {{.+}}([[ARG3_2]])
+  // CHECK:      [[INS_SLICE_2:%.+]] = tensor.insert_slice [[GATHER_2]] into [[ARG4_2]][2048, [[SHIFTED_OFFSET_2]]] [1024, [[MIN_2]]] [1, 1]
+  // CHECK-SAME:            : tensor<1024x?xf16> into tensor<3072x6144xf16>
+  // CHECK:      scf.yield [[INS_SLICE_2]] : tensor<3072x6144xf16>
+  // CHECK:   }
+
+  // CHECK-NOT:   VPU.Concat
+  // CHECK:       return [[FOR_2]] : tensor<3072x6144xf16>
+}
+
+// -----
+
+// CHECK-LABEL: @AbsorbConcatIntoForOpCase2
+// CHECK-SAME:  ([[INPUT:%.+]]: tensor<128256x4096xf16>,
+// CHECK-SAME:   [[INDICES_0:%.+]]: tensor<1024x1xi64>,
+// CHECK-SAME:   [[INDICES_1:%.+]]: tensor<1024x1xi64>)
+func.func @AbsorbConcatIntoForOpCase2(%input: tensor<128256x4096xf16>, %indices0: tensor<1024x1xi64>, %indices1: tensor<1024x1xi64>) -> tensor<1x1024x4096xf16> {
+    %c1024 = arith.constant 1024 : index
+    %c2048 = arith.constant 2048 : index
+    %c0 = arith.constant 0 : index
+    %0 = VPU.Slice %input [0, 0] [128256, 2048] : tensor<128256x4096xf16> to tensor<128256x2048xf16>
+    %1 = tensor.empty() : tensor<1024x2048xf16>
+    %2 = scf.for %arg3 = %c0 to %c2048 step %c1024 iter_args(%arg4 = %1) -> (tensor<1024x2048xf16>) {
+        %extracted_slice = tensor.extract_slice %0[0, %arg3] [128256, 1024] [1, 1] : tensor<128256x2048xf16> to tensor<128256x1024xf16>
+        %8 = VPU.GatherDMA(%extracted_slice, %indices0) {axis_value = 0 : i64, batch_dims = 0 : i64} : tensor<128256x1024xf16>, tensor<1024x1xi64> -> tensor<1024x1024xf16>
+        %inserted_slice = tensor.insert_slice %8 into %arg4[0, %arg3] [1024, 1024] [1, 1] : tensor<1024x1024xf16> into tensor<1024x2048xf16>
+        scf.yield %inserted_slice : tensor<1024x2048xf16>
+    }
+    %3 = VPU.Slice %input [0, 2048] [128256, 2048] : tensor<128256x4096xf16> to tensor<128256x2048xf16>
+    %4 = tensor.empty() : tensor<1024x2048xf16>
+    %5 = scf.for %arg3 = %c0 to %c2048 step %c1024 iter_args(%arg4 = %4) -> (tensor<1024x2048xf16>) {
+        %extracted_slice = tensor.extract_slice %3[0, %arg3] [128256, 1024] [1, 1] : tensor<128256x2048xf16> to tensor<128256x1024xf16>
+        %8 = VPU.GatherDMA(%extracted_slice, %indices1) {axis_value = 0 : i64, batch_dims = 0 : i64} : tensor<128256x1024xf16>, tensor<1024x1xi64> -> tensor<1024x1024xf16>
+        %inserted_slice = tensor.insert_slice %8 into %arg4[0, %arg3] [1024, 1024] [1, 1] : tensor<1024x1024xf16> into tensor<1024x2048xf16>
+        scf.yield %inserted_slice : tensor<1024x2048xf16>
+    }
+    %6 = VPU.Concat(%5, %2) {static_offsets = [[0, 0], [0, 2048]]} : tensor<1024x2048xf16>, tensor<1024x2048xf16> -> tensor<1024x4096xf16>
+    %7 = VPU.AffineReshape(%6) {dim_mapping = [[0, 1], [2]], shape_value = [1, 1024, 4096]} : tensor<1024x4096xf16> -> tensor<1x1024x4096xf16>
+    return %7 : tensor<1x1024x4096xf16>
+
+    // CHECK:   [[SLICE_0:%.+]] = VPU.Slice [[INPUT]] [0, 0] [128256, 2048] : tensor<128256x4096xf16> to tensor<128256x2048xf16>
+    // CHECK:   [[SLICE_1:%.+]] = VPU.Slice [[INPUT]] [0, 2048] [128256, 2048] : tensor<128256x4096xf16> to tensor<128256x2048xf16>
+    // CHECK:   [[EMPTY:%.+]] = tensor.empty() : tensor<1024x4096xf16>
+
+    // CHECK:   [[FOR_0:%.+]] = scf.for [[ARG3:%.+]] = %c0 to %c2048 step %c1024 iter_args([[ARG4:%.+]] = [[EMPTY]]) -> (tensor<1024x4096xf16>) {
+    // CHECK:       [[EXT_SLICE_0:%.+]] = tensor.extract_slice [[SLICE_1]][0, [[ARG3]]] [128256, 1024] [1, 1]
+    // CHECK-SAME:          : tensor<128256x2048xf16> to tensor<128256x1024xf16>
+    // CHECK:       [[GATHER_DMA_0:%.+]] = VPU.GatherDMA([[EXT_SLICE_0]], [[INDICES_1]]) {axis_value = 0 : i64, batch_dims = 0 : i64}
+    // CHECK-SAME:          : tensor<128256x1024xf16>, tensor<1024x1xi64> -> tensor<1024x1024xf16>
+    // CHECK:       [[INS_SLICE_0:%.+]] = tensor.insert_slice [[GATHER_DMA_0]] into [[ARG4]][0, [[ARG3]]] [1024, 1024] [1, 1]
+    // CHECK-SAME:          : tensor<1024x1024xf16> into tensor<1024x4096xf16>
+    // CHECK:       scf.yield [[INS_SLICE_0]] : tensor<1024x4096xf16>
+    // CHECK:   }
+
+    // CHECK:   [[FOR_1:%.+]] = scf.for [[ARG3_1:%.+]] = %c0 to %c2048 step %c1024 iter_args([[ARG4_1:%.+]] = [[FOR_0]]) -> (tensor<1024x4096xf16>) {
+    // CHECK:      [[EXT_SLICE_1:%.+]] = tensor.extract_slice [[SLICE_0]][0, [[ARG3_1]]] [128256, 1024] [1, 1]
+    // CHECK-SAME:          : tensor<128256x2048xf16> to tensor<128256x1024xf16>
+    // CHECK:      [[GATHER_DMA_1:%.+]] = VPU.GatherDMA([[EXT_SLICE_1]], [[INDICES_0]]) {axis_value = 0 : i64, batch_dims = 0 : i64}
+    // CHECK-SAME:          : tensor<128256x1024xf16>, tensor<1024x1xi64> -> tensor<1024x1024xf16>
+    // CHECK:      [[SHIFTED_OFFSET:%.+]] = affine.apply {{.+}}([[ARG3_1]])
+    // CHECK:      [[INS_SLICE_1:%.+]] = tensor.insert_slice [[GATHER_DMA_1]] into [[ARG4_1]][0, [[SHIFTED_OFFSET]]] [1024, 1024] [1, 1]
+    // CHECK-SAME:          : tensor<1024x1024xf16> into tensor<1024x4096xf16>
+    // CHECK:      scf.yield [[INS_SLICE_1]] : tensor<1024x4096xf16>
+    // CHECK:   }
+
+    // CHECK:   [[RESHAPE:%.+]] = VPU.AffineReshape([[FOR_1]])
+    // CHECK-SAME{LITERAL}:  {dim_mapping = [[0, 1], [2]], shape_value = [1, 1024, 4096]}
+    // CHECK-SAME:          : tensor<1024x4096xf16> -> tensor<1x1024x4096xf16>
+    // CHECK-NOT:   VPU.Concat
+    // CHECK:   return [[RESHAPE]] : tensor<1x1024x4096xf16>
+}
+
+// -----
+
+#map = affine_map<(d0) -> (-d0 + 2048, 683)>
+
+// CHECK-LABEL: @AbsorbConcatIntoForOpCase3
+// CHECK-SAME:  ([[INPUT:%.+]]: tensor<128256x4096xf16>,
+// CHECK-SAME:   [[INDICES_0:%.+]]: tensor<1024x1xi64>,
+// CHECK-SAME:   [[INDICES_1:%.+]]: tensor<1024x1xi64>)
+func.func @AbsorbConcatIntoForOpCase3(%input: tensor<128256x4096xf16>, %indices0: tensor<1024x1xi64>, %indices1: tensor<1024x1xi64>) -> tensor<1x1024x4096xf16> {
+    %c683 = arith.constant 683 : index
+    %c2048 = arith.constant 2048 : index
+    %c0 = arith.constant 0 : index
+    %0 = VPU.Slice %input [0, 0] [128256, 2048] : tensor<128256x4096xf16> to tensor<128256x2048xf16>
+    %1 = tensor.empty() : tensor<1024x2048xf16>
+    %2 = scf.for %arg3 = %c0 to %c2048 step %c683 iter_args(%arg4 = %1) -> (tensor<1024x2048xf16>) {
+        %8 = affine.min #map(%arg3)
+        %extracted_slice = tensor.extract_slice %0[0, %arg3] [128256, %8] [1, 1] : tensor<128256x2048xf16> to tensor<128256x?xf16>
+        %9 = VPU.GatherDMA(%extracted_slice, %indices0) {axis_value = 0 : i64, batch_dims = 0 : i64} : tensor<128256x?xf16>, tensor<1024x1xi64> -> tensor<1024x?xf16>
+        %inserted_slice = tensor.insert_slice %9 into %arg4[0, %arg3] [1024, %8] [1, 1] : tensor<1024x?xf16> into tensor<1024x2048xf16>
+        scf.yield %inserted_slice : tensor<1024x2048xf16>
+    }
+    %3 = VPU.Slice %input [0, 2048] [128256, 2048] : tensor<128256x4096xf16> to tensor<128256x2048xf16>
+    %4 = tensor.empty() : tensor<1024x2048xf16>
+    %5 = scf.for %arg3 = %c0 to %c2048 step %c683 iter_args(%arg4 = %4) -> (tensor<1024x2048xf16>) {
+        %8 = affine.min #map(%arg3)
+        %extracted_slice = tensor.extract_slice %3[0, %arg3] [128256, %8] [1, 1] : tensor<128256x2048xf16> to tensor<128256x?xf16>
+        %9 = VPU.GatherDMA(%extracted_slice, %indices1) {axis_value = 0 : i64, batch_dims = 0 : i64} : tensor<128256x?xf16>, tensor<1024x1xi64> -> tensor<1024x?xf16>
+        %inserted_slice = tensor.insert_slice %9 into %arg4[0, %arg3] [1024, %8] [1, 1] : tensor<1024x?xf16> into tensor<1024x2048xf16>
+        scf.yield %inserted_slice : tensor<1024x2048xf16>
+    }
+    %6 = VPU.Concat(%2, %5) {static_offsets = [[0, 0], [0, 2048]]} : tensor<1024x2048xf16>, tensor<1024x2048xf16> -> tensor<1024x4096xf16>
+    %7 = VPU.AffineReshape(%6) {dim_mapping = [[0, 1], [2]], shape_value = [1, 1024, 4096]} : tensor<1024x4096xf16> -> tensor<1x1024x4096xf16>
+    return %7 : tensor<1x1024x4096xf16>
+
+    // CHECK:   [[SLICE_0:%.+]] = VPU.Slice [[INPUT]] [0, 0] [128256, 2048] : tensor<128256x4096xf16> to tensor<128256x2048xf16>
+    // CHECK:   [[SLICE_1:%.+]] = VPU.Slice [[INPUT]] [0, 2048] [128256, 2048] : tensor<128256x4096xf16> to tensor<128256x2048xf16>
+    // CHECK:   [[EMPTY:%.+]] = tensor.empty() : tensor<1024x4096xf16>
+
+    // CHECK:   [[FOR_0:%.+]] = scf.for [[ARG3:%.+]] = %c0 to %c2048 step %c683 iter_args([[ARG4:%.+]] = [[EMPTY]]) -> (tensor<1024x4096xf16>) {
+    // CHECK:       [[MIN_0:%.+]] = affine.min {{.+}}([[ARG3]])
+    // CHECK:       [[EXT_SLICE_0:%.+]] = tensor.extract_slice [[SLICE_0]][0, [[ARG3]]] [128256, [[MIN_0]]] [1, 1]
+    // CHECK-SAME:          : tensor<128256x2048xf16> to tensor<128256x?xf16>
+    // CHECK:       [[GATHER_DMA_0:%.+]] = VPU.GatherDMA([[EXT_SLICE_0]], [[INDICES_0]]) {axis_value = 0 : i64, batch_dims = 0 : i64}
+    // CHECK-SAME:          : tensor<128256x?xf16>, tensor<1024x1xi64> -> tensor<1024x?xf16>
+    // CHECK:       [[INS_SLICE_0:%.+]] = tensor.insert_slice [[GATHER_DMA_0]] into [[ARG4]][0, [[ARG3]]] [1024, [[MIN_0]]] [1, 1]
+    // CHECK-SAME:          : tensor<1024x?xf16> into tensor<1024x4096xf16>
+    // CHECK:       scf.yield [[INS_SLICE_0]] : tensor<1024x4096xf16>
+    // CHECK:   }
+
+    // CHECK:   [[FOR_1:%.+]] = scf.for [[ARG3_1:%.+]] = %c0 to %c2048 step %c683 iter_args([[ARG4_1:%.+]] = [[FOR_0]]) -> (tensor<1024x4096xf16>) {
+    // CHECK:      [[MIN_1:%.+]] = affine.min {{.+}}([[ARG3_1]])
+    // CHECK:      [[EXT_SLICE_1:%.+]] = tensor.extract_slice [[SLICE_1]][0, [[ARG3_1]]] [128256, [[MIN_1]]] [1, 1]
+    // CHECK-SAME:          : tensor<128256x2048xf16> to tensor<128256x?xf16>
+    // CHECK:      [[GATHER_DMA_1:%.+]] = VPU.GatherDMA([[EXT_SLICE_1]], [[INDICES_1]]) {axis_value = 0 : i64, batch_dims = 0 : i64}
+    // CHECK-SAME:          : tensor<128256x?xf16>, tensor<1024x1xi64> -> tensor<1024x?xf16>
+    // CHECK:      [[SHIFTED_OFFSET:%.+]] = affine.apply {{.+}}([[ARG3_1]])
+    // CHECK:      [[INS_SLICE_1:%.+]] = tensor.insert_slice [[GATHER_DMA_1]] into [[ARG4_1]][0, [[SHIFTED_OFFSET]]] [1024, [[MIN_1]]] [1, 1]
+    // CHECK-SAME:          : tensor<1024x?xf16> into tensor<1024x4096xf16>
+    // CHECK:      scf.yield [[INS_SLICE_1]] : tensor<1024x4096xf16>
+    // CHECK:   }
+
+    // CHECK:   [[RESHAPE:%.+]] = VPU.AffineReshape([[FOR_1]])
+    // CHECK-SAME{LITERAL}:  {dim_mapping = [[0, 1], [2]], shape_value = [1, 1024, 4096]}
+    // CHECK-SAME:          : tensor<1024x4096xf16> -> tensor<1x1024x4096xf16>
+    // CHECK-NOT:   VPU.Concat
+    // CHECK:   return [[RESHAPE]] : tensor<1x1024x4096xf16>
+}
+
+// -----
+
+// CHECK-LABEL: @NotAbsorbConcatIntoForOpMultiUse
+// CHECK-SAME:  ([[INPUT:%.+]]: tensor<128256x4096xf16>,
+// CHECK-SAME:   [[INDICES_0:%.+]]: tensor<1024x1xi64>,
+// CHECK-SAME:   [[INDICES_1:%.+]]: tensor<1024x1xi64>)
+func.func @NotAbsorbConcatIntoForOpMultiUse(%input: tensor<128256x4096xf16>, %indices0: tensor<1024x1xi64>, %indices1: tensor<1024x1xi64>) -> (tensor<1024x4096xf16>, tensor<1024x2048xf16>) {
+    %c1024 = arith.constant 1024 : index
+    %c2048 = arith.constant 2048 : index
+    %c0 = arith.constant 0 : index
+    %0 = VPU.Slice %input [0, 0] [128256, 2048] : tensor<128256x4096xf16> to tensor<128256x2048xf16>
+    %1 = tensor.empty() : tensor<1024x2048xf16>
+    %2 = scf.for %arg3 = %c0 to %c2048 step %c1024 iter_args(%arg4 = %1) -> (tensor<1024x2048xf16>) {
+        %extracted_slice = tensor.extract_slice %0[0, %arg3] [128256, 1024] [1, 1] : tensor<128256x2048xf16> to tensor<128256x1024xf16>
+        %7 = VPU.GatherDMA(%extracted_slice, %indices0) {axis_value = 0 : i64, batch_dims = 0 : i64} : tensor<128256x1024xf16>, tensor<1024x1xi64> -> tensor<1024x1024xf16>
+        %inserted_slice = tensor.insert_slice %7 into %arg4[0, %arg3] [1024, 1024] [1, 1] : tensor<1024x1024xf16> into tensor<1024x2048xf16>
+        scf.yield %inserted_slice : tensor<1024x2048xf16>
+    }
+    %3 = VPU.Slice %input [0, 2048] [128256, 2048] : tensor<128256x4096xf16> to tensor<128256x2048xf16>
+    %4 = tensor.empty() : tensor<1024x2048xf16>
+    %5 = scf.for %arg3 = %c0 to %c2048 step %c1024 iter_args(%arg4 = %4) -> (tensor<1024x2048xf16>) {
+        %extracted_slice = tensor.extract_slice %3[0, %arg3] [128256, 1024] [1, 1] : tensor<128256x2048xf16> to tensor<128256x1024xf16>
+        %7 = VPU.GatherDMA(%extracted_slice, %indices1) {axis_value = 0 : i64, batch_dims = 0 : i64} : tensor<128256x1024xf16>, tensor<1024x1xi64> -> tensor<1024x1024xf16>
+        %inserted_slice = tensor.insert_slice %7 into %arg4[0, %arg3] [1024, 1024] [1, 1] : tensor<1024x1024xf16> into tensor<1024x2048xf16>
+        scf.yield %inserted_slice : tensor<1024x2048xf16>
+    }
+    %6 = VPU.Concat(%2, %5) {static_offsets = [[0, 0], [0, 2048]]} : tensor<1024x2048xf16>, tensor<1024x2048xf16> -> tensor<1024x4096xf16>
+    return %6, %2 : tensor<1024x4096xf16>, tensor<1024x2048xf16>
+
+    // The first loop's result is used both by the VPU.Concat and as a direct function result,
+    // CHECK:   [[FOR_0:%.+]] = scf.for
+    // CHECK:   [[FOR_1:%.+]] = scf.for
+    // CHECK:   [[CONCAT:%.+]] = VPU.Concat([[FOR_0]], [[FOR_1]])
+    // CHECK-SAME{LITERAL}:  {static_offsets = [[0, 0], [0, 2048]]}
+    // CHECK-SAME:          : tensor<1024x2048xf16>, tensor<1024x2048xf16> -> tensor<1024x4096xf16>
+    // CHECK:   return [[CONCAT]], [[FOR_0]] : tensor<1024x4096xf16>, tensor<1024x2048xf16>
+}

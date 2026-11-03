@@ -4,7 +4,7 @@
 //
 
 #include "vcl_compiler.hpp"
-#include "npu_driver_compiler.h"
+#include "compatibility/npu_driver_compiler.h"
 #include "vcl_executable.hpp"
 #include "vcl_query_network.hpp"
 
@@ -13,14 +13,20 @@
 
 #include "vpux/compiler/icompiler.hpp"
 #include "vpux/compiler/version.hpp"
+#include "vpux/utils/core/error.hpp"
 #include "vpux/utils/ov/compat_string_check.hpp"
+#include "vpux/utils/ov/config.hpp"
 #include "vpux/utils/ov/options.hpp"
 
+#include <cstdint>
 #include <future>
 #include <memory>
+#include <optional>
+#include <string_view>
 #include <thread>
 #include <type_traits>
 #include <unordered_set>
+#include <vector>
 
 #define xstr(s) str(s)
 #define str(s) #s
@@ -55,29 +61,31 @@ Platform getPlatform(const vpux::OV::Config& config) {
     }
 }
 
-[[nodiscard]] bool setPlatformAndDeviceId(uint32_t deviceID, vpux::OV::Config& config) {
+/// The standardized platform a PCI device ID belongs to, or an empty view for an unknown ID.
+std::optional<std::string_view> platformForDeviceID(uint32_t deviceID) {
     switch (deviceID) {
     case 0x7D1D:  // MeteorLake (MTL-P, MTL-H)
     case 0xAD1D:  // ArrowLake (ARL)
-        config.update({{vpux::OV::PLATFORM::key().data(), "3720"}});
-        config.update({{vpux::OV::DEVICE_ID::key().data(), "3720"}});
-        break;
+        return vpux::OV::Platform::NPU3720;
     case 0x643E:  // LunarLake (LNL)
-        config.update({{vpux::OV::PLATFORM::key().data(), "4000"}});
-        config.update({{vpux::OV::DEVICE_ID::key().data(), "4000"}});
-        break;
+        return vpux::OV::Platform::NPU4000;
     case 0xB03E:  // PantherLake Mobile (PTL-P)
-        config.update({{vpux::OV::PLATFORM::key().data(), "5010"}});
-        config.update({{vpux::OV::DEVICE_ID::key().data(), "5010"}});
-        break;
+        return vpux::OV::Platform::NPU5010;
     case 0xFD3E:  // Wildcatlake (WCL)
-        config.update({{vpux::OV::PLATFORM::key().data(), "5020"}});
-        config.update({{vpux::OV::DEVICE_ID::key().data(), "5020"}});
-        break;
+        return vpux::OV::Platform::NPU5020;
     default:
+        return {};
+    }
+}
+
+[[nodiscard]] bool setPlatformAndDeviceId(uint32_t deviceID, vpux::OV::Config& config) {
+    const auto platform = platformForDeviceID(deviceID);
+    if (!platform.has_value()) {
         return false;
     }
 
+    config.update({{vpux::OV::PLATFORM::key().data(), std::string{*platform}},
+                   {vpux::OV::DEVICE_ID::key().data(), std::string{*platform}}});
     return true;
 }
 
@@ -142,14 +150,74 @@ struct RUNTIME_REQUIREMENTS_MET final : vpux::OV::OptionBase<RUNTIME_REQUIREMENT
     }
 };
 
+vpux::OV::OptionsDesc getOptionsNPU37XX() {
+    vpux::OV::OptionsDesc desc;
+    desc.add<vpux::OV::PERFORMANCE_HINT>();
+    desc.add<vpux::OV::PERFORMANCE_HINT_NUM_REQUESTS>();
+    desc.add<vpux::OV::INFERENCE_PRECISION_HINT>();
+    desc.add<vpux::OV::PERF_COUNT>();
+    desc.add<vpux::OV::LOG_LEVEL>();
+    desc.add<vpux::OV::PLATFORM>();
+    desc.add<vpux::OV::DEVICE_ID>();
+    desc.add<vpux::OV::BATCH_MODE>();
+    desc.add<vpux::OV::COMPILATION_MODE>();
+    desc.add<vpux::OV::COMPILATION_MODE_PARAMS>();
+    desc.add<vpux::OV::BACKEND_COMPILATION_PARAMS>();
+    desc.add<vpux::OV::COMPILATION_NUM_THREADS>();
+    desc.add<vpux::OV::TILES>();
+    desc.add<vpux::OV::STEPPING>();
+    desc.add<vpux::OV::MAX_TILES>();
+    desc.add<vpux::OV::DMA_ENGINES>();
+    desc.add<vpux::OV::DYNAMIC_SHAPE_TO_STATIC>();
+    desc.add<vpux::OV::EXECUTION_MODE_HINT>();
+    desc.add<vpux::OV::COMPILER_DYNAMIC_QUANTIZATION>();
+    desc.add<vpux::OV::BATCH_COMPILER_MODE_SETTINGS>();
+    desc.add<vpux::OV::QDQ_OPTIMIZATION_AGGRESSIVE>();
+    desc.add<vpux::OV::QDQ_OPTIMIZATION>();
+    desc.add<vpux::OV::TURBO>();
+    desc.add<vpux::OV::MODEL_SERIALIZER_VERSION>();
+    desc.add<vpux::OV::ENABLE_WEIGHTLESS>();
+    desc.add<vpux::OV::SEPARATE_WEIGHTS_VERSION>();
+    desc.add<vpux::OV::WS_COMPILE_CALL_NUMBER>();
+    desc.add<vpux::OV::CACHE_MODE>();
+    desc.add<vpux::OV::COMPATIBILITY_CHECK>();
+    desc.add<vpux::OV::EXTENSION_LIB_PATH>();
+    desc.add<vpux::OV::CUSTOM_KERNEL_CONFIG_PATH>();
+    desc.add<vpux::OV::POWER_OPTIMIZED>();
+    desc.add<vpux::OV::OPTIMIZATION_LEVEL>();
+    return desc;
+}
+
+vpux::OV::OptionsDesc getOptionsNPU40XX() {
+    auto desc = getOptionsNPU37XX();
+    desc.add<vpux::OV::ENABLE_STRIDES_FOR>();
+    return desc;
+}
+
+const std::unordered_map<std::string_view, vpux::OV::OptionsDesc> OPTIONS_PER_PLATFORM = {
+        {vpux::OV::Platform::NPU3720, getOptionsNPU37XX()},
+        {vpux::OV::Platform::NPU4000, getOptionsNPU40XX()},
+        {vpux::OV::Platform::NPU5010, getOptionsNPU40XX()},
+        {vpux::OV::Platform::NPU5020, getOptionsNPU40XX()},
+};
+
+const vpux::OV::OptionsDesc ALL_OPTIONS = getOptionsNPU40XX();
+
 }  // namespace
 
 namespace VPUXDriverCompiler {
 
+vpux::OV::OptionsDesc getOptionsForPlatform(std::optional<std::string_view> platform) {
+    if (!platform.has_value()) {
+        return ALL_OPTIONS;
+    }
+    VPUX_THROW_WHEN(OPTIONS_PER_PLATFORM.count(*platform) == 0, "Unknown platform: {0}", *platform);
+    return OPTIONS_PER_PLATFORM.at(*platform);
+}
+
 VPUXCompilerL0::VPUXCompilerL0(vcl_compiler_desc_t* compilerDesc, vcl_device_desc_t* deviceDesc,
                                std::shared_ptr<VCLLogger> vclLogger)
-        : _options(std::make_shared<vpux::OV::OptionsDesc>()),
-          _compilerLoader(std::make_unique<CompilerLoader>()),
+        : _compilerLoader(std::make_unique<CompilerLoader>()),
           _compilerDesc(*compilerDesc),
           _isDeviceDescEmpty(false),
           _logger(std::move(vclLogger)) {
@@ -162,44 +230,12 @@ VPUXCompilerL0::VPUXCompilerL0(vcl_compiler_desc_t* compilerDesc, vcl_device_des
         _logger->debug("DeviceDesc is empty or has no device ID. Using user config value for offline compilation.");
     }
 
-    // Register compiler configuration options
-    _options->add<vpux::OV::PERFORMANCE_HINT>();
-    _options->add<vpux::OV::PERFORMANCE_HINT_NUM_REQUESTS>();
-    _options->add<vpux::OV::INFERENCE_PRECISION_HINT>();
-    _options->add<vpux::OV::PERF_COUNT>();
-    _options->add<vpux::OV::LOG_LEVEL>();
-    _options->add<vpux::OV::PLATFORM>();
-    _options->add<vpux::OV::COMPILER_TYPE>();
-    _options->add<vpux::OV::DEVICE_ID>();
-    _options->add<vpux::OV::BATCH_MODE>();
-    _options->add<vpux::OV::COMPILATION_MODE>();
-    _options->add<vpux::OV::COMPILATION_MODE_PARAMS>();
-    _options->add<vpux::OV::BACKEND_COMPILATION_PARAMS>();
-    _options->add<vpux::OV::COMPILATION_NUM_THREADS>();
-    _options->add<vpux::OV::TILES>();
-    _options->add<vpux::OV::STEPPING>();
-    _options->add<vpux::OV::MAX_TILES>();
-    _options->add<vpux::OV::DMA_ENGINES>();
-    _options->add<vpux::OV::DYNAMIC_SHAPE_TO_STATIC>();
-    _options->add<vpux::OV::EXECUTION_MODE_HINT>();
-    _options->add<vpux::OV::COMPILER_DYNAMIC_QUANTIZATION>();
-    _options->add<vpux::OV::BATCH_COMPILER_MODE_SETTINGS>();
-    _options->add<vpux::OV::QDQ_OPTIMIZATION_AGGRESSIVE>();
-    _options->add<vpux::OV::QDQ_OPTIMIZATION>();
-    _options->add<vpux::OV::TURBO>();
-    _options->add<vpux::OV::MODEL_SERIALIZER_VERSION>();
-    // don't enable for NPU3720 platforms: MTL and ARL
-    if (_deviceDesc.deviceID != 0x7D1D && _deviceDesc.deviceID != 0xAD1D) {
-        _options->add<vpux::OV::ENABLE_STRIDES_FOR>();
-    }
-
-    _options->add<vpux::OV::ENABLE_WEIGHTLESS>();
-    _options->add<vpux::OV::SEPARATE_WEIGHTS_VERSION>();
-    _options->add<vpux::OV::WS_COMPILE_CALL_NUMBER>();
-    _options->add<vpux::OV::CACHE_MODE>();
-    _options->add<vpux::OV::COMPATIBILITY_CHECK>();
-    _options->add<vpux::OV::EXTENSION_LIB_PATH>();
-    _options->add<vpux::OV::CUSTOM_KERNEL_CONFIG_PATH>();
+    // Exactly the compilation options the device this compiler was created for supports. A
+    // compiler without a recognized device gets every known option: nothing is there to narrow it.
+    // Held as a shared_ptr only because that is what vpux::OV::Config takes, and copied once here
+    // rather than per Config; the wider set the target queries need is fetched on demand.
+    _deviceSupportedOptions = std::make_shared<const vpux::OV::OptionsDesc>(
+            getOptionsForPlatform(platformForDeviceID(_deviceDesc.deviceID)));
 
     // Update the compiler properties
     _compilerProp.id = COMPILER_VERSION;
@@ -215,7 +251,7 @@ std::pair<VPUXExecutableL0*, vcl_result_t> VPUXCompilerL0::importNetwork(const v
         // Create executable with the result NetworkDescription, profiling option and logger
         // Note we rely on implicit move semantics thanks to compile result being an rvalue,
         // failure to move here would lead to a blob copy!
-        vpux::OV::Config config(_options);
+        vpux::OV::Config config(_deviceSupportedOptions);
         if (!_isDeviceDescEmpty) {
             setPlatformAndDeviceIdT(_deviceDesc.deviceID, config);
         }
@@ -254,7 +290,7 @@ NetworkDescriptionView VPUXCompilerL0::importNetwork(const vcl_executable_desc_t
 
     // Isolate the MLIR thread to safely destroy MLIR thread_local objects before CiD unload.
     return runInWorkerThreadSync([&] {
-        vpux::OV::Config config(_options);
+        vpux::OV::Config config(_deviceSupportedOptions);
         if (!_isDeviceDescEmpty) {
             setPlatformAndDeviceIdT(_deviceDesc.deviceID, config);
         }
@@ -272,7 +308,7 @@ std::vector<std::shared_ptr<NetworkDescriptionView>> VPUXCompilerL0::importNetwo
 
     // Isolate the MLIR thread to safely destroy MLIR thread_local objects before CiD unload.
     return runInWorkerThreadSync([&] {
-        vpux::OV::Config config(_options);
+        vpux::OV::Config config(_deviceSupportedOptions);
         if (!_isDeviceDescEmpty) {
             setPlatformAndDeviceIdT(_deviceDesc.deviceID, config);
         }
@@ -285,7 +321,7 @@ vcl_result_t VPUXCompilerL0::queryNetwork(const vcl_query_desc_t& desc, VPUXQuer
     _logger->info("Start to call query function from compiler to get supported layers!");
     ov::SupportedOpsMap queryNetworkResult;
     try {
-        vpux::OV::Config config(_options);
+        vpux::OV::Config config(_deviceSupportedOptions);
         if (!_isDeviceDescEmpty) {
             setPlatformAndDeviceIdT(_deviceDesc.deviceID, config);
         }
@@ -310,7 +346,7 @@ vcl_result_t VPUXCompilerL0::queryNetwork(const vcl_query_desc_t& desc, VPUXQuer
 
 vcl_result_t VPUXCompilerL0::getSupportedOptions(char* buffer, uint64_t size) const {
     // get the registered options list, excluding private options (false param)
-    std::string optListStr = _options->getSupportedAsString(false);
+    std::string optListStr = _deviceSupportedOptions->getSupportedAsString(false);
     // check if it fits
     uint64_t stringsize = optListStr.size() + 1;
     if (stringsize > size) {
@@ -325,7 +361,7 @@ vcl_result_t VPUXCompilerL0::getSupportedOptions(char* buffer, uint64_t size) co
 
 vcl_result_t VPUXCompilerL0::getSupportedOptionsSize(uint64_t* stringSize) const {
     // get the registered options list, excluding private options (false param)
-    std::string optionsList = _options->getSupportedAsString(false);
+    std::string optionsList = _deviceSupportedOptions->getSupportedAsString(false);
     // get string size +1 for null-termination
     *stringSize = optionsList.size() + 1;
     return VCL_RESULT_SUCCESS;
@@ -346,7 +382,7 @@ bool VPUXCompilerL0::isOptionValueSupported(const char* option, const char* valu
         if (!value) {
             return true;
         }
-        auto config = vpux::OV::Config(_options);
+        auto config = vpux::OV::Config(_deviceSupportedOptions);
         if (_isDeviceDescEmpty || _deviceDesc.tileCount == static_cast<uint32_t>(-1)) {
             _logger->outputError("Cannot validate the compatibility string: device descriptor is missing or "
                                  "MAX_TILES is invalid.");
@@ -361,12 +397,12 @@ bool VPUXCompilerL0::isOptionValueSupported(const char* option, const char* valu
         return checkRuntimeRequirements(std::string_view{value}, config);
     }
 
-    std::vector<std::string> optList = _options->getSupported(true);  // include private
+    std::vector<std::string> optList = _deviceSupportedOptions->getSupported(true);  // include private
     if (std::find(optList.begin(), optList.end(), optName) == optList.end()) {
         return false;
     }
 
-    return value ? _options->get(optName).isValueSupported(value) : true;
+    return value ? _deviceSupportedOptions->get(optName).isValueSupported(value) : true;
 }
 
 }  // namespace VPUXDriverCompiler

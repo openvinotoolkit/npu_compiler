@@ -42,14 +42,14 @@ func.func @ConvertGroupTransposedConvToTransposedConvQuantized(%input: tensor<1x
     %input_low = const.Declare tensor<1x1x1x1xf16> = dense<0.0> : tensor<1x1x1x1xf16>
     %input_high = const.Declare tensor<1x1x1x1xf16> = dense<255.0> : tensor<1x1x1x1xf16>
     %input_fq = IE.FakeQuantize(%input, %input_low, %input_high, %input_low, %input_high) {
-            auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256
+            auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256
         } : tensor<1x64x64x64xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<1x64x64x64xf16>
 
     %weights = const.Declare tensor<2x32x32x4x4xf16> = dense<1.000000e+00> : tensor<2x32x32x4x4xf16>
     %weights_low = const.Declare tensor<1x1x1x1x1xf16> = dense<0.0> : tensor<1x1x1x1x1xf16>
     %weights_high = const.Declare tensor<1x1x1x1x1xf16> = dense<255.0> : tensor<1x1x1x1x1xf16>
     %weights_fq = IE.FakeQuantize(%weights, %weights_low, %weights_high, %weights_low, %weights_high) {
-            auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256
+            auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256
         } : tensor<2x32x32x4x4xf16>, tensor<1x1x1x1x1xf16>, tensor<1x1x1x1x1xf16>, tensor<1x1x1x1x1xf16>, tensor<1x1x1x1x1xf16> -> tensor<2x32x32x4x4xf16>
 
     %output = IE.GroupTransposedConvolution(%input_fq, %weights_fq) {
@@ -59,7 +59,7 @@ func.func @ConvertGroupTransposedConvToTransposedConvQuantized(%input: tensor<1x
     %output_low = const.Declare tensor<1x1x1x1xf16> = dense<1.0> : tensor<1x1x1x1xf16>
     %output_high = const.Declare tensor<1x1x1x1xf16> = dense<254.0> : tensor<1x1x1x1xf16>
     %output_fq = IE.FakeQuantize(%output, %output_low, %output_high, %output_low, %output_high) {
-            auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256
+            auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256
         } : tensor<1x64x130x130xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<1x64x130x130xf16>
 
     return %output_fq : tensor<1x64x130x130xf16>
@@ -104,14 +104,14 @@ func.func @ConvertGroupTransposedConvToTransposedConvQuantizedPerAxis(%input: te
     %input_low = const.Declare tensor<1x64x1x1xf16> = dense<0.0> : tensor<1x64x1x1xf16>
     %input_high = const.Declare tensor<1x64x1x1xf16> = dense<255.0> : tensor<1x64x1x1xf16>
     %input_fq = IE.FakeQuantize(%input, %input_low, %input_high, %input_low, %input_high) {
-            auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256
+            auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256
         } : tensor<1x64x64x64xf16>, tensor<1x64x1x1xf16>, tensor<1x64x1x1xf16>, tensor<1x64x1x1xf16>, tensor<1x64x1x1xf16> -> tensor<1x64x64x64xf16>
 
     %weights = const.Declare tensor<2x32x32x4x4xf16> = dense<1.000000e+00> : tensor<2x32x32x4x4xf16>
     %weights_low = const.Declare tensor<2x1x1x1x1xf16> = dense<0.0> : tensor<2x1x1x1x1xf16>
     %weights_high = const.Declare tensor<2x1x1x1x1xf16> = dense<255.0> : tensor<2x1x1x1x1xf16>
     %weights_fq = IE.FakeQuantize(%weights, %weights_low, %weights_high, %weights_low, %weights_high) {
-            auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256
+            auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256
         } : tensor<2x32x32x4x4xf16>, tensor<2x1x1x1x1xf16>, tensor<2x1x1x1x1xf16>, tensor<2x1x1x1x1xf16>, tensor<2x1x1x1x1xf16> -> tensor<2x32x32x4x4xf16>
 
     %output = IE.GroupTransposedConvolution(%input_fq, %weights_fq) {
@@ -121,7 +121,7 @@ func.func @ConvertGroupTransposedConvToTransposedConvQuantizedPerAxis(%input: te
     %output_low = const.Declare tensor<1x64x1x1xf16> = dense<1.0> : tensor<1x64x1x1xf16>
     %output_high = const.Declare tensor<1x64x1x1xf16> = dense<254.0> : tensor<1x64x1x1xf16>
     %output_fq = IE.FakeQuantize(%output, %output_low, %output_high, %output_low, %output_high) {
-            auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256
+            auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256
         } : tensor<1x64x130x130xf16>, tensor<1x64x1x1xf16>, tensor<1x64x1x1xf16>, tensor<1x64x1x1xf16>, tensor<1x64x1x1xf16> -> tensor<1x64x130x130xf16>
 
     return %output_fq : tensor<1x64x130x130xf16>
@@ -186,14 +186,14 @@ func.func @ConvertGroupTransposedConvToTransposedConvDepthwiseQuantized(%input: 
     %input_low = const.Declare tensor<1x1x1x1xf16> = dense<0.0> : tensor<1x1x1x1xf16>
     %input_high = const.Declare tensor<1x1x1x1xf16> = dense<255.0> : tensor<1x1x1x1xf16>
     %input_fq = IE.FakeQuantize(%input, %input_low, %input_high, %input_low, %input_high) {
-            auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256
+            auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256
         } : tensor<1x64x64x64xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<1x64x64x64xf16>
 
     %weights = const.Declare tensor<64x1x1x4x4xf16> = dense<1.000000e+00> : tensor<64x1x1x4x4xf16>
     %weights_low = const.Declare tensor<1x1x1x1x1xf16> = dense<0.0> : tensor<1x1x1x1x1xf16>
     %weights_high = const.Declare tensor<1x1x1x1x1xf16> = dense<255.0> : tensor<1x1x1x1x1xf16>
     %weights_fq = IE.FakeQuantize(%weights, %weights_low, %weights_high, %weights_low, %weights_high) {
-            auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256
+            auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256
         } : tensor<64x1x1x4x4xf16>, tensor<1x1x1x1x1xf16>, tensor<1x1x1x1x1xf16>, tensor<1x1x1x1x1xf16>, tensor<1x1x1x1x1xf16> -> tensor<64x1x1x4x4xf16>
 
     %output = IE.GroupTransposedConvolution(%input_fq, %weights_fq) {
@@ -203,7 +203,7 @@ func.func @ConvertGroupTransposedConvToTransposedConvDepthwiseQuantized(%input: 
     %output_low = const.Declare tensor<1x1x1x1xf16> = dense<1.0> : tensor<1x1x1x1xf16>
     %output_high = const.Declare tensor<1x1x1x1xf16> = dense<254.0> : tensor<1x1x1x1xf16>
     %output_fq = IE.FakeQuantize(%output, %output_low, %output_high, %output_low, %output_high) {
-            auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256
+            auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256
         } : tensor<1x64x130x130xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<1x64x130x130xf16>
 
     return %output_fq : tensor<1x64x130x130xf16>
@@ -236,14 +236,14 @@ func.func @ConvertGroupTransposedConvToTransposedConvDepthwiseQuantizedPerAxis(%
     %input_low = const.Declare tensor<1x64x1x1xf16> = dense<0.0> : tensor<1x64x1x1xf16>
     %input_high = const.Declare tensor<1x64x1x1xf16> = dense<255.0> : tensor<1x64x1x1xf16>
     %input_fq = IE.FakeQuantize(%input, %input_low, %input_high, %input_low, %input_high) {
-            auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256
+            auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256
         } : tensor<1x64x64x64xf16>, tensor<1x64x1x1xf16>, tensor<1x64x1x1xf16>, tensor<1x64x1x1xf16>, tensor<1x64x1x1xf16> -> tensor<1x64x64x64xf16>
 
     %weights = const.Declare tensor<64x1x1x4x4xf16> = dense<1.000000e+00> : tensor<64x1x1x4x4xf16>
     %weights_low = const.Declare tensor<64x1x1x1x1xf16> = dense<0.0> : tensor<64x1x1x1x1xf16>
     %weights_high = const.Declare tensor<64x1x1x1x1xf16> = dense<255.0> : tensor<64x1x1x1x1xf16>
     %weights_fq = IE.FakeQuantize(%weights, %weights_low, %weights_high, %weights_low, %weights_high) {
-            auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256
+            auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256
         } : tensor<64x1x1x4x4xf16>, tensor<64x1x1x1x1xf16>, tensor<64x1x1x1x1xf16>, tensor<64x1x1x1x1xf16>, tensor<64x1x1x1x1xf16> -> tensor<64x1x1x4x4xf16>
 
     %output = IE.GroupTransposedConvolution(%input_fq, %weights_fq) {
@@ -253,7 +253,7 @@ func.func @ConvertGroupTransposedConvToTransposedConvDepthwiseQuantizedPerAxis(%
     %output_low = const.Declare tensor<1x64x1x1xf16> = dense<1.0> : tensor<1x64x1x1xf16>
     %output_high = const.Declare tensor<1x64x1x1xf16> = dense<254.0> : tensor<1x64x1x1xf16>
     %output_fq = IE.FakeQuantize(%output, %output_low, %output_high, %output_low, %output_high) {
-            auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256
+            auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256
         } : tensor<1x64x130x130xf16>, tensor<1x64x1x1xf16>, tensor<1x64x1x1xf16>, tensor<1x64x1x1xf16>, tensor<1x64x1x1xf16> -> tensor<1x64x130x130xf16>
 
     return %output_fq : tensor<1x64x130x130xf16>

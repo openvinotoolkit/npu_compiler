@@ -38,11 +38,9 @@ def Config_CompilationMode  :
             [
                 I64EnumAttrCase<"ReferenceSW",           0>,
                 I64EnumAttrCase<"DefaultHW",             1>,
-                I64EnumAttrCase<"HostCompile",           2>,
+                I64EnumAttrCase<"HostCompile_Interpreter", 2>,
                 I64EnumAttrCase<"WSInit",                3>,
-                I64EnumAttrCase<"WSMain",                4>,
-                I64EnumAttrCase<"HostCompile_JIT",        5>,
-                I64EnumAttrCase<"HostCompile_Interpreter", 6>,
+                I64EnumAttrCase<"WSMain",                4>
             ]
         > {
 }
@@ -149,7 +147,6 @@ def Config_ExecutorKind :
                 I64EnumAttrCase<"DPU",       2>,
                 I64EnumAttrCase<"SHAVE_NN",  3>,
                 I64EnumAttrCase<"SHAVE_ACT", 4>,
-                I64EnumAttrCase<"M2I",       5>,
                 I64EnumAttrCase<"UNKNOWN",   6>,
             ]
         > {

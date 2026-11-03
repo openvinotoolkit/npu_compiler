@@ -18,6 +18,62 @@ using namespace vpux;
 // ExternalKernelOp
 //
 
+Shave::CustomOpConfigOp Shave::ExternalKernelOp::getCustomOpConfig() {
+    auto configAttr = getConfigAttr();
+    if (!configAttr) {
+        return nullptr;
+    }
+
+    auto moduleOp = (*this)->template getParentOfType<mlir::ModuleOp>();
+    if (!moduleOp) {
+        return nullptr;
+    }
+
+    return mlir::dyn_cast_if_present<Shave::CustomOpConfigOp>(mlir::SymbolTable::lookupSymbolIn(moduleOp, configAttr));
+}
+
+llvm::SmallVector<Shave::ScratchLocation> Shave::ExternalKernelOp::getScratchLocationValues() {
+    llvm::SmallVector<Shave::ScratchLocation> result;
+    auto locAttr = getScratchLocationsAttr();
+    if (!locAttr) {
+        return result;
+    }
+    for (auto attr : locAttr.getValue()) {
+        result.push_back(mlir::cast<Shave::ScratchLocationAttr>(attr).getValue());
+    }
+    return result;
+}
+
+//
+// AuxiliaryBufferOpInterface
+//
+
+vpux::SmallVector<mlir::OpOperand*> Shave::ExternalKernelOp::getAuxiliaryBuffers() {
+    SmallVector<mlir::OpOperand*> scratchBuffs{};
+
+    for (auto& cmxScratchBuffer : getScratchBuffersMutable()) {
+        scratchBuffs.emplace_back(&cmxScratchBuffer);
+    }
+
+    return scratchBuffs;
+}
+
+//
+// SWOpInterface
+//
+
+bool Shave::ExternalKernelOp::fitIntoCMX(llvm::ArrayRef<vpux::NDTypeInterface> /*buffers*/, Byte /*reservedMem*/) {
+    return false;
+}
+
+bool Shave::ExternalKernelOp::fitIntoCMX(llvm::ArrayRef<vpux::NDTypeInterface> /*buffers*/) {
+    return false;
+}
+
+bool Shave::ExternalKernelOp::supportCycleCostCalculation() {
+    return false;
+}
+
 //
 // CustomOpIOTensorConfigOp
 //

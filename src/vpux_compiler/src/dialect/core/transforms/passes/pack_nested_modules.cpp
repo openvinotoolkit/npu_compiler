@@ -13,7 +13,6 @@
 #include "vpux/compiler/dialect/HostExec/params.hpp"
 #include "vpux/compiler/dialect/config/IR/attributes.hpp"
 #include "vpux/compiler/dialect/config/IR/ops.hpp"
-#include "vpux/compiler/dialect/config/IR/resources.hpp"
 #include "vpux/compiler/dialect/net/utils/network_info_utils.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 #include "vpux/utils/core/error.hpp"
@@ -70,10 +69,6 @@ void mergeInto(FuncOrModuleOpSet& dst, const FuncOrModuleOpSet& src) {
     dst.insert(src.begin(), src.end());
 }
 
-bool hasDynamicTypeMetadata(vpux::NDTypeInterface type) {
-    return mlir::isa<Core::BoundedTensorType>(type);
-}
-
 // Check a single Core.ReinterpretCast user and return its result type when it carries
 // dynamic-shape metadata (bounds).
 vpux::NDTypeInterface getDynamicTypeFromReinterpretUsers(mlir::Value root) {
@@ -84,7 +79,7 @@ vpux::NDTypeInterface getDynamicTypeFromReinterpretUsers(mlir::Value root) {
         }
 
         auto castType = mlir::dyn_cast<vpux::NDTypeInterface>(reinterpretCast.getResult().getType());
-        if (castType != nullptr && hasDynamicTypeMetadata(castType)) {
+        if (mlir::isa<Core::BoundedTensorType>(castType)) {
             return castType;
         }
     }
@@ -101,85 +96,11 @@ vpux::NDTypeInterface getDynamicTypeFromReinterpretInputs(mlir::Value root) {
     }
 
     auto castInputType = mlir::dyn_cast<vpux::NDTypeInterface>(reinterpretCast.getInput().getType());
-    if (castInputType != nullptr && hasDynamicTypeMetadata(castInputType)) {
+    if (mlir::isa<Core::BoundedTensorType>(castInputType)) {
         return castInputType;
     }
 
     return nullptr;
-}
-
-// Projects bounds from `sourceBoundedType` onto `targetType` skipping across
-// inserted/removed size-1 dims (dim-expansion reshape).
-vpux::NDTypeInterface projectBoundsOntoTargetType(vpux::NDTypeInterface sourceBoundedType,
-                                                  vpux::NDTypeInterface targetType, vpux::Logger& log) {
-    const auto sourceShape = sourceBoundedType.getShape();
-    const auto sourceOrder = sourceBoundedType.getDimsOrder();
-    const auto targetShape = targetType.getShape();
-    const auto targetOrder = targetType.getDimsOrder();
-
-    VPUX_THROW_UNLESS(hasDynamicTypeMetadata(sourceBoundedType), "Type '{0}' does not have dynamic metadata",
-                      sourceBoundedType);
-    const auto sourceBoundedTensorType = mlir::cast<Core::BoundedTensorType>(sourceBoundedType);
-    const auto sourceBounds = sourceBoundedTensorType.getBounds();
-
-    // Core.ReinterpretCastOp guarantees rank preservation - the following check should never fail
-    VPUX_THROW_UNLESS(sourceBoundedType.getShape().size() == targetShape.size(),
-                      "Rank mismatch: source has rank {0}, target has rank {1}", sourceBoundedType.getShape().size(),
-                      targetShape.size());
-
-    auto getTargetType = [&]() -> vpux::NDTypeInterface {
-        llvm::SmallVector<int64_t> dynDimBounds;
-        for (const auto& dimAndSize : llvm::enumerate(sourceShape)) {
-            if (mlir::ShapedType::isDynamic(dimAndSize.value())) {
-                dynDimBounds.push_back(sourceBounds[vpux::Dim(dimAndSize.index())]);
-            }
-        }
-
-        vpux::Shape targetBounds(targetShape.raw());
-        auto remainingBounds = ArrayRef(dynDimBounds);
-        for (const auto& dimAndSize : llvm::enumerate(targetShape)) {
-            if (mlir::ShapedType::isDynamic(dimAndSize.value())) {
-                VPUX_THROW_WHEN(remainingBounds.empty(), "Not enough dynamic bounds to project onto target type");
-                targetBounds[vpux::Dim(dimAndSize.index())] = remainingBounds.front();
-                remainingBounds = remainingBounds.drop_front();
-            }
-        }
-
-        const auto typeComponents = TypeComponents().setBounds(Bounds(targetBounds.raw()));
-        return targetType.changeTypeComponents(typeComponents);
-    };
-
-    // Handle dim-expansion reshape at same rank: shapes differ only by value changes in size-1 dims.
-    // Example: 1 x 512 x 1 x 1500 -> 1 x 1 x 512 x 1500 (both rank-4)
-    if (!vpux::isNotDimExpansionReshape(sourceShape, targetShape)) {
-        return getTargetType();
-    }
-
-    // FinalizeComputeFunctionBoundariesPass uses this same toMemoryOrder conversion, but on shape.
-    // Identical conversion is equally valid for bounds, since bounds are indexed per-dimension exactly like shape is.
-    auto memBounds = sourceOrder.toMemoryOrder(sourceBounds);
-    auto targetBounds = targetOrder.toLogicalOrder(memBounds);
-
-    // Verify that the projected bounds are compatible with the target shape.
-    bool targetShapeHasCompatibleBounds = true;
-    for (const auto& [idx, dimSize] : llvm::enumerate(targetShape)) {
-        if (!mlir::ShapedType::isDynamic(dimSize) && targetBounds[vpux::Dim(idx)] != dimSize) {
-            targetShapeHasCompatibleBounds = false;
-            break;
-        }
-    }
-    if (targetShapeHasCompatibleBounds) {
-        const auto typeComponents = TypeComponents().setBounds(Bounds(targetBounds.raw()));
-        return targetType.changeTypeComponents(typeComponents);
-    }
-
-    log.warning("Could not deduce bounds from source layout. Falling back to heuristic based approach for projecting "
-                "bounds onto target type.");
-
-    // Fall back to heuristic based approach. Assume that the order of dynamic dimensions remains same and map the
-    // bounds from source to target based on the order of dynamic dimensions. This is a best effort approach and may not
-    // be correct in all cases.
-    return getTargetType();
 }
 
 vpux::NDTypeInterface getInputNetworkInfoType(mlir::func::FuncOp funcOp, unsigned argIndex, vpux::Logger& log) {
@@ -188,8 +109,10 @@ vpux::NDTypeInterface getInputNetworkInfoType(mlir::func::FuncOp funcOp, unsigne
 
     // This pass only propagates dynamic bounds into NetworkInfo when they can be recovered from the
     // reinterpret-cast.
-    if (auto resultType = getDynamicTypeFromReinterpretUsers(funcOp.getArgument(argIndex)); resultType != nullptr) {
-        return projectBoundsOntoTargetType(resultType, funcOp.getArgument(argIndex).getType(), log);
+    auto current = funcOp.getArgument(argIndex);
+    if (auto dynamicType = getDynamicTypeFromReinterpretUsers(current); dynamicType != nullptr) {
+        log.trace("Found real dynamic argument at index {0}: {1}", argIndex, dynamicType);
+        return dynamicType;
     }
 
     return nullptr;
@@ -201,16 +124,15 @@ vpux::NDTypeInterface getOutputNetworkInfoType(mlir::func::FuncOp funcOp, unsign
 
     // This pass only propagates dynamic bounds into NetworkInfo when they can be recovered from the
     // reinterpret-cast.
-    for (auto returnOp : funcOp.getOps<mlir::func::ReturnOp>()) {
-        if (resultIndex >= returnOp.getNumOperands()) {
-            continue;
-        }
+    auto returnOps = funcOp.getOps<mlir::func::ReturnOp>();
+    assert(std::distance(returnOps.begin(), returnOps.end()) == 1 && "Functions have exactly one terminator");
 
-        // Return operands may be wrapped by reinterpret casts; recover dynamic metadata.
-        auto current = returnOp.getOperand(resultIndex);
-        if (auto dynamicType = getDynamicTypeFromReinterpretInputs(current); dynamicType != nullptr) {
-            return projectBoundsOntoTargetType(dynamicType, returnOp.getOperand(resultIndex).getType(), log);
-        }
+    auto returnOp = *returnOps.begin();
+    // Return operands may be wrapped by reinterpret casts; recover dynamic metadata.
+    auto current = returnOp.getOperand(resultIndex);
+    if (auto dynamicType = getDynamicTypeFromReinterpretInputs(current); dynamicType != nullptr) {
+        log.trace("Found real dynamic result at index {0}: {1}", resultIndex, dynamicType);
+        return dynamicType;
     }
 
     return nullptr;
@@ -223,13 +145,19 @@ mlir::Type buildNetworkInfoType(vpux::NDTypeInterface baseShapeType, vpux::NDTyp
         return newType;
     }
 
-    const auto bounds = mlir::dyn_cast<Core::BoundedTensorType>(recoveredType);
-    if (bounds == nullptr) {
+    const auto boundedType = mlir::dyn_cast<Core::BoundedTensorType>(recoveredType);
+    if (boundedType == nullptr) {
         return newType;
     }
 
     const auto baseType = mlir::cast<vpux::NDTypeInterface>(newType);
-    const auto typeComponents = TypeComponents().setBounds(Bounds(bounds.getBounds().raw()));
+    // Note: Both shape and bounds are "logical" (which maps to NCHW layout),
+    // whereas baseShapeType might actually use physical shape which would be
+    // out of sync with the bounds here. Since NPU kernel assumes NCHW
+    // inputs/outputs, use both shape and bounds from the recovered type
+    // instead.
+    const auto bounds = boundedType.getBounds();
+    const auto typeComponents = TypeComponents().setShape(recoveredType.getShape()).setBounds(Bounds(bounds));
     return baseType.changeTypeComponents(typeComponents);
 }
 

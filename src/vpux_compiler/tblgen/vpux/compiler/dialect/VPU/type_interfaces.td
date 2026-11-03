@@ -109,6 +109,17 @@ def ClusterTypeInterface : TypeInterface<"ClusterTypeInterface"> {
             "SmallVector<StridedShape>", "getPerClusterMemoryStridedShapes", (ins)
         >,
 
+       InterfaceMethod<[{
+            @brief Non-throwing counterpart of getPerClusterMemoryStridedShapes
+            @warning Returns failure instead of throwing whenever the strides cannot be
+                     split per cluster, so a caller that has to fall back rather than abort
+                     does not need to replicate the preconditions of each implementation.
+                     `logCb` receives the diagnostic the throwing variant would report.
+            }],
+            "mlir::FailureOr<SmallVector<StridedShape>>", "getPerClusterMemoryStridedShapesOrFailure",
+            (ins "vpux::LogCb":$logCb)
+        >,
+
         InterfaceMethod<[{
             @brief Get largest strided compute shape
             @warning This function should not be used for memory size calculation,

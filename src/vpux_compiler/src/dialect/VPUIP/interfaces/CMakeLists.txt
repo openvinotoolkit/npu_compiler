@@ -30,5 +30,7 @@ add_npu_library(${TARGET_NAME}
         npu_compiler_dialect_const
         npu_core_utils
 )
+enable_lto_if_possible(${TARGET_NAME})
+
 
 ov_add_version_defines(${VPUX_COMPILER_VERSION_FILE} ${TARGET_NAME})

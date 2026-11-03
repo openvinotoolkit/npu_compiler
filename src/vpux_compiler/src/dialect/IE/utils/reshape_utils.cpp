@@ -13,6 +13,7 @@
 
 #include <mlir/IR/PatternMatch.h>
 #include <algorithm>
+#include <optional>
 
 namespace {
 struct MinDimension {
@@ -54,6 +55,30 @@ void handleConsecutiveOnes(ArrayRef<int64_t> inShape, ArrayRef<int64_t> outShape
         startOut++;
     }
 }
+
+namespace {
+
+// A dynamic extent ranks above every static extent, so dims of 1 are absorbed into it.
+bool isSmallerDim(int64_t lhs, int64_t rhs) {
+    return !mlir::ShapedType::isDynamic(lhs) && (mlir::ShapedType::isDynamic(rhs) || lhs < rhs);
+}
+
+// Divides a remaining extent by a dim. A dynamic extent is divisible only by 1 or by another dynamic extent, so it is
+// never merged with or split into static extents.
+std::optional<int64_t> divideDim(int64_t quotient, int64_t dim) {
+    if (dim == 1) {
+        return quotient;
+    }
+    if (mlir::ShapedType::isDynamic(dim)) {
+        return mlir::ShapedType::isDynamic(quotient) ? std::optional<int64_t>(1) : std::nullopt;
+    }
+    if (mlir::ShapedType::isDynamic(quotient) || quotient % dim != 0) {
+        return std::nullopt;
+    }
+    return quotient / dim;
+}
+
+}  // namespace
 
 mlir::FailureOr<SmallVector<SmallVector<int64_t>>> createReassociationMap(ArrayRef<int64_t> inShape,
                                                                           ArrayRef<int64_t> outShape,
@@ -99,19 +124,20 @@ mlir::FailureOr<SmallVector<SmallVector<int64_t>>> createReassociationMap(ArrayR
         // 1 in the other shape, the mapping dim_large = 1 x dim_small will be added. Without that extra condition,
         // there could be cases where that extra 1 remains floating, leading the algorithm to decide that there is no
         // valid mapping between shapes.
-        const bool isInputSmallerDim = inShape[inIdx] < outShape[outIdx] ||
+        const bool isInputSmallerDim = isSmallerDim(inShape[inIdx], outShape[outIdx]) ||
                                        (inShape[inIdx] == outShape[outIdx] && nextDimIsOne(inShape, inIdx));
         auto minimum = isInputSmallerDim ? MinDimension(inIdx, inShape, outShape[outIdx])
                                          : MinDimension(outIdx, outShape, inShape[inIdx]);
 
         do {
-            if (minimum.largeDimQuotient % minimum.shape[minimum.shapeIdx] != 0) {
+            const auto quotient = divideDim(minimum.largeDimQuotient, minimum.shape[minimum.shapeIdx]);
+            if (!quotient.has_value()) {
                 return mlir::failure();
             }
 
             reassociationVec[inIdx].push_back(static_cast<int64_t>(outIdx));
 
-            minimum.largeDimQuotient /= minimum.shape[minimum.shapeIdx];
+            minimum.largeDimQuotient = quotient.value();
 
             if (minimum.largeDimQuotient == 1) {
                 if (isExtension) {

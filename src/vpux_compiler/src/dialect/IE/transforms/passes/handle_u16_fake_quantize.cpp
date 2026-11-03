@@ -18,8 +18,10 @@
 #include "vpux/compiler/utils/quantization.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 #include "vpux/compiler/utils/walk_utils.hpp"
+#include "vpux/utils/core/type/float16.hpp"
 
 #include <mlir/Dialect/Quant/IR/Quant.h>
+#include <mlir/IR/Attributes.h>
 #include <mlir/IR/BuiltinAttributes.h>
 #include <mlir/Support/LLVM.h>
 
@@ -50,18 +52,6 @@ public:
 private:
     void safeRunOnFunc() final;
 };
-
-SmallVector<mlir::Operation*> getMPEEngineMappableConsumers(mlir::Operation* op) {
-    const auto& strategyFactory = IE::getIEStrategyFactory(op->getContext());
-    if (strategyFactory == nullptr) {
-        return {};
-    }
-    const auto multiConsumerStrategy = strategyFactory->getMultiConsumerStrategy();
-    if (multiConsumerStrategy == nullptr) {
-        return {};
-    }
-    return multiConsumerStrategy->getMPEEngineMappableConsumers(op);
-}
 
 std::pair<SmallVector<float>, SmallVector<float>> getWeightsAndBiases(mlir::Value inputLow, mlir::Value inputHigh,
                                                                       mlir::Value outputLow, mlir::Value outputHigh) {
@@ -139,8 +129,9 @@ mlir::Value applyU16FakequantizeOnConstant(mlir::PatternRewriter& rewriter, IE::
     auto fqInputElementType = fqInputType.getElementType();
     auto storageType = mlir::RankedTensorType::get(fqInputType.getShape(), fqInputElementType);
     auto inputValues = IE::getConst(fqInput);
+    auto fqLevels = mlir::dyn_cast<mlir::IntegerAttr>(fqOp.getLevelsOrLowFpTypeAttr());
     for (auto& value : inputValues) {
-        value = fakeQuantize(value, inLowValue, inHighValue, outLowValue, outHighValue, *(fqOp.getLevels()));
+        value = fakeQuantize(value, inLowValue, inHighValue, outLowValue, outHighValue, fqLevels.getInt());
     }
     return vpux::Const::createFloatConst(rewriter, fqOp.getLoc(), storageType, inputValues);
 }
@@ -186,23 +177,99 @@ mlir::LogicalResult HandleU16FakeQuantizePass::RemoveU16FakeQuantizeRewriter::co
                             : getShape(origOp.getOutputLow());
 
     const auto newShape = mlir::RankedTensorType::get(maxShape, mlir::Float32Type::get(rewriter.getContext()));
-    const auto weightsConst = Const::createConst(rewriter, origOp->getLoc(), newShape, ArrayRef(weightsVec));
-    const auto biasesConst = Const::createConst(rewriter, origOp->getLoc(), newShape, ArrayRef(biasesVec));
 
-    auto multiplyOpResult =
-            rewriter.createOrFold<IE::MultiplyOp>(takeOpLoc(origOp, "as_mul"), origOp.getType(), origOp.getInput(),
-                                                  weightsConst, IE::AutoBroadcastType::NUMPY,
+    // A u16 quantizer's scale `(outHigh-outLow)/(inHigh-inLow)` and bias `outLow - inLow*scale` can both
+    // exceed the FP16 range and would then be clamped to the FP16 max once materialized as a constant. To
+    // avoid this we split each of them into FP16-representable pieces: the scale into a product of factors
+    // (one Multiply per factor) and the bias into a sum of terms (one Add per term).
+    const auto fp16Max = checked_cast<float>(std::numeric_limits<vpux::type::float16>::max());
+    // Largest per-factor power-of-two exponent that keeps the factor within FP16 (2^maxStageExp <= fp16Max).
+    const auto maxStageExp = static_cast<int>(std::floor(std::log2(fp16Max)));
+
+    // Factor one scale into pieces whose magnitudes each fit FP16 and whose product is the original scale. A
+    // single power-of-two/residual pair is not always enough: a very large scale (e.g. 1e10) needs a
+    // power-of-two factor to bring the residual back into FP16 range.
+    const auto factorizeScale = [&](float weight) -> SmallVector<float> {
+        const auto magnitude = std::abs(weight);
+        if (magnitude <= fp16Max) {
+            return {weight};
+        }
+        // Smallest total power-of-two exponent that pulls the residual back into FP16 range.
+        const auto totalExp = static_cast<int>(std::ceil(std::log2(magnitude / fp16Max)));
+        SmallVector<float> factors;
+        for (int remaining = totalExp; remaining > 0; remaining -= maxStageExp) {
+            factors.push_back(std::exp2(static_cast<float>(std::min(remaining, maxStageExp))));
+        }
+        // The residual now fits FP16; carry the sign here so the product of all factors equals the scale.
+        factors.push_back(std::copysign(magnitude / std::exp2(static_cast<float>(totalExp)), weight));
+        return factors;
+    };
+
+    // Split one bias into equal terms whose magnitudes each fit FP16 and whose sum is the original bias.
+    // Biases that already fit FP16 stay a single term.
+    const auto splitBias = [&](float bias) -> SmallVector<float> {
+        const auto magnitude = std::abs(bias);
+        if (magnitude <= fp16Max) {
+            return {bias};
+        }
+        const auto numTerms = static_cast<size_t>(std::ceil(magnitude / fp16Max));
+        // magnitude / numTerms <= fp16Max by construction, so every term stays within FP16.
+        return SmallVector<float>(numTerms, bias / static_cast<float>(numTerms));
+    };
+
+    // Factor every channel, then transpose the per-channel piece lists into one constant per stage, padding
+    // shorter factorizations with the operation's identity (1.0 for Multiply, 0.0 for Add) so every stage
+    // covers all channels.
+    const auto buildStages = [](ArrayRef<float> values, llvm::function_ref<SmallVector<float>(float)> factorize,
+                                float identity) -> SmallVector<SmallVector<float>> {
+        SmallVector<SmallVector<float>> perChannel(values.size());
+        size_t numStages = 1;
+        for (size_t idx = 0; idx < values.size(); ++idx) {
+            perChannel[idx] = factorize(values[idx]);
+            numStages = std::max(numStages, perChannel[idx].size());
+        }
+        SmallVector<SmallVector<float>> stages(numStages, SmallVector<float>(values.size(), identity));
+        for (size_t idx = 0; idx < values.size(); ++idx) {
+            for (size_t stage = 0; stage < perChannel[idx].size(); ++stage) {
+                stages[stage][idx] = perChannel[idx][stage];
+            }
+        }
+        return stages;
+    };
+
+    const auto scaleStages = buildStages(weightsVec, factorizeScale, /*identity=*/1.0f);
+    const auto biasStages = buildStages(biasesVec, splitBias, /*identity=*/0.0f);
+
+    // Materialize one constant per stage first so the ScaleShift constants stay grouped ahead of the
+    // Multiply/Add chain. The product of the scale constants equals the original scale and the sum of the
+    // bias constants equals the original bias.
+    SmallVector<mlir::Value> scaleConsts;
+    for (const auto& scaleVec : scaleStages) {
+        scaleConsts.push_back(Const::createConst(rewriter, origOp->getLoc(), newShape, ArrayRef(scaleVec)));
+    }
+    SmallVector<mlir::Value> biasConsts;
+    for (const auto& biasVec : biasStages) {
+        biasConsts.push_back(Const::createConst(rewriter, origOp->getLoc(), newShape, ArrayRef(biasVec)));
+    }
+
+    mlir::Value result = origOp.getInput();
+    for (auto scaleConst : scaleConsts) {
+        result = rewriter.createOrFold<IE::MultiplyOp>(takeOpLoc(origOp, "as_mul"), origOp.getType(), result,
+                                                       scaleConst, IE::AutoBroadcastType::NUMPY,
+                                                       /*post_op=*/nullptr,
+                                                       /*clamp=*/nullptr,
+                                                       /*outputPadding=*/nullptr,
+                                                       /*inputPadding=*/nullptr);
+    }
+    for (auto biasConst : biasConsts) {
+        result = rewriter.createOrFold<IE::AddOp>(takeOpLoc(origOp, "as_add"), result.getType(), result, biasConst,
+                                                  IE::AutoBroadcastType::NUMPY,
                                                   /*post_op=*/nullptr,
                                                   /*clamp=*/nullptr,
                                                   /*outputPadding=*/nullptr,
                                                   /*inputPadding=*/nullptr);
-    auto addOpResult = rewriter.createOrFold<IE::AddOp>(takeOpLoc(origOp, "as_add"), multiplyOpResult.getType(),
-                                                        multiplyOpResult, biasesConst, IE::AutoBroadcastType::NUMPY,
-                                                        /*post_op=*/nullptr,
-                                                        /*clamp=*/nullptr,
-                                                        /*outputPadding=*/nullptr,
-                                                        /*inputPadding=*/nullptr);
-    rewriter.replaceAllOpUsesWith(origOp, addOpResult);
+    }
+    rewriter.replaceAllOpUsesWith(origOp, result);
     return mlir::success();
 }
 
@@ -210,50 +277,31 @@ mlir::LogicalResult HandleU16FakeQuantizePass::RemoveU16FakeQuantizeRewriter::ma
         IE::FakeQuantizeOp origOp, mlir::PatternRewriter& rewriter) const {
     auto moduleOp = getModuleOp(origOp);
     auto setAdaptiveStrippingEnabled = config::hasEnableAdaptiveStripping(moduleOp);
+    auto seOpsEnabled = config::hasEnableSEPtrsOperations(moduleOp);
     auto levels = origOp.getLevels();
-    auto maxLevels = IE::getMaximumQuantizationLevels(levels.value_or(QuantizationLevels::QUANT_LEVELS_8BIT), origOp);
+    if (!levels.has_value()) {
+        return mlir::failure();
+    }
+    auto maxLevels = IE::getMaximumQuantizationLevels(levels.value(), origOp);
     // Maximum number of levels that don't exceeds I8/U8 storage type
-    if (!levels.has_value() || *levels <= maxLevels) {
+    if (levels.value() <= maxLevels) {
         return mlir::failure();
     }
 
-    // Analyze consumers that the target's MPE engine can map. Such consumers may require the U16 FQ to be preserved.
-    const auto mpeEngineMappableConsumers = getMPEEngineMappableConsumers(origOp);
-    if (!mpeEngineMappableConsumers.empty()) {
-        const bool allUsersMappable = llvm::all_of(origOp.getOutput().getUsers(), [&](mlir::Operation* userOp) {
-            return llvm::is_contained(mpeEngineMappableConsumers, userOp);
-        });
-        if (allUsersMappable) {
-            // Every consumer can be mapped, so the U16 FQ must be kept for all of them.
-            _log.trace("[{0}] Keeping U16 FQ at '{1}' since all its consumers can be mapped by the MPE engine",
-                       getDebugName(), origOp->getLoc());
-            return mlir::failure();
-        }
+    const auto mappableInfo = IE::classifyMPEEngineMappableConsumers(origOp, seOpsEnabled, _log);
+    if (mappableInfo.eligibility == IE::MPEConsumerEligibility::ALL) {
+        _log.trace("[{0}] Keeping U16 FQ at '{1}' since all its consumers can be mapped by the MPE engine",
+                   getDebugName(), origOp->getLoc());
+        return mlir::failure();
     }
 
     bool consumersSplit = false;
     const auto splitMappableConsumers = [&]() {
-        if (mpeEngineMappableConsumers.empty() || consumersSplit) {
+        if (consumersSplit) {
             return;
         }
-        // Mixed consumers - clone a dedicated U16 FQ for different MPE engine-mappable users and redirect them
-        // to it, origOp is then left feeding only the non-mappable users, so it falls through to
-        // the regular removal/conversion path below
-        const auto isMappableUser = [&](mlir::OpOperand& opOperand) {
-            return llvm::is_contained(mpeEngineMappableConsumers, opOperand.getOwner());
-        };
-        rewriter.setInsertionPoint(origOp);
-        auto clonedFqOp = mlir::cast<IE::FakeQuantizeOp>(rewriter.clone(*origOp.getOperation()));
-        extendOpLoc(clonedFqOp, "mappable_consumers");
-        rewriter.replaceUsesWithIf(origOp, clonedFqOp.getOutput(), isMappableUser);
 
-        if (clonedFqOp.getOutput().use_empty()) {
-            _log.trace("[{0}] No mappable consumers redirected at '{1}'; discarding cloned U16 FQ", getDebugName(),
-                       origOp->getLoc());
-            rewriter.eraseOp(clonedFqOp);
-            return;
-        }
-        consumersSplit = true;
+        consumersSplit = IE::splitMPEEngineMappableConsumers(rewriter, origOp, seOpsEnabled, _log);
     };
 
     auto areFQValsEqualToValue = [](IE::FakeQuantizeOp op, float value) {
@@ -298,9 +346,11 @@ mlir::LogicalResult HandleU16FakeQuantizePass::RemoveU16FakeQuantizeRewriter::ma
         IE::FakeQuantizeOp childFqOp;
         for (auto* user : origOp.getOutput().getUsers()) {
             if (auto candidate = mlir::dyn_cast<IE::FakeQuantizeOp>(user)) {
-                if (candidate.getLevels().has_value() && *candidate.getLevels() > maxLevels) {
-                    childFqOp = candidate;
-                    break;
+                if (auto candidateLevels = candidate.getLevels()) {
+                    if (candidateLevels.value() > maxLevels) {
+                        childFqOp = candidate;
+                        break;
+                    }
                 }
             }
         }
@@ -370,16 +420,19 @@ public:
         if (!config::hasEnableAdaptiveStripping(moduleOp)) {
             return mlir::failure();
         }
+        auto seOpsEnabled = config::hasEnableSEPtrsOperations(moduleOp);
 
-        auto childLevels = childFqOp.getLevels();
+        auto childLevels = childFqOp.getLevelsOrLowFpTypeAttr();
+        auto childLevelsInt = mlir::dyn_cast<mlir::IntegerAttr>(childLevels);
         auto childMaxLevels = IE::getMaximumQuantizationLevels(
-                childLevels.value_or(QuantizationLevels::QUANT_LEVELS_8BIT), childFqOp);
-        if (!childLevels.has_value() || *childLevels <= childMaxLevels) {
+                childLevelsInt != nullptr ? childLevelsInt.getInt() : QuantizationLevels::QUANT_LEVELS_8BIT, childFqOp);
+        if (childLevelsInt == nullptr || childLevelsInt.getInt() <= childMaxLevels) {
             return mlir::failure();
         }
 
-        if (!getMPEEngineMappableConsumers(childFqOp).empty()) {
-            _log.trace("[{0}] Keeping child U16 FQ at '{1}' since a consumer can be mapped by the MPE engine",
+        const auto childMappableInfo = IE::classifyMPEEngineMappableConsumers(childFqOp, seOpsEnabled, _log);
+        if (childMappableInfo.eligibility == IE::MPEConsumerEligibility::ALL) {
+            _log.trace("[{0}] Keeping child U16 FQ at '{1}' since all its consumers can be mapped by the MPE engine",
                        getDebugName(), childFqOp->getLoc());
             return mlir::failure();
         }
@@ -389,10 +442,12 @@ public:
         if (parentFqOp == nullptr) {
             return mlir::failure();
         }
-        auto parentLevels = parentFqOp.getLevels();
+        auto parentLevels = parentFqOp.getLevelsOrLowFpTypeAttr();
+        auto parentLevelsInt = mlir::dyn_cast<mlir::IntegerAttr>(parentLevels);
         auto parentMaxLevels = IE::getMaximumQuantizationLevels(
-                parentLevels.value_or(QuantizationLevels::QUANT_LEVELS_8BIT), parentFqOp);
-        if (!parentLevels.has_value() || *parentLevels <= parentMaxLevels) {
+                parentLevelsInt != nullptr ? parentLevelsInt.getInt() : QuantizationLevels::QUANT_LEVELS_8BIT,
+                parentFqOp);
+        if (parentLevelsInt == nullptr || parentLevelsInt.getInt() <= parentMaxLevels) {
             return mlir::failure();
         }
 
@@ -418,6 +473,7 @@ public:
             return mlir::failure();
         }
 
+        IE::splitMPEEngineMappableConsumers(rewriter, childFqOp, seOpsEnabled, _log);
         _log.trace("[{0}] Replacing child U16 FQ at '{1}' with ReLU consuming parent FQ input", getDebugName(),
                    childFqOp->getLoc());
         rewriter.replaceOpWithNewOp<IE::ReLUOp>(childFqOp, parentFqOp.getInput());
@@ -532,10 +588,11 @@ std::pair<mlir::Operation*, mlir::Operation*> getFakeQuantizeInput(ConcreteOp co
 }
 
 bool lowerFakeQuantizeU16ToU8(IE::FakeQuantizeOp origOp, mlir::PatternRewriter& rewriter) {
-    const auto levels = origOp.getLevels();
+    const auto levelsOrLowFpTypeAttr = origOp.getLevelsOrLowFpTypeAttr();
     const auto maxLevels = QuantizationLevels::QUANT_LEVELS_8BIT;
 
-    if (!levels.has_value() || *levels <= maxLevels) {
+    if (!mlir::dyn_cast<mlir::IntegerAttr>(levelsOrLowFpTypeAttr) ||
+        mlir::cast<mlir::IntegerAttr>(levelsOrLowFpTypeAttr).getInt() <= maxLevels) {
         return false;
     }
 
@@ -565,9 +622,11 @@ bool lowerFakeQuantizeU16ToU8(IE::FakeQuantizeOp origOp, mlir::PatternRewriter& 
         return false;
     }
 
+    const mlir::Attribute levelsOrFpTypeAttr =
+            maxLevelsAttr ? mlir::cast<mlir::Attribute>(maxLevelsAttr) : mlir::cast<mlir::Attribute>(lowFpTypeAttr);
+
     rewriter.replaceOpWithNewOp<IE::FakeQuantizeOp>(origOp, origOp.getInput(), input->low, input->high, output->low,
-                                                    output->high, maxLevelsAttr, lowFpTypeAttr,
-                                                    IE::AutoBroadcastType::NUMPY);
+                                                    output->high, levelsOrFpTypeAttr, IE::AutoBroadcastType::NUMPY);
 
     return true;
 }
@@ -718,8 +777,13 @@ private:
     }
 
     mlir::LogicalResult validateFqOp(IE::FakeQuantizeOp fqOp, mlir::Operation* lastOp) const {
-        auto levels = fqOp.getLevels();
-        if (!levels.has_value() || *levels <= IE::getMaximumQuantizationLevels(*levels, lastOp)) {
+        auto levelsOrLowFpType = fqOp.getLevelsOrLowFpTypeAttr();
+        auto levelsAttr = mlir::dyn_cast<mlir::IntegerAttr>(levelsOrLowFpType);
+        if (levelsAttr == nullptr) {
+            _log.trace("[{0}] FakeQuantize is not going to be removed (has lowFpType), skipping", getDebugName());
+            return mlir::failure();
+        }
+        if (levelsAttr.getInt() <= IE::getMaximumQuantizationLevels(levelsAttr.getInt(), lastOp)) {
             _log.trace("[{0}] FakeQuantize is not going to be removed, skipping", getDebugName());
             return mlir::failure();
         }
@@ -766,16 +830,16 @@ private:
         auto origOutLow = IE::getConst(oldFqOp.getOutputLow().getDefiningOp<Const::DeclareOp>());
         auto origOutHigh = IE::getConst(oldFqOp.getOutputHigh().getDefiningOp<Const::DeclareOp>());
 
-        auto levels = oldFqOp.getLevels();
+        auto levelsOrLowFpType = oldFqOp.getLevelsOrLowFpTypeAttr();
+        auto levelsAttr = mlir::dyn_cast<mlir::IntegerAttr>(levelsOrLowFpType);
         // When FQ output range is the integer quantization grid [0, levels-1], the Mul+Add
         // following it is a dequantize. The combined Q+DQ is identity on [inputLow, inputHigh].
         // Produce an FQ with output == input to enable stripping downstream.
-        if (levels.has_value() && isFloatEqual(origOutLow.front(), 0.0f) &&
-            isFloatEqual(origOutHigh.front(), static_cast<float>(*levels - 1))) {
+        if (levelsAttr != nullptr && isFloatEqual(origOutLow.front(), 0.0f) &&
+            isFloatEqual(origOutHigh.front(), static_cast<float>(levelsAttr.getInt() - 1))) {
             return IE::FakeQuantizeOp::create(builder, loc, oldFqOp.getInput(), oldFqOp.getInputLow(),
                                               oldFqOp.getInputHigh(), oldFqOp.getInputLow(), oldFqOp.getInputHigh(),
-                                              oldFqOp.getLevelsAttr(), oldFqOp.getLowFpTypeAttr(),
-                                              oldFqOp.getAutoBroadcastAttr());
+                                              levelsOrLowFpType, oldFqOp.getAutoBroadcastAttr());
         }
 
         // General case: compute new output range from scale and bias
@@ -787,9 +851,9 @@ private:
         auto newOutLowConst = Const::createConst(builder, oldFqOp.getLoc(), outLowConstType, ArrayRef(newOutputLow));
         auto newOutHighConst = Const::createConst(builder, oldFqOp.getLoc(), outLowConstType, ArrayRef(newOutputHigh));
 
-        return IE::FakeQuantizeOp::create(
-                builder, loc, oldFqOp.getInput(), oldFqOp.getInputLow(), oldFqOp.getInputHigh(), newOutLowConst,
-                newOutHighConst, oldFqOp.getLevelsAttr(), oldFqOp.getLowFpTypeAttr(), oldFqOp.getAutoBroadcastAttr());
+        return IE::FakeQuantizeOp::create(builder, loc, oldFqOp.getInput(), oldFqOp.getInputLow(),
+                                          oldFqOp.getInputHigh(), newOutLowConst, newOutHighConst,
+                                          oldFqOp.getLevelsOrLowFpTypeAttr(), oldFqOp.getAutoBroadcastAttr());
     }
 
 private:
@@ -837,8 +901,13 @@ private:
         if (fqOp == nullptr) {
             return mlir::failure();
         }
-        const auto levels = fqOp.getLevels();
-        if (!levels.has_value() || *levels <= QuantizationLevels::QUANT_LEVELS_8BIT) {
+        const auto levelsOrLowFpType = fqOp.getLevelsOrLowFpTypeAttr();
+
+        auto levels = mlir::dyn_cast<mlir::IntegerAttr>(levelsOrLowFpType);
+        if (levels == nullptr) {
+            return mlir::failure();
+        }
+        if (levels.getInt() <= QuantizationLevels::QUANT_LEVELS_8BIT) {
             _log.trace("[{0}] Levels are not greater than 8-bit quantization levels", getDebugName());
             return mlir::failure();
         }

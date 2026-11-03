@@ -95,6 +95,49 @@ func.func @UnrollSDPAPatternWithMatmulsHaveDifferentShrinkingBehavior(%arg0: ten
 
 // -----
 
+// CHECK-LABEL: @UnrollSDPAPatternWithAttnMaskAndBroadcastV
+// CHECK-SAME:  ([[Q:%.+]]: tensor<1x64x512x128xf32>, [[K:%.+]]: tensor<1x64x512x128xf32>, [[COND:%.+]]: tensor<1x64x512x512xi8>, [[V_IN:%.+]]: tensor<1x16x1x128x512xf32>)
+func.func @UnrollSDPAPatternWithAttnMaskAndBroadcastV(%q: tensor<1x64x512x128xf32>, %k: tensor<1x64x512x128xf32>, %cond: tensor<1x64x512x512xi8>, %v_in: tensor<1x16x1x128x512xf32>) -> tensor<1x64x512x128xf32> {
+  %true_value = const.Declare tensor<f32> = dense<0.000000e+00> : tensor<f32>
+  %false_value = const.Declare tensor<f32> = dense<-3.402823e+38> : tensor<f32>
+  %broadcast_shape = const.Declare tensor<5xsi32> = dense<[1, 16, 4, 128, 512]> : tensor<5xsi32>
+  %0 = IE.MatMul(%q, %k) {transpose_b} : tensor<1x64x512x128xf32>, tensor<1x64x512x128xf32> -> tensor<1x64x512x512xf32>
+  %1 = IE.Select(%cond, %true_value, %false_value) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x64x512x512xi8>, tensor<f32>, tensor<f32> -> tensor<1x64x512x512xf32>
+  %2 = IE.Add(%0, %1) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x64x512x512xf32>, tensor<1x64x512x512xf32> -> tensor<1x64x512x512xf32>
+  %3 = IE.SoftMax(%2) {axisInd = 3 : i64} : tensor<1x64x512x512xf32> -> tensor<1x64x512x512xf32>
+  %4 = IE.Broadcast(%v_in, %broadcast_shape) {mode = #IE.broadcast_type<BIDIRECTIONAL>} : tensor<1x16x1x128x512xf32>, tensor<5xsi32> -> tensor<1x16x4x128x512xf32>
+  %5 = IE.AffineReshape(%4) {dim_mapping = [[0], [1], [1], [2], [3]], shape_value = [1, 64, 128, 512]} : tensor<1x16x4x128x512xf32> -> tensor<1x64x128x512xf32>
+  %6 = IE.MatMul(%3, %5) {transpose_b} : tensor<1x64x512x512xf32>, tensor<1x64x128x512xf32> -> tensor<1x64x512x128xf32>
+  return %6 : tensor<1x64x512x128xf32>
+
+  // CHECK: [[TRUE_VALUE:%.+]] = const.Declare tensor<f32>
+  // CHECK: [[FALSE_VALUE:%.+]] = const.Declare tensor<f32>
+  // CHECK: [[BROADCAST_SHAPE:%.+]] = const.Declare tensor<5xsi32>
+  // CHECK: [[SELECT:%.+]] = IE.Select([[COND]], [[TRUE_VALUE]], [[FALSE_VALUE]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>}
+  // CHECK: [[BROADCAST:%.+]] = IE.Broadcast([[V_IN]], [[BROADCAST_SHAPE]])
+  // CHECK: [[V_RESHAPE:%.+]] = IE.AffineReshape([[BROADCAST]])
+  // CHECK: [[SLICE_Q_0:%.+]] = IE.Slice [[Q]] [0, 0, 0, 0] [1, 1, 512, 128]
+  // CHECK: [[SLICE_Q_63:%.+]] = IE.Slice [[Q]] [0, 63, 0, 0] [1, 1, 512, 128]
+  // CHECK: [[SLICE_K_0:%.+]] = IE.Slice [[K]] [0, 0, 0, 0] [1, 1, 512, 128]
+  // CHECK: [[SLICE_K_63:%.+]] = IE.Slice [[K]] [0, 63, 0, 0] [1, 1, 512, 128]
+  // CHECK: [[SLICE_V_0:%.+]] = IE.Slice [[V_RESHAPE]] [0, 0, 0, 0] [1, 1, 128, 512]
+  // CHECK: [[SLICE_V_63:%.+]] = IE.Slice [[V_RESHAPE]] [0, 63, 0, 0] [1, 1, 128, 512]
+  // CHECK: [[MASK_SLICE_0:%.+]] = IE.Slice [[SELECT]] [0, 0, 0, 0] [1, 1, 512, 512]
+  // CHECK: [[MASK_SLICE_63:%.+]] = IE.Slice [[SELECT]] [0, 63, 0, 0] [1, 1, 512, 512]
+  // CHECK: [[MATMUL_1_0:%.+]] = IE.MatMul([[SLICE_Q_0]], [[SLICE_K_0]]) {transpose_b}
+  // CHECK: [[ADD_0:%.+]] = IE.Add([[MATMUL_1_0]], [[MASK_SLICE_0]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>}
+  // CHECK: [[SOFTMAX_0:%.+]] = IE.SoftMax([[ADD_0]]) {axisInd = 3 : i64}
+  // CHECK: [[MATMUL_V_0:%.+]] = IE.MatMul([[SOFTMAX_0]], [[SLICE_V_0]]) {transpose_b}
+  // CHECK: [[MATMUL_1_63:%.+]] = IE.MatMul([[SLICE_Q_63]], [[SLICE_K_63]]) {transpose_b}
+  // CHECK: [[ADD_63:%.+]] = IE.Add([[MATMUL_1_63]], [[MASK_SLICE_63]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>}
+  // CHECK: [[SOFTMAX_63:%.+]] = IE.SoftMax([[ADD_63]]) {axisInd = 3 : i64}
+  // CHECK: [[MATMUL_V_63:%.+]] = IE.MatMul([[SOFTMAX_63]], [[SLICE_V_63]]) {transpose_b}
+  // CHECK: [[CONCAT:%.+]] = IE.Concat
+  // CHECK: return [[CONCAT]]
+}
+
+// -----
+
 // CHECK-LABEL: @DontUnrollSDPAPatternWithMatmulsHaveSameShrinkingBehavior
 // CHECK-SAME:  ([[ARG0:%.+]]: tensor<1x8x128x128xf32>, [[ARG1:%.+]]: tensor<1x8x128x128xf32>, [[MASK:%.+]]: tensor<1x1x128x128xf32>, [[ARG2:%.+]]: tensor<1x8x128x128xf32>)
 func.func @DontUnrollSDPAPatternWithMatmulsHaveSameShrinkingBehavior(%arg0: tensor<1x8x128x128xf32>, %arg1: tensor<1x8x128x128xf32>, %mask: tensor<1x1x128x128xf32>, %arg2: tensor<1x8x128x128xf32>) -> tensor<1x8x128x128xf32> {
@@ -438,14 +481,14 @@ func.func @UnrollSDPAPatternWithDynDeqWeights(%arg0: tensor<1x577x768xf32>) -> t
   %10 = IE.AffineReshape(%9) {dim_mapping = [[0, 1], [2]], shape_value = [1, 592, 768]} : tensor<592x768xf32> -> tensor<1x592x768xf32>
   %11 = IE.Add(%10, %cst_5) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x592x768xf32>, tensor<1x1x768xf32> -> tensor<1x592x768xf32>
   %12 = IE.AffineReshape(%11) {dim_mapping = [[0], [1], [2, 3]], shape_value = [1, 592, 12, 64]} : tensor<1x592x768xf32> -> tensor<1x592x12x64xf32>
-  %13 = IE.FakeQuantize(%12, %cst_4, %cst_3, %cst_4, %cst_3) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i64} : tensor<1x592x12x64xf32>, tensor<1xf32>, tensor<1xf32>, tensor<1xf32>, tensor<1xf32> -> tensor<1x592x12x64xf32>
+  %13 = IE.FakeQuantize(%12, %cst_4, %cst_3, %cst_4, %cst_3) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256 : i64} : tensor<1x592x12x64xf32>, tensor<1xf32>, tensor<1xf32>, tensor<1xf32>, tensor<1xf32> -> tensor<1x592x12x64xf32>
   %14 = IE.Transpose(%13) {order_value = affine_map<(d0, d1, d2, d3) -> (d0, d2, d1, d3)>} : tensor<1x592x12x64xf32> -> tensor<1x12x592x64xf32>
   %15 = IE.DynamicDequantize(%cst_2, %cst_0) {dstElemType = f32} : tensor<768x768xsi8>, tensor<768x1xf32> -> tensor<768x768xf32>
   %16 = IE.FullyConnected(%1, %15) : tensor<592x768xf32>, tensor<768x768xf32> -> tensor<592x768xf32>
   %17 = IE.AffineReshape(%16) {dim_mapping = [[0, 1], [2]], shape_value = [1, 592, 768]} : tensor<592x768xf32> -> tensor<1x592x768xf32>
   %18 = IE.Add(%17, %cst) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x592x768xf32>, tensor<1x1x768xf32> -> tensor<1x592x768xf32>
   %19 = IE.AffineReshape(%18) {dim_mapping = [[0], [1], [2, 3]], shape_value = [1, 592, 12, 64]} : tensor<1x592x768xf32> -> tensor<1x592x12x64xf32>
-  %20 = IE.FakeQuantize(%19, %cst_4, %cst_3, %cst_4, %cst_3) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i64} : tensor<1x592x12x64xf32>, tensor<1xf32>, tensor<1xf32>, tensor<1xf32>, tensor<1xf32> -> tensor<1x592x12x64xf32>
+  %20 = IE.FakeQuantize(%19, %cst_4, %cst_3, %cst_4, %cst_3) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256 : i64} : tensor<1x592x12x64xf32>, tensor<1xf32>, tensor<1xf32>, tensor<1xf32>, tensor<1xf32> -> tensor<1x592x12x64xf32>
   %21 = IE.Transpose(%20) {order_value = affine_map<(d0, d1, d2, d3) -> (d0, d2, d1, d3)>} : tensor<1x592x12x64xf32> -> tensor<1x12x592x64xf32>
   %22 = IE.MatMul(%21, %14) {transpose_b} : tensor<1x12x592x64xf32>, tensor<1x12x592x64xf32> -> tensor<1x12x592x592xf32>
   %23 = IE.SoftMax(%22) {axisInd = 3 : i64, padSize = 15 : i64} : tensor<1x12x592x592xf32> -> tensor<1x12x592x592xf32>

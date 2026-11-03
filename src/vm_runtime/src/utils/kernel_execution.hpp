@@ -96,12 +96,137 @@ class ExecutionContext {
 public:
     enum class HostSyncOjbectType : uint32_t { NONE, FENCE, EVENT, COUNTER_BASED_EVENT };
     enum class ExecutionContextType : uint32_t { V1, V2 };
-    enum class ExecutionMode : uint32_t { TILE_BOUND, TILE_AGNOSTIC };
+    enum class ExecutionMode : uint32_t { TILE_BOUND, TILE_AGNOSTIC_ROUND_ROBIN_CMDLIST };
+
+    class EventPool {
+        friend class ExecutionContext;
+        enum class EventType : uint32_t { DEFAULT, COUNTER_BASED };
+        ze_event_pool_handle_t _eventPool{nullptr};
+        std::vector<ze_event_handle_t> _events;
+        uint32_t _currentMaxEventCount = 0;
+        ze_device_handle_t _device{nullptr};
+        ze_context_handle_t _context{nullptr};
+        EventType _eventType = EventType::DEFAULT;
+        ExecutionMode _executionMode = ExecutionMode::TILE_BOUND;
+
+        // Stores the current index of the event to be used for synchronization.
+        uint32_t _curEventIndex = 0;
+
+        // Stores signal events for synchronization
+        std::vector<std::vector<ze_event_handle_t>> _signalEvents;
+        uint32_t _signalEventsArrayIndex = 1;
+
+        bool _hostSyncWithEventRequired = false;
+
+        bool _eventResetRequired = true;
+
+    public:
+        EventPool() = default;
+        ~EventPool() {
+            destroy();
+        }
+        EventPool(const EventPool&) = delete;
+        EventPool& operator=(const EventPool&) = delete;
+        EventPool(EventPool&&) = delete;
+        EventPool& operator=(EventPool&&) = delete;
+
+        result_t initialize(ze_device_handle_t deviceHandle, ze_context_handle_t context, uint32_t cmdListCount,
+                            ExecutionMode executionMode, bool isCounterBasedEventSupported,
+                            bool hostSyncWithEventRequired, uint32_t concurrentJobCount);
+
+        // Returns the next event handle for synchronization.
+        ze_event_handle_t getSignalEvent();
+
+        // Returns the next event handle for synchronization, and increments the event index if a signal event has been
+        // used.
+        std::vector<ze_event_handle_t>& getWaitEvents();
+
+        result_t resetEvents() {
+            _curEventIndex = (_hostSyncWithEventRequired) ? 1 : 0;
+            _signalEventsArrayIndex = 1;
+            _signalEvents.clear();
+            return ZE_RESULT_SUCCESS;
+        }
+
+        bool destroy();
+
+        // Increases the signal events array index, which is used for tracking
+        // the current signal event to be used for synchronization.
+        void increaseSignalEventsArrayIndex() {
+            _signalEventsArrayIndex++;
+
+            if (_eventType == EventType::COUNTER_BASED) {
+                // Increases the current event index for counter-based events
+                // as signal event is used per subgraph for counter-based events
+                _curEventIndex++;
+            }
+
+            if (_signalEventsArrayIndex >= _signalEvents.size()) {
+                _signalEvents.push_back(std::vector<ze_event_handle_t>());
+            }
+        }
+
+        // Returns the number of events to be reset on device
+        uint32_t getEventCountForReset() {
+            // Note: when _internalHostSyncObjectType == EVENT, _events[0] is reserved for host sync.
+            // resetEventCount is selected below to reset only the events that may remain signaled on host.
+            uint32_t resetEventCount = 0;
+            if (_eventResetRequired) {
+                if (_executionMode != ExecutionMode::TILE_BOUND) {
+                    // Currently, concurrent executions require resetting events.
+                    if (_eventType == EventType::COUNTER_BASED) {
+                        // For counter-based event, _curEventIndex will increase by 1
+                        // when all of inference executions of a subgraph is submitted
+                        // So, resetEventCount should be _curEventIndex - 1 to reset all of the events
+                        resetEventCount = (_curEventIndex > 0) ? _curEventIndex - 1 : 0;
+                    } else {
+                        resetEventCount = _curEventIndex;
+                    }
+                } else if (_hostSyncWithEventRequired) {
+                    // For TILE_BOUND execution mode, event reset cmd is stored in the command list,
+                    // so we need to reset the event on host only for the first event.
+                    resetEventCount = 1;
+                }
+            }
+            return resetEventCount;
+        }
+
+        // Resets L0 events on host only without changing the event index,
+        // used for resetting the synchronization state of the execution context.
+        result_t resetL0Events() {
+            // Note: when _internalHostSyncObjectType == EVENT, _events[0] is reserved for host sync.
+            // resetEventCount is selected below to reset only the events that may remain signaled on host.
+            auto resetEventCount = getEventCountForReset();
+
+            for (uint32_t i = 0; i < resetEventCount; ++i) {
+                auto& event = _events.at(i);
+                if (event != nullptr) {
+                    auto result = zeEventHostReset(event);
+                    if (result != ZE_RESULT_SUCCESS) {
+                        return result;
+                    }
+                }
+            }
+
+            return ZE_RESULT_SUCCESS;
+        }
+
+        bool getHostSyncEvent(ze_event_handle_t& handle) {
+            if (_hostSyncWithEventRequired) {
+                handle = _events[HOST_SYNC_EVENT_INDEX];
+                return true;
+            }
+            return false;
+        }
+    };
 
     class CmdListPool {
         friend class ExecutionContext;
 
         std::vector<ze_command_list_handle_t> _cmdLists;
+        ze_context_handle_t _context{nullptr};
+        ze_device_handle_t _device{nullptr};
+        uint32_t _groupOrdinal = 0;
 
     public:
         CmdListPool() = default;
@@ -111,32 +236,32 @@ public:
 
         CmdListPool(const CmdListPool&) = delete;
         CmdListPool& operator=(const CmdListPool&) = delete;
-        CmdListPool(CmdListPool&& other) noexcept {
-            _cmdLists = std::move(other._cmdLists);
-        }
-        CmdListPool& operator=(CmdListPool&& other) noexcept {
-            _cmdLists = std::move(other._cmdLists);
-            return *this;
-        }
+        CmdListPool(CmdListPool&& other) = delete;
+        CmdListPool& operator=(CmdListPool&& other) = delete;
 
-        ze_command_list_handle_t getCmdList(uint32_t index) const {
+        ze_command_list_handle_t getCmdList(uint32_t index) {
             if (index < _cmdLists.size()) {
                 return _cmdLists.at(index);
             }
             return nullptr;
         }
+
         size_t size() const {
             return _cmdLists.size();
         }
 
-        result_t initialize(uint32_t cmdListCount, ze_context_handle_t context, ze_device_handle_t device,
+        result_t initialize(ze_context_handle_t context, ze_device_handle_t device, uint32_t cmdListCount,
                             uint32_t groupOrdinal);
 
         ze_command_list_handle_t* getCmdListArrayPtr(uint32_t cmdListIndex) {
             return _cmdLists.data() + cmdListIndex;
         }
 
-        void destroy();
+        bool destroy();
+
+    protected:
+        result_t createCmdList(ze_context_handle_t context, ze_device_handle_t device, uint32_t groupOrdinal,
+                               ze_command_list_handle_t& handle);
     };
 
 protected:
@@ -152,6 +277,9 @@ protected:
     // the current round of command list execution. Range [0 .. _concurrentJobCount - 1]
     uint32_t _cmdListRoundIndex = 0;
 
+    // Stores whether all command lists of a group of command lists for round robin execution
+    bool _allCmdListsUsedInGroup = false;
+
     // Stores the total number of command lists
     uint32_t _cmdListCount = 0;
 
@@ -159,13 +287,8 @@ protected:
     // which is used for determining the number of events to be created for synchronization
     uint32_t _concurrentJobCount = 1;
 
-    // Stores the current index of the event to be used for synchronization.
-    uint32_t _curEventIndex = 0;
-
-    // Stores events for synchronization. The number of events is determined by the number of command lists
-    std::vector<ze_event_handle_t> _events;
-
-    ze_event_pool_handle_t _eventPool{nullptr};
+    // Manages events for synchronization.
+    EventPool _eventPool;
 
     // Stores the current cmd ids
     std::vector<uint32_t> _inferenceCmdIds;
@@ -196,10 +319,6 @@ protected:
     std::vector<ze_command_list_handle_t> _recordedCommandLists;
     CmdListPool _cmdListPool;
 
-    // Stores signal events for synchronization
-    std::vector<std::vector<ze_event_handle_t>> _signalEvents;
-    uint32_t _signalEventsArrayIndex = 1;
-
     // L0 handles and DDI tables for context, device, command queue, and graph,
     // used for executing the graph and setting arguments
     ze_context_handle_t _context{nullptr};
@@ -216,6 +335,9 @@ protected:
     // and used for determining whether to use optimized dynamic strides when setting graph arguments
     bool _optimizedDynamicStridesSupported = false;
 
+    // Stores whether counter-based event is supported, which is used to configure synchronization objects.
+    bool _isCounterBasedEventSupported = false;
+
     // Specify where the recorded command list can be reused, which will be queried from the driver
     bool _recordedCmdListReusable = false;
 
@@ -225,8 +347,8 @@ public:
     ExecutionContext() = default;
     ExecutionContext(const ExecutionContext&) = delete;
     ExecutionContext& operator=(const ExecutionContext&) = delete;
-    ExecutionContext(ExecutionContext&&) noexcept;
-    ExecutionContext& operator=(ExecutionContext&&) noexcept;
+    ExecutionContext(ExecutionContext&&) noexcept = delete;
+    ExecutionContext& operator=(ExecutionContext&&) noexcept = delete;
     ~ExecutionContext();
 
     // Returns whether the execution context has been initialized,
@@ -240,19 +362,7 @@ public:
         _nextCmdListIndex = 0;
         _currentCmdListIndex = 0;
         _cmdListRoundIndex = 0;
-
-        // reset cmdlists for V2 execution context,
-        // as they are created internally and need to be reset
-        if (_executionContextType == ExecutionContextType::V2) {
-            for (auto cmdList : _recordedCommandLists) {
-                if (cmdList != nullptr) {
-                    auto result = zeCommandListReset(cmdList);
-                    if (result != ZE_RESULT_SUCCESS) {
-                        return result;
-                    }
-                }
-            }
-        }
+        _allCmdListsUsedInGroup = false;
 
         std::fill(_inferenceCmdIds.begin(), _inferenceCmdIds.end(), DEFAULT_INFERENCE_ID);
 
@@ -271,63 +381,47 @@ public:
         return ZE_RESULT_SUCCESS;
     }
 
-    // Resets L0 events on host only without changing the event index,
+    // Resets L0 fence and events on host only without changing the event index,
     // used for resetting the synchronization state of the execution context.
-    result_t resetL0Events() {
-        // Note: when _internalHostSyncObjectType == EVENT, _events[0] is reserved for host sync.
-        // resetEventCount is selected below to reset only the events that may remain signaled on host.
-        size_t resetEventCount = 0;
-        if (_executionMode == ExecutionMode::TILE_AGNOSTIC) {
-            // Currently, concurrent executions require resetting events.
-            resetEventCount = _curEventIndex;
-        } else if (this->_internalHostSyncObjectType == HostSyncOjbectType::EVENT) {
-            // For TILE_BOUND execution mode, event reset cmd is stored in the command list,
-            // so we need to reset the event on host only for the first event.
-            resetEventCount = 1;
+    result_t resetL0SyncObjects() {
+        auto result = _eventPool.resetL0Events();
+        if (result != ZE_RESULT_SUCCESS) {
+            return result;
         }
-
-        for (size_t i = 0; i < resetEventCount; ++i) {
-            auto& event = _events.at(i);
-            if (event != nullptr) {
-                auto result = zeEventHostReset(event);
-                if (result != ZE_RESULT_SUCCESS) {
-                    return result;
-                }
+        if (_internalHostSyncObjectType == HostSyncOjbectType::FENCE && _hostSyncFence != nullptr) {
+            result = zeFenceReset(_hostSyncFence);
+            if (result != ZE_RESULT_SUCCESS) {
+                return result;
             }
         }
-
         return ZE_RESULT_SUCCESS;
     }
 
     // Resets the event index and signal event count to their initial state,
     // used for resetting the synchronization state of the execution context.
     result_t resetEvents() {
-        auto result = resetL0Events();
+        auto result = resetL0SyncObjects();
         if (result != ZE_RESULT_SUCCESS) {
             return result;
         }
-        _curEventIndex = (this->_internalHostSyncObjectType == HostSyncOjbectType::EVENT) ? 1 : 0;
-        _signalEventsArrayIndex = 1;
-        _signalEvents.clear();
-        return ZE_RESULT_SUCCESS;
+
+        return _eventPool.resetEvents();
     }
 
     result_t initializeExecutionObjects(ze_context_handle_t context, ze_device_handle_t device,
                                         ze_command_queue_handle_t commandQueue, ze_graph_dditable_ext_t* ddiTable,
                                         ze_command_queue_npu_dditable_ext_t* cmdQueueDdiTable,
-                                        bool useInternalCmdQueue);
-
-    // Returns the next event handle for synchronization.
-    ze_event_handle_t getSignalEvent();
-
-    // Returns the next event handle for synchronization, and increments the event index if a signal event has been
-    // used.
-    std::vector<ze_event_handle_t>& getWaitEvents();
+                                        [[maybe_unused]] bool useInternalCmdQueue);
 
     // Returns the current command list index,
     // which is the index of the command list that was most recently returned by createCommandList.
     uint32_t getCurrentCmdListIndex() const {
         return _currentCmdListIndex;
+    }
+
+    // Returns the current round command list index,
+    uint32_t getCmdListRoundIndex() const {
+        return _cmdListRoundIndex;
     }
 
     // Returns the inference command ids, which is used for tracking the command id for each command list in the
@@ -365,7 +459,11 @@ public:
     ze_command_list_handle_t getCmdList(const npu_vm_runtime_execute_params2_t&, uint32_t cmdListIndex) {
         if (_concurrentJobCount == 1) {
             return _cmdListPool.getCmdList(cmdListIndex);
-        } else {
+        }
+
+        switch (_executionMode) {
+        case ExecutionMode::TILE_BOUND:
+        case ExecutionMode::TILE_AGNOSTIC_ROUND_ROBIN_CMDLIST: {
             // Each call will return one of the command lists in a round-robin manner based on the round index.
             auto handle = _cmdListPool.getCmdList(cmdListIndex + _cmdListRoundIndex++);
             if (handle != nullptr) {
@@ -373,9 +471,15 @@ public:
                     // Reset the round index to 0 when it reaches the concurrent job count,
                     // so that the next call will return the first command list in the next round.
                     _cmdListRoundIndex = 0;
+
+                    if (!_allCmdListsUsedInGroup) {
+                        _allCmdListsUsedInGroup = true;
+                    }
                 }
                 return handle;
             }
+            return nullptr;
+        }
         }
         return nullptr;
     }
@@ -443,7 +547,9 @@ public:
                 }
             }
         } else if (_internalHostSyncObjectType == HostSyncOjbectType::EVENT) {
-            _hostSyncEvent = _events[HOST_SYNC_EVENT_INDEX];
+            if (!_eventPool.getHostSyncEvent(_hostSyncEvent)) {
+                return ZE_RESULT_ERROR_INVALID_NULL_POINTER;
+            }
         }
 
         return ZE_RESULT_SUCCESS;
@@ -501,15 +607,6 @@ public:
         return _hostSyncFence;
     }
 
-    // Increases the signal events array index, which is used for tracking
-    // the current signal event to be used for synchronization.
-    void increaseSignalEventsArrayIndex() {
-        _signalEventsArrayIndex++;
-        if (_signalEventsArrayIndex >= _signalEvents.size()) {
-            _signalEvents.push_back(std::vector<ze_event_handle_t>());
-        }
-    }
-
     // Returns the execution context type, which indicates
     // whether the execution context is using V1 or V2 execution parameters.
     ExecutionContextType getExecutionContextType() const {
@@ -527,22 +624,35 @@ public:
         return _concurrentJobCount;
     }
 
+    // Returns the concurrent job count
+    bool appendRecordedCmdLists(ze_command_list_handle_t* handleArray, uint32_t count) {
+        for (size_t i = 0; i < count; ++i) {
+            if (handleArray[i] == nullptr) {
+                return false;
+            }
+            _recordedCommandLists.push_back(handleArray[i]);
+        }
+        return true;
+    }
+
     // Prepares submission by adding signal events for sync between command lists and host
-    result_t prepareSubmission(ze_command_list_handle_t cmdListHandle, bool needHostSync);
+    result_t prepareSubmission(ze_command_list_handle_t cmdListHandle, bool needHostSync,
+                               uint32_t& cmdListCountToBeSubmitted);
 
     // Synchronizes the host with the command queue using the host synchronization object (fence or event)
     result_t hostSync();
 
     // Submits recorded command lists for execution
     result_t submitRecordedCmdLists() {
-        // Reset Level Zero events referenced by recorded command lists before resubmission
-        auto result = resetL0Events();
+        // Reset Level Zero fence and events referenced by recorded command lists before resubmission
+        auto result = resetL0SyncObjects();
         if (result != ZE_RESULT_SUCCESS) {
             return result;
         }
 
         if (_commandQueue) {
-            auto result = zeCommandQueueExecuteCommandLists(_commandQueue, _recordedCommandLists.size(),
+            auto result = zeCommandQueueExecuteCommandLists(_commandQueue,
+                                                            static_cast<uint32_t>(_recordedCommandLists.size()),
                                                             _recordedCommandLists.data(), _hostSyncFence);
             if (result != ZE_RESULT_SUCCESS) {
                 return result;
@@ -558,12 +668,21 @@ public:
 
     // Destroys the synchronization objects (events and fences)
     // associated with the execution context.
-    void destroySyncObjects();
+    bool destroySyncObjects();
 
-    void initialize(ExecutionContextType type, uint32_t numCmdLists, uint32_t /*numNetworkArgs*/,
-                    size_t concurrentJobCount);
+    // Initializes the execution context with the specified type, number of command lists, and concurrent job count
+    bool initialize(ExecutionContextType type, uint32_t numCmdLists, uint32_t /*numNetworkArgs*/,
+                    uint32_t concurrentJobCount, bool isCounterBasedEventSupported);
+
+    // returns the event pool for the execution context, which will be used for managing events for synchronization.
+    EventPool& getEventPool() {
+        return _eventPool;
+    }
 
 private:
+    ExecutionMode getDefaultExecutionMode() const;
+    void applyExecutionModeOverride(bool useInternalCmdQueue);
+    void updateExecutionModePolicy();
     result_t createEventPool(ze_device_handle_t deviceHandle, ze_context_handle_t context);
 };
 

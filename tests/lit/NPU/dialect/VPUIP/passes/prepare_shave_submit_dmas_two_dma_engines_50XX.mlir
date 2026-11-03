@@ -24,7 +24,6 @@ module @Activation attributes {config.compilationMode = #config.compilation_mode
     config.ExecutorResource 1 of @DPU
   }
   config.Resources 1 of @global {
-    config.ExecutorResource 1 of @M2I
     config.ExecutorResource 2 of @DMA_NN
     config.MemoryResource 67108864000 bytes of @DDR {config.bandwidth = 64 : i64, config.derateFactor = 6.000000e-01 : f64}
   }
@@ -83,7 +82,7 @@ module @Activation attributes {config.compilationMode = #config.compilation_mode
     }
     return %main_1, %main_2 : memref<1x1x1x4194304xf16, @DDR>, memref<4xsi32, @DDR>
   }
-  
+
   // CHECK: [[BAR0:%.+]] = VPURT.DeclareVirtualBarrier
   // CHECK: [[BAR1:%.+]] = VPURT.DeclareVirtualBarrier
   // CHECK: [[BAR2:%.+]] = VPURT.DeclareVirtualBarrier

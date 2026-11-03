@@ -23,8 +23,8 @@ PipeliningVFScheduling::PipeliningVFScheduling(Logger log, bool prefetching,
         : VFScheduling(log, prefetching, std::move(costStrategy)) {
 }
 
-bool PipeliningVFScheduling::validateScenario(VFConfig& config, const TilingOperationStorage::UPtr& tilingInfo,
-                                              const Byte reservedMemory) const {
+bool PipeliningVFScheduling::calculateBufferSizes(VFConfig& config, const TilingOperationStorage::UPtr& tilingInfo,
+                                                  SmallVector<Byte>& opNotSharedSizes, Byte& sharedSize) const {
     if (tilingInfo == nullptr) {
         return false;
     }
@@ -32,15 +32,11 @@ bool PipeliningVFScheduling::validateScenario(VFConfig& config, const TilingOper
     auto operations = config.getOperationsForTiling();
     VPUX_THROW_WHEN(operations.empty(), "There is no operations in the subgraph {0}", config.getSubgraph());
 
-    auto thresholdCMXSize = Byte(static_cast<int64_t>(
-            std::ceil(static_cast<double>(getTotalCMXSize(operations.front()).count()) * PIPELINING_AVAILABLE_RATIO)));
-
     // check not first tile, cause all offsets of the first tile is 0, we cannot detect shared inputs
     const int index = 1;
-    // check if operation without shared inputs fits into (CMX size - shared inputs) / 2
-    SmallVector<Byte> opNotSharedSize;
-    opNotSharedSize.reserve(operations.size());
-    Byte totalSharedSize = Byte(0);
+    opNotSharedSizes.clear();
+    opNotSharedSizes.reserve(operations.size());
+    sharedSize = Byte(0);
     for (auto* operation : operations) {
         auto opTiling = tilingInfo->getRef(operation, index);
         if (!opTiling.has_value()) {
@@ -78,7 +74,7 @@ bool PipeliningVFScheduling::validateScenario(VFConfig& config, const TilingOper
             sharedInputsSize += tiledTypes[operandIndex].getTotalAllocSize();
         }
 
-        totalSharedSize += sharedInputsSize;
+        sharedSize += sharedInputsSize;
         if (isInplaceOp) {
             /* when the op is a inplace op, for example inplace eltwise op, which means the output will reuse the input
              buffer as output, so we need to remove it from the operand list to avoid duplicated calculation.
@@ -98,7 +94,29 @@ bool PipeliningVFScheduling::validateScenario(VFConfig& config, const TilingOper
             tiledTypes.resize(inputSize);
         }
 
-        opNotSharedSize.emplace_back(VPU::getRequiredCMXSize(tiledTypes) - sharedInputsSize);
+        opNotSharedSizes.emplace_back(VPU::getRequiredCMXSize(tiledTypes) - sharedInputsSize);
+    }
+
+    return true;
+}
+
+bool PipeliningVFScheduling::validateScenario(VFConfig& config, const TilingOperationStorage::UPtr& tilingInfo,
+                                              const Byte reservedMemory) const {
+    if (tilingInfo == nullptr) {
+        return false;
+    }
+
+    auto operations = config.getOperationsForTiling();
+    VPUX_THROW_WHEN(operations.empty(), "There is no operations in the subgraph {0}", config.getSubgraph());
+
+    auto thresholdCMXSize = Byte(static_cast<int64_t>(
+            std::ceil(static_cast<double>(getTotalCMXSize(operations.front()).count()) * PIPELINING_AVAILABLE_RATIO)));
+
+    // check if operation without shared inputs fits into (CMX size - shared inputs) / 2
+    SmallVector<Byte> opNotSharedSize;
+    Byte totalSharedSize = Byte(0);
+    if (!calculateBufferSizes(config, tilingInfo, opNotSharedSize, totalSharedSize)) {
+        return false;
     }
 
     for (auto size : opNotSharedSize) {
@@ -118,7 +136,7 @@ VFPipelineContainer PipeliningVFScheduling::getPipelining(
         VFConfig& config, int64_t tilesNumber, const TilingOperationStorage::UPtr& tilingInfo,
         const std::unique_ptr<VPU::LayerVPUNNCost>& costFunction) const {
     VFScenarioCostCalculationContext context(*this, config, tilesNumber, tilingInfo, costFunction, _log, _prefetching);
-    PipeliningVFScenarioCostCalculator calculator;
+    PipeliningVFScenarioCostCalculator calculator(false);
     return calculator.getPipelining(context);
 }
 

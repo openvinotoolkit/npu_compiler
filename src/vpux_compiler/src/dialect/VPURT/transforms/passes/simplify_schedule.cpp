@@ -312,10 +312,10 @@ void reduceParallelControlFlows(std::map<VPURT::TaskQueueType, VPURT::TaskConfig
 
 class SimplifySchedulePass final : public VPURT::impl::SimplifyScheduleBase<SimplifySchedulePass> {
 public:
-    explicit SimplifySchedulePass(const bool reduceParallelControlFlowsFlag,
-                                  std::optional<WorkloadManagementMode> workloadManagementMode, Logger log)
-            : _reduceParallelControlFlows(reduceParallelControlFlowsFlag),
-              _workloadManagementMode(workloadManagementMode) {
+    explicit SimplifySchedulePass(const bool reduceParallelControlFlowsFlag, bool shareWaitAndUpdateBarriers,
+                                  Logger log)
+            : _shareWaitAndUpdateBarriers(shareWaitAndUpdateBarriers),
+              _reduceParallelControlFlows(reduceParallelControlFlowsFlag) {
         Base::initLogger(log, Base::getArgumentName());
     }
 
@@ -323,12 +323,10 @@ private:
     void safeRunOnFunc() final;
     bool _shareWaitAndUpdateBarriers{false};
     bool _reduceParallelControlFlows{true};
-    std::optional<WorkloadManagementMode> _workloadManagementMode = std::nullopt;
 };
 
 void SimplifySchedulePass::safeRunOnFunc() {
     auto funcOp = getOperation();
-    _shareWaitAndUpdateBarriers = VPURT::isShareWaitAndUpdateBarriersNeeded(_workloadManagementMode);
 
     auto shareWaitAndUpdateBarriers = shareWaitAndUpdateBarriersOpt.hasValue()
                                               ? static_cast<bool>(shareWaitAndUpdateBarriersOpt.getValue())
@@ -396,8 +394,7 @@ void SimplifySchedulePass::safeRunOnFunc() {
 // createSimplifySchedulePass
 //
 
-std::unique_ptr<mlir::Pass> vpux::VPURT::createSimplifySchedulePass(
-        const bool reduceParallelControlFlowsFlag, std::optional<WorkloadManagementMode> workloadManagementMode,
-        Logger log) {
-    return std::make_unique<SimplifySchedulePass>(reduceParallelControlFlowsFlag, workloadManagementMode, log);
+std::unique_ptr<mlir::Pass> vpux::VPURT::createSimplifySchedulePass(const bool reduceParallelControlFlowsFlag,
+                                                                    bool shareWaitAndUpdateBarriers, Logger log) {
+    return std::make_unique<SimplifySchedulePass>(reduceParallelControlFlowsFlag, shareWaitAndUpdateBarriers, log);
 }

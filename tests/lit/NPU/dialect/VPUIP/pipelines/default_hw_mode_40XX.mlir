@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-// RUN: vpux-opt --split-input-file --init-compiler="platform=%platform% compilation-mode=DefaultHW allow-custom-values=true enable-sw-kernel-fifo-per-shave-engine=false" --mlir-elide-elementsattrs-if-larger 8 --default-hw-mode-vpuip="workload-management-mode=PWLM_V0_1_PAGES function-outlining=\"naive='num-parts=2'\"" %s | FileCheck %s
+// RUN: vpux-opt --split-input-file --init-compiler="platform=%platform% compilation-mode=DefaultHW allow-custom-values=true" --mlir-elide-elementsattrs-if-larger 8 --default-hw-mode-vpuip="workload-management-mode=PWLM_V0_1_PAGES function-outlining=\"naive='num-parts=2'\"" %s | FileCheck %s
 // REQUIRES: platform-NPU4000
 
 #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>

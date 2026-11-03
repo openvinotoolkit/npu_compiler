@@ -84,7 +84,7 @@ bool SeSizeRewriter::updateSETableForUser(VPU::StorageElementTableOp origOp, mli
         const auto strategy = strategyAttr.getValue();
         const auto numClusters = VPU::getOptimalNumClusters(dwConv, getShape(dwConv.getOutput()), strategy);
         auto distributedInputType = mlir::cast<VPU::DistributedTensorType>(
-                VPU::getDistributedActivationTypeFromOp(dwConv, dwConv.getInput(), dwConv.getInput().getType(),
+                VPU::getDistributedActivationTypeFromOp(dwConv, dwConv.getInputMutable(), dwConv.getInput().getType(),
                                                         numClusters, strategy)
                         .getDistributedTypes()
                         .front());

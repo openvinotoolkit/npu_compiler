@@ -47,7 +47,7 @@ Initial non-transformed constant should be created via `Const::DeclareOp` and `C
 
 ```C++
 mlir::ElementsAttr baseValue = ...;
-Const::ConstOp constOp = builder.create<Const::DeclareOp>(loc, resultType, Const::ContentAttr::get(baseValue));
+auto constOp = Const::DeclareOp::create(builder, loc, resultType, Const::ContentAttr::get(baseValue));
 ```
 
 In assembly code it will be represented as:
@@ -76,7 +76,7 @@ To perform tranformations on constant data, the new `Const::ContentAttr` must be
 Const::DeclareOp origConstOp = ...;
 Const::ConstContentAttr origConstAttr = origConstOp.getContentAttr();
 Const::ConstContentAttr newConstAttr = origConstAttr.castElemType(mlir::Float16Type::get(ctx));
-Const::ConstOp newConstOp = builder.create<Const::DeclareOp>(loc, newConstAttr.getType(), std::move(newConstAttr));
+auto newConstOp = Const::DeclareOp::create(builder, loc, newConstAttr.getType(), std::move(newConstAttr));
 ```
 
 In assembly code it will be represented as:

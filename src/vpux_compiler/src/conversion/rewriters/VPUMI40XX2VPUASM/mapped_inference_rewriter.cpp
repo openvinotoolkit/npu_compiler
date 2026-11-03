@@ -126,7 +126,6 @@ VPUASM::MappedInferenceOp MappedInferenceRewriter::symbolizeMappedInference(
     mlir::ArrayAttr actKernelInvocationsAttr =
             actKernelInvocations.size() ? mlir::ArrayAttr::get(ctx, actKernelInvocations) : nullptr;
     mlir::ArrayAttr actKernelInvoCountAttr = rewriter.getI64ArrayAttr(ArrayRef(invoCount));
-    mlir::SymbolRefAttr mediaTasksAttr = op.getMediaTasks() ? findSym(op.getMediaTasks()) : nullptr;
     mlir::SymbolRefAttr barrierTasksAttr =
             (!op.getBarrierTasks() || _skipBarrierLowering) ? nullptr : findSym(op.getBarrierTasks());
     mlir::SymbolRefAttr actShaveRtAttr = op.getActShaveRt() ? findSym(op.getActShaveRt()) : nullptr;
@@ -144,10 +143,9 @@ VPUASM::MappedInferenceOp MappedInferenceRewriter::symbolizeMappedInference(
 
     return VPUASM::MappedInferenceOp::create(
             rewriter, op.getLoc(), symName, dmasAttr, invariantTasksAttr, variantTasksAttr, actKernelRangesAttr,
-            actKernelInvocationsAttr, mediaTasksAttr, barrierTasksAttr, actShaveRtAttr, actShaveStacksAttr,
-            managedMPISymRef, op.getDmaCountAttr(), op.getInvariantCountAttr(), op.getVariantCountAttr(),
-            actKernelRangesCountAttr, actKernelInvoCountAttr, op.getMediaCountAttr(), op.getBarrierCountAttr(),
-            dmaHwpBase, workpointCfg, mappedInferenceVersion);
+            actKernelInvocationsAttr, barrierTasksAttr, actShaveRtAttr, actShaveStacksAttr, managedMPISymRef,
+            op.getDmaCountAttr(), op.getInvariantCountAttr(), op.getVariantCountAttr(), actKernelRangesCountAttr,
+            actKernelInvoCountAttr, op.getBarrierCountAttr(), dmaHwpBase, workpointCfg, mappedInferenceVersion);
 }
 
 void MappedInferenceRewriter::symbolizeManagedMappedInference(VPUMI40XX::MappedInferenceOp op, mlir::StringAttr symName,
@@ -232,10 +230,6 @@ void MappedInferenceRewriter::symbolizeManagedMappedInference(VPUMI40XX::MappedI
         return static_cast<uint8_t>((1 << numberOfElements) - 1);
     };
 
-    uint8_t media_used = 0;
-    if (op.getMediaCount()) {
-        media_used = fillBits(1);
-    }
     uint8_t dpu_used = fillBits(tileCount);
     uint8_t activeDmaDDR = 0;
     uint8_t activeDMACMX = 0;
@@ -294,7 +288,7 @@ void MappedInferenceRewriter::symbolizeManagedMappedInference(VPUMI40XX::MappedI
             nnRtConfigSymRef, barrierConfigurationDescs, barriersReprogrammings, op.getDmaCountAttr(), workItemCount,
             op.getBarrierCount(), finalBarrierId, bootstrapBarriersCount, bootstrapWorkItemTasksCount,
             barrierConfigurationCount, barrierReprogrammingCount, barrierConfigurationStride, actshv_used, dpu_used,
-            media_used, dma_from_ddr_used, dma_from_cmx_used, mappedInferenceVersion, dpuPvpSymRef,
+            dma_from_ddr_used, dma_from_cmx_used, mappedInferenceVersion, dpuPvpSymRef,
             workloadManagementBarrierProgrammingMode, _disableDmaSwFifo);
     moveOpToSection(managedMPI.getOperation(), *_sectionMap, rewriter);
 

@@ -168,6 +168,9 @@ if (ENABLE_CLANG_TIDY_PLUGIN)
     add_clang_tidy_plugin("${CMAKE_CURRENT_SOURCE_DIR}/tools/clang_tidy_plugin")
 endif()
 
+# This is the include root; Its "compatibility" subfolder holds the headers that are used by the plugin and other repos like openvino.
+set(NPU_COMPATIBILITY_DIR ${CMAKE_CURRENT_SOURCE_DIR}/src/vpux_driver_compiler/include/)
+
 add_subdirectory(thirdparty EXCLUDE_FROM_ALL)
 
 if(ENABLE_DEVELOPER_BUILD)

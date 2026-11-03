@@ -31,10 +31,8 @@ module @"resnet-320-pytorch" attributes {config.compilationMode = #config.compil
     config.Option @config.MetadataMaxInvariantCount : 64 : ui64 loc(#loc1)
     config.Option @config.MetadataMaxKernelInvocationCount : 64 : ui64 loc(#loc1)
     config.Option @config.MetadataMaxKernelRangeCount : 64 : ui64 loc(#loc1)
-    config.Option @config.MetadataMaxMediaCount : 4 : ui64 loc(#loc1)
     config.Option @config.AutoPaddingODU : false loc(#loc1)
     config.Option @config.AutoPaddingIDU : false loc(#loc1)
-    config.Option @config.AsymmetricPerTensorZP : false loc(#loc1)
     config.Option @config.AsymmetricPerChannelZP : false loc(#loc1)
     config.Option @config.ReduceSupported : false loc(#loc1)
     config.Option @config.FP16CompressedConv : false loc(#loc1)
@@ -70,7 +68,6 @@ module @"resnet-320-pytorch" attributes {config.compilationMode = #config.compil
       } loc(#loc1)
     } loc(#loc1)
     config.MemoryResource 67108864000 bytes of @DDR {config.bandwidth = 64 : i64, config.derateFactor = 6.000000e-01 : f64} loc(#loc1)
-    config.ExecutorResource 1 of @M2I loc(#loc1)
     config.ExecutorResource 1 of @DMA_NN loc(#loc1)
   } loc(#loc38)
   net.NetworkInfo {inferenceTiming = 16514 : i64} entryPoint : @main inputsInfo : {

@@ -10,10 +10,10 @@ cd to validation/
 - ```make```
 
 You can also activate different build options using the following flags:
-- ```cmake -DDEBUG=ON```, enables __BITC__EN_DBG__ code, basically shows some debug information
-- ```cmake -DENCODE_PERCENTAGE=ON```, enables __BITC__EN_ENCODE_PERCENTAGE_RATE__ code, shows encode percentage rates
-- ```cmake -DPROFILING=ON```, enables __BITC__EN_PROFILING__ code, shows time taken to (de)compress
-- ```cmake -DENABLE_WRITE=ON```, enables __BITC__EN_OUT_WRITE__ code, writes to a file the output of BITCLite
+- ```cmake -DDEBUG=ON```, enables `__BITC__EN_DBG__` code, basically shows some debug information
+- ```cmake -DENCODE_PERCENTAGE=ON```, enables `__BITC__EN_ENCODE_PERCENTAGE_RATE__` code, shows encode percentage rates
+- ```cmake -DPROFILING=ON```, enables `__BITC__EN_PROFILING__` code, shows time taken to (de)compress
+- ```cmake -DENABLE_WRITE=ON```, enables `__BITC__EN_OUT_WRITE__` code, writes to a file the output of BITCLite
 
 TIP: You can also combine these options
 

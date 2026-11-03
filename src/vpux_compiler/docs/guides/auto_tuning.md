@@ -122,6 +122,7 @@ python3 tools/precomputed-strategy-table/convert_precomputed_strategy_table.py \
   -o artifacts/precomputed_strategy_cache/npu50xx_precomputed_strategy.ptc
 ```
 
+
 ### 4. Rebuild compiler and retest model performance
 
 Rebuild the compiler so the updated `.ptc` is embedded, then rerun performance

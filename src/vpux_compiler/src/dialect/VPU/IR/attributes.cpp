@@ -7,6 +7,7 @@
 #include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPU/IR/native_attributes/distribution_info.hpp"
 #include "vpux/compiler/dialect/VPU/IR/types.hpp"
+#include "vpux/compiler/dialect/VPU/utils/nce_invariant.hpp"
 #include "vpux/compiler/dialect/VPU/utils/op_tiling_cache.hpp"
 #include "vpux/compiler/dialect/VPUIP/utils/utils.hpp"
 #include "vpux/compiler/dialect/config/IR/resources.hpp"
@@ -1083,10 +1084,9 @@ SmallVector<PadInfo> vpux::VPU::getPerClusterPadding(DistributionInfoAttr distri
     return perClusterPadInfo;
 }
 
-SmallVector<StridedShape> vpux::VPU::getPerClusterMemoryStridedShapes(ShapeRef shape, StridesRef strides,
-                                                                      const DimsOrder& dimsOrder,
-                                                                      DistributionModeAttr mode,
-                                                                      ArrayRef<Shape> memoryShapes) {
+mlir::FailureOr<SmallVector<StridedShape>> vpux::VPU::getPerClusterMemoryStridedShapesOrFailure(
+        ShapeRef shape, StridesRef strides, const DimsOrder& dimsOrder, DistributionModeAttr mode,
+        ArrayRef<Shape> memoryShapes, LogCb logCb) {
     const auto distributionMode = mode.getValue();
 
     SmallVector<StridedShape> stridedShapes;
@@ -1100,14 +1100,31 @@ SmallVector<StridedShape> vpux::VPU::getPerClusterMemoryStridedShapes(ShapeRef s
 
     if (VPU::bitEnumContainsAny(distributionMode, VPU::DistributionMode::SEGMENTED) ||
         VPU::bitEnumContainsAny(distributionMode, VPU::DistributionMode::OVERLAPPED)) {
-        const auto adaptedStrides = adaptStrides(shape, strides, memoryShapes, dimsOrder);
-        for (const auto& p : zip(memoryShapes, adaptedStrides)) {
+        const auto adaptedStrides = adaptStridesOrFailure(shape, strides, memoryShapes, dimsOrder, logCb);
+        if (mlir::failed(adaptedStrides)) {
+            return mlir::failure();
+        }
+        for (const auto& p : zip(memoryShapes, adaptedStrides.value())) {
             stridedShapes.emplace_back(std::get<0>(p), std::get<1>(p));
         }
         return stridedShapes;
     }
 
-    VPUX_THROW("Unsupported mode '{0}'", VPU::stringifyEnum(distributionMode));
+    logCb(formatv("Unsupported mode '{0}'", VPU::stringifyEnum(distributionMode)));
+    return mlir::failure();
+}
+
+SmallVector<StridedShape> vpux::VPU::getPerClusterMemoryStridedShapes(ShapeRef shape, StridesRef strides,
+                                                                      const DimsOrder& dimsOrder,
+                                                                      DistributionModeAttr mode,
+                                                                      ArrayRef<Shape> memoryShapes) {
+    std::string errorMsg;
+    auto stridedShapes = getPerClusterMemoryStridedShapesOrFailure(shape, strides, dimsOrder, mode, memoryShapes,
+                                                                   [&](const formatv_object_base& msg) {
+                                                                       errorMsg = msg.str();
+                                                                   });
+    VPUX_THROW_WHEN(mlir::failed(stridedShapes), "{0}", errorMsg);
+    return stridedShapes.value();
 }
 
 SmallVector<Shape> vpux::VPU::arrayAttrToVecOfShapes(mlir::ArrayAttr arr) {
@@ -1121,16 +1138,29 @@ SmallVector<Shape> vpux::VPU::arrayAttrToVecOfShapes(mlir::ArrayAttr arr) {
     return shapesVec;
 }
 
+namespace {
+
+bool isSplitOnlyOverAxis(ArrayRef<int64_t> numTiles, Dim splitAxis) {
+    const auto rank = numTiles.size();
+    if (rank != Dims4D::Act::numDims && rank != DimsGroups5D::Act::numDims) {
+        return false;
+    }
+    for (auto idx : irange(rank)) {
+        if (idx != checked_cast<size_t>(splitAxis.ind()) && numTiles[idx] > 1) {
+            return false;
+        }
+    }
+    return true;
+}
+
+}  // namespace
+
 bool vpux::VPU::isSegmentedOverH(VPU::DistributionInfoAttr distAttr) {
     if (distAttr.getMode().getValue() != VPU::DistributionMode::SEGMENTED) {
         return false;
     }
     const auto numTiles = parseIntArrayAttr<int64_t>(distAttr.getNumTiles());
-    if (numTiles.size() != 4 || numTiles[Dims4D::Act::N.ind()] > 1 || numTiles[Dims4D::Act::C.ind()] > 1 ||
-        numTiles[Dims4D::Act::W.ind()] > 1) {
-        return false;
-    }
-    return true;
+    return isSplitOnlyOverAxis(numTiles, NCEInvariant::getActHeightDim(numTiles.size()));
 }
 
 bool vpux::VPU::isSegmentedOverC(VPU::DistributionInfoAttr distAttr) {
@@ -1138,11 +1168,7 @@ bool vpux::VPU::isSegmentedOverC(VPU::DistributionInfoAttr distAttr) {
         return false;
     }
     const auto numTiles = parseIntArrayAttr<int64_t>(distAttr.getNumTiles());
-    if (numTiles.size() != 4 || numTiles[Dims4D::Act::N.ind()] > 1 || numTiles[Dims4D::Act::H.ind()] > 1 ||
-        numTiles[Dims4D::Act::W.ind()] > 1) {
-        return false;
-    }
-    return true;
+    return isSplitOnlyOverAxis(numTiles, NCEInvariant::getActChannelDim(numTiles.size()));
 }
 
 bool vpux::VPU::isSegmentedDuplicatedOverC(VPU::DistributionInfoAttr distAttr) {
@@ -1150,11 +1176,7 @@ bool vpux::VPU::isSegmentedDuplicatedOverC(VPU::DistributionInfoAttr distAttr) {
         return false;
     }
     const auto numTiles = parseIntArrayAttr<int64_t>(distAttr.getNumTiles());
-    if (numTiles.size() != 4 || numTiles[Dims4D::Act::N.ind()] > 1 || numTiles[Dims4D::Act::H.ind()] > 1 ||
-        numTiles[Dims4D::Act::W.ind()] > 1) {
-        return false;
-    }
-    return true;
+    return isSplitOnlyOverAxis(numTiles, NCEInvariant::getActChannelDim(numTiles.size()));
 }
 
 bool vpux::VPU::isSegmentedOverN(VPU::DistributionInfoAttr distAttr) {
@@ -1162,11 +1184,7 @@ bool vpux::VPU::isSegmentedOverN(VPU::DistributionInfoAttr distAttr) {
         return false;
     }
     const auto numTiles = parseIntArrayAttr<int64_t>(distAttr.getNumTiles());
-    if (numTiles.size() != 4 || numTiles[Dims4D::Act::C.ind()] > 1 || numTiles[Dims4D::Act::H.ind()] > 1 ||
-        numTiles[Dims4D::Act::W.ind()] > 1) {
-        return false;
-    }
-    return true;
+    return isSplitOnlyOverAxis(numTiles, NCEInvariant::getActBatchDim(numTiles.size()));
 }
 
 bool vpux::VPU::isOverlappedOverH(VPU::DistributionInfoAttr distAttr) {
@@ -1331,6 +1349,102 @@ SmallVector<SmallVector<int64_t>> VPU::arrayOfArrayFromShape(ArrayRef<Shape> sha
         ret.push_back(a.raw());
     }
     return ret;
+}
+
+//
+// KernelInfoAttr
+//
+
+mlir::LogicalResult VPU::KernelInfoAttr::verify(llvm::function_ref<mlir::InFlightDiagnostic()> emitError,
+                                                mlir::SymbolRefAttr tilingInfoFuncAttr,
+                                                mlir::DenseI64ArrayAttr tilingAxesAttr,
+                                                mlir::IntegerAttr numSlicedInputsAttr,
+                                                mlir::IntegerAttr numTensorInputsAttr,
+                                                mlir::IntegerAttr numAuxBuffersAttr,
+                                                mlir::ArrayAttr inputSegmentationAxesAttr) {
+    if (tilingInfoFuncAttr == nullptr) {
+        return printTo(emitError(), "Missing 'tilingInfoFunc' in 'KernelInfoAttr'");
+    }
+    if (tilingAxesAttr == nullptr) {
+        return printTo(emitError(), "Missing 'tilingAxes' in 'KernelInfoAttr'");
+    }
+    if (numSlicedInputsAttr == nullptr || numTensorInputsAttr == nullptr || numAuxBuffersAttr == nullptr) {
+        return printTo(emitError(), "Invalid input count in 'KernelInfoAttr'");
+    }
+    if (inputSegmentationAxesAttr == nullptr) {
+        return printTo(emitError(), "Missing 'inputSegmentationAxes' in 'KernelInfoAttr'");
+    }
+
+    const auto numSlicedInputs = numSlicedInputsAttr.getInt();
+    const auto numTensorInputs = numTensorInputsAttr.getInt();
+    const auto numAuxBuffers = numAuxBuffersAttr.getInt();
+    if (numSlicedInputs < 0 || numTensorInputs < 0 || numAuxBuffers < 0) {
+        return printTo(emitError(),
+                       "'KernelInfoAttr' input counts must be non-negative, got numSlicedInputs={0}, "
+                       "numTensorInputs={1}, numAuxBuffers={2}",
+                       numSlicedInputs, numTensorInputs, numAuxBuffers);
+    }
+
+    if (numSlicedInputs > numTensorInputs) {
+        return printTo(emitError(), "'KernelInfoAttr' requires numTensorInputs ({0}) >= numSlicedInputs ({1})",
+                       numTensorInputs, numSlicedInputs);
+    }
+
+    // An empty inputSegmentationAxes means the classification has not been performed yet.
+    if (inputSegmentationAxesAttr.empty()) {
+        return mlir::success();
+    }
+
+    if (inputSegmentationAxesAttr.size() != static_cast<size_t>(tilingAxesAttr.size())) {
+        return printTo(emitError(),
+                       "'KernelInfoAttr' has {0} 'inputSegmentationAxes' entries, expected one per tiling axis ({1})",
+                       inputSegmentationAxesAttr.size(), tilingAxesAttr.size());
+    }
+
+    const auto numInputs = numTensorInputsAttr.getInt() + numAuxBuffersAttr.getInt();
+    for (const auto& entry : inputSegmentationAxesAttr | indexed) {
+        const auto segmentationDims = mlir::dyn_cast<mlir::DenseI64ArrayAttr>(entry.value());
+        if (segmentationDims == nullptr) {
+            return printTo(emitError(), "'KernelInfoAttr' 'inputSegmentationAxes' entry {0} is not a DenseI64ArrayAttr",
+                           entry.index());
+        }
+        if (static_cast<int64_t>(segmentationDims.size()) != numInputs) {
+            return printTo(emitError(),
+                           "'KernelInfoAttr' 'inputSegmentationAxes' entry {0} has {1} elements, expected one per "
+                           "tensor-like operand ({2})",
+                           entry.index(), segmentationDims.size(), numInputs);
+        }
+        const auto segmentationDimsRef = segmentationDims.asArrayRef();
+        for (const auto& segmentationDim : segmentationDimsRef | indexed) {
+            if (segmentationDim.value() < kUnknownDim) {
+                return printTo(
+                        emitError(),
+                        "'KernelInfoAttr' 'inputSegmentationAxes' entry {0} has invalid value {1} for input {2}, "
+                        "expected a memory dimension, {3} (broadcast) or {4} (unknown)",
+                        entry.index(), segmentationDim.value(), segmentationDim.index(), kBroadcastDim, kUnknownDim);
+            }
+        }
+    }
+
+    return mlir::success();
+}
+
+std::optional<size_t> VPU::KernelInfoAttr::getTilingAxisIndex(int64_t memDim) const {
+    const auto tilingAxes = getTilingAxes().asArrayRef();
+    const auto axisIt = llvm::find(tilingAxes, memDim);
+    if (axisIt == tilingAxes.end()) {
+        return std::nullopt;
+    }
+    return static_cast<size_t>(std::distance(tilingAxes.begin(), axisIt));
+}
+
+ArrayRef<int64_t> VPU::KernelInfoAttr::getInputSegmentationDims(size_t axisIdx) const {
+    const auto inputSegmentationAxes = getInputSegmentationAxes();
+    VPUX_THROW_UNLESS(axisIdx < inputSegmentationAxes.size(),
+                      "KernelInfoAttr: tiling axis index {0} out of range for inputSegmentationAxes (size {1})",
+                      axisIdx, inputSegmentationAxes.size());
+    const auto segmentationDims = mlir::cast<mlir::DenseI64ArrayAttr>(inputSegmentationAxes[axisIdx]).asArrayRef();
+    return segmentationDims;
 }
 
 //

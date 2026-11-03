@@ -537,8 +537,10 @@ mlir::LogicalResult MixedFloatInQuantWeightsWithDynamicDequantizeRewriter<Concre
     const auto perTensorQuantType = mlir::dyn_cast<mlir::quant::UniformQuantizedType>(quantFilterDequantizeType);
     const auto isSymmetricQuant = IE::isSymmetricQuantType(quantFilterDequantizeType);
     auto moduleOp = getModuleOp(convOp.getOperation());
+    const auto context = moduleOp->getContext();
+    const auto& constraints = config::getNPUConstraints(context);
     const auto isAsymmetricPerChannelSupported = config::asymmetricPerChannelZeroPointSupported(moduleOp);
-    const auto isAsymmetricPerTensorSupported = config::asymmetricPerTensorZeroPointSupported(moduleOp);
+    const auto isAsymmetricPerTensorSupported = constraints.asymmetricPerTensorZP;
 
     // Only signed quant is supported for input + wt mixed precision
     if (!isSignedQuantizedType(quantFilterDequantizeType) ||

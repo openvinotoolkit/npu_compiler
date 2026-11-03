@@ -366,7 +366,7 @@ def VPU_ClampOp :
     let summary = "Clamp VPU layer";
 
     let arguments = (ins
-       AnyTypeOf<[RankedTensorOf<[I16, I32, SI16, SI32, F16, F32, quant_QuantizedType]>, VPU_DistributedTensor]>:$input,
+        AnyTypeOf<[RankedTensorOf<[UI8, UI16, UI32, I16, I32, SI16, SI32, F16, F32, quant_QuantizedType]>, VPU_DistributedTensor]>:$input,
 
         F64Attr:$min,
         F64Attr:$max,
@@ -375,7 +375,7 @@ def VPU_ClampOp :
     );
 
     let results = (outs
-        AnyTypeOf<[RankedTensorOf<[I16, I32, SI16, SI32, F16, F32, quant_QuantizedType]>, VPU_DistributedTensor]>:$output
+        AnyTypeOf<[RankedTensorOf<[UI8, UI16, UI32, I16, I32, SI16, SI32, F16, F32, quant_QuantizedType]>, VPU_DistributedTensor]>:$output
     );
 
     let extraClassDeclaration = [{

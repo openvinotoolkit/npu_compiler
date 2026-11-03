@@ -228,6 +228,79 @@ func.func @RelocateWtTableReuseMultiClusterNCEMatMul(%input: tensor<8x1x64x1x4xf
 
 // -----
 
+// NCEMatMulOp with a weight table distributed over the output-channel
+#GNHWC = affine_map<(d0, d1, d2, d3, d4) -> (d0, d1, d3, d4, d2)>
+#NCDHW = affine_map<(d0, d1, d2, d3, d4) -> (d0, d1, d2, d3, d4)>
+
+!InDistributed = !VPU.DistributedTensor<1x1x32x1x4xf16, #GNHWC, @CMX_NN,
+    {mode = "DUPLICATED", num_clusters = 4 : i64}>
+
+!WeightsDistributed = !VPU.DistributedTensor<1x64x32x1x1xf16, #GNHWC, @CMX_NN,
+    {mode = "SEGMENTED", num_tiles = [1, 4, 1, 1, 1], num_clusters = 4 : i64, uniform_distributed_segments,
+    compute_shapes = [[1, 16, 32, 1, 1], [1, 16, 32, 1, 1], [1, 16, 32, 1, 1], [1, 16, 32, 1, 1]],
+    compute_offsets = [[0, 0, 0, 0, 0], [0, 16, 0, 0, 0], [0, 32, 0, 0, 0], [0, 48, 0, 0, 0]],
+    memory_shapes = [[1, 16, 32, 1, 1], [1, 16, 32, 1, 1], [1, 16, 32, 1, 1], [1, 16, 32, 1, 1]],
+    memory_offsets = [[0, 0, 0, 0, 0], [0, 16, 0, 0, 0], [0, 32, 0, 0, 0], [0, 48, 0, 0, 0]]}>
+
+!WtDistributed = !VPU.DistributedTensor<1x64x1x1x4xsi32, #NCDHW, @CMX_NN,
+    {mode = "SEGMENTED", num_tiles = [1, 4, 1, 1, 1], num_clusters = 4 : i64, uniform_distributed_segments,
+    compute_shapes = [[1, 16, 1, 1, 4], [1, 16, 1, 1, 4], [1, 16, 1, 1, 4], [1, 16, 1, 1, 4]],
+    compute_offsets = [[0, 0, 0, 0, 0], [0, 16, 0, 0, 0], [0, 32, 0, 0, 0], [0, 48, 0, 0, 0]],
+    memory_shapes = [[1, 16, 1, 1, 4], [1, 16, 1, 1, 4], [1, 16, 1, 1, 4], [1, 16, 1, 1, 4]],
+    memory_offsets = [[0, 0, 0, 0, 0], [0, 16, 0, 0, 0], [0, 32, 0, 0, 0], [0, 48, 0, 0, 0]]}>
+
+!OutDistributed = !VPU.DistributedTensor<1x1x64x1x4xf16, #GNHWC, @CMX_NN,
+    {mode = "SEGMENTED", num_tiles = [1, 1, 4, 1, 1], num_clusters = 4 : i64, uniform_distributed_segments,
+    compute_shapes = [[1, 1, 16, 1, 4], [1, 1, 16, 1, 4], [1, 1, 16, 1, 4], [1, 1, 16, 1, 4]],
+    compute_offsets = [[0, 0, 0, 0, 0], [0, 0, 16, 0, 0], [0, 0, 32, 0, 0], [0, 0, 48, 0, 0]],
+    memory_shapes = [[1, 1, 16, 1, 4], [1, 1, 16, 1, 4], [1, 1, 16, 1, 4], [1, 1, 16, 1, 4]],
+    memory_offsets = [[0, 0, 0, 0, 0], [0, 0, 16, 0, 0], [0, 0, 32, 0, 0], [0, 0, 48, 0, 0]]}>
+
+// CHECK-LABEL: @RelocateWtTableReuseSOKNCEMatMul
+func.func @RelocateWtTableReuseSOKNCEMatMul(%input: tensor<1x1x32x1x4xf16, {order = #GNHWC}>, %weights: tensor<1x64x32x1x1xf16, {order = #GNHWC}>) -> !OutDistributed {
+    %wt = const.Declare tensor<1x64x1x1x4xsi32> = dense<[[[[[0, 0, 1065353216, 0]]], [[[128, 0, 1065353216, 0]]], [[[256, 0, 1065353216, 0]]], [[[384, 0, 1065353216, 0]]],
+          [[[512, 0, 1065353216, 0]]], [[[640, 0, 1065353216, 0]]], [[[768, 0, 1065353216, 0]]], [[[896, 0, 1065353216, 0]]],
+          [[[1024, 0, 1065353216, 0]]], [[[1152, 0, 1065353216, 0]]], [[[1280, 0, 1065353216, 0]]], [[[1408, 0, 1065353216, 0]]],
+          [[[1536, 0, 1065353216, 0]]], [[[1664, 0, 1065353216, 0]]], [[[1792, 0, 1065353216, 0]]], [[[1920, 0, 1065353216, 0]]],
+          [[[2048, 0, 1065353216, 0]]], [[[2176, 0, 1065353216, 0]]], [[[2304, 0, 1065353216, 0]]], [[[2432, 0, 1065353216, 0]]],
+          [[[2560, 0, 1065353216, 0]]], [[[2688, 0, 1065353216, 0]]], [[[2816, 0, 1065353216, 0]]], [[[2944, 0, 1065353216, 0]]],
+          [[[3072, 0, 1065353216, 0]]], [[[3200, 0, 1065353216, 0]]], [[[3328, 0, 1065353216, 0]]], [[[3456, 0, 1065353216, 0]]],
+          [[[3584, 0, 1065353216, 0]]], [[[3712, 0, 1065353216, 0]]], [[[3840, 0, 1065353216, 0]]], [[[3968, 0, 1065353216, 0]]],
+          [[[4096, 0, 1065353216, 0]]], [[[4224, 0, 1065353216, 0]]], [[[4352, 0, 1065353216, 0]]], [[[4480, 0, 1065353216, 0]]],
+          [[[4608, 0, 1065353216, 0]]], [[[4736, 0, 1065353216, 0]]], [[[4864, 0, 1065353216, 0]]], [[[4992, 0, 1065353216, 0]]],
+          [[[5120, 0, 1065353216, 0]]], [[[5248, 0, 1065353216, 0]]], [[[5376, 0, 1065353216, 0]]], [[[5504, 0, 1065353216, 0]]],
+          [[[5632, 0, 1065353216, 0]]], [[[5760, 0, 1065353216, 0]]], [[[5888, 0, 1065353216, 0]]], [[[6016, 0, 1065353216, 0]]],
+          [[[6144, 0, 1065353216, 0]]], [[[6272, 0, 1065353216, 0]]], [[[6400, 0, 1065353216, 0]]], [[[6528, 0, 1065353216, 0]]],
+          [[[6656, 0, 1065353216, 0]]], [[[6784, 0, 1065353216, 0]]], [[[6912, 0, 1065353216, 0]]], [[[7040, 0, 1065353216, 0]]],
+          [[[7168, 0, 1065353216, 0]]], [[[7296, 0, 1065353216, 0]]], [[[7424, 0, 1065353216, 0]]], [[[7552, 0, 1065353216, 0]]],
+          [[[7680, 0, 1065353216, 0]]], [[[7808, 0, 1065353216, 0]]], [[[7936, 0, 1065353216, 0]]], [[[8064, 0, 1065353216, 0]]]]]> : tensor<1x64x1x1x4xsi32>
+
+    %distr_in = VPU.UnrolledType(%input : tensor<1x1x32x1x4xf16, {order = #GNHWC}>) -> !InDistributed
+    %distr_weights = VPU.UnrolledType(%weights : tensor<1x64x32x1x1xf16, {order = #GNHWC}>) -> !WeightsDistributed
+    %distr_wt = VPU.UnrolledType(%wt : tensor<1x64x1x1x4xsi32>) -> !WtDistributed
+
+    %matmul = VPU.NCE.MatMul(%distr_in, %distr_weights, %distr_wt) rawFilterShape [1, 64, 32, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>, mpe_engine = #VPU.MPEEngine37XX<mode = <SCL>>,
+            pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEInt<mode = <NOOP>,
+            clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64, lrelu_mult = 1 : i64, lrelu_shift = 0 : i64,
+            fp_prelu_alpha = 1.000000e+00 : f64>,  strides = [1, 1]}
+            -> !OutDistributed
+
+    return %matmul : !OutDistributed
+
+    // CHECK:                [[WEIGHTS_TABLE:%.+]] = const.Declare tensor<1x64x1x1x4xsi32> =
+    // CHECK-SAME{LITERAL}:    dense<[[[[[0, 16777215, 1065353216, 0]]], [[[128, 16777215, 1065353216, 0]]],
+    // CHECK-SAME{LITERAL}:    [[[1920, 16777215, 1065353216, 0]]], [[[0, 16777215, 1065353216, 0]]],
+    // CHECK-SAME{LITERAL}:    [[[1920, 16777215, 1065353216, 0]]], [[[0, 16777215, 1065353216, 0]]],
+    // CHECK-SAME{LITERAL}:    [[[1920, 16777215, 1065353216, 0]]], [[[0, 16777215, 1065353216, 0]]],
+    // CHECK-SAME{LITERAL}:    [[[1792, 16777215, 1065353216, 0]]], [[[1920, 16777215, 1065353216, 0]]]]]> : tensor<1x64x1x1x4xsi32>
+
+    // CHECK:                [[DISTR_WEIGHTS_TABLE:%.+]] = VPU.UnrolledType([[WEIGHTS_TABLE]] : tensor<1x64x1x1x4xsi32>)
+
+    // CHECK:                VPU.NCE.MatMul({{%.+}}, {{%.+}}, [[DISTR_WEIGHTS_TABLE]])
+}
+
+// -----
+
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
 // CHECK-LABEL: @RelocateWtTableReuseMultiClusterNCEConvSCF

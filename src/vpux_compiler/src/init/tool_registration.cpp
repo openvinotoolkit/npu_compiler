@@ -14,6 +14,7 @@
 #include "vpux/compiler/dialect/ELFNPU37XX/passes.hpp"
 #include "vpux/compiler/dialect/HostExec/transforms/passes.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
+#include "vpux/compiler/dialect/Shave/transforms/passes.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
 #include "vpux/compiler/dialect/VPUASM/passes.hpp"
 #include "vpux/compiler/dialect/VPUIP/transforms/passes.hpp"
@@ -62,7 +63,6 @@ void registerAllPassesGlobally() {
     vpux::HostExec::registerPasses();
     vpux::HostExec::registerHostExecPipelines();
     vpux::bytecode::registerPasses();
-    vpux::VPURT::registerVPURTPipelines();
     vpux::VPURT::registerPasses();
     vpux::ELFNPU37XX::registerPasses();
     vpux::ELF::registerPasses();
@@ -72,6 +72,7 @@ void registerAllPassesGlobally() {
     vpux::VPUASM::registerPasses();
     vpux::VPUIPDPU::registerPasses();
     vpux::ShaveCodeGen::registerPasses();
+    vpux::Shave::registerPasses();
     vpux::registerConversionPasses();
     vpux::registerConversionPipelines();
     vpux::registerDynamicRewriterExecutorPass();

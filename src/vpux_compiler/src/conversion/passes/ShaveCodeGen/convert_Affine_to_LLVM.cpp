@@ -126,7 +126,7 @@ void ConvertAffine2LLVMPass::getArgMemRefNoAliasMask(mlir::func::FuncOp funcOp, 
                 memrefFuncArgs.push_back(funcArg);
             }
         }
-        VPUX_THROW_UNLESS(memrefFuncArgs.size() == swKern.getInputs().size() + swKern.getOutputs().size(),
+        VPUX_THROW_UNLESS(memrefFuncArgs.size() == swKern.getInputs().size() + swKern.getOutputBuffs().size(),
                           "SwKernelOp input/output operand count does not match the number of memref arguments of "
                           "kernel function '{0}'",
                           funcOp.getName());
@@ -152,7 +152,7 @@ void ConvertAffine2LLVMPass::getArgMemRefNoAliasMask(mlir::func::FuncOp funcOp, 
         for (auto input : swKern.getInputs()) {
             addArgInfo(input, memrefFuncArgs[argIdx++]);
         }
-        for (auto output : swKern.getOutputs()) {
+        for (auto output : swKern.getOutputBuffs()) {
             addArgInfo(output, memrefFuncArgs[argIdx++]);
         }
 

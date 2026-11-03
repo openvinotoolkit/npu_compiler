@@ -99,14 +99,13 @@ mlir::LogicalResult DepthToSpaceRewriter::matchAndRewrite(VPU::DepthToSpaceOp d2
     }
 
     const auto scales = VPU::getODUS2DD2SScaling(*transformInfo, rank);
-    const auto preODUOutputShapeResult =
-            VPU::invertODUScaling(scales, SmallVector<int64_t>(outputShape.raw()), d2sOp->getLoc());
+    const auto preODUOutputShapeResult = VPU::invertODUScaling(scales, outputShape, d2sOp->getLoc());
     if (mlir::failed(preODUOutputShapeResult)) {
         nestedLogger.trace("DepthToSpaceOp failed to invert ODU scaling for output shape");
         return mlir::failure();
     }
 
-    const auto preODUOutputChannels = (*preODUOutputShapeResult)[Dims4D::Act::C.ind()];
+    const auto preODUOutputChannels = (*preODUOutputShapeResult)[Dims4D::Act::C];
     if (preODUOutputChannels != inChannels) {
         nestedLogger.trace("DepthToSpaceOp pre-ODU output channels {0} do not match input channels {1}",
                            preODUOutputChannels, inChannels);
@@ -139,6 +138,33 @@ mlir::LogicalResult DepthToSpaceRewriter::matchAndRewrite(VPU::DepthToSpaceOp d2
             /*mpe_engine=*/nullptr, /*rawFilterShape=*/mlir::ValueRange{}, rawFilterShape,
             /*multiClusterStrategy=*/nullptr, /*output_padding=*/nullptr,
             /*input_padding=*/nullptr, s2dd2sConfig, /*axes_value=*/nullptr);
+
+    // With IDU and/or ODU autopad active (input/pre-ODU output channels below the HW channel
+    // alignment), the weight set for this weights-table-less op must be materialized in the
+    // flattened, alignment-padded layout NCEConvolutionOp::verify() expects, not the plain
+    // {OC, IC, 1, 1} layout built above. Create with the naive filter first (its type is only used
+    // to determine the element type here), then rebuild it if the aligned shape differs.
+    const auto alignedFilterShape = nceOp.inferAlignedFilterShape(
+            inputType, outputType, mlir::cast<vpux::NDTypeInterface>(filterConst.getType()));
+    if (alignedFilterShape != filterShape) {
+        // Only a 1x1 kernel is ever built here, so a shape mismatch can only mean the flattened,
+        // padded-IC layout {OC, 1, 1, paddedIC} is required; the last dim is the padded IC count.
+        const auto paddedIC = alignedFilterShape[Dim(3)];
+        SmallVector<float> alignedIdentityWeights(alignedFilterShape.totalSize(), 0.0f);
+        for (auto channel : irange(inChannels)) {
+            alignedIdentityWeights[channel * paddedIC + channel] = 1.0f;
+        }
+
+        const auto alignedFilterType =
+                mlir::RankedTensorType::get(alignedFilterShape.raw(), inputType.getElementType(),
+                                            vpux::getTensorAttr(d2sOp.getContext(), DimsOrder::OYXI, nullptr));
+        // The rewriter's insertion point is currently after nceOp; the replacement const.Declare
+        // must instead be inserted before it so that nceOp's filter operand is dominated.
+        rewriter.setInsertionPoint(nceOp);
+        auto alignedFilterConst = Const::buildWeightsConst(rewriter, d2sOp->getLoc(), alignedFilterType,
+                                                           ArrayRef<float>(alignedIdentityWeights));
+        nceOp.getFilterMutable().set(alignedFilterConst);
+    }
 
     rewriter.replaceOp(d2sOp, nceOp->getResult(0));
     return mlir::success();

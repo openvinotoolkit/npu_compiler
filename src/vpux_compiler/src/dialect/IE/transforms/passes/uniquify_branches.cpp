@@ -442,15 +442,14 @@ SmallVector<int64_t> MovePermuteCastBeforeSlice::getNewSizes(IE::SliceOp, IE::Pe
 
 SmallVector<int64_t> MovePermuteCastBeforeSlice::getNewOffsets(IE::SliceOp sliceOp, ArrayRef<uint64_t>,
                                                                IE::PermuteCastOp layerOp) const {
-    const auto permuteCastInputType = mlir::cast<vpux::NDTypeInterface>(layerOp.getInput().getType());
-    const auto permuteCastInputOrder = permuteCastInputType.getDimsOrder();
+    const auto permuteCastInputOrder = DimsOrder::fromValue(layerOp.getInput());
     const auto permuteCastOutputOrder = DimsOrder::fromAffineMap(layerOp.getDstOrder());
-    const auto finalPermutation =
-            vpux::getPermutationFromOrders(permuteCastInputOrder, permuteCastOutputOrder, sliceOp->getContext());
+    const auto memPerm = layerOp.getMemPerm();
     const auto oldOffsets = parseIntArrayAttr<int64_t>(sliceOp.getStaticOffsets());
-    SmallVector<int64_t> newOffsets(oldOffsets.size());
-    for (auto dim : irange(oldOffsets.size())) {
-        newOffsets[finalPermutation.getDimPosition(dim)] = oldOffsets[dim];
+    SmallVector<int64_t> newOffsets(oldOffsets.size(), 0);
+    for (auto idx : irange(oldOffsets.size())) {
+        const auto outDim = inferDimAfterPermutation(Dim(idx), permuteCastInputOrder, permuteCastOutputOrder, memPerm);
+        newOffsets[outDim.ind()] = oldOffsets[idx];
     }
 
     return newOffsets;

@@ -12,8 +12,13 @@
 
 #include "vcl_compiler_loader.hpp"
 #include "vcl_logger.hpp"
+#include "vpux/utils/ov/config.hpp"
 
+#include <cstdint>
 #include <memory>
+#include <optional>
+#include <string_view>
+#include <vector>
 
 namespace VPUXDriverCompiler {
 
@@ -116,7 +121,7 @@ public:
     bool isOptionValueSupported(const char* option, const char* value) const;
 
 private:
-    std::shared_ptr<vpux::OV::OptionsDesc> _options;  ///< The default compilation configs
+    std::shared_ptr<const vpux::OV::OptionsDesc> _deviceSupportedOptions;
     std::unique_ptr<CompilerLoader> _compilerLoader;  ///< The handle of MLIR compiler
     vcl_compiler_properties_t _compilerProp;          ///< The capabilities of compiler
     vcl_compiler_desc_t _compilerDesc;                ///< The info of platform and debug level
@@ -124,5 +129,7 @@ private:
     bool _isDeviceDescEmpty;                          ///< The info of deviceDesc status
     std::shared_ptr<VCLLogger> _logger;
 };
+
+vpux::OV::OptionsDesc getOptionsForPlatform(std::optional<std::string_view> platform);
 
 }  // namespace VPUXDriverCompiler

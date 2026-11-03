@@ -725,7 +725,8 @@ mlir::LogicalResult FuseConcatsWithDifferentAxes::matchAndRewrite(VPU::ConcatOp 
             if (sliceOp == nullptr || !sliceOp->hasOneUse()) {
                 return false;
             }
-            auto nextUser = *sliceOp->getUsers().begin();
+            auto& nextUserOperand = *sliceOp->getUses().begin();
+            auto nextUser = nextUserOperand.getOwner();
             if (!mlir::isa<VPU::NCEOpInterface, VPU::SWOpInterface>(nextUser)) {
                 return false;
             };
@@ -743,7 +744,7 @@ mlir::LogicalResult FuseConcatsWithDifferentAxes::matchAndRewrite(VPU::ConcatOp 
             SmallVector<int64_t> tilingScheme;
             if (mlir::isa<VPU::SWOpInterface>(nextUser)) {
                 tilingScheme =
-                        VPU::getSWInputTensorNumTiles(clusteredOp, numCluster, strategy, sliceOp.getResult(), inType);
+                        VPU::getSWInputTensorNumTiles(clusteredOp, numCluster, strategy, nextUserOperand, inType);
             } else {
                 auto nceOp = mlir::dyn_cast<VPU::NCEOpInterface>(nextUser);
                 auto isFilter = !mlir::isa<VPU::NCEEltwiseOp>(nceOp.getOperation()) &&

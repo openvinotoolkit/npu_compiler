@@ -70,7 +70,7 @@ These tips may help:
 - Focus on describing **"what exactly it is?"** when naming a thing.
 - Stick to using **nouns and adjectives for objects** but **verbs and adverbs for functions**: `auto goodDream = person.sleepWell()`.
 - For Booleans, stick to using **statement = question()** form: `const bool somethingIsDone = isSomethingDone()`.
-- Ask yourself if an _unprepared reader will get the point_ without having to delve too deeply into the surrounding context.
+- Ask yourself if an *unprepared reader will get the point* without having to delve too deeply into the surrounding context.
 
 ```cpp
 int sourceStride; // OK, just minor context understanding is required (e.g. read the function name)
@@ -254,7 +254,7 @@ mlir::LogicalResult MatMulOpConverter::matchAndRewrite(IE::MatMulOp matmulOp, ml
                       "VPU::MatMulOp only supports input 2 rank bigger than 2. "
                       "If that changes, this code needs update. Input 2 rank = '{0}'",
                       input2Rank);
-    
+
     // Rewrite logic...
     rewriter.replaceOp(matmulOp, newOp);
     return mlir::success();
@@ -269,7 +269,7 @@ mlir::LogicalResult MatMulOpConverter::matchAndRewrite(IE::MatMulOp matmulOp, ml
     if (input2Rank <= 2) {
         return vpux::matchFailed(rewriter, matmulOp, "Input 2 rank must be bigger than 2, got {0}", input2Rank);
     }
-    
+
     // Rewrite logic...
     rewriter.replaceOp(matmulOp, newOp);
     return mlir::success();
@@ -438,21 +438,21 @@ if (llvm::any_of(layerOp.output().getUsers(), isRestrictedUsers)) {
 
 ### Understandability: code structure and comments
 
-> _...the ratio of time spent reading versus writing is well over 10 to 1. We are constantly reading old code as part of the effort to write new code._
->    _Robert C. Martin, "Clean Code: A Handbook of Agile Software Craftsmanship"_
+> *...the ratio of time spent reading versus writing is well over 10 to 1. We are constantly reading old code as part of the effort to write new code.*
+>    *Robert C. Martin, "Clean Code: A Handbook of Agile Software Craftsmanship"*
 
-Listen to your feelings when you read the code. If you feel like _something here might appear to be not instantly obvious for an unprepared reader_, it's a good reason to intervene. Change the code according to the [KISS principle](https://en.wikipedia.org/wiki/KISS_principle), make it self-documenting, use comments to explain the reasons and choices made.
+Listen to your feelings when you read the code. If you feel like *something here might appear to be not instantly obvious for an unprepared reader*, it's a good reason to intervene. Change the code according to the [KISS principle](https://en.wikipedia.org/wiki/KISS_principle), make it self-documenting, use comments to explain the reasons and choices made.
 
 These tips may help:
 - If the possible question starts with **"what"** or **"how"**, the best option usually is to **change the code** itself.
-  Examples: _what is going on? How it works? What is this thing? How it's supposed to be used?_
+  Examples: *what is going on? How it works? What is this thing? How it's supposed to be used?*
   You can simplify the code, factor out a method or function, rename something for proper self-documenting, etc.
   If change is impossible, add a descriptive comment at least.
 - If the possible question starts with **"why"**, the best option usually is to add an **explanatory comment**.
-  Examples: _why this thing is here but not there? Why it's done this way but not another? Why it's done at all?_
+  Examples: *why this thing is here but not there? Why it's done this way but not another? Why it's done at all?*
 - It's also nice to add header comments for classes, functions and methods.
   Focus on brief answers for possible **"what?"**s and **"why?"**s required to scroll through the code fluently.
-  Examples: _what do I expect from this thing? Why it's here but not there?_
+  Examples: *what do I expect from this thing? Why it's here but not there?*
   If the reader wants to know **"how?"**, he/she can dive into the implementation.
 - You can use Doxygen comments notation if you think it makes your comments more verbose and explicit.
 
@@ -492,7 +492,7 @@ SmallVector<mlir::Value> CopyOpTiling::createChannelWiseTiles(VPUIP::CopyOp orig
 ### Headers
 
 Header files which are in the same source distribution should be included in "quotes".
-Header files for system and other external libraries should be included in <angle brackets>.
+Header files for system and other external libraries should be included in `<angle brackets>`.
 
 Headers with angle brackets also allow MSVC compiler apply different warning and error rules for them.
 
@@ -536,7 +536,7 @@ namespace foo {
 }
 ```
 
-Note: `using namespace` is acceptable inside a _function body_ (free functions, member functions, lambda body and nested block), since its effect is limited by the enclosing scope:
+Note: `using namespace` is acceptable inside a *function body* (free functions, member functions, lambda body and nested block), since its effect is limited by the enclosing scope:
 
 ```cpp
 // header file
@@ -777,8 +777,8 @@ This method is useful when you iterate through a list of objects and you need to
     for (auto& op : llvm::make_early_inc_range(func.getOps())) {
         ....
 
-        auto groupOp = builder.create<VPUIP::GroupSparseBufferOp>(op->getLoc(), dataResult, smResult, seTableResult,
-                                                                  isWeightsAttr, sparsityCompressionAttr);
+        auto groupOp = VPUIP::GroupSparseBufferOp::create(builder, op->getLoc(), dataResult, smResult, seTableResult,
+                                                          isWeightsAttr, sparsityCompressionAttr);
         op->getResult(0).replaceAllUsesExcept(groupOp.output(), llvm::SmallPtrSet<mlir::Operation*, 1>{groupOp});
         op->erase();
     }
@@ -787,8 +787,8 @@ This method is useful when you iterate through a list of objects and you need to
     func.walk<mlir::WalkOrder::PreOrder>([&](mlir::Operation* op) {
         ....
 
-        auto groupOp = builder.create<VPUIP::GroupSparseBufferOp>(op->getLoc(), dataResult, smResult, seTableResult,
-                                                              isWeightsAttr, sparsityCompressionAttr);
+        auto groupOp = VPUIP::GroupSparseBufferOp::create(builder, op->getLoc(), dataResult, smResult, seTableResult,
+                                                          isWeightsAttr, sparsityCompressionAttr);
         op->getResult(0).replaceAllUsesExcept(groupOp.output(), llvm::SmallPtrSet<mlir::Operation*, 1>{groupOp});
         op->erase();
     });
@@ -1094,12 +1094,12 @@ SmallVector<mlir::Value> getPerClusterBuffers(mlir::MLIRContext* ctx, mlir::Loca
 
 const auto newLoc = mlir::UnknownLoc::get(ctx); // BAD, must originate from existing loc
 const auto newLoc = mlir::NameLoc::get(mlir::StringAttr::get(ctx, "MySlice")); // BAD, must originate from existing loc
-rewriter.create<IE::SliceOp>(newLoc, yuvToRgbOp.getInput1(), getIntArrayAttr(ctx, input2Offsets), getIntArrayAttr(ctx, input2Sizes));
+IE::SliceOp::create(rewriter, newLoc, yuvToRgbOp.getInput1(), getIntArrayAttr(ctx, input2Offsets), getIntArrayAttr(ctx, input2Sizes));
 
 const auto newLoc = appendLoc(origOp->getLoc(), "slice_in"); // BAD, use takeOpLoc
 const auto newLoc = takeOpLoc(origOp, "slice_in"); // OK
 
-rewriter.create<IE::SliceOp>(takeOpLoc(origOp, "vertical_split_{0}_horizontal_split_{1}", i, j), yuvToRgbOp.getInput1(), getIntArrayAttr(ctx, input2_offsets), getIntArrayAttr(ctx, input2_sizes)); // BAD, move location to variable
+IE::SliceOp::create(rewriter, takeOpLoc(origOp, "vertical_split_{0}_horizontal_split_{1}", i, j), yuvToRgbOp.getInput1(), getIntArrayAttr(ctx, input2_offsets), getIntArrayAttr(ctx, input2_sizes)); // BAD, move location to variable
 
 void implementPattern(IE::ConvolutionOp origOp) {
     auto* newConvOp = rewriter.clone(*origOp.getOperation(), mapper);
@@ -1117,11 +1117,11 @@ void implementPattern(IE::ConvolutionOp origOp) {
 However, `mlir::UnknownLoc` and `mlir::NameLoc` can be used in cases, where operation does not originate from original nGraph network or represents compiler internals. Usually such operations belongs to top-level module op. PSS tests and mapped-inference related passes are also an exception.
 
 ```cpp
-innerBuilder.create<config::MemoryResourceOp>(mlir::UnknownLoc::get(ctx), memSpace.getLeafReference(), byteSizeAttr, nullptr); // OK, memory reservation is not a real operation
+config::MemoryResourceOp::create(innerBuilder, mlir::UnknownLoc::get(ctx), memSpace.getLeafReference(), byteSizeAttr, nullptr); // OK, memory reservation is not a real operation
 
-auto newFuncOp = innerModuleBuilder.create<mlir::func::FuncOp>(mlir::UnknownLoc::get(ctx), functionName, funcType); // OK, funcOp here is external shave function
+auto newFuncOp = mlir::func::FuncOp::create(innerModuleBuilder, mlir::UnknownLoc::get(ctx), functionName, funcType); // OK, funcOp here is external shave function
 
-_builder.create<mlir::memref::AllocOp>(mlir::NameLoc::get(mlir::StringAttr::get(_ctx, "profiling_buffer")), profBuffType); // OK, profiling buffers does not represent operation from nGraph
+mlir::memref::AllocOp::create(_builder, mlir::NameLoc::get(mlir::StringAttr::get(_ctx, "profiling_buffer")), profBuffType); // OK, profiling buffers does not represent operation from nGraph
 ```
 
 Avoid use of constants locations as source. Constant-like operations are handled by MLIR canonicalizers, which may drop assigned location.
@@ -1145,15 +1145,15 @@ Examples:
 const auto newLoc = takeOpLoc(origOp, "fused_with_{0}", sourceOp->getLoc()); // BAD, nested locations can break parsing
 const auto newLoc = takeOpLoc(origOp, "fused_with_dwconv"); // OK
 
-auto newTransposeOp = rewriter.create<IE::TransposeOp>(takeOpLoc(origOp, "transpose_in"), origOp.getInput(), nullptr, orderAttr); // OK
-auto newTransposeOp = rewriter.create<IE::TransposeOp>(takeOpLoc(origOp, "transpose_input"), origOp.getInput(), nullptr, orderAttr); // BAD, use shorter version
+auto newTransposeOp = IE::TransposeOp::create(rewriter, takeOpLoc(origOp, "transpose_in"), origOp.getInput(), nullptr, orderAttr); // OK
+auto newTransposeOp = IE::TransposeOp::create(rewriter, takeOpLoc(origOp, "transpose_input"), origOp.getInput(), nullptr, orderAttr); // BAD, use shorter version
 
 
 mlir::LogicalResult ConvertFCToConvPass::FullyConnectedOpConverter::matchAndRewrite(
         IE::FullyConnectedOp origOp) {
-    auto newInput = rewriter.create<IE::ReshapeOp>(takeOpLoc(origOp, "reshape_in"), origOp.getInput(), ...);
-    auto newFilter = rewriter.create<IE::ReshapeOp>(takeOpLoc(origOp, "reshape_filter"), origOp.getWeights(), ...); // filter is tablegen name for IE.Convolution, but weights are OK too
-    auto convOp = rewriter.create<IE::ConvolutionOp>(takeOpLoc(origOp, "as_conv"), newInput, newFilter, ...) // OK
+    auto newInput = IE::ReshapeOp::create(rewriter, takeOpLoc(origOp, "reshape_in"), origOp.getInput(), ...);
+    auto newFilter = IE::ReshapeOp::create(rewriter, takeOpLoc(origOp, "reshape_filter"), origOp.getWeights(), ...); // filter is tablegen name for IE.Convolution, but weights are OK too
+    auto convOp = IE::ConvolutionOp::create(rewriter, takeOpLoc(origOp, "as_conv"), newInput, newFilter, ...) // OK
     auto newOp = rewriter.replaceOpWithNewOp<IE::ReshapeOp>(origOp, convOp.getOutput(), ...);
     extendOpLoc(newOp, "reshape_out"); // GOOD
 }
@@ -1161,7 +1161,7 @@ mlir::LogicalResult ConvertFCToConvPass::FullyConnectedOpConverter::matchAndRewr
 // Provide explicit location or use operation as source
 mlir::Value createSubAvgPool(IE::AvgPoolOp origOp, ..., StringRef locSuffix) {
     auto stridedSliceOp = rewriter.createOrFold<IE::StridedSliceOp>(takeOpLoc(origOp, "slice_{0}", locSuffix), origOp.getInput(), ...);
-    auto avgPoolOp = rewriter.create<IE::AvgPoolOp>(takeOpLoc(origOp, "pool_{0}", locSuffix), ...); // OK
+    auto avgPoolOp = IE::AvgPoolOp::create(rewriter, takeOpLoc(origOp, "pool_{0}", locSuffix), ...); // OK
 }
 createSubAvgPool(origOp, ..., "center");    // OK
 createSubAvgPool(origOp, ..., "top_left");  // OK
@@ -1169,7 +1169,7 @@ createSubAvgPool(origOp, ..., "1");         // BAD, spatial indexation was chose
 
 for (int64_t actIndex = 0; actIndex < outputShape[Dims5D::Act::D]; actIndex++) {
     for (int64_t depthIndex = 0; depthIndex < kernelZ; depthIndex++) {
-        rewriter.create<IE::SliceOp>(takeOpLoc(origOp, "slice_{0}_{1}", actIndex, depthIndex), ...); // OK, numerical indexation
+        IE::SliceOp::create(rewriter, takeOpLoc(origOp, "slice_{0}_{1}", actIndex, depthIndex), ...); // OK, numerical indexation
     }
 }
 ```

@@ -10,6 +10,7 @@
 #include "vpux/compiler/dialect/ELF/utils/utils.hpp"
 #include "vpux/compiler/dialect/ELFNPU37XX/metadata.hpp"
 
+#include <vpux/utils/core/memory_usage.hpp>
 #include <vpux_elf/writer.hpp>
 #include "vpux/utils/core/error.hpp"
 
@@ -99,10 +100,25 @@ void serializeTo(uint8_t* storage, MainOp elfMain, Logger log, elf::Writer& elfW
         createProfSectionOp.serialize(elfWriter, sectionMap, symbolMap);
     }
 
+    // Constant folding tracking time and memory usage tracked here as the actual folding is done by multiple parallel
+    // threads which makes it harder to measure precisely.
+    // E#235929
+    log.info("Constant folding started (if any)");
+    const auto peakMemUsageBefore = getPeakMemoryUsage().count();
     log.trace("Serializing '{0}' ops", DataSectionOp::getOperationName());
+    const auto foldingStart = std::chrono::steady_clock::now();
     for (auto dataSectionOp : elfMain.getOps<DataSectionOp>()) {
         dataSectionOp.serialize(elfWriter, sectionMap, symbolMap, dmaSymbolMap, symRefMap);
     }
+    const auto foldingEnd = std::chrono::steady_clock::now();
+    log.info("Constant folding finished (if any)");
+    const auto peakMemUsageAfter = getPeakMemoryUsage().count();
+    if (auto delta = peakMemUsageAfter - peakMemUsageBefore) {
+        log.info("Constant folding increased peak memory usage by {0} kB. Peak memory usage: {1} kB", delta,
+                 peakMemUsageAfter);
+    }
+    log.info("Constant folding duration: {0} ms",
+             std::chrono::duration_cast<std::chrono::milliseconds>(foldingEnd - foldingStart).count());
 
     log.trace("Serializing '{0}' ops", LogicalSectionOp::getOperationName());
     for (auto logicalSectionOp : elfMain.getOps<LogicalSectionOp>()) {

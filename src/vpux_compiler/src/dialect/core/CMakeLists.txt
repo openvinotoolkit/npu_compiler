@@ -30,3 +30,5 @@ add_npu_library(npu_compiler_dialect_core
         npu_compiler_act_kernels
         npu_elf
 )
+enable_lto_if_possible(npu_compiler_dialect_core)
+

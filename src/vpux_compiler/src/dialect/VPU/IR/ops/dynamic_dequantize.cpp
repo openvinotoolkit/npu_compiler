@@ -3,12 +3,16 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
+#include "vpux/compiler/core/attributes/stride_reqs.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/data_type.hpp"
 #include "vpux/compiler/dialect/VPU/utils/const_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/explicit_distribution_utils.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
 #include "vpux/compiler/utils/error.hpp"
+#include "vpux/compiler/utils/kernel_data_type.hpp"
 #include "vpux/compiler/utils/verifier_utils.hpp"
+
+#include <numeric>
 
 using namespace vpux;
 
@@ -20,6 +24,12 @@ mlir::LogicalResult vpux::VPU::DynamicDequantizeOp::verify() {
 
     const auto inputShape = to_small_vector(mlir::cast<mlir::ShapedType>(input.getType()).getShape());
     const auto scaleShape = to_small_vector(mlir::cast<mlir::ShapedType>(getScale().getType()).getShape());
+    const auto inputType = mlir::cast<vpux::NDTypeInterface>(input.getType());
+    const auto scaleType = mlir::cast<vpux::NDTypeInterface>(getScale().getType());
+    const auto outputType = mlir::cast<vpux::NDTypeInterface>(getOutput().getType());
+    VPUX_THROW_UNLESS(scaleType.getElementType() == outputType.getElementType(),
+                      "DynamicDequantizeOp scale type {0} must match output type {1}", scaleType.getElementType(),
+                      outputType.getElementType());
     if (inputShape.size() != scaleShape.size()) {
         return errorAt(*this, "Scale doesn't have same rank as input tensor.");
     }
@@ -29,7 +39,8 @@ mlir::LogicalResult vpux::VPU::DynamicDequantizeOp::verify() {
         }
     }
 
-    if (const auto zp = getZp()) {
+    const auto zp = getZp();
+    if (zp != nullptr) {
         if (isZeroPointsTypeValidForQuantization(*this, zp).failed()) {
             return mlir::failure();
         }
@@ -43,6 +54,45 @@ mlir::LogicalResult vpux::VPU::DynamicDequantizeOp::verify() {
                 return errorAt(*this, "ZeroPoint dim doesn't equal input shape.");
             }
         }
+    }
+
+    if (getDataTypeFromMlirType(inputType.getElementType()) == sw_params::DataType::NN_U2) {
+        VPUX_THROW_UNLESS(zp != nullptr, "U2 DynamicDequantizeOp requires a U2 zero point");
+        const auto zpType = mlir::cast<vpux::NDTypeInterface>(zp.getType());
+        const auto isU2ZeroPoint = getDataTypeFromMlirType(zpType.getElementType()) == sw_params::DataType::NN_U2;
+        const auto inputMemShape = inputType.getMemShape();
+        const auto scaleMemShape = scaleType.getMemShape();
+        const auto zpMemShape = zpType.getMemShape();
+        const auto rank = inputType.getRank();
+        // MemDim(0) is the outermost physical dim; the kernel's contiguous-64-group requirement
+        // applies to the innermost physical dim, i.e. MemDim(rank - 1).
+        const auto innerDim = MemDim(rank - 1);
+        VPUX_THROW_UNLESS(isU2ZeroPoint && rank > 0 && rank <= 4 && scaleType.getRank() == rank &&
+                                  zpType.getRank() == rank && inputMemShape[innerDim] == 64 &&
+                                  scaleMemShape[innerDim] == 1 && zpMemShape[innerDim] == 1,
+                          "U2 DynamicDequantizeOp requires a U2 zero point, rank 1-to-4 tensors, and physical inner "
+                          "dimensions [64], [1], and [1] for input, scale, and zero point");
+
+        // Matching outer volumes allow reshaping; singleton scale dimensions allow broadcasting.
+        const auto outerVolume = [&](const MemShape& memShape) {
+            return std::accumulate(memShape.begin(), memShape.begin() + (rank - 1), int64_t{1},
+                                   std::multiplies<int64_t>());
+        };
+        bool scaleBroadcastable = true;
+        for (auto dim : irange<size_t>(0, rank - 1)) {
+            const auto scaleDim = scaleMemShape[MemDim(dim)];
+            scaleBroadcastable &= scaleDim == 1 || scaleDim == inputMemShape[MemDim(dim)];
+        }
+        VPUX_THROW_UNLESS((outerVolume(inputMemShape) == outerVolume(scaleMemShape) || scaleBroadcastable) &&
+                                  outerVolume(inputMemShape) == outerVolume(zpMemShape),
+                          "U2 DynamicDequantizeOp requires matching or broadcastable physical outer scale dimensions "
+                          "and matching zero-point outer volume, got input {0}, scale {1} and zero point {2}",
+                          inputMemShape, scaleMemShape, zpMemShape);
+
+        const auto compact = StrideReqs::compact(rank);
+        VPUX_THROW_UNLESS(compact.checkStrides(inputType) && compact.checkStrides(scaleType) &&
+                                  compact.checkStrides(zpType) && compact.checkStrides(outputType),
+                          "U2 DynamicDequantizeOp requires compact input, scale, zero point, and output tensors");
     }
 
     return mlir::success();

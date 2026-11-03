@@ -10,7 +10,7 @@
 
 #pragma once
 
-#include "npu_driver_compiler.h"
+#include "compatibility/npu_driver_compiler.h"
 
 #include "vcl_compiler_loader.hpp"
 #include "vcl_logger.hpp"

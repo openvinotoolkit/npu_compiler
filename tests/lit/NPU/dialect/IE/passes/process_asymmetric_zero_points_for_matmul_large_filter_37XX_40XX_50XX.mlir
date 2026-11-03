@@ -19,7 +19,7 @@ func.func @FixZeroPointForMatmulWithLargeFilter(%arg0: tensor<1x8x2048xf32>) -> 
   %cst_2 = const.Declare tensor<1x1x1x1xf16> = dense<2.550000e+02> : tensor<1x1xf16>, [#const.Reshape<[1, 1, 1, 1]>]
   %cst_3 = const.Declare tensor<1x1x1x1xf16> = dense<0.000000e+00> : tensor<1x1xf16>, [#const.Reshape<[1, 1, 1, 1]>]
   %0 = IE.AffineReshape(%arg0) {dim_mapping = [[0, 1], [2], [3]], shape_value = [1, 1, 8, 2048]} : tensor<1x8x2048xf32> -> tensor<1x1x8x2048xf32>
-  %1 = IE.FakeQuantize(%cst, %cst_3, %cst_2, %cst_0, %cst_1) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i64} : tensor<1x32000x1x2048xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x32000x1x1xf16>, tensor<1x32000x1x1xf16> -> tensor<1x32000x1x2048xf16>
+  %1 = IE.FakeQuantize(%cst, %cst_3, %cst_2, %cst_0, %cst_1) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256 : i64} : tensor<1x32000x1x2048xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x32000x1x1xf16>, tensor<1x32000x1x1xf16> -> tensor<1x32000x1x2048xf16>
   %2 = IE.Convert(%0) {dstElemType = f16} : tensor<1x1x8x2048xf32> -> tensor<1x1x8x2048xf16>
   %3 = IE.AffineReshape(%2) {dim_mapping = [[0], [0], [0], [1, 2, 3]], shape_value = [8, 2048, 1, 1]} : tensor<1x1x8x2048xf16> -> tensor<8x2048x1x1xf16>
   %4 = IE.AffineReshape(%1) {dim_mapping = [[0], [0], [0], [1, 2, 3]], shape_value = [32000, 2048, 1, 1]} : tensor<1x32000x1x2048xf16> -> tensor<32000x2048x1x1xf16>
@@ -42,7 +42,7 @@ func.func @FixZeroPointForMatmulWithLargeFilter(%arg0: tensor<1x8x2048xf32>) -> 
   // CHECK-SAME{LITERAL}:  {dim_mapping = [[0, 1], [2], [3]], shape_value = [1, 1, 8, 2048]} : tensor<1x8x2048xf32> -> tensor<1x1x8x2048xf32>
 
   // CHECK:   [[FQ:%.+]] = IE.FakeQuantize([[CST0]], [[CST4]], [[CST3]], [[CST1]], [[CST2]])
-  // CHECK-SAME:      {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i64} :
+  // CHECK-SAME:      {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256 : i64} :
   // CHECK-SAME:      tensor<1x32000x1x2048xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x32000x1x1xf16>, tensor<1x32000x1x1xf16>
   // CHECK-SAME:       -> tensor<1x32000x1x2048xf16>
 

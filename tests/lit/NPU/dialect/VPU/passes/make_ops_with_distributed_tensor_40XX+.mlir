@@ -195,3 +195,450 @@ func.func @ConvertSi4ToF16ByteAlignedTiling4Cluster(%arg0: tensor<1x1x4094x1xsi4
     // CHECK:           return [[OUT]] : tensor<1x1x4094x1xf16>
 }
 }
+
+// -----
+
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+
+module @executors {
+config.Resources 3 of @NCE at 1.700000e+03 MHz
+
+// OneHot replaces the C-axis placeholder with depth and must not split that axis.
+// SplitOverHeight is valid because the input is distributed along H instead.
+// CHECK-LABEL: func.func @OneHotAxisCWithSOH
+// CHECK-SAME:    ([[INPUT:%.+]]: tensor<1x1x15x1xsi32>) -> tensor<1x5x15x1xf16>
+func.func @OneHotAxisCWithSOH(%arg0: tensor<1x1x15x1xsi32>) -> tensor<1x5x15x1xf16> {
+    %0 = VPU.OneHot(%arg0) {axis = 1 : i64, depth = 5 : i64, mode = #IE.one_hot_mode<IGNORE_NEGATIVE>,
+                            multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
+                            off_value = 0.000000e+00 : f64, on_value = 1.000000e+00 : f64, outputType = f16,
+                            rank_expanded = true} : tensor<1x1x15x1xsi32> -> tensor<1x5x15x1xf16>
+    return %0 : tensor<1x5x15x1xf16>
+
+    // CHECK:           [[INPUT_DIST:%.+]] = VPU.UnrolledType([[INPUT]] : tensor<1x1x15x1xsi32>)
+    // CHECK-SAME:           -> !VPU.DistributedTensor<1x1x15x1xsi32, #NCHW, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 1, 3, 1], num_clusters = 3 : i64, uniform_distributed_segments,
+    // CHECK-SAME{LITERAL}:  compute_shapes = [[1, 1, 5, 1], [1, 1, 5, 1], [1, 1, 5, 1]],
+    // CHECK-SAME{LITERAL}:  compute_offsets = [[0, 0, 0, 0], [0, 0, 5, 0], [0, 0, 10, 0]],
+    // CHECK-SAME{LITERAL}:  memory_shapes = [[1, 1, 5, 1], [1, 1, 5, 1], [1, 1, 5, 1]],
+    // CHECK-SAME{LITERAL}:  memory_offsets = [[0, 0, 0, 0], [0, 0, 5, 0], [0, 0, 10, 0]]}>
+    // CHECK:           [[ONEHOT:%.+]] = VPU.OneHot([[INPUT_DIST]])
+    // CHECK-SAME:           -> !VPU.DistributedTensor<1x5x15x1xf16, #NCHW, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 1, 3, 1], num_clusters = 3 : i64, uniform_distributed_segments,
+    // CHECK-SAME{LITERAL}:  compute_shapes = [[1, 5, 5, 1], [1, 5, 5, 1], [1, 5, 5, 1]],
+    // CHECK-SAME{LITERAL}:  compute_offsets = [[0, 0, 0, 0], [0, 0, 5, 0], [0, 0, 10, 0]],
+    // CHECK-SAME{LITERAL}:  memory_shapes = [[1, 5, 5, 1], [1, 5, 5, 1], [1, 5, 5, 1]],
+    // CHECK-SAME{LITERAL}:  memory_offsets = [[0, 0, 0, 0], [0, 0, 5, 0], [0, 0, 10, 0]]}>
+    // CHECK:           [[OUT:%.+]] = VPU.UnrolledType([[ONEHOT]]
+    // CHECK-SAME:           -> tensor<1x5x15x1xf16>
+    // CHECK:           return [[OUT]] : tensor<1x5x15x1xf16>
+}
+
+}
+
+// -----
+
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+
+module @executors {
+config.Resources 3 of @NCE at 1.700000e+03 MHz
+
+
+module @VPU.SW {
+  func.func nested @generated_info_0(%arg0: index, %arg1: index, %arg2: index, %arg3: index) -> (index, index, index, index, index, index, index, index, index, index, index, index, index, index, index, index)
+  func.func nested @generated_0(tensor<1x8x?x?xf16>, tensor<1x8x1x1xf16>, tensor<1x8x?x?xf16>, index, index, index, index) -> tensor<1x8x?x?xf16> attributes {
+    kernelInfo = #VPU.KernelInfo<
+      tilingInfoFunc = @generated_info_0,
+      tilingAxes = [2, 3],
+      numSlicedInputs = 1 : i64,
+      numTensorInputs = 2 : i64,
+      numAuxBuffers = 1 : i64,
+      inputSegmentationAxes = [array<i64: 2, -1, 2>, array<i64: 3, -1, 3>]
+    >
+  }
+}
+
+// CHECK-LABEL: @SegmentedScratchSOH
+// CHECK-SAME:      ([[INPUT_0:%[^:]+]]: tensor<1x8x80x960xf16>, [[INPUT_1:%[^:]+]]: tensor<1x8x1x1xf16>)
+func.func @SegmentedScratchSOH(%input0: tensor<1x8x80x960xf16>, %input1: tensor<1x8x1x1xf16>) -> tensor<1x8x80x960xf16> {
+  %scratch = VPU.Empty : tensor<1x8x80x960xf16>
+  %0 = VPU.GenericSwLayer(%input0, %input1 : tensor<1x8x80x960xf16>, tensor<1x8x1x1xf16>)
+         scratch(%scratch : tensor<1x8x80x960xf16>)
+         @VPU.SW::@generated_0
+         tiling(sizes = [80, 960], offsets = [0, 0]) {
+           multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>
+         } -> tensor<1x8x80x960xf16>
+  return %0 : tensor<1x8x80x960xf16>
+
+    // CHECK:       [[SCRATCH:%.+]] = VPU.Empty : tensor<1x8x80x960xf16>
+
+    // CHECK:       [[INPUT_0_DIST:%.+]] = VPU.UnrolledType([[INPUT_0]] : tensor<1x8x80x960xf16>)
+    // CHECK-SAME:      -> !VPU.DistributedTensor<1x8x80x960xf16, #NCHW, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 1, 3, 1], num_clusters = 3 : i64, uniform_distributed_segments,
+    // CHECK-SAME{LITERAL}:  compute_shapes = [[1, 8, 27, 960], [1, 8, 27, 960], [1, 8, 26, 960]]
+    // CHECK-SAME{LITERAL}:  compute_offsets = [[0, 0, 0, 0], [0, 0, 27, 0], [0, 0, 54, 0]]
+    // CHECK-SAME{LITERAL}:  memory_shapes = [[1, 8, 27, 960], [1, 8, 27, 960], [1, 8, 26, 960]]
+    // CHECK-SAME{LITERAL}:  memory_offsets = [[0, 0, 0, 0], [0, 0, 27, 0], [0, 0, 54, 0]]}>
+
+    // CHECK:       [[INPUT_1_DIST:%.+]] = VPU.UnrolledType([[INPUT_1]] : tensor<1x8x1x1xf16>)
+    // CHECK-SAME:      -> !VPU.DistributedTensor<1x8x1x1xf16, #NCHW, @CMX_NN, {mode = "DUPLICATED", num_clusters = 3 : i64, uniform_distributed_segments,
+    // CHECK-SAME{LITERAL}:  compute_shapes = [[1, 8, 1, 1], [1, 8, 1, 1], [1, 8, 1, 1]]
+    // CHECK-SAME{LITERAL}:  compute_offsets = [[0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]]
+    // CHECK-SAME{LITERAL}:  memory_shapes = [[1, 8, 1, 1], [1, 8, 1, 1], [1, 8, 1, 1]]
+    // CHECK-SAME{LITERAL}:  memory_offsets = [[0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]]}>
+
+    // CHECK:       [[SCRATCH_DIST:%.+]] = VPU.UnrolledType([[SCRATCH]] : tensor<1x8x80x960xf16>)
+    // CHECK-SAME:      -> !VPU.DistributedTensor<1x8x80x960xf16, #NCHW, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 1, 3, 1], num_clusters = 3 : i64, uniform_distributed_segments,
+    // CHECK-SAME{LITERAL}:  compute_shapes = [[1, 8, 27, 960], [1, 8, 27, 960], [1, 8, 26, 960]]
+    // CHECK-SAME{LITERAL}:  compute_offsets = [[0, 0, 0, 0], [0, 0, 27, 0], [0, 0, 54, 0]]
+    // CHECK-SAME{LITERAL}:  memory_shapes = [[1, 8, 27, 960], [1, 8, 27, 960], [1, 8, 26, 960]]
+    // CHECK-SAME{LITERAL}:  memory_offsets = [[0, 0, 0, 0], [0, 0, 27, 0], [0, 0, 54, 0]]}>
+
+    // CHECK:       [[SW:%.+]] = VPU.GenericSwLayer([[INPUT_0_DIST]], [[INPUT_1_DIST]] :
+    // CHECK-SAME:      scratch([[SCRATCH_DIST]] :
+    // CHECK-SAME:      -> !VPU.DistributedTensor<1x8x80x960xf16, #NCHW, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 1, 3, 1], num_clusters = 3 : i64, uniform_distributed_segments,
+    // CHECK-SAME{LITERAL}:  compute_shapes = [[1, 8, 27, 960], [1, 8, 27, 960], [1, 8, 26, 960]]
+    // CHECK-SAME{LITERAL}:  compute_offsets = [[0, 0, 0, 0], [0, 0, 27, 0], [0, 0, 54, 0]]
+    // CHECK-SAME{LITERAL}:  memory_shapes = [[1, 8, 27, 960], [1, 8, 27, 960], [1, 8, 26, 960]]
+    // CHECK-SAME{LITERAL}:  memory_offsets = [[0, 0, 0, 0], [0, 0, 27, 0], [0, 0, 54, 0]]}>
+
+    // CHECK:       [[OUTPUT:%.+]] = VPU.UnrolledType([[SW]] :
+    // CHECK-SAME:      -> tensor<1x8x80x960xf16>
+    // CHECK:       return [[OUTPUT]] : tensor<1x8x80x960xf16>
+}
+
+}
+
+// -----
+
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+
+module @executors {
+config.Resources 3 of @NCE at 1.700000e+03 MHz
+
+module @VPU.SW {
+  func.func nested @generated_info_0(%arg0: index, %arg1: index, %arg2: index, %arg3: index) -> (index, index, index, index, index, index, index, index, index, index, index, index, index, index, index, index, index, index, index, index, index, index, index, index)
+  func.func nested @generated_0(tensor<1x8x?x?xf16>, tensor<1x8x?x?xf16>, tensor<1x8x80x960xf16>, index, index, index, index) -> tensor<1x8x?x?xf16> attributes {
+    kernelInfo = #VPU.KernelInfo<
+      tilingInfoFunc = @generated_info_0,
+      tilingAxes = [2, 3],
+      numSlicedInputs = 2 : i64,
+      numTensorInputs = 2 : i64,
+      numAuxBuffers = 1 : i64,
+      inputSegmentationAxes = [array<i64: 2, 2, -1>, array<i64: 3, 3, -1>]
+    >
+  }
+}
+
+// CHECK-LABEL: @BroadcastScratchSOH
+// CHECK-SAME:      ([[INPUT_0:%[^:]+]]: tensor<1x8x80x960xf16>, [[INPUT_1:%[^:]+]]: tensor<1x8x80x960xf16>)
+func.func @BroadcastScratchSOH(%input0: tensor<1x8x80x960xf16>, %input1: tensor<1x8x80x960xf16>) -> tensor<1x8x80x960xf16> {
+  %scratch = VPU.Empty : tensor<1x8x80x960xf16>
+  %0 = VPU.GenericSwLayer(%input0, %input1 : tensor<1x8x80x960xf16>, tensor<1x8x80x960xf16>)
+         scratch(%scratch : tensor<1x8x80x960xf16>)
+         @VPU.SW::@generated_0
+         tiling(sizes = [80, 960], offsets = [0, 0]) {
+           multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>
+         } -> tensor<1x8x80x960xf16>
+  return %0 : tensor<1x8x80x960xf16>
+
+    // CHECK:       [[SCRATCH:%.+]] = VPU.Empty : tensor<1x8x80x960xf16>
+
+    // CHECK:       [[INPUT_0_DIST:%.+]] = VPU.UnrolledType([[INPUT_0]] : tensor<1x8x80x960xf16>)
+    // CHECK-SAME:      -> !VPU.DistributedTensor<1x8x80x960xf16, #NCHW, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 1, 3, 1], num_clusters = 3 : i64, uniform_distributed_segments,
+    // CHECK-SAME{LITERAL}:  compute_shapes = [[1, 8, 27, 960], [1, 8, 27, 960], [1, 8, 26, 960]]
+    // CHECK-SAME{LITERAL}:  compute_offsets = [[0, 0, 0, 0], [0, 0, 27, 0], [0, 0, 54, 0]]
+    // CHECK-SAME{LITERAL}:  memory_shapes = [[1, 8, 27, 960], [1, 8, 27, 960], [1, 8, 26, 960]]
+    // CHECK-SAME{LITERAL}:  memory_offsets = [[0, 0, 0, 0], [0, 0, 27, 0], [0, 0, 54, 0]]}>
+
+    // CHECK:       [[INPUT_1_DIST:%.+]] = VPU.UnrolledType([[INPUT_1]] : tensor<1x8x80x960xf16>)
+    // CHECK-SAME:      -> !VPU.DistributedTensor<1x8x80x960xf16, #NCHW, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 1, 3, 1], num_clusters = 3 : i64, uniform_distributed_segments,
+    // CHECK-SAME{LITERAL}:  compute_shapes = [[1, 8, 27, 960], [1, 8, 27, 960], [1, 8, 26, 960]]
+    // CHECK-SAME{LITERAL}:  compute_offsets = [[0, 0, 0, 0], [0, 0, 27, 0], [0, 0, 54, 0]]
+    // CHECK-SAME{LITERAL}:  memory_shapes = [[1, 8, 27, 960], [1, 8, 27, 960], [1, 8, 26, 960]]
+    // CHECK-SAME{LITERAL}:  memory_offsets = [[0, 0, 0, 0], [0, 0, 27, 0], [0, 0, 54, 0]]}>
+
+    // CHECK:       [[SCRATCH_DIST:%.+]] = VPU.UnrolledType([[SCRATCH]] : tensor<1x8x80x960xf16>)
+    // CHECK-SAME:      -> !VPU.DistributedTensor<1x8x80x960xf16, #NCHW, @CMX_NN, {mode = "DUPLICATED", num_clusters = 3 : i64, uniform_distributed_segments,
+    // CHECK-SAME{LITERAL}:  compute_shapes = [[1, 8, 80, 960], [1, 8, 80, 960], [1, 8, 80, 960]]
+    // CHECK-SAME{LITERAL}:  compute_offsets = [[0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]]
+    // CHECK-SAME{LITERAL}:  memory_shapes = [[1, 8, 80, 960], [1, 8, 80, 960], [1, 8, 80, 960]]
+    // CHECK-SAME{LITERAL}:  memory_offsets = [[0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]]}>
+
+    // CHECK:       [[SW:%.+]] = VPU.GenericSwLayer([[INPUT_0_DIST]], [[INPUT_1_DIST]] :
+    // CHECK-SAME:      scratch([[SCRATCH_DIST]] :
+    // CHECK-SAME:      -> !VPU.DistributedTensor<1x8x80x960xf16, #NCHW, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 1, 3, 1], num_clusters = 3 : i64, uniform_distributed_segments,
+    // CHECK-SAME{LITERAL}:  compute_shapes = [[1, 8, 27, 960], [1, 8, 27, 960], [1, 8, 26, 960]]
+    // CHECK-SAME{LITERAL}:  compute_offsets = [[0, 0, 0, 0], [0, 0, 27, 0], [0, 0, 54, 0]]
+    // CHECK-SAME{LITERAL}:  memory_shapes = [[1, 8, 27, 960], [1, 8, 27, 960], [1, 8, 26, 960]]
+    // CHECK-SAME{LITERAL}:  memory_offsets = [[0, 0, 0, 0], [0, 0, 27, 0], [0, 0, 54, 0]]}>
+
+    // CHECK:       [[OUTPUT:%.+]] = VPU.UnrolledType([[SW]] :
+    // CHECK-SAME:      -> tensor<1x8x80x960xf16>
+    // CHECK:       return [[OUTPUT]] : tensor<1x8x80x960xf16>
+}
+
+}
+
+// -----
+
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+
+module @executors {
+config.Resources 3 of @NCE at 1.700000e+03 MHz
+
+module @VPU.SW {
+  func.func nested @generated_info_0(%arg0: index, %arg1: index) -> (index, index, index, index, index, index, index, index, index, index, index, index, index, index, index, index)
+  func.func nested @generated_0(tensor<1x8x?x960xf16, {order = #NHWC}>, tensor<1x8x1x1xf16, {order = #NHWC}>, tensor<1x8x?x960xf16>, index, index) -> tensor<1x8x?x960xf16, {order = #NHWC}> attributes {
+    kernelInfo = #VPU.KernelInfo<
+      tilingInfoFunc = @generated_info_0,
+      tilingAxes = [1],
+      numSlicedInputs = 1 : i64,
+      numTensorInputs = 2 : i64,
+      numAuxBuffers = 1 : i64,
+      inputSegmentationAxes = [array<i64: 1, -1, 2>]
+    >
+  }
+}
+
+// CHECK-LABEL: @SegmentedScratchWithOwnLayout
+// CHECK-SAME:      ([[INPUT_0:%[^:]+]]: tensor<1x8x80x960xf16, {order = #NHWC}>, [[INPUT_1:%[^:]+]]: tensor<1x8x1x1xf16, {order = #NHWC}>)
+func.func @SegmentedScratchWithOwnLayout(%input0: tensor<1x8x80x960xf16, {order = #NHWC}>, %input1: tensor<1x8x1x1xf16, {order = #NHWC}>) -> tensor<1x8x80x960xf16, {order = #NHWC}> {
+  %scratch = VPU.Empty : tensor<1x8x80x960xf16>
+  %0 = VPU.GenericSwLayer(%input0, %input1 : tensor<1x8x80x960xf16, {order = #NHWC}>, tensor<1x8x1x1xf16, {order = #NHWC}>)
+         scratch(%scratch : tensor<1x8x80x960xf16>)
+         @VPU.SW::@generated_0
+         tiling(sizes = [80], offsets = [0]) {
+           multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>
+         } -> tensor<1x8x80x960xf16, {order = #NHWC}>
+  return %0 : tensor<1x8x80x960xf16, {order = #NHWC}>
+
+    // CHECK:       [[SCRATCH:%.+]] = VPU.Empty : tensor<1x8x80x960xf16>
+
+    // CHECK:       [[INPUT_0_DIST:%.+]] = VPU.UnrolledType([[INPUT_0]] : tensor<1x8x80x960xf16, {order = #NHWC}>)
+    // CHECK-SAME:      -> !VPU.DistributedTensor<1x8x80x960xf16, #NHWC, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 1, 3, 1], num_clusters = 3 : i64, uniform_distributed_segments,
+    // CHECK-SAME{LITERAL}:  compute_shapes = [[1, 8, 27, 960], [1, 8, 27, 960], [1, 8, 26, 960]]
+    // CHECK-SAME{LITERAL}:  compute_offsets = [[0, 0, 0, 0], [0, 0, 27, 0], [0, 0, 54, 0]]
+    // CHECK-SAME{LITERAL}:  memory_shapes = [[1, 8, 27, 960], [1, 8, 27, 960], [1, 8, 26, 960]]
+    // CHECK-SAME{LITERAL}:  memory_offsets = [[0, 0, 0, 0], [0, 0, 27, 0], [0, 0, 54, 0]]}>
+
+    // CHECK:       [[INPUT_1_DIST:%.+]] = VPU.UnrolledType([[INPUT_1]] : tensor<1x8x1x1xf16, {order = #NHWC}>)
+    // CHECK-SAME:      -> !VPU.DistributedTensor<1x8x1x1xf16, #NHWC, @CMX_NN, {mode = "DUPLICATED", num_clusters = 3 : i64, uniform_distributed_segments,
+    // CHECK-SAME{LITERAL}:  compute_shapes = [[1, 8, 1, 1], [1, 8, 1, 1], [1, 8, 1, 1]]
+    // CHECK-SAME{LITERAL}:  compute_offsets = [[0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]]
+    // CHECK-SAME{LITERAL}:  memory_shapes = [[1, 8, 1, 1], [1, 8, 1, 1], [1, 8, 1, 1]]
+    // CHECK-SAME{LITERAL}:  memory_offsets = [[0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]]}>
+
+    // CHECK:       [[SCRATCH_DIST:%.+]] = VPU.UnrolledType([[SCRATCH]] : tensor<1x8x80x960xf16>)
+    // CHECK-SAME:      -> !VPU.DistributedTensor<1x8x80x960xf16, #NCHW, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 1, 3, 1], num_clusters = 3 : i64, uniform_distributed_segments,
+    // CHECK-SAME{LITERAL}:  compute_shapes = [[1, 8, 27, 960], [1, 8, 27, 960], [1, 8, 26, 960]]
+    // CHECK-SAME{LITERAL}:  compute_offsets = [[0, 0, 0, 0], [0, 0, 27, 0], [0, 0, 54, 0]]
+    // CHECK-SAME{LITERAL}:  memory_shapes = [[1, 8, 27, 960], [1, 8, 27, 960], [1, 8, 26, 960]]
+    // CHECK-SAME{LITERAL}:  memory_offsets = [[0, 0, 0, 0], [0, 0, 27, 0], [0, 0, 54, 0]]}>
+
+    // CHECK:       [[SW:%.+]] = VPU.GenericSwLayer([[INPUT_0_DIST]], [[INPUT_1_DIST]] :
+    // CHECK-SAME:      scratch([[SCRATCH_DIST]] :
+    // CHECK-SAME:      -> !VPU.DistributedTensor<1x8x80x960xf16, #NHWC, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 1, 3, 1], num_clusters = 3 : i64, uniform_distributed_segments,
+    // CHECK-SAME{LITERAL}:  compute_shapes = [[1, 8, 27, 960], [1, 8, 27, 960], [1, 8, 26, 960]]
+    // CHECK-SAME{LITERAL}:  compute_offsets = [[0, 0, 0, 0], [0, 0, 27, 0], [0, 0, 54, 0]]
+    // CHECK-SAME{LITERAL}:  memory_shapes = [[1, 8, 27, 960], [1, 8, 27, 960], [1, 8, 26, 960]]
+    // CHECK-SAME{LITERAL}:  memory_offsets = [[0, 0, 0, 0], [0, 0, 27, 0], [0, 0, 54, 0]]}>
+
+    // CHECK:       [[OUTPUT:%.+]] = VPU.UnrolledType([[SW]] :
+    // CHECK-SAME:      -> tensor<1x8x80x960xf16, {order = #NHWC}>
+    // CHECK:       return [[OUTPUT]] : tensor<1x8x80x960xf16, {order = #NHWC}>
+}
+
+}
+
+// -----
+
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+
+module @executors {
+config.Resources 3 of @NCE at 1.700000e+03 MHz
+
+module @VPU.SW {
+  func.func nested @generated_info_0(%arg0: index, %arg1: index) -> (index, index, index, index, index, index, index, index, index, index, index, index, index, index, index, index)
+  func.func nested @generated_0(tensor<1x?x16x32xf16>, tensor<1x64x1x1xf16>, tensor<1x?x16x32xf16>, index, index) -> tensor<1x?x16x32xf16> attributes {
+    kernelInfo = #VPU.KernelInfo<
+      tilingInfoFunc = @generated_info_0,
+      tilingAxes = [1],
+      numSlicedInputs = 1 : i64,
+      numTensorInputs = 2 : i64,
+      numAuxBuffers = 1 : i64,
+      inputSegmentationAxes = [array<i64: 1, -1, 1>]
+    >
+  }
+}
+
+// CHECK-LABEL: @SegmentedScratchSOK
+// CHECK-SAME:      ([[INPUT_0:%[^:]+]]: tensor<1x64x16x32xf16>, [[INPUT_1:%[^:]+]]: tensor<1x64x1x1xf16>)
+func.func @SegmentedScratchSOK(%input0: tensor<1x64x16x32xf16>, %input1: tensor<1x64x1x1xf16>) -> tensor<1x64x16x32xf16> {
+  %scratch = VPU.Empty : tensor<1x64x16x32xf16>
+  %0 = VPU.GenericSwLayer(%input0, %input1 : tensor<1x64x16x32xf16>, tensor<1x64x1x1xf16>)
+         scratch(%scratch : tensor<1x64x16x32xf16>)
+         @VPU.SW::@generated_0
+         tiling(sizes = [64], offsets = [0]) {
+           multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>
+         } -> tensor<1x64x16x32xf16>
+  return %0 : tensor<1x64x16x32xf16>
+
+    // CHECK:       [[SCRATCH:%.+]] = VPU.Empty : tensor<1x64x16x32xf16>
+
+    // CHECK:       [[INPUT_0_DIST:%.+]] = VPU.UnrolledType([[INPUT_0]] : tensor<1x64x16x32xf16>)
+    // CHECK-SAME:      -> !VPU.DistributedTensor<1x64x16x32xf16, #NCHW, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 3, 1, 1], num_clusters = 3 : i64, uniform_distributed_segments,
+    // CHECK-SAME{LITERAL}:  compute_shapes = [[1, 22, 16, 32], [1, 21, 16, 32], [1, 21, 16, 32]]
+    // CHECK-SAME{LITERAL}:  compute_offsets = [[0, 0, 0, 0], [0, 22, 0, 0], [0, 43, 0, 0]]
+    // CHECK-SAME{LITERAL}:  memory_shapes = [[1, 22, 16, 32], [1, 21, 16, 32], [1, 21, 16, 32]]
+    // CHECK-SAME{LITERAL}:  memory_offsets = [[0, 0, 0, 0], [0, 22, 0, 0], [0, 43, 0, 0]]}>
+
+    // CHECK:       [[INPUT_1_DIST:%.+]] = VPU.UnrolledType([[INPUT_1]] : tensor<1x64x1x1xf16>)
+    // CHECK-SAME:      -> !VPU.DistributedTensor<1x64x1x1xf16, #NCHW, @CMX_NN, {mode = "DUPLICATED", num_clusters = 3 : i64, uniform_distributed_segments,
+    // CHECK-SAME{LITERAL}:  compute_shapes = [[1, 64, 1, 1], [1, 64, 1, 1], [1, 64, 1, 1]]
+    // CHECK-SAME{LITERAL}:  compute_offsets = [[0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]]
+    // CHECK-SAME{LITERAL}:  memory_shapes = [[1, 64, 1, 1], [1, 64, 1, 1], [1, 64, 1, 1]]
+    // CHECK-SAME{LITERAL}:  memory_offsets = [[0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]]}>
+
+    // CHECK:       [[SCRATCH_DIST:%.+]] = VPU.UnrolledType([[SCRATCH]] : tensor<1x64x16x32xf16>)
+    // CHECK-SAME:      -> !VPU.DistributedTensor<1x64x16x32xf16, #NCHW, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 3, 1, 1], num_clusters = 3 : i64, uniform_distributed_segments,
+    // CHECK-SAME{LITERAL}:  compute_shapes = [[1, 22, 16, 32], [1, 21, 16, 32], [1, 21, 16, 32]]
+    // CHECK-SAME{LITERAL}:  compute_offsets = [[0, 0, 0, 0], [0, 22, 0, 0], [0, 43, 0, 0]]
+    // CHECK-SAME{LITERAL}:  memory_shapes = [[1, 22, 16, 32], [1, 21, 16, 32], [1, 21, 16, 32]]
+    // CHECK-SAME{LITERAL}:  memory_offsets = [[0, 0, 0, 0], [0, 22, 0, 0], [0, 43, 0, 0]]}>
+
+    // CHECK:       [[SW:%.+]] = VPU.GenericSwLayer([[INPUT_0_DIST]], [[INPUT_1_DIST]] :
+    // CHECK-SAME:      scratch([[SCRATCH_DIST]] :
+    // CHECK-SAME:      -> !VPU.DistributedTensor<1x64x16x32xf16, #NCHW, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 3, 1, 1], num_clusters = 3 : i64, uniform_distributed_segments,
+    // CHECK-SAME{LITERAL}:  compute_shapes = [[1, 22, 16, 32], [1, 21, 16, 32], [1, 21, 16, 32]]
+    // CHECK-SAME{LITERAL}:  compute_offsets = [[0, 0, 0, 0], [0, 22, 0, 0], [0, 43, 0, 0]]
+    // CHECK-SAME{LITERAL}:  memory_shapes = [[1, 22, 16, 32], [1, 21, 16, 32], [1, 21, 16, 32]]
+    // CHECK-SAME{LITERAL}:  memory_offsets = [[0, 0, 0, 0], [0, 22, 0, 0], [0, 43, 0, 0]]}>
+
+    // CHECK:       [[OUTPUT:%.+]] = VPU.UnrolledType([[SW]] :
+    // CHECK-SAME:      -> tensor<1x64x16x32xf16>
+    // CHECK:       return [[OUTPUT]] : tensor<1x64x16x32xf16>
+}
+
+}
+
+// -----
+
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+
+module @executors {
+config.Resources 3 of @NCE at 1.700000e+03 MHz
+
+module @VPU.SW {
+  func.func nested @generated_info_0(%arg0: index, %arg1: index, %arg2: index, %arg3: index) -> (index, index, index, index, index, index, index, index)
+  func.func nested @generated_0(tensor<1x8x?x?xf16>, tensor<1x8x80x960xf16>, index, index, index, index) -> tensor<1x8x?x?xf16> attributes {
+    kernelInfo = #VPU.KernelInfo<
+      tilingInfoFunc = @generated_info_0,
+      tilingAxes = [2, 3],
+      numSlicedInputs = 1 : i64,
+      numTensorInputs = 2 : i64,
+      numAuxBuffers = 0 : i64,
+      inputSegmentationAxes = [array<i64: 2, -1>, array<i64: 3, -1>]
+    >
+  }
+}
+
+// The same value feeds both inputs: the first is sliced along the tiling axis, the second is
+// read whole. The distribution must be resolved per operand position, so each use gets its own
+// distributed type instead of both taking the classification of the first matching operand.
+
+// CHECK-LABEL: @SameValueSegmentedAndBroadcastSOH
+// CHECK-SAME:      ([[INPUT:%[^:]+]]: tensor<1x8x80x960xf16>)
+func.func @SameValueSegmentedAndBroadcastSOH(%input: tensor<1x8x80x960xf16>) -> tensor<1x8x80x960xf16> {
+  %0 = VPU.GenericSwLayer(%input, %input : tensor<1x8x80x960xf16>, tensor<1x8x80x960xf16>)
+         @VPU.SW::@generated_0
+         tiling(sizes = [80, 960], offsets = [0, 0]) {
+           multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>
+         } -> tensor<1x8x80x960xf16>
+  return %0 : tensor<1x8x80x960xf16>
+
+    // CHECK:       [[INPUT_0_DIST:%.+]] = VPU.UnrolledType([[INPUT]] : tensor<1x8x80x960xf16>)
+    // CHECK-SAME:      -> !VPU.DistributedTensor<1x8x80x960xf16, #NCHW, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 1, 3, 1], num_clusters = 3 : i64, uniform_distributed_segments,
+    // CHECK-SAME{LITERAL}:  compute_shapes = [[1, 8, 27, 960], [1, 8, 27, 960], [1, 8, 26, 960]]
+    // CHECK-SAME{LITERAL}:  compute_offsets = [[0, 0, 0, 0], [0, 0, 27, 0], [0, 0, 54, 0]]
+    // CHECK-SAME{LITERAL}:  memory_shapes = [[1, 8, 27, 960], [1, 8, 27, 960], [1, 8, 26, 960]]
+    // CHECK-SAME{LITERAL}:  memory_offsets = [[0, 0, 0, 0], [0, 0, 27, 0], [0, 0, 54, 0]]}>
+
+    // CHECK:       [[INPUT_1_DIST:%.+]] = VPU.UnrolledType([[INPUT]] : tensor<1x8x80x960xf16>)
+    // CHECK-SAME:      -> !VPU.DistributedTensor<1x8x80x960xf16, #NCHW, @CMX_NN, {mode = "DUPLICATED", num_clusters = 3 : i64, uniform_distributed_segments,
+    // CHECK-SAME{LITERAL}:  compute_shapes = [[1, 8, 80, 960], [1, 8, 80, 960], [1, 8, 80, 960]]
+    // CHECK-SAME{LITERAL}:  compute_offsets = [[0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]]
+    // CHECK-SAME{LITERAL}:  memory_shapes = [[1, 8, 80, 960], [1, 8, 80, 960], [1, 8, 80, 960]]
+    // CHECK-SAME{LITERAL}:  memory_offsets = [[0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]]}>
+
+    // CHECK:       [[SW:%.+]] = VPU.GenericSwLayer([[INPUT_0_DIST]], [[INPUT_1_DIST]] :
+    // CHECK-SAME:      -> !VPU.DistributedTensor<1x8x80x960xf16, #NCHW, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 1, 3, 1], num_clusters = 3 : i64, uniform_distributed_segments,
+    // CHECK-SAME{LITERAL}:  compute_shapes = [[1, 8, 27, 960], [1, 8, 27, 960], [1, 8, 26, 960]]
+    // CHECK-SAME{LITERAL}:  compute_offsets = [[0, 0, 0, 0], [0, 0, 27, 0], [0, 0, 54, 0]]
+    // CHECK-SAME{LITERAL}:  memory_shapes = [[1, 8, 27, 960], [1, 8, 27, 960], [1, 8, 26, 960]]
+    // CHECK-SAME{LITERAL}:  memory_offsets = [[0, 0, 0, 0], [0, 0, 27, 0], [0, 0, 54, 0]]}>
+
+    // CHECK:       [[OUTPUT:%.+]] = VPU.UnrolledType([[SW]] :
+    // CHECK-SAME:      -> tensor<1x8x80x960xf16>
+    // CHECK:       return [[OUTPUT]] : tensor<1x8x80x960xf16>
+}
+
+}
+
+// -----
+
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+
+module @executors {
+config.Resources 3 of @NCE at 1.700000e+03 MHz
+
+module @VPU.SW {
+  func.func nested @generated_info_0(%arg0: index, %arg1: index, %arg2: index, %arg3: index) -> (index, index, index, index, index, index, index, index, index, index, index, index, index, index, index, index)
+  func.func nested @generated_0(tensor<1x8x?x?xf16>, tensor<1x8x?x?xf16>, index, index, index, index) -> tensor<1x8x?x?xf16> attributes {
+    kernelInfo = #VPU.KernelInfo<
+      tilingInfoFunc = @generated_info_0,
+      tilingAxes = [2, 3],
+      numSlicedInputs = 2 : i64,
+      numTensorInputs = 2 : i64,
+      numAuxBuffers = 0 : i64,
+      inputSegmentationAxes = [array<i64: 2, 3>, array<i64: 3, 2>]
+    >
+  }
+}
+
+// The same value for both inputs, however the inputs are segmented differently.
+
+// CHECK-LABEL: @SameValueSegmentedOnDifferentDimsSOH
+// CHECK-SAME:      ([[INPUT:%[^:]+]]: tensor<1x8x80x960xf16>)
+func.func @SameValueSegmentedOnDifferentDimsSOH(%input: tensor<1x8x80x960xf16>) -> tensor<1x8x80x960xf16> {
+  %0 = VPU.GenericSwLayer(%input, %input : tensor<1x8x80x960xf16>, tensor<1x8x80x960xf16>)
+         @VPU.SW::@generated_0
+         tiling(sizes = [80, 960], offsets = [0, 0]) {
+           multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>
+         } -> tensor<1x8x80x960xf16>
+  return %0 : tensor<1x8x80x960xf16>
+
+    // CHECK:       [[INPUT_0_DIST:%.+]] = VPU.UnrolledType([[INPUT]] : tensor<1x8x80x960xf16>)
+    // CHECK-SAME:      -> !VPU.DistributedTensor<1x8x80x960xf16, #NCHW, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 1, 3, 1], num_clusters = 3 : i64, uniform_distributed_segments,
+    // CHECK-SAME{LITERAL}:  compute_shapes = [[1, 8, 27, 960], [1, 8, 27, 960], [1, 8, 26, 960]]
+    // CHECK-SAME{LITERAL}:  compute_offsets = [[0, 0, 0, 0], [0, 0, 27, 0], [0, 0, 54, 0]]
+    // CHECK-SAME{LITERAL}:  memory_shapes = [[1, 8, 27, 960], [1, 8, 27, 960], [1, 8, 26, 960]]
+    // CHECK-SAME{LITERAL}:  memory_offsets = [[0, 0, 0, 0], [0, 0, 27, 0], [0, 0, 54, 0]]}>
+
+    // CHECK:       [[INPUT_1_DIST:%.+]] = VPU.UnrolledType([[INPUT]] : tensor<1x8x80x960xf16>)
+    // CHECK-SAME:      -> !VPU.DistributedTensor<1x8x80x960xf16, #NCHW, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 1, 1, 3], num_clusters = 3 : i64, uniform_distributed_segments,
+    // CHECK-SAME{LITERAL}:  compute_shapes = [[1, 8, 80, 320], [1, 8, 80, 320], [1, 8, 80, 320]]
+    // CHECK-SAME{LITERAL}:  compute_offsets = [[0, 0, 0, 0], [0, 0, 0, 320], [0, 0, 0, 640]]
+    // CHECK-SAME{LITERAL}:  memory_shapes = [[1, 8, 80, 320], [1, 8, 80, 320], [1, 8, 80, 320]]
+    // CHECK-SAME{LITERAL}:  memory_offsets = [[0, 0, 0, 0], [0, 0, 0, 320], [0, 0, 0, 640]]}>
+
+    // CHECK:       [[SW:%.+]] = VPU.GenericSwLayer([[INPUT_0_DIST]], [[INPUT_1_DIST]] :
+    // CHECK-SAME:      -> !VPU.DistributedTensor<1x8x80x960xf16, #NCHW, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 1, 3, 1], num_clusters = 3 : i64, uniform_distributed_segments,
+    // CHECK-SAME{LITERAL}:  compute_shapes = [[1, 8, 27, 960], [1, 8, 27, 960], [1, 8, 26, 960]]
+    // CHECK-SAME{LITERAL}:  compute_offsets = [[0, 0, 0, 0], [0, 0, 27, 0], [0, 0, 54, 0]]
+    // CHECK-SAME{LITERAL}:  memory_shapes = [[1, 8, 27, 960], [1, 8, 27, 960], [1, 8, 26, 960]]
+    // CHECK-SAME{LITERAL}:  memory_offsets = [[0, 0, 0, 0], [0, 0, 27, 0], [0, 0, 54, 0]]}>
+
+    // CHECK:       [[OUTPUT:%.+]] = VPU.UnrolledType([[SW]] :
+    // CHECK-SAME:      -> tensor<1x8x80x960xf16>
+    // CHECK:       return [[OUTPUT]] : tensor<1x8x80x960xf16>
+}
+
+}

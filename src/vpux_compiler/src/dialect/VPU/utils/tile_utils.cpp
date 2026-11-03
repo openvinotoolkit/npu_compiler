@@ -7,6 +7,7 @@
 #include "vpux/compiler/core/layers.hpp"
 #include "vpux/compiler/core/tiling.hpp"
 #include "vpux/compiler/dialect/IE/utils/dynamic_shape_utils.hpp"
+#include "vpux/compiler/dialect/Shave/IR/ops/meta-ops.hpp"
 #include "vpux/compiler/dialect/VPU/IR/native_attributes/distribution_info.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/data_movement.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/dpu.hpp"
@@ -30,6 +31,7 @@
 #include "vpux/utils/core/numeric.hpp"
 #include "vpux/utils/core/range.hpp"
 
+#include <llvm/ADT/STLExtras.h>
 #include <llvm/ADT/SmallVector.h>
 #include <llvm/ADT/TypeSwitch.h>
 
@@ -58,16 +60,17 @@ namespace {
 // Computes tile distributions for NCE ops that have only an activation input (no filter/weights).
 // Used by NCEMaxPoolOp, NCEAveragePoolOp, NCEPermuteOp.
 static std::vector<TypeAndDistributionPair> getTileDistributionsActivationOnly(
-        NCEOpInterface origOp, mlir::Value inputValue, SiblingOpsAnalysis& siblingsAnalysis, const TileInfo& outTile,
-        std::optional<VPU::MultiClusterStrategy> customStrategy, const std::optional<InputTiling>& inputTiles) {
+        NCEOpInterface origOp, mlir::OpOperand& inputValue, SiblingOpsAnalysis& siblingsAnalysis,
+        const TileInfo& outTile, std::optional<VPU::MultiClusterStrategy> customStrategy,
+        const std::optional<InputTiling>& inputTiles) {
     auto tilingBuilder = mlir::dyn_cast_if_present<VPU::TilingBuilderOpInterface>(origOp.getOperation());
     VPUX_THROW_WHEN(tilingBuilder == nullptr, "Op {0} does not implement TilingBuilderOpInterface", origOp->getLoc());
     const auto tiles = inputTiles.has_value() ? inputTiles.value().tiles
                                               : tilingBuilder.backInferTileInfo(outTile, Logger::global()).tiles;
     VPUX_THROW_WHEN(tiles.empty(), "There are no tiles for operation {0}", origOp->getLoc());
 
-    auto inputTileType =
-            mlir::cast<vpux::NDTypeInterface>(inputValue.getType()).extractDenseTile(tiles[0].offsets, tiles[0].shape);
+    auto inputTileType = mlir::cast<vpux::NDTypeInterface>(inputValue.get().getType())
+                                 .extractDenseTile(tiles[0].offsets, tiles[0].shape);
     auto outputTileType = mlir::cast<vpux::NDTypeInterface>(origOp->getResult(0).getType())
                                   .extractDenseTile(outTile.offsets, outTile.shape);
 
@@ -109,17 +112,17 @@ static std::vector<TypeAndDistributionPair> getTileDistributionsActivationOnly(
 // Computes tile distributions for NCE ops that have an activation input and a filter/weights operand.
 // Used by NCEConvolutionOp, NCECompressConvolutionOp, NCEDepthConvolutionOp, NCEMatMulOp, NCEInterpolateOp.
 static std::vector<TypeAndDistributionPair> getTileDistributionsWithFilter(
-        NCEOpInterface origOp, mlir::Value inputValue, mlir::Value filterValue, SiblingOpsAnalysis& siblingsAnalysis,
-        const TileInfo& outTile, std::optional<VPU::MultiClusterStrategy> customStrategy,
-        const std::optional<InputTiling>& inputTiles) {
+        NCEOpInterface origOp, mlir::OpOperand& inputValue, mlir::Value filterValue,
+        SiblingOpsAnalysis& siblingsAnalysis, const TileInfo& outTile,
+        std::optional<VPU::MultiClusterStrategy> customStrategy, const std::optional<InputTiling>& inputTiles) {
     auto tilingBuilder = mlir::dyn_cast_if_present<VPU::TilingBuilderOpInterface>(origOp.getOperation());
     VPUX_THROW_WHEN(tilingBuilder == nullptr, "Op {0} does not implement TilingBuilderOpInterface", origOp->getLoc());
     const auto tiles = inputTiles.has_value() ? inputTiles.value().tiles
                                               : tilingBuilder.backInferTileInfo(outTile, Logger::global()).tiles;
     VPUX_THROW_WHEN(tiles.size() < 2, "Not enough tiles {0} for operation {1}", tiles.size(), origOp->getLoc());
 
-    auto inputTileType =
-            mlir::cast<vpux::NDTypeInterface>(inputValue.getType()).extractDenseTile(tiles[0].offsets, tiles[0].shape);
+    auto inputTileType = mlir::cast<vpux::NDTypeInterface>(inputValue.get().getType())
+                                 .extractDenseTile(tiles[0].offsets, tiles[0].shape);
     auto filterTileType =
             mlir::cast<vpux::NDTypeInterface>(filterValue.getType()).extractDenseTile(tiles[1].offsets, tiles[1].shape);
     auto outputTileType = mlir::cast<vpux::NDTypeInterface>(origOp->getResult(0).getType())
@@ -213,7 +216,7 @@ std::vector<TypeAndDistributionPair> getTileDistributionsCommon(mlir::Operation*
     inputTypes.reserve(inputTileTypes.size());
 
     for (const auto& [idx, inputTileType] : inputTileTypes | indexed) {
-        auto inDistribution = VPU::getActivationDistributionAttrFromOp(clusteredOp, clusteredOp->getOperand(idx),
+        auto inDistribution = VPU::getActivationDistributionAttrFromOp(clusteredOp, clusteredOp->getOpOperand(idx),
                                                                        inputTileType.first, numClusters, strategy,
                                                                        siblingsAnalysis, {}, outputTileType, outTile);
         distributedTensorTypes.emplace_back(inputTileType.first, inDistribution);
@@ -233,39 +236,39 @@ std::vector<TypeAndDistributionPair> getTileDistributions(mlir::Operation* op, S
                                                           std::optional<VPU::MultiClusterStrategy> customStrategy,
                                                           const std::optional<InputTiling>& inputTiles) {
     if (auto convOp = mlir::dyn_cast<VPU::NCEConvolutionOp>(op)) {
-        return getTileDistributionsWithFilter(mlir::cast<VPU::NCEOpInterface>(op), convOp.getInput(),
+        return getTileDistributionsWithFilter(mlir::cast<VPU::NCEOpInterface>(op), convOp.getInputMutable(),
                                               convOp.getFilter(), siblingsAnalysis, outTile, customStrategy,
                                               inputTiles);
     }
     if (auto convOp = mlir::dyn_cast<VPU::NCECompressConvolutionOp>(op)) {
-        return getTileDistributionsWithFilter(mlir::cast<VPU::NCEOpInterface>(op), convOp.getInput(),
+        return getTileDistributionsWithFilter(mlir::cast<VPU::NCEOpInterface>(op), convOp.getInputMutable(),
                                               convOp.getFilter(), siblingsAnalysis, outTile, customStrategy,
                                               inputTiles);
     }
     if (auto poolOp = mlir::dyn_cast<VPU::NCEMaxPoolOp>(op)) {
-        return getTileDistributionsActivationOnly(mlir::cast<VPU::NCEOpInterface>(op), poolOp.getInput(),
+        return getTileDistributionsActivationOnly(mlir::cast<VPU::NCEOpInterface>(op), poolOp.getInputMutable(),
                                                   siblingsAnalysis, outTile, customStrategy, inputTiles);
     }
     if (auto poolOp = mlir::dyn_cast<VPU::NCEAveragePoolOp>(op)) {
-        return getTileDistributionsActivationOnly(mlir::cast<VPU::NCEOpInterface>(op), poolOp.getInput(),
+        return getTileDistributionsActivationOnly(mlir::cast<VPU::NCEOpInterface>(op), poolOp.getInputMutable(),
                                                   siblingsAnalysis, outTile, customStrategy, inputTiles);
     }
     if (auto depthConvOp = mlir::dyn_cast<VPU::NCEDepthConvolutionOp>(op)) {
-        return getTileDistributionsWithFilter(mlir::cast<VPU::NCEOpInterface>(op), depthConvOp.getInput(),
+        return getTileDistributionsWithFilter(mlir::cast<VPU::NCEOpInterface>(op), depthConvOp.getInputMutable(),
                                               depthConvOp.getFilter(), siblingsAnalysis, outTile, customStrategy,
                                               inputTiles);
     }
     if (auto interpOp = mlir::dyn_cast<VPU::NCEInterpolateOp>(op)) {
-        return getTileDistributionsWithFilter(mlir::cast<VPU::NCEOpInterface>(op), interpOp.getInput(),
+        return getTileDistributionsWithFilter(mlir::cast<VPU::NCEOpInterface>(op), interpOp.getInputMutable(),
                                               interpOp.getWeights(), siblingsAnalysis, outTile, customStrategy,
                                               inputTiles);
     }
     if (auto permuteOp = mlir::dyn_cast<VPU::NCEPermuteOp>(op)) {
-        return getTileDistributionsActivationOnly(mlir::cast<VPU::NCEOpInterface>(op), permuteOp.getInput(),
+        return getTileDistributionsActivationOnly(mlir::cast<VPU::NCEOpInterface>(op), permuteOp.getInputMutable(),
                                                   siblingsAnalysis, outTile, customStrategy, inputTiles);
     }
     if (auto nceMatmulOp = mlir::dyn_cast<VPU::NCEMatMulOp>(op)) {
-        return getTileDistributionsWithFilter(mlir::cast<VPU::NCEOpInterface>(op), nceMatmulOp.getInput(),
+        return getTileDistributionsWithFilter(mlir::cast<VPU::NCEOpInterface>(op), nceMatmulOp.getInputMutable(),
                                               nceMatmulOp.getWeights(), siblingsAnalysis, outTile, customStrategy,
                                               inputTiles);
     }
@@ -385,8 +388,8 @@ SmallVector<vpux::NDTypeInterface> getTileTypes(VPU::DepthToSpaceOp origOp, cons
                         origOp->getLoc());
 
         auto numClusters = VPU::getOptimalNumClusters(clusteredOp, outputTileType.getShape(), strategy.value());
-        return {VPU::getDistributedActivationTypeFromOp(clusteredOp, origOp.getInput(), inputTileType, numClusters,
-                                                        strategy.value(), {}, nullptr, tiles[0]),
+        return {VPU::getDistributedActivationTypeFromOp(clusteredOp, origOp.getInputMutable(), inputTileType,
+                                                        numClusters, strategy.value(), {}, nullptr, tiles[0]),
                 VPU::getDistributedOutputTypeFromOp(clusteredOp, outputTileType, numClusters, strategy.value(), {},
                                                     outTile)};
     }
@@ -446,7 +449,7 @@ SmallVector<vpux::NDTypeInterface> getTileTypesCommon(mlir::Operation* origOp, c
         auto inDistributedType = idx != 0 && inputTileType == inputTileTypes.front()
                                          ? distributedTensorTypes.front()
                                          : VPU::getDistributedActivationTypeFromOp(
-                                                   clusteredOp, clusteredOp->getOperand(idx), inputTileType,
+                                                   clusteredOp, clusteredOp->getOpOperand(idx), inputTileType,
                                                    numClusters, strategy.value(), {}, outputTileType, outTile);
         distributedTensorTypes.emplace_back(mlir::cast<vpux::NDTypeInterface>(inDistributedType));
     }
@@ -692,6 +695,18 @@ Byte getRequiredCMX(VPU::NCEDepthConvolutionOp dConvOp, const vpux::TileInfo& ti
                     const std::optional<InputTiling>& inputTiles) {
     auto strategy = dConvOp.getMultiClusterStrategy();
     return getRequiredCMX(dConvOp, getTileDistributions(dConvOp, tiling, strategy, inputTiles));
+}
+
+Byte getRequiredCMX(Shave::RepeatedExternalKernelOp op) {
+    // Only CMX scratch buffers are in CMX - inputs/outputs are expected to be in DDR and accessed via DMA.
+    auto cmxScratchBuffers = op.getCmxScratchBuffers();
+    Byte totalSize{0};
+    llvm::for_each(cmxScratchBuffers, [&totalSize](mlir::Value operand) {
+        const auto operandNDType = mlir::cast<vpux::NDTypeInterface>(operand.getType());
+        totalSize += operandNDType.getTotalAllocSize();
+    });
+
+    return totalSize;
 }
 
 Byte getRequiredCMX(VPU::SWOpInterface /*swOp*/, const SmallVector<NDTypeInterface>& tileTypes) {
@@ -1126,6 +1141,9 @@ Byte getRequiredCMX(mlir::Operation* op, const vpux::TileInfo& tiling, Logger lo
             })
             .Case<VPU::GenericSwLayerOp>([&](VPU::GenericSwLayerOp origOp) {
                 return getRequiredCMX(origOp, tiling, inputTiles);
+            })
+            .Case<Shave::RepeatedExternalKernelOp>([&](Shave::RepeatedExternalKernelOp origOp) {
+                return getRequiredCMX(origOp);
             })
             .Case<VPU::SWOpInterface>([&](VPU::SWOpInterface origOp) {
                 return getRequiredCMX(origOp, tiling, inputTiles);
@@ -1650,10 +1668,10 @@ bool isSupportedIsolatedTilingEltwise(mlir::Operation* origOp, const OutputTilin
             const bool sameOperands = (origOp->getOperand(0) == origOp->getOperand(1)) &&
                                       (input1Type.getElementType() == outputType.getElementType());
             auto in1DistType = VPU::getDistributedActivationTypeFromOp(
-                    clusteredOp, origOp->getOperand(0), input1TileType, numClusters, outputTileType, tile);
+                    clusteredOp, origOp->getOpOperand(0), input1TileType, numClusters, outputTileType, tile);
             auto in2DistType = sameOperands ? in1DistType
                                             : VPU::getDistributedActivationTypeFromOp(
-                                                      clusteredOp, origOp->getOperand(1), input2TileType, numClusters,
+                                                      clusteredOp, origOp->getOpOperand(1), input2TileType, numClusters,
                                                       outputTileType, tile);
             const SmallVector<vpux::NDTypeInterface> inputDistTypes = {mlir::cast<vpux::NDTypeInterface>(in1DistType),
                                                                        mlir::cast<vpux::NDTypeInterface>(in2DistType)};
@@ -1736,7 +1754,7 @@ SmallVector<vpux::NDTypeInterface> getAllOperandsSwInterface(VPU::SWOpInterface 
     SmallVector<vpux::NDTypeInterface> distributedTensorTypes;
     for (auto [idx, inputTileType] : inputTileTypes | indexed) {
         auto inDistributedType =
-                VPU::getDistributedActivationTypeFromOp(clusteredOp, clusteredOp->getOperand(idx), inputTileType,
+                VPU::getDistributedActivationTypeFromOp(clusteredOp, clusteredOp->getOpOperand(idx), inputTileType,
                                                         numClusters, outputTileTypes[0], firstOutputTile);
         distributedTensorTypes.push_back(mlir::cast<vpux::NDTypeInterface>(inDistributedType));
     }
@@ -1903,8 +1921,8 @@ SmallVector<vpux::NDTypeInterface> getAllOperandsGatherDMAOp(VPU::GatherDMAOp or
 
     SmallVector<vpux::NDTypeInterface> distributedTensorTypes;
     auto inDistributedType =
-            getDistributedActivationTypeFromOp(clusteredOp, clusteredOp->getOperand(1), inputTileTypes[0], numClusters,
-                                               VPU::MultiClusterStrategy::Clustering,
+            getDistributedActivationTypeFromOp(clusteredOp, clusteredOp->getOpOperand(1), inputTileTypes[0],
+                                               numClusters, VPU::MultiClusterStrategy::Clustering,
                                                /*customAlignment*/ ArrayRef<int64_t>{}, outputTileTypes[0], outputTile);
     distributedTensorTypes.push_back(mlir::cast<vpux::NDTypeInterface>(inDistributedType));
 
@@ -2038,7 +2056,7 @@ bool isSupportedIsolatedTilingDetectionOutputSort(VPU::DetectionOutputSortOp ori
     VPUX_THROW_WHEN(clusteredOp == nullptr, "Op {0} has multiClusterStrategy but is not an ClusteredOp",
                     origOp->getLoc());
 
-    const auto operands = origOp->getOperands();
+    const auto operands = origOp->getOpOperands();
     const auto results = origOp->getResults();
 
     const auto inputOutputTilesFitCMX = [&](const TileInfo& firstOutputTile) {
@@ -2056,8 +2074,8 @@ bool isSupportedIsolatedTilingDetectionOutputSort(VPU::DetectionOutputSortOp ori
                 VPU::getOptimalNumClusters(clusteredOp, firstOutputTileType.getShape(), multiClusterStrategy);
 
         auto distributedTiles = mlir::SmallVector<vpux::NDTypeInterface>();
-        for (const auto& [operand, tile] : zip(operands, inputTiles)) {
-            const auto tensorType = mlir::cast<vpux::NDTypeInterface>(operand.getType());
+        for (auto&& [operand, tile] : zip(operands, inputTiles)) {
+            const auto tensorType = mlir::cast<vpux::NDTypeInterface>(operand.get().getType());
             const auto denseTile = tensorType.extractDenseTile(tile.offsets, tile.shape);
             const auto denseInputTile =
                     getDistributedActivationTypeFromOp(clusteredOp, operand, denseTile, numClusters);

@@ -44,7 +44,7 @@ func.func @multiple_clusters_dpu_soh_f16_f16_f16() {
   %17 = VPUMI40XX.DPUVariant taskLocation(%1 : !VPURegMapped.Index<1:0:0>) calls(%15 : !VPURegMapped.Index<1:0:0>) weight_table(%13 : memref<64x1x1x4xsi32, {order = #NHWC}, [@CMX_NN, 1]>) <{inStart = [0, 0, 0], inEnd = [15, 15, 15], end = [31, 31, 63], mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, start = [0, 16, 0], nce_task_type = #VPUIP.nce_task_type<CONV>}> -> !VPURegMapped.Index<1:0:0>
   %miV = VPUMI40XX.MappedInferenceVersion(11 _ 4 _ 10) -> !VPURegMapped.Index<0:0:0>
 
-  %18 = VPUMI40XX.MappedInference invariants(%14, %15 : !VPURegMapped.Index<0:0:0>, !VPURegMapped.Index<1:0:0>) variants(%16, %17 : !VPURegMapped.Index<0:0:0>, !VPURegMapped.Index<1:0:0>) dmaCount([[0, 0], [0, 0], [0, 0], [0, 0], [0, 0], [0, 0]]) invariantCount([1, 1, 0, 0, 0, 0]) variantCount([1, 1, 0, 0, 0, 0]) actKernelRangesCount([[0, 0], [0, 0], [0, 0], [0, 0], [0, 0], [0, 0]]) actKernelInvocationsCount([[0, 0], [0, 0], [0, 0], [0, 0], [0, 0], [0, 0]]) mediaCount(0) barrierCount(0) mappedInferenceVersion(%miV : !VPURegMapped.Index<0:0:0>) -> !VPURegMapped.Index<0:0:0>
+  %18 = VPUMI40XX.MappedInference invariants(%14, %15 : !VPURegMapped.Index<0:0:0>, !VPURegMapped.Index<1:0:0>) variants(%16, %17 : !VPURegMapped.Index<0:0:0>, !VPURegMapped.Index<1:0:0>) dmaCount([[0, 0], [0, 0], [0, 0], [0, 0], [0, 0], [0, 0]]) invariantCount([1, 1, 0, 0, 0, 0]) variantCount([1, 1, 0, 0, 0, 0]) actKernelRangesCount([[0, 0], [0, 0], [0, 0], [0, 0], [0, 0], [0, 0]]) actKernelInvocationsCount([[0, 0], [0, 0], [0, 0], [0, 0], [0, 0], [0, 0]]) barrierCount(0) mappedInferenceVersion(%miV : !VPURegMapped.Index<0:0:0>) -> !VPURegMapped.Index<0:0:0>
   ELF.ABIVersion
   VPUMI40XX.OpRanges
 }
@@ -83,7 +83,7 @@ func.func @multiple_clusters_dpu_soh_f16_f16_f16() {
 
 // CHECK: VPUASM.MappedInference @MappedInference : invariants([@[[SECINV0]]::@[[INVARIANTSYM0]], @[[SECINV1]]::@[[INVARIANTSYM1]]]) variants([@[[SECVAR0]]::@[[SYMVAR0]], @[[SECVAR1]]::@[[SYMVAR1]]])
 // CHECK-SAME{LITERAL}: dmaCount([[0, 0], [0, 0], [0, 0], [0, 0], [0, 0], [0, 0]])
-// CHECK-SAME: invariantCount([1, 1, 0, 0, 0, 0]) variantCount([1, 1, 0, 0, 0, 0]) actKernelRangesCount([0, 0, 0, 0, 0, 0]) actKernelInvocationsCount([0, 0, 0, 0, 0, 0]) mediaCount(0) barrierCount(0)
+// CHECK-SAME: invariantCount([1, 1, 0, 0, 0, 0]) variantCount([1, 1, 0, 0, 0, 0]) actKernelRangesCount([0, 0, 0, 0, 0, 0]) actKernelInvocationsCount([0, 0, 0, 0, 0, 0]) barrierCount(0)
 
 // -----
 
@@ -133,7 +133,7 @@ func.func @multiple_clusters_dpu_sok_f16_f16_f16() {
   %24 = VPUMI40XX.DPUVariant taskLocation(%0 : !VPURegMapped.Index<0:0:0>) calls(%22 : !VPURegMapped.Index<0:0:0>) weight_table(%13 : memref<32x1x1x4xsi32, {order = #NHWC}, [@CMX_NN, 0]>) <{inStart = [0, 0, 0], inEnd = [15, 15, 15], end = [15, 15, 31], mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, start = [0, 0, 0], nce_task_type = #VPUIP.nce_task_type<CONV>}> -> !VPURegMapped.Index<0:0:0>
   %25 = VPUMI40XX.DPUVariant taskLocation(%1 : !VPURegMapped.Index<1:0:0>) calls(%23 : !VPURegMapped.Index<1:0:0>) weight_table(%13 : memref<32x1x1x4xsi32, {order = #NHWC}, [@CMX_NN, 0]>) <{inStart = [0, 0, 0], inEnd = [15, 15, 15], end = [15, 15, 63], mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, start = [0, 0, 32], nce_task_type = #VPUIP.nce_task_type<CONV>}> -> !VPURegMapped.Index<1:0:0>
   %miV = VPUMI40XX.MappedInferenceVersion(11 _ 4 _ 10) -> !VPURegMapped.Index<0:0:0>
-  %26 = VPUMI40XX.MappedInference dmas((%21) : (!VPURegMapped.Index<0:0:0>)) invariants(%22, %23 : !VPURegMapped.Index<0:0:0>, !VPURegMapped.Index<1:0:0>) variants(%24, %25 : !VPURegMapped.Index<0:0:0>, !VPURegMapped.Index<1:0:0>) dmaCount([[1, 0], [0, 0], [0, 0], [0, 0], [0, 0], [0, 0]]) invariantCount([1, 1, 0, 0, 0, 0]) variantCount([1, 1, 0, 0, 0, 0]) actKernelRangesCount([[0, 0], [0, 0], [0, 0], [0, 0], [0, 0], [0, 0]]) actKernelInvocationsCount([[0, 0], [0, 0], [0, 0], [0, 0], [0, 0], [0, 0]]) mediaCount(0) barrierCount(0) mappedInferenceVersion(%miV : !VPURegMapped.Index<0:0:0>) -> !VPURegMapped.Index<0:0:0>
+  %26 = VPUMI40XX.MappedInference dmas((%21) : (!VPURegMapped.Index<0:0:0>)) invariants(%22, %23 : !VPURegMapped.Index<0:0:0>, !VPURegMapped.Index<1:0:0>) variants(%24, %25 : !VPURegMapped.Index<0:0:0>, !VPURegMapped.Index<1:0:0>) dmaCount([[1, 0], [0, 0], [0, 0], [0, 0], [0, 0], [0, 0]]) invariantCount([1, 1, 0, 0, 0, 0]) variantCount([1, 1, 0, 0, 0, 0]) actKernelRangesCount([[0, 0], [0, 0], [0, 0], [0, 0], [0, 0], [0, 0]]) actKernelInvocationsCount([[0, 0], [0, 0], [0, 0], [0, 0], [0, 0], [0, 0]]) barrierCount(0) mappedInferenceVersion(%miV : !VPURegMapped.Index<0:0:0>) -> !VPURegMapped.Index<0:0:0>
   ELF.ABIVersion
   VPUMI40XX.OpRanges
 }
@@ -184,4 +184,4 @@ func.func @multiple_clusters_dpu_sok_f16_f16_f16() {
 // CHECK{LITERAL}: VPUASM.MappedInference @MappedInference : dmas([[
 // CHECK-SAME: @[[SECDMA00]]::@[[SYMDMA0]]]]) invariants([@[[SECINV0]]::@[[SYMINV0]], @[[SECINV1]]::@[[SYMINV1]]]) variants([@[[SECVAR0]]::@[[SYMVAR0]], @[[SECVAR1]]::@[[SYMVAR1]]])
 // CHECK-SAME{LITERAL}: dmaCount([[1, 0], [0, 0], [0, 0], [0, 0], [0, 0], [0, 0]])
-// CHECK-SAME: invariantCount([1, 1, 0, 0, 0, 0]) variantCount([1, 1, 0, 0, 0, 0]) actKernelRangesCount([0, 0, 0, 0, 0, 0]) actKernelInvocationsCount([0, 0, 0, 0, 0, 0]) mediaCount(0) barrierCount(0)
+// CHECK-SAME: invariantCount([1, 1, 0, 0, 0, 0]) variantCount([1, 1, 0, 0, 0, 0]) actKernelRangesCount([0, 0, 0, 0, 0, 0]) actKernelInvocationsCount([0, 0, 0, 0, 0, 0]) barrierCount(0)

@@ -49,9 +49,10 @@ void populateDynamicOperand(mlir::Operation* op, const unsigned operandIdx, Logg
 
     SmallVector<mlir::Value> dynamicOperands{};
     IE::DynamicDimOpBuilder builder(op);
-    mlir::bufferization::populateDynamicDimSizes(builder, producer->getLoc(), operand, dynamicOperands);
-    auto newShapeValue = buildConcat(producer->getLoc(), builder, getShape(producer->getResult(0)), dynamicOperands);
-    auto newResult = repackDynamicTensor(builder, producer, operandType, newShapeValue);
+    const auto loc = takeOpLoc(op, "populate_dynamic_dims_operand_{0}", operandIdx);
+    mlir::bufferization::populateDynamicDimSizes(builder, loc, operand, dynamicOperands);
+    auto newShapeValue = buildConcat(loc, builder, getShape(producer->getResult(0)), dynamicOperands);
+    auto newResult = repackDynamicTensor(loc, builder, producer, operandType, newShapeValue);
 
     op->setOperand(operandIdx, newResult);
 }

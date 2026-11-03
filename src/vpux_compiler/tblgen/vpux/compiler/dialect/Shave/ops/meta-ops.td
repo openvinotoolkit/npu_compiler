@@ -14,6 +14,9 @@ include "mlir/Interfaces/SideEffectInterfaces.td"
 include "vpux/compiler/dialect/Shave/ops/base.td"
 include "vpux/compiler/dialect/Shave/attributes.td"
 include "vpux/compiler/dialect/Shave/ops_interfaces.td"
+include "vpux/compiler/dialect/VPU/ops_interfaces.td"
+include "vpux/compiler/dialect/VPU/types.td"
+include "vpux/compiler/dialect/VPU/attributes.td"
 
 //
 // ExternalKernelOp
@@ -23,7 +26,11 @@ def Shave_ExternalKernelOp :
         Shave_Op<
             "ExternalKernel",
             [
-                Shave_KernelWrapperOpInterface
+                Shave_KernelWrapperOpInterface,
+                DeclareOpInterfaceMethods<VPU_LayerOpInterface>,
+                DeclareOpInterfaceMethods<VPU_SWOpInterface>,
+                DeclareOpInterfaceMethods<VPU_AuxiliaryBufferOpInterface>,
+                AttrSizedOperandSegments
             ]
         > {
     let summary = "Represents a kernel whose details/implementation are defined externally";
@@ -37,8 +44,18 @@ def Shave_ExternalKernelOp :
 
     let arguments = (ins
         Variadic<AnyRankedTensor>:$inputs,
-        DictionaryAttr:$attrDict,
-        StrAttr:$unique_id
+        Variadic<AnyRankedTensor>:$scratch_buffers,
+        OptionalAttr<SymbolRefAttr>:$config,
+        DictionaryAttr:$kernel_attributes,
+        StrAttr:$unique_id,
+        UnitAttr:$uses_dma,
+        UnitAttr:$uses_dpu,
+        // One ScratchLocation per $scratch_buffers operand.
+        // CMX: always place in CMX.
+        // DDR: always keep in DDR.
+        // AUTO: prefer CMX, fall back to DDR if budget is exceeded.
+        // Absent when there are no scratch buffers.
+        OptionalAttr<Shave_ScratchLocationArrayAttr>:$scratch_locations
     );
 
     let results = (outs
@@ -47,10 +64,91 @@ def Shave_ExternalKernelOp :
 
     let assemblyFormat = [{
         $unique_id
+        (`with_config` `(` $config^ `)`)?
         (`inputs` `(` $inputs^ `:` type($inputs) `)`)?
-        `attrs` `(` $attrDict `)`
+        (`scratch` `(` $scratch_buffers^ `:` type($scratch_buffers) `)`)?
+        (`uses_dma` $uses_dma^)?
+        (`uses_dpu` $uses_dpu^)?
+        (`scratch_locations` `(` $scratch_locations^ `)`)?
+        `kernel_attributes` `(` $kernel_attributes `)`
         attr-dict
         `->` type(results)
+    }];
+
+    let builders = [
+        OpBuilder<(ins "mlir::TypeRange":$outputs, "mlir::ValueRange":$inputs,
+                       "mlir::DictionaryAttr":$kernelAttributes, "mlir::StringAttr":$uniqueId),
+        [{
+            build($_builder, $_state, outputs, inputs, /*scratch_buffers=*/mlir::ValueRange{},
+                  /*config=*/nullptr, kernelAttributes, uniqueId,
+                  /*uses_dma=*/false, /*uses_dpu=*/false, /*scratch_locations=*/nullptr);
+        }]>
+    ];
+
+    let extraClassDeclaration = [{
+        // Get the CustomOpConfigOp associated with this external kernel
+        Shave::CustomOpConfigOp getCustomOpConfig();
+        // Returns the ScratchLocation for each scratch_buffers operand.
+        // Returns an empty vector when scratch_locations attr is absent.
+        llvm::SmallVector<Shave::ScratchLocation> getScratchLocationValues();
+
+        bool fitIntoCMX(::llvm::ArrayRef<vpux::NDTypeInterface> buffers, Byte reservedMem);
+        bool fitIntoCMX(::llvm::ArrayRef<vpux::NDTypeInterface> buffers);
+    }];
+}
+
+//
+// RepeatedExternalKernelOp
+//
+
+def Shave_RepeatedExternalKernelOp :
+        Shave_Op<
+            "RepeatedExternalKernel",
+            [
+                Shave_KernelWrapperOpInterface,
+                DeclareOpInterfaceMethods<VPU_LayerOpInterface>,
+                DeclareOpInterfaceMethods<VPU_SWOpInterface>,
+                DeclareOpInterfaceMethods<VPU_AuxiliaryBufferOpInterface>,
+                DeclareOpInterfaceMethods<VPU_ClusteredOpInterface, ["getDistributedTypeForOpOperand",
+                                                                     "getDistributedTypeForOpResult"]>,
+                AttrSizedOperandSegments
+            ]
+        > {
+    let summary = "Repeated (multi-cluster DUPLICATED) variant of ExternalKernelOp";
+
+    let arguments = (ins
+        Variadic<AnyRankedTensor>:$inputs,
+        // All scratch buffers - CMX and DDR included - are passed in together, with the scratch_locations attribute indicating the location of each buffer.
+        Variadic<AnyTypeOf<[AnyRankedTensor, VPU_DistributedTensor]>>:$cmx_scratch_buffers,
+        Variadic<AnyRankedTensor>:$ddr_scratch_buffers,
+        OptionalAttr<SymbolRefAttr>:$config,
+        DictionaryAttr:$kernel_attributes,
+        StrAttr:$unique_id,
+        UnitAttr:$uses_dma,
+        UnitAttr:$uses_dpu,
+        Shave_KernelDistributionAttr:$kernel_distribution,
+        OptionalAttr<VPU_MultiClusterStrategyAttr>:$multiClusterStrategy
+    );
+
+    let results = (outs
+        Variadic<AnyRankedTensor>:$outputs
+    );
+
+    let assemblyFormat = [{
+        $unique_id
+        (`with_config` `(` $config^ `)`)?
+        (`inputs` `(` $inputs^ `:` type($inputs) `)`)?
+        (`cmx_scratch` `(` $cmx_scratch_buffers^ `:` type($cmx_scratch_buffers) `)`)?
+        (`ddr_scratch` `(` $ddr_scratch_buffers^ `:` type($ddr_scratch_buffers) `)`)?
+        (`multiClusterStrategy` `(` $multiClusterStrategy^ `)`)?
+        `kernel_attributes` `(` $kernel_attributes `)`
+        attr-dict
+        `->` type(results)
+    }];
+
+    let extraClassDeclaration = [{
+        bool fitIntoCMX(::llvm::ArrayRef<vpux::NDTypeInterface> buffers, Byte reservedMem);
+        bool fitIntoCMX(::llvm::ArrayRef<vpux::NDTypeInterface> buffers);
     }];
 }
 

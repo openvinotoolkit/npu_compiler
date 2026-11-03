@@ -205,7 +205,11 @@ void SplitGatedDeltaNet::splitOverSeq(VPU::GatedDeltaNetOp op, mlir::PatternRewr
                 sliceSeq(op.getKey(), start, len), sliceSeq(op.getValue(), start, len), state,
                 sliceSeq(op.getGate(), start, len), sliceSeq(op.getBeta(), start, len), op.getFuseQkL2normAttr(),
                 op.getQL2NormEpsAttr(), op.getKL2NormEpsAttr());
-        chunk.getScratchMutable().assign(op.getScratch());
+        // A one-token chunk dispatches to the decode kernel and the builder already gave it a minimal
+        // scratch; keep that instead of the prefill-sized parent scratch so the chunk's verify() holds.
+        if (len > 1) {
+            chunk.getScratchMutable().assign(op.getScratch());
+        }
         if (op.getMultiClusterStrategyAttr() != nullptr) {
             chunk.setMultiClusterStrategyAttr(op.getMultiClusterStrategyAttr());
         }

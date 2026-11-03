@@ -18,7 +18,7 @@ func.func @OptimizeQuantDequantSequenceF8E4M3FN(%input0 : tensor<1x40x1x1xf16>, 
     %2 = IE.AffineReshape(%1) {dim_mapping = [[0, 1, 2], [3], [3], [3]], shape_value = [1, 1, 1, 512]} : tensor<1x512x1x1xf16> -> tensor<1x1x1x512xf16>
 
     %3 = IE.FakeQuantize(%2, %low, %high, %low, %high) {
-        auto_broadcast = #IE.auto_broadcast_type<NUMPY>, low_fp_type = f8E4M3FN
+        auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = f8E4M3FN
     } : tensor<1x1x1x512xf16>, tensor<f16>, tensor<f16>, tensor<f16>, tensor<f16> -> tensor<1x1x1x512xf16>
 
     %4 = IE.AffineReshape(%3) {dim_mapping = [[0], [1], [1], [2, 3]], shape_value = [1, 1, 8, 64]} : tensor<1x1x1x512xf16> -> tensor<1x1x8x64xf16>
@@ -32,7 +32,7 @@ func.func @OptimizeQuantDequantSequenceF8E4M3FN(%input0 : tensor<1x40x1x1xf16>, 
     // CHECK:    [[CONV:%.+]] = IE.Convolution([[INPUT_0]], [[INPUT_1]])
     // CHECK-SAME:  {dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]} : tensor<1x40x1x1xf16>, tensor<512x40x1x1xf16> -> tensor<1x512x1x1xf16>
     // CHECK:    [[FQ:%.+]] = IE.FakeQuantize([[CONV]], [[LOW]], [[HIGH]], [[LOW]], [[HIGH]])
-    // CHECK-SAME:  {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, low_fp_type = f8E4M3FN} : tensor<1x512x1x1xf16>, tensor<f16>, tensor<f16>, tensor<f16>, tensor<f16> -> tensor<1x512x1x1xf16>
+    // CHECK-SAME:  {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = f8E4M3FN} : tensor<1x512x1x1xf16>, tensor<f16>, tensor<f16>, tensor<f16>, tensor<f16> -> tensor<1x512x1x1xf16>
 
     // CHECK:    [[RESHAPE_0:%.+]] = IE.AffineReshape([[FQ]])
     // CHECK-SAME{LITERAL}:  {dim_mapping = [[0, 1, 2], [3], [3], [3]], shape_value = [1, 1, 1, 512]} : tensor<1x512x1x1xf16> -> tensor<1x1x1x512xf16>

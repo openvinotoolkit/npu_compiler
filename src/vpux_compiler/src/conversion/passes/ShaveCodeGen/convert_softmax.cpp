@@ -47,79 +47,41 @@ mlir::LogicalResult IESoftMaxToLinalg::matchAndRewrite(IE::SoftMaxOp op, OpAdapt
     bool changesOrder = inputOrder != outputOrder;
     bool hasOutputTypeCast = outElTy != elTy;
 
+    auto srcFloatTy = mlir::dyn_cast<mlir::FloatType>(elTy);
+    auto dstFloatTy = mlir::dyn_cast<mlir::FloatType>(outElTy);
+    if (hasOutputTypeCast &&
+        (srcFloatTy == nullptr || dstFloatTy == nullptr || srcFloatTy.getWidth() == dstFloatTy.getWidth())) {
+        return rewriter.notifyMatchFailure(op, "Unsupported SoftMax dstElemType");
+    }
+
     auto pad = op.getPadSize();
     bool hasPad = pad && *pad != 0;
 
-    // Output tensor of the linalg.softmax op
-    mlir::Value out = nullptr;
-    // Output padded tensor
-    mlir::Value padded = nullptr;
-    // Output tensor of the linalg.transpose or linalg.softmax (if linalg.transpose is not needed).
-    mlir::Value sliceOut = nullptr;
-
+    SmallVector<int64_t> logicalPadding(rank, 0);
     if (hasPad) {
-        // Emit the extract slice on the input to remove padding.
-        auto shapeRef = mlir::cast<mlir::ShapedType>(input.getType()).getShape();
-        SmallVector<int64_t> shape(shapeRef.begin(), shapeRef.end());
-        shape[axis] -= *pad;
+        logicalPadding[op.getAxisInd()] = *pad;
+    }
 
-        SmallVector<mlir::OpFoldResult> offsets(rank, rewriter.getIndexAttr(0));
-        SmallVector<mlir::OpFoldResult> strides(rank, rewriter.getIndexAttr(1));
-        SmallVector<mlir::OpFoldResult> sizes(rank);
-        for (unsigned i = 0; i < rank; ++i) {
-            sizes[i] = rewriter.getIndexAttr(shape[i]);
-        }
-
-        input = mlir::tensor::ExtractSliceOp::create(rewriter, loc, input, offsets, sizes, strides);
-
-        // Create the padded output tensor (initialized with zeros) and an
-        // extract_slice to act as the unpadded output.
-        auto outShapeRef = mlir::cast<mlir::ShapedType>(resultType).getShape();
-        SmallVector<int64_t> outShape(outShapeRef.begin(), outShapeRef.end());
+    // The result shape in memory order, with the padding removed.
+    auto outShapeRef = resultType.getShape();
+    SmallVector<int64_t> outShape(outShapeRef.begin(), outShapeRef.end());
+    if (hasPad) {
         outShape[outAxis] -= *pad;
-
-        std::tie(sliceOut, padded) = ShaveCodeGen::emitTensorSlice(loc, outShape, resultType, rewriter);
-        if (!changesOrder && !hasOutputTypeCast) {
-            // The output order is the same as the input order so we're able to write directly
-            // to the output slice.
-            out = sliceOut;
-        }
     }
 
-    if (out == nullptr) {
-        // No output tensor for the softmax op has yet been created, so either we're not using padding or we need
-        // to emit a transpose op. In either case we need create the output tensor as a tensor.empty.
-        out = mlir::tensor::EmptyOp::create(rewriter, loc, mlir::cast<mlir::ShapedType>(input.getType()).getShape(),
-                                            elTy);
-    }
+    // Remove the padding from the input.
+    input = ShaveCodeGen::removePadding(op->getOperand(0), input, rewriter, logicalPadding);
+
+    // Create the output tensor of the linalg.softmax op.
+    mlir::Value out = mlir::tensor::EmptyOp::create(rewriter, loc,
+                                                    mlir::cast<mlir::ShapedType>(input.getType()).getShape(), elTy);
 
     auto linalgOp = mlir::linalg::SoftmaxOp::create(rewriter, loc, mlir::TypeRange{input.getType()}, input, out, axis);
 
     mlir::Value result = linalgOp->getResult(0);
 
     if (changesOrder) {
-        mlir::Value transposeOut = nullptr;
-        if (sliceOut == nullptr) {
-            // Create the output tensor for the transpose op if we don't have one yet (this can happen
-            // when no padding is applied).
-            if (hasOutputTypeCast) {
-                // Keep a dedicated cast destination tensor at the output element type.
-                sliceOut = mlir::tensor::EmptyOp::create(rewriter, loc,
-                                                         mlir::cast<mlir::ShapedType>(resultType).getShape(), outElTy);
-                transposeOut = mlir::tensor::EmptyOp::create(rewriter, loc,
-                                                             mlir::cast<mlir::ShapedType>(resultType).getShape(), elTy);
-            } else {
-                sliceOut = mlir::tensor::EmptyOp::create(rewriter, loc,
-                                                         mlir::cast<mlir::ShapedType>(resultType).getShape(), elTy);
-                transposeOut = sliceOut;
-            }
-        } else if (hasOutputTypeCast) {
-            // Keep transpose output at the softmax element type and cast after transpose.
-            transposeOut = mlir::tensor::EmptyOp::create(
-                    rewriter, loc, mlir::cast<mlir::ShapedType>(sliceOut.getType()).getShape(), elTy);
-        } else {
-            transposeOut = sliceOut;
-        }
+        mlir::Value transposeOut = mlir::tensor::EmptyOp::create(rewriter, loc, outShape, elTy);
 
         // Permute the result of the softmax op to match the output order.
         SmallVector<int64_t> perm(rank);
@@ -131,17 +93,7 @@ mlir::LogicalResult IESoftMaxToLinalg::matchAndRewrite(IE::SoftMaxOp op, OpAdapt
     }
 
     if (hasOutputTypeCast) {
-        auto srcFloatTy = mlir::dyn_cast<mlir::FloatType>(elTy);
-        auto dstFloatTy = mlir::dyn_cast<mlir::FloatType>(outElTy);
-        if (srcFloatTy == nullptr || dstFloatTy == nullptr || srcFloatTy.getWidth() == dstFloatTy.getWidth()) {
-            return rewriter.notifyMatchFailure(op, "Unsupported SoftMax dstElemType");
-        }
-
-        mlir::Value castOut = sliceOut;
-        if (castOut == nullptr) {
-            castOut = mlir::tensor::EmptyOp::create(rewriter, loc,
-                                                    mlir::cast<mlir::ShapedType>(result.getType()).getShape(), outElTy);
-        }
+        mlir::Value castOut = mlir::tensor::EmptyOp::create(rewriter, loc, outShape, outElTy);
 
         auto map = mlir::AffineMap::getMultiDimIdentityMap(rank, rewriter.getContext());
         SmallVector<mlir::utils::IteratorType> iterators(rank, mlir::utils::IteratorType::parallel);
@@ -169,15 +121,7 @@ mlir::LogicalResult IESoftMaxToLinalg::matchAndRewrite(IE::SoftMaxOp op, OpAdapt
                          ->getResult(0);
     }
 
-    if (hasPad) {
-        // Insert the softmax result in the previously generated padding.
-        SmallVector<mlir::OpFoldResult> zeros(rank, rewriter.getIndexAttr(0));
-        SmallVector<mlir::OpFoldResult> ones(rank, rewriter.getIndexAttr(1));
-        SmallVector<mlir::OpFoldResult> sizes = mlir::tensor::getMixedSizes(rewriter, loc, result);
-        result = mlir::tensor::InsertSliceOp::create(rewriter, loc, result, padded, zeros, sizes, ones)->getResult(0);
-    }
-
-    rewriter.replaceOp(op, result);
+    rewriter.replaceOp(op, ShaveCodeGen::addPadding(op->getResult(0), result, rewriter, logicalPadding));
 
     return mlir::success();
 }

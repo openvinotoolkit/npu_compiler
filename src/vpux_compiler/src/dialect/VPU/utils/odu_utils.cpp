@@ -116,16 +116,6 @@ bool vpux::VPU::isODUScalingNeutral(ArrayRef<ODUDimScale> scales) {
     });
 }
 
-// Returns the primary dimension count for any supported ODU value type.
-template <typename T>
-static size_t oduRank(const T& val) {
-    if constexpr (std::is_same_v<T, SmallVector<int64_t>>) {
-        return val.size();
-    } else {
-        return val.shape.size();
-    }
-}
-
 // Apply a scale factor to a single integer dimension value.
 // forward=true:  out = in * multiplier / divisor  (apply)
 // forward=false: out = in * divisor   / multiplier (invert)
@@ -158,61 +148,139 @@ static mlir::LogicalResult scaleDim(int64_t& val, const vpux::VPU::ODUDimScale& 
     return mlir::success();
 }
 
-// Core implementation shared by applyODUScaling and invertODUScaling.
+// Generic implementation for vector-like containers of int64_t (SmallVector<int64_t>, std::vector<int64_t>, ...).
 // forward=true applies the transform; forward=false inverts it.
 template <typename T>
 static mlir::FailureOr<T> scaleODU(ArrayRef<vpux::VPU::ODUDimScale> scales, const T& input, bool forward,
                                    std::optional<mlir::Location> loc) {
-    static_assert(std::is_same_v<T, SmallVector<int64_t>> || std::is_same_v<T, vpux::ShapeInfo> ||
-                          std::is_same_v<T, vpux::TileInfo>,
-                  "scaleODU supports only SmallVector<int64_t>, vpux::ShapeInfo, and vpux::TileInfo");
-    if (scales.empty()) {
+    static_assert(std::is_same_v<typename T::value_type, int64_t>,
+                  "generic scaleODU only supports containers of int64_t, add a specialization for other types");
+    if (vpux::VPU::isODUScalingNeutral(scales)) {
         return input;
     }
-    const auto rank = oduRank(input);
-    if (scales.size() != rank) {
+    if (scales.size() != input.size()) {
         if (loc) {
-            return errorAt(*loc, "ODU scaling rank mismatch: scales size {0} != rank {1}", scales.size(), rank);
+            return errorAt(*loc, "ODU scaling rank mismatch: scales size {0} != rank {1}", scales.size(), input.size());
         }
         return mlir::failure();
     }
     T result = input;
-    if constexpr (std::is_same_v<T, SmallVector<int64_t>>) {
-        for (size_t i = 0; i < scales.size(); ++i) {
-            if (mlir::failed(scaleDim(result[i], scales[i], i, "shape", forward, /*skipIfDynamic=*/false, loc))) {
-                return mlir::failure();
-            }
-        }
-    } else if constexpr (std::is_same_v<T, vpux::ShapeInfo>) {
-        if (!result.bounds.empty() && scales.size() != result.bounds.size()) {
-            if (loc) {
-                return errorAt(*loc, "ODU scaling rank mismatch: scales size {0} != bounds rank {1}", scales.size(),
-                               result.bounds.size());
-            }
+    for (size_t i = 0; i < scales.size(); ++i) {
+        if (mlir::failed(scaleDim(result[i], scales[i], i, "shape", forward, /*skipIfDynamic=*/false, loc))) {
             return mlir::failure();
         }
-        for (size_t i = 0; i < result.shape.size(); ++i) {
-            if (mlir::failed(scaleDim(result.shape[i], scales[i], i, "shape", forward, /*skipIfDynamic=*/true, loc))) {
+    }
+    return result;
+}
+
+// Shape specialization: forwards to the underlying int64_t container, since Shape's operator[]
+// only accepts a Dim, not a raw index.
+template <>
+mlir::FailureOr<vpux::Shape> scaleODU<vpux::Shape>(ArrayRef<vpux::VPU::ODUDimScale> scales, const vpux::Shape& input,
+                                                   bool forward, std::optional<mlir::Location> loc) {
+    if (vpux::VPU::isODUScalingNeutral(scales)) {
+        return input;
+    }
+    if (scales.size() != input.size()) {
+        if (loc) {
+            return errorAt(*loc, "ODU scaling rank mismatch: scales size {0} != rank {1}", scales.size(), input.size());
+        }
+        return mlir::failure();
+    }
+    vpux::Shape result = input;
+    for (size_t i = 0; i < scales.size(); ++i) {
+        if (mlir::failed(scaleDim(result.raw()[i], scales[i], i, "shape", forward, /*skipIfDynamic=*/false, loc))) {
+            return mlir::failure();
+        }
+    }
+    return result;
+}
+
+// ShapeInfo specialization: scales both the shape and, when present, the bounds.
+template <>
+mlir::FailureOr<vpux::ShapeInfo> scaleODU<vpux::ShapeInfo>(ArrayRef<vpux::VPU::ODUDimScale> scales,
+                                                           const vpux::ShapeInfo& input, bool forward,
+                                                           std::optional<mlir::Location> loc) {
+    if (vpux::VPU::isODUScalingNeutral(scales)) {
+        return input;
+    }
+    if (scales.size() != input.shape.size()) {
+        if (loc) {
+            return errorAt(*loc, "ODU scaling rank mismatch: scales size {0} != rank {1}", scales.size(),
+                           input.shape.size());
+        }
+        return mlir::failure();
+    }
+    if (!input.bounds.empty() && scales.size() != input.bounds.size()) {
+        if (loc) {
+            return errorAt(*loc, "ODU scaling rank mismatch: scales size {0} != bounds rank {1}", scales.size(),
+                           input.bounds.size());
+        }
+        return mlir::failure();
+    }
+    vpux::ShapeInfo result = input;
+    for (size_t i = 0; i < result.shape.size(); ++i) {
+        if (mlir::failed(scaleDim(result.shape[i], scales[i], i, "shape", forward, /*skipIfDynamic=*/true, loc))) {
+            return mlir::failure();
+        }
+    }
+    for (size_t i = 0; i < result.bounds.size(); ++i) {
+        if (mlir::failed(scaleDim(result.bounds[i], scales[i], i, "bounds", forward, /*skipIfDynamic=*/false, loc))) {
+            return mlir::failure();
+        }
+    }
+    return result;
+}
+
+// TileInfo specialization: scales both the shape and the offsets.
+template <>
+mlir::FailureOr<vpux::TileInfo> scaleODU<vpux::TileInfo>(ArrayRef<vpux::VPU::ODUDimScale> scales,
+                                                         const vpux::TileInfo& input, bool forward,
+                                                         std::optional<mlir::Location> loc) {
+    if (vpux::VPU::isODUScalingNeutral(scales)) {
+        return input;
+    }
+    if (scales.size() != input.shape.size()) {
+        if (loc) {
+            return errorAt(*loc, "ODU scaling rank mismatch: scales size {0} != rank {1}", scales.size(),
+                           input.shape.size());
+        }
+        return mlir::failure();
+    }
+    vpux::TileInfo result = input;
+    auto scaleField = [&](vpux::Shape& dims, StringLiteral field) -> mlir::LogicalResult {
+        for (size_t i = 0; i < scales.size(); ++i) {
+            auto& val = dims[vpux::Dim(i)];
+            if (mlir::failed(scaleDim(val, scales[i], i, field, forward, /*skipIfDynamic=*/false, loc))) {
                 return mlir::failure();
             }
         }
-        for (size_t i = 0; i < result.bounds.size(); ++i) {
-            if (mlir::failed(
-                        scaleDim(result.bounds[i], scales[i], i, "bounds", forward, /*skipIfDynamic=*/false, loc))) {
-                return mlir::failure();
-            }
+        return mlir::success();
+    };
+    if (mlir::failed(scaleField(result.shape, "shape")) || mlir::failed(scaleField(result.offsets, "offsets"))) {
+        return mlir::failure();
+    }
+    return result;
+}
+
+// ShapeRef overload (not a specialization: return type differs from the input type). Builds the
+// owning Shape result directly from the view, saving the copy a caller would otherwise need to
+// make to pass a Shape into the generic template above. Plain overloads are preferred over
+// template specializations by overload resolution, so passing a ShapeRef always reaches this path.
+static mlir::FailureOr<vpux::Shape> scaleODU(ArrayRef<vpux::VPU::ODUDimScale> scales, vpux::ShapeRef input,
+                                             bool forward, std::optional<mlir::Location> loc) {
+    if (vpux::VPU::isODUScalingNeutral(scales)) {
+        return vpux::Shape(input);
+    }
+    if (scales.size() != input.size()) {
+        if (loc) {
+            return errorAt(*loc, "ODU scaling rank mismatch: scales size {0} != rank {1}", scales.size(), input.size());
         }
-    } else {  // TileInfo
-        auto scaleField = [&](vpux::Shape& dims, StringLiteral field) -> mlir::LogicalResult {
-            for (size_t i = 0; i < scales.size(); ++i) {
-                auto& val = dims[vpux::Dim(i)];
-                if (mlir::failed(scaleDim(val, scales[i], i, field, forward, /*skipIfDynamic=*/false, loc))) {
-                    return mlir::failure();
-                }
-            }
-            return mlir::success();
-        };
-        if (mlir::failed(scaleField(result.shape, "shape")) || mlir::failed(scaleField(result.offsets, "offsets"))) {
+        return mlir::failure();
+    }
+    vpux::Shape result(input);
+    for (size_t i = 0; i < scales.size(); ++i) {
+        if (mlir::failed(scaleDim(result.raw()[i], scales[i], i, "shape", forward, /*skipIfDynamic=*/false, loc))) {
             return mlir::failure();
         }
     }
@@ -225,14 +293,27 @@ mlir::FailureOr<T> vpux::VPU::applyODUScaling(ArrayRef<vpux::VPU::ODUDimScale> s
     return scaleODU(scales, preODU, /*forward=*/true, loc);
 }
 
+mlir::FailureOr<vpux::Shape> vpux::VPU::applyODUScaling(ArrayRef<vpux::VPU::ODUDimScale> scales, vpux::ShapeRef preODU,
+                                                        std::optional<mlir::Location> loc) {
+    return scaleODU(scales, preODU, /*forward=*/true, loc);
+}
+
 template <typename T>
 mlir::FailureOr<T> vpux::VPU::invertODUScaling(ArrayRef<vpux::VPU::ODUDimScale> scales, const T& postODU,
                                                std::optional<mlir::Location> loc) {
     return scaleODU(scales, postODU, /*forward=*/false, loc);
 }
 
+mlir::FailureOr<vpux::Shape> vpux::VPU::invertODUScaling(ArrayRef<vpux::VPU::ODUDimScale> scales,
+                                                         vpux::ShapeRef postODU, std::optional<mlir::Location> loc) {
+    return scaleODU(scales, postODU, /*forward=*/false, loc);
+}
+
 template mlir::FailureOr<SmallVector<int64_t>> vpux::VPU::applyODUScaling<SmallVector<int64_t>>(
         ArrayRef<vpux::VPU::ODUDimScale>, const SmallVector<int64_t>&, std::optional<mlir::Location>);
+template mlir::FailureOr<vpux::Shape> vpux::VPU::applyODUScaling<vpux::Shape>(ArrayRef<vpux::VPU::ODUDimScale>,
+                                                                              const vpux::Shape&,
+                                                                              std::optional<mlir::Location>);
 template mlir::FailureOr<vpux::ShapeInfo> vpux::VPU::applyODUScaling<vpux::ShapeInfo>(ArrayRef<vpux::VPU::ODUDimScale>,
                                                                                       const vpux::ShapeInfo&,
                                                                                       std::optional<mlir::Location>);
@@ -241,6 +322,9 @@ template mlir::FailureOr<vpux::TileInfo> vpux::VPU::applyODUScaling<vpux::TileIn
                                                                                     std::optional<mlir::Location>);
 template mlir::FailureOr<SmallVector<int64_t>> vpux::VPU::invertODUScaling<SmallVector<int64_t>>(
         ArrayRef<vpux::VPU::ODUDimScale>, const SmallVector<int64_t>&, std::optional<mlir::Location>);
+template mlir::FailureOr<vpux::Shape> vpux::VPU::invertODUScaling<vpux::Shape>(ArrayRef<vpux::VPU::ODUDimScale>,
+                                                                               const vpux::Shape&,
+                                                                               std::optional<mlir::Location>);
 template mlir::FailureOr<vpux::ShapeInfo> vpux::VPU::invertODUScaling<vpux::ShapeInfo>(ArrayRef<vpux::VPU::ODUDimScale>,
                                                                                        const vpux::ShapeInfo&,
                                                                                        std::optional<mlir::Location>);

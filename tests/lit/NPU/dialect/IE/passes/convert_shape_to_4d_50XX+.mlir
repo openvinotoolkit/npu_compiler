@@ -16,7 +16,7 @@ func.func @FakeQuantizePerChannelF8E4M3FN(%input: tensor<2x3x4x512x64xf32>) -> (
     %output_high = const.Declare tensor<1x1x1x512x1xf32> = dense<1.0> : tensor<1x1x1x512x1xf32>
 
     %0 = IE.FakeQuantize(%input, %input_low, %input_high, %output_low, %output_high) {
-        auto_broadcast = #IE.auto_broadcast_type<NUMPY>, low_fp_type = f8E4M3FN
+        auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = f8E4M3FN
     } : tensor<2x3x4x512x64xf32>, tensor<f32>, tensor<f32>, tensor<1x1x1x512x1xf32>, tensor<1x1x1x512x1xf32> -> tensor<2x3x4x512x64xf32>
 
     return %0 : tensor<2x3x4x512x64xf32>
@@ -28,7 +28,7 @@ func.func @FakeQuantizePerChannelF8E4M3FN(%input: tensor<2x3x4x512x64xf32>) -> (
 
     // CHECK:    [[RESHAPE_0:%.+]] = IE.Reshape([[INPUT]]) {shape_value = [1, 24, 512, 64]} : tensor<2x3x4x512x64xf32> -> tensor<1x24x512x64xf32>
     // CHECK:    [[FQ_0:%.+]] = IE.FakeQuantize([[RESHAPE_0]], [[IN_LOW]], [[IN_HIGH]], [[OUT_LOW]], [[OUT_HIGH]])
-    // CHECK-SAME: {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, low_fp_type = f8E4M3FN}
+    // CHECK-SAME: {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = f8E4M3FN}
     // CHECK-SAME: -> tensor<1x24x512x64xf32>
     // CHECK:    [[RESHAPE_1:%.+]] = IE.Reshape([[FQ_0]]) {shape_value = [2, 3, 4, 512, 64]} : tensor<1x24x512x64xf32> -> tensor<2x3x4x512x64xf32>
 
@@ -46,7 +46,7 @@ func.func @FakeQuantizePerTensorF8E5M2(%input: tensor<512x64xf32>) -> (tensor<51
     %output_high = const.Declare tensor<f32> = dense<1.0> : tensor<f32>
 
     %0 = IE.FakeQuantize(%input, %input_low, %input_high, %output_low, %output_high) {
-        auto_broadcast = #IE.auto_broadcast_type<NUMPY>, low_fp_type = f8E5M2
+        auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = f8E5M2
     } : tensor<512x64xf32>, tensor<f32>, tensor<f32>, tensor<f32>, tensor<f32> -> tensor<512x64xf32>
 
     return %0 : tensor<512x64xf32>
@@ -60,7 +60,7 @@ func.func @FakeQuantizePerTensorF8E5M2(%input: tensor<512x64xf32>) -> (tensor<51
     // CHECK-SAME{LITERAL}:  {dim_mapping = [[0, 1, 2], [3]], shape_value = [1, 1, 512, 64]} : tensor<512x64xf32> -> tensor<1x1x512x64xf32>
 
     // CHECK:    [[FQ_0:%.+]] = IE.FakeQuantize([[RESHAPE_0]], [[IN_LOW]], [[IN_HIGH]], [[OUT_LOW]], [[OUT_HIGH]])
-    // CHECK-SAME: {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, low_fp_type = f8E5M2}
+    // CHECK-SAME: {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = f8E5M2}
     // CHECK-SAME: -> tensor<1x1x512x64xf32>
 
     // CHECK:    [[RESHAPE_1:%.+]] = IE.AffineReshape([[FQ_0]])

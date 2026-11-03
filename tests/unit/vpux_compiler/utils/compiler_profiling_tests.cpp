@@ -29,13 +29,11 @@ public:
               _config{_options},
               _compiler{std::make_shared<CompilerImpl>()} {
         _options->add<vpux::OV::PLATFORM>();
-        _options->add<vpux::OV::COMPILER_TYPE>();
         _options->add<vpux::OV::COMPILATION_MODE_PARAMS>();
 
-        _config.update({{vpux::OV::COMPILER_TYPE::key().data(), "PLUGIN"}});
         // Note: for this test, it does not matter which platform is used -
         // select any public one that is still "actual"
-        _config.update({{vpux::OV::PLATFORM::key().data(), "VPU5010"}});
+        _config.update({{vpux::OV::PLATFORM::key().data(), "NPU5010"}});
     }
 
     void setProfilingTool(const std::string& toolStr) {

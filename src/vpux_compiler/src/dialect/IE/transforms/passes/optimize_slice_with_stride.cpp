@@ -52,7 +52,7 @@ IE::ShapeCastOp reshapeConvInput(mlir::Location loc, mlir::Value input, const in
 
     const SmallVector<int64_t> targetShape = {batch, channels, height, width};
 
-    const auto reshapedLoc = appendLoc(loc, "reshape input for DPU slice");
+    const auto reshapedLoc = appendLoc(loc, "shapecast_in");
     return vpux::IE::buildShapeCast(reshapedLoc, input, ArrayRef(targetShape), rewriter);
 }
 
@@ -60,7 +60,7 @@ IE::ShapeCastOp reshapeConvOutput(IE::SliceOp origOp, mlir::Value convOutput, ml
     const Shape origShape = getShape(origOp.getResult()).toValues();
     const SmallVector<int64_t> targetShape = origShape.raw();
 
-    const auto reshapedLoc = appendLoc(origOp.getLoc(), "reshape output for DPU slice");
+    const auto reshapedLoc = takeOpLoc(origOp, "shapecast_out");
     return vpux::IE::buildShapeCast(reshapedLoc, convOutput, ArrayRef(targetShape), rewriter);
 }
 
@@ -229,7 +229,7 @@ IE::ConvolutionOp SliceOpConverter::createConvolution(IE::SliceOp origOp, mlir::
 
     const auto convOutType = origOutType.changeShape(convOutShape).changeElemType(convOutElemType);
 
-    return IE::ConvolutionOp::create(rewriter, origOp.getLoc(), convOutType, activation, weights, strides,
+    return IE::ConvolutionOp::create(rewriter, takeOpLoc(origOp, "as_conv"), convOutType, activation, weights, strides,
                                      kernelPadsBegin, kernelPadsEnd, dilations);
 }
 
@@ -304,13 +304,13 @@ mlir::Value SliceOpConverter::composeWeights(IE::SliceOp origOp, const mlir::Typ
     const auto ctx = rewriter.getContext();
     const auto weightStorageType = mlir::RankedTensorType::get(weightShape.raw(), mlir::Float16Type::get(ctx));
     const auto weightStorageAttr = Const::createConstContent(weightStorageType, ArrayRef(weightValues));
-    const auto declLoc = appendLoc(origOp.getLoc(), "weights for DPU slice");
+    const auto declLoc = takeOpLoc(origOp, "const_filter");
 
     const auto weightExpressedType = mlir::RankedTensorType::get(weightShape.raw(), convolutionInputType);
     auto declOp = Const::DeclareOp::create(rewriter, declLoc, weightExpressedType,
                                            Const::ContentAttr::get(weightStorageAttr));
 
-    const auto reorderLoc = appendLoc(origOp.getLoc(), "reorder weights for DPU slice");
+    const auto reorderLoc = takeOpLoc(origOp, "reorder_filter");
     const auto weightTypeNCHW = mlir::cast<vpux::NDTypeInterface>(declOp.getOutput().getType());
     const auto reorderType = weightTypeNCHW.changeDimsOrder(DimsOrder::OYXI);
     const auto orderMap = DimsOrder::OYXI.toAffineMap(ctx);
@@ -392,20 +392,20 @@ IE::ConvolutionOp SliceConcatRewriter::createIdentityConvolution(IE::SliceOp sli
     const auto weightStorageType = mlir::RankedTensorType::get(origWeightShape.raw(), mlir::Float16Type::get(ctx));
     const auto weightStorageAttr = Const::createConstContent(weightStorageType, ArrayRef(weightValues));
 
-    const auto declLoc = appendLoc(sliceOp.getLoc(), "weights for DPU slice");
+    const auto declLoc = takeOpLoc(sliceOp, "const_filter");
 
     const auto weightExpressedType = mlir::RankedTensorType::get(origWeightShape.raw(), convOutType.getElementType());
     auto declOp = Const::DeclareOp::create(rewriter, declLoc, weightExpressedType,
                                            Const::ContentAttr::get(weightStorageAttr));
 
-    const auto reorderLoc = appendLoc(sliceOp.getLoc(), "reorder weights for DPU slice");
+    const auto reorderLoc = takeOpLoc(sliceOp, "reorder_filter");
     const auto weightTypeNCHW = mlir::cast<vpux::NDTypeInterface>(declOp.getOutput().getType());
     const auto reorderType = weightTypeNCHW.changeDimsOrder(DimsOrder::OYXI);
     const auto orderMap = DimsOrder::OYXI.toAffineMap(ctx);
     auto reorderOut = rewriter.createOrFold<IE::ReorderOp>(reorderLoc, reorderType, declOp.getOutput(), orderMap);
 
-    return IE::ConvolutionOp::create(rewriter, sliceOp.getLoc(), convOutType, sliceOp.getSource(), reorderOut, strides,
-                                     kernelPadsBegin, kernelPadsEnd, dilations);
+    return IE::ConvolutionOp::create(rewriter, takeOpLoc(sliceOp, "as_conv"), convOutType, sliceOp.getSource(),
+                                     reorderOut, strides, kernelPadsBegin, kernelPadsEnd, dilations);
 }
 
 bool doesSliceConcatMeetRequirement(IE::SliceOp sliceOp, IE::ConcatOp concatOp) {
@@ -554,8 +554,8 @@ mlir::LogicalResult SliceConcatRewriter::matchAndRewrite(IE::ConcatOp concatOp, 
     Shape cstPadEnd = {filterShape[Dims4D::Filter::OC] - sliceOutputShape[Dims4D::Act::C], 0, 0, 0};
     cstContentAttrFilterSetup = cstContentAttrFilterSetup.padWithZero(cstPadBegin, cstPadEnd);
     auto cstContentAttrFilter = cstContentAttrFilterSetup.get();
-    auto newFilter = Const::DeclareOp::create(rewriter, filterCst.getLoc(), cstContentAttrFilter.getType(),
-                                              std::move(cstContentAttrFilter));
+    auto newFilter = Const::DeclareOp::create(rewriter, takeOpLoc(filterCst, "const_filter"),
+                                              cstContentAttrFilter.getType(), std::move(cstContentAttrFilter));
     auto newConvOp =
             cloneConvolutionOp(rewriter, inConvOp, inConvOp.getOutput().getType(), inConvOp.getInput(), newFilter);
     rewriter.replaceOp(inConvOp, newConvOp.getOutput());
@@ -565,8 +565,8 @@ mlir::LogicalResult SliceConcatRewriter::matchAndRewrite(IE::ConcatOp concatOp, 
     Shape addCstPadBegin = {0, sliceOutputShape[Dims4D::Act::C], 0, 0};
     Shape addCstPadEnd = {0, 0, 0, 0};
     auto constInputAttr = constInput.transformContentAttr().padWithZero(addCstPadBegin, addCstPadEnd).get();
-    auto newConstantInput = Const::DeclareOp::create(rewriter, constInput.getLoc(), constInputAttr.getType(),
-                                                     std::move(constInputAttr));
+    auto newConstantInput = Const::DeclareOp::create(rewriter, takeOpLoc(constInput, "const_in"),
+                                                     constInputAttr.getType(), std::move(constInputAttr));
     const auto broadcastType =
             vpux::IE::AutoBroadcastTypeAttr::get(getContext(), IE::AutoBroadcastType::NONE_OR_EXPLICIT);
 
@@ -610,7 +610,7 @@ Const::DeclareOp FuseSliceWithConvRewriter::createConstOp(Const::DeclareOp cstOp
     }
 
     auto cstContentAttr = cstOp.transformContentAttr().subview(ShapeRef(newInOffset), ShapeRef(constShape)).get();
-    return Const::DeclareOp::create(rewriter, cstOp.getLoc(), cstContentAttr.getType(), std::move(cstContentAttr));
+    return Const::DeclareOp::create(rewriter, takeOpLoc(cstOp, "const_in"), cstContentAttr.getType(), cstContentAttr);
 }
 
 mlir::LogicalResult FuseSliceWithConvRewriter::matchAndRewrite(IE::SliceOp sliceOp,
@@ -776,14 +776,13 @@ mlir::LogicalResult SliceOpWithReshapeConverter::matchAndRewrite(IE::SliceOp ori
 
     // Step 1: ReshapeOp [D0,..,D_{R-1}] -> [1, C, H, W]
     const auto shape4DAttr = getIntArrayAttr(ctx, SmallVector<int64_t>{1, C, H, W});
-    auto reshapeIn =
-            IE::ReshapeOp::create(rewriter, appendLoc(origOp.getLoc(), "reshape_in"), origOp.getSource(), shape4DAttr);
+    auto reshapeIn = IE::ReshapeOp::create(rewriter, takeOpLoc(origOp, "reshape_in"), origOp.getSource(), shape4DAttr);
 
     // Step 2: 4D SliceOp [1,C,H,W] -> [1,C,H,slicedW]
     SmallVector<int64_t> offset4D = {0, 0, 0, sliceOffset[rank - 1]};
     SmallVector<int64_t> size4D = {1, C, H, slicedW};
-    auto slice4D = IE::SliceOp::create(rewriter, origOp.getLoc(), reshapeIn.getResult(), getIntArrayAttr(ctx, offset4D),
-                                       getIntArrayAttr(ctx, size4D));
+    auto slice4D = IE::SliceOp::create(rewriter, takeOpLoc(origOp, "slice_in"), reshapeIn.getResult(),
+                                       getIntArrayAttr(ctx, offset4D), getIntArrayAttr(ctx, size4D));
 
     // Step 3: Reshape [1,C,H,slicedW] -> original output shape via ReshapeOp.
     const auto origOutShapeAttr = getIntArrayAttr(ctx, outShape);
@@ -877,10 +876,9 @@ mlir::LogicalResult SliceOpWithLayoutConverter::matchAndRewrite(IE::SliceOp orig
     const auto nhwcOrder = DimsOrder::NHWC;
 
     // Step 1: Convert input to NHWC using PermuteCast
-    auto inputToNHWC =
-            IE::PermuteCastOp::create(rewriter, appendLoc(origOp.getLoc(), "input_to_nhwc"), origOp.getSource(),
-                                      mlir::AffineMapAttr::get(DimsOrder::NHWC.toAffineMap(ctx)),
-                                      mlir::AffineMapAttr::get(DimsOrder::NCHW.toAffineMap(ctx)));
+    auto inputToNHWC = IE::PermuteCastOp::create(rewriter, takeOpLoc(origOp, "permute_in"), origOp.getSource(),
+                                                 mlir::AffineMapAttr::get(DimsOrder::NHWC.toAffineMap(ctx)),
+                                                 mlir::AffineMapAttr::get(DimsOrder::NCHW.toAffineMap(ctx)));
 
     // Step 2: Calculate new slice parameters for NHWC layout
     const auto sliceOffset = parseIntArrayAttr<int64_t>(origOp.getStaticOffsetsAttr());
@@ -905,14 +903,14 @@ mlir::LogicalResult SliceOpWithLayoutConverter::matchAndRewrite(IE::SliceOp orig
     const auto nhwcSliceOutShape = ShapeRef(nhwcSliceSize);
     const auto nhwcSliceOutType = sliceInType.changeDimsOrder(nhwcOrder).changeShape(nhwcSliceOutShape);
 
-    auto nhwcSliceOp = IE::SliceOp::create(rewriter, appendLoc(origOp.getLoc(), "nhwc_slice"), nhwcSliceOutType,
+    auto nhwcSliceOp = IE::SliceOp::create(rewriter, takeOpLoc(origOp, "slice_in"), nhwcSliceOutType,
                                            inputToNHWC.getResult(), nhwcSliceOffsetAttr, nhwcSliceSizeAttr);
 
     // Step 4: Convert output back to original layout using PermuteCast
-    auto outputToOriginal = IE::PermuteCastOp::create(rewriter, appendLoc(origOp.getLoc(), "output_to_original"),
-                                                      nhwcSliceOp.getResult(),
-                                                      mlir::AffineMapAttr::get(originalLayout.toAffineMap(ctx)),
-                                                      mlir::AffineMapAttr::get(DimsOrder::NCHW.toAffineMap(ctx)));
+    auto outputToOriginal =
+            IE::PermuteCastOp::create(rewriter, takeOpLoc(origOp, "permute_out"), nhwcSliceOp.getResult(),
+                                      mlir::AffineMapAttr::get(originalLayout.toAffineMap(ctx)),
+                                      mlir::AffineMapAttr::get(DimsOrder::NCHW.toAffineMap(ctx)));
 
     _log.trace("Successfully converted non-NHWC SliceOp at {0} to use NHWC layout internally", origOp->getLoc());
 

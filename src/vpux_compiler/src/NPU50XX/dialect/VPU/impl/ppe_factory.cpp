@@ -131,7 +131,7 @@ int64_t computeZeroPoint(mlir::Operation* operation) {
     if (const auto outputElemQPerAxisType = mlir::dyn_cast<mlir::quant::UniformQuantizedPerAxisType>(outputElemType)) {
         const auto zps = outputElemQPerAxisType.getZeroPoints();
         const auto firstZp = zps.front();
-        const auto hasNonUniformZp = llvm::any_of(zps, [&firstZp](const auto zp) {
+        const auto hasNonUniformZp = llvm::any_of(zps, [firstZp](const auto zp) {
             return firstZp != zp;
         });
 

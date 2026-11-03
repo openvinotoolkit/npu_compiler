@@ -19,7 +19,7 @@ func.func @twoDma() {
   %19 = VPUMI40XX.Bootstrap inputs(%11 : <0:0:0>) -> !VPURegMapped.Index<0:0:0>
   %20 = VPUMI40XX.Bootstrap inputs(%12 : <0:0:1>) -> !VPURegMapped.Index<0:0:1>
   %miV = VPUMI40XX.MappedInferenceVersion(11 _ 4 _ 10) -> !VPURegMapped.Index<0:0:0>
-  %mi = VPUMI40XX.MappedInference barriers(%11 : !VPURegMapped.Index<0:0:0>) bootstrapBarriers(%19 : !VPURegMapped.Index<0:0:0>) dmaCount([[0, 0]]) invariantCount([0]) variantCount([0]) actKernelRangesCount([[0, 0]]) actKernelInvocationsCount([[0, 0]]) mediaCount(0) barrierCount(2) bootstrapBarriersCount(2) mappedInferenceVersion(%miV : !VPURegMapped.Index<0:0:0>) -> !VPURegMapped.Index<0:0:0>
+  %mi = VPUMI40XX.MappedInference barriers(%11 : !VPURegMapped.Index<0:0:0>) bootstrapBarriers(%19 : !VPURegMapped.Index<0:0:0>) dmaCount([[0, 0]]) invariantCount([0]) variantCount([0]) actKernelRangesCount([[0, 0]]) actKernelInvocationsCount([[0, 0]]) barrierCount(2) bootstrapBarriersCount(2) mappedInferenceVersion(%miV : !VPURegMapped.Index<0:0:0>) -> !VPURegMapped.Index<0:0:0>
   ELF.ABIVersion
   VPUMI40XX.OpRanges
 }
@@ -42,7 +42,6 @@ module @Convolution attributes {config.compilationMode = #config.compilation_mod
     config.ExecutorResource 2 of @SHAVE_ACT
     config.ExecutorResource 1 of @DPU
   }
-  config.ExecutorResource 1 of @M2I
   config.ExecutorResource 1 of @DMA_NN
   config.MemoryResource 67108864000 bytes of @DDR {config.bandwidth = 64 : i64, config.derateFactor = 6.000000e-01 : f64}
   net.NetworkInfo entryPoint : @main inputsInfo : {
@@ -65,7 +64,7 @@ module @Convolution attributes {config.compilationMode = #config.compilation_mod
     %3 = VPUMI40XX.DeclareTaskBuffer <DPUInvariant> -> !VPURegMapped.Index<0:0:1>
     %28 = VPURegMapped.ViewTaskRange(%2 -> %3 : <0:0:0> -> <0:0:1>) -> memref<2x352xui8, [@CMX_NN, 0]>
     %miV = VPUMI40XX.MappedInferenceVersion(11 _ 4 _ 10) -> !VPURegMapped.Index<0:0:0>
-    %mi = VPUMI40XX.MappedInference dmaCount([[0, 0]]) invariantCount([0]) variantCount([0]) actKernelRangesCount([[0, 0]]) actKernelInvocationsCount([[0, 0]]) mediaCount(0) barrierCount(0) bootstrapBarriersCount(0) mappedInferenceVersion(%miV : !VPURegMapped.Index<0:0:0>) -> !VPURegMapped.Index<0:0:0>
+    %mi = VPUMI40XX.MappedInference dmaCount([[0, 0]]) invariantCount([0]) variantCount([0]) actKernelRangesCount([[0, 0]]) actKernelInvocationsCount([[0, 0]]) barrierCount(0) bootstrapBarriersCount(0) mappedInferenceVersion(%miV : !VPURegMapped.Index<0:0:0>) -> !VPURegMapped.Index<0:0:0>
     ELF.ABIVersion
     VPUMI40XX.OpRanges
   }
@@ -88,7 +87,6 @@ module @Convolution attributes {config.compilationMode = #config.compilation_mod
     config.ExecutorResource 2 of @SHAVE_ACT
     config.ExecutorResource 1 of @DPU
   }
-  config.ExecutorResource 1 of @M2I
   config.ExecutorResource 1 of @DMA_NN
   config.MemoryResource 67108864000 bytes of @DDR {config.bandwidth = 64 : i64, config.derateFactor = 6.000000e-01 : f64}
   net.NetworkInfo entryPoint : @main inputsInfo : {
@@ -161,7 +159,7 @@ module @Convolution attributes {config.compilationMode = #config.compilation_mod
     %43 = VPUMI40XX.Bootstrap inputs(%22 : <0:0:4>) -> !VPURegMapped.Index<0:0:4>
     %miV = VPUMI40XX.MappedInferenceVersion(11 _ 4 _ 10) -> !VPURegMapped.Index<0:0:0>
 
-    %44 = VPUMI40XX.MappedInference dmas((%31, %36) : (!VPURegMapped.Index<0:0:0>, !VPURegMapped.Index<0:1:0>)) invariants(%23 : !VPURegMapped.Index<0:0:0>) variants(%25 : !VPURegMapped.Index<0:0:0>) barriers(%18 : !VPURegMapped.Index<0:0:0>) workItemTasks(%37 : !VPURegMapped.Index<0:0:0>) bootstrapBarriers(%39 : !VPURegMapped.Index<0:0:0>) dmaCount([[5, 1]]) invariantCount([2]) variantCount([2]) actKernelRangesCount([[0, 0]]) actKernelInvocationsCount([[0, 0]]) mediaCount(0) barrierCount(5) workItemCount(2) bootstrapBarriersCount(5) mappedInferenceVersion(%miV : !VPURegMapped.Index<0:0:0>) -> !VPURegMapped.Index<0:0:0>
+    %44 = VPUMI40XX.MappedInference dmas((%31, %36) : (!VPURegMapped.Index<0:0:0>, !VPURegMapped.Index<0:1:0>)) invariants(%23 : !VPURegMapped.Index<0:0:0>) variants(%25 : !VPURegMapped.Index<0:0:0>) barriers(%18 : !VPURegMapped.Index<0:0:0>) workItemTasks(%37 : !VPURegMapped.Index<0:0:0>) bootstrapBarriers(%39 : !VPURegMapped.Index<0:0:0>) dmaCount([[5, 1]]) invariantCount([2]) variantCount([2]) actKernelRangesCount([[0, 0]]) actKernelInvocationsCount([[0, 0]]) barrierCount(5) workItemCount(2) bootstrapBarriersCount(5) mappedInferenceVersion(%miV : !VPURegMapped.Index<0:0:0>) -> !VPURegMapped.Index<0:0:0>
     ELF.ABIVersion
     VPUMI40XX.OpRanges
   }
@@ -192,7 +190,6 @@ module @Convolution attributes {config.compilationMode = #config.compilation_mod
 //CHECK-SAME: dma_from_cmx_used = 1
 //CHECK-SAME: dma_from_ddr_used = 1
 //CHECK-SAME: dpu_used = 1
-//CHECK-SAME: media_used = 0
 //CHECK-SAME: workItemsCount = 2
 
 //CHECK-NOT: VPUASM.nnrtConfig <{isActKernelInvocations}> @MappedInference_nnrtConfigManaged
@@ -221,7 +218,6 @@ module @BarrierProgramming attributes {config.compilationMode = #config.compilat
     config.ExecutorResource 2 of @SHAVE_ACT
     config.ExecutorResource 1 of @DPU
   }
-  config.ExecutorResource 1 of @M2I
   config.ExecutorResource 1 of @DMA_NN
   config.MemoryResource 67108864000 bytes of @DDR {config.bandwidth = 64 : i64, config.derateFactor = 6.000000e-01 : f64}
   net.NetworkInfo entryPoint : @main inputsInfo : {
@@ -298,7 +294,7 @@ module @BarrierProgramming attributes {config.compilationMode = #config.compilat
 
     %miV = VPUMI40XX.MappedInferenceVersion(11 _ 4 _ 10) -> !VPURegMapped.Index<0:0:0>
 
-    %173 = VPUMI40XX.MappedInference dmas((%31, %36) : (!VPURegMapped.Index<0:0:0>, !VPURegMapped.Index<0:1:0>)) invariants(%23 : !VPURegMapped.Index<0:0:0>) variants(%25 : !VPURegMapped.Index<0:0:0>) barriers(%18 : !VPURegMapped.Index<0:0:0>) workItemTasks(%37 : !VPURegMapped.Index<0:0:0>) bootstrapBarriers(%39 : !VPURegMapped.Index<0:0:0>) barrierConfigurationTasks(%barDescs : memref<1xui8>) numOfBarrierReprogrammings(%barStrides : memref<16xui32>) dmaCount([[5, 1]]) invariantCount([2]) variantCount([2]) actKernelRangesCount([[0, 0]]) actKernelInvocationsCount([[0, 0]]) mediaCount(0) barrierCount(5) workItemCount(2) bootstrapBarriersCount(5) barrierConfigurationTasksCount(128) mappedInferenceVersion(%miV : !VPURegMapped.Index<0:0:0>) -> !VPURegMapped.Index<0:0:0>
+    %173 = VPUMI40XX.MappedInference dmas((%31, %36) : (!VPURegMapped.Index<0:0:0>, !VPURegMapped.Index<0:1:0>)) invariants(%23 : !VPURegMapped.Index<0:0:0>) variants(%25 : !VPURegMapped.Index<0:0:0>) barriers(%18 : !VPURegMapped.Index<0:0:0>) workItemTasks(%37 : !VPURegMapped.Index<0:0:0>) bootstrapBarriers(%39 : !VPURegMapped.Index<0:0:0>) barrierConfigurationTasks(%barDescs : memref<1xui8>) numOfBarrierReprogrammings(%barStrides : memref<16xui32>) dmaCount([[5, 1]]) invariantCount([2]) variantCount([2]) actKernelRangesCount([[0, 0]]) actKernelInvocationsCount([[0, 0]]) barrierCount(5) workItemCount(2) bootstrapBarriersCount(5) barrierConfigurationTasksCount(128) mappedInferenceVersion(%miV : !VPURegMapped.Index<0:0:0>) -> !VPURegMapped.Index<0:0:0>
     ELF.ABIVersion
     VPUMI40XX.OpRanges
   }

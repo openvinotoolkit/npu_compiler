@@ -1,5 +1,5 @@
 //
-// Copyright (C) 2026 Intel Corporation.
+// Copyright (C) 2026 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -48,6 +48,10 @@ private:
     void safeRunOnModule() final {
         auto moduleOp = getModuleOp(getOperation());
         auto ctx = moduleOp->getContext();
+        if (enableAsymmetricPerTensorZP.hasValue()) {
+            config::updateAsymmetricPerTensorZP(ctx, enableAsymmetricPerTensorZP.getValue());
+        }
+
         auto customConstraintsOp = moduleOp.lookupSymbol<config::CustomConstraintsOp>("Constraints");
         if (customConstraintsOp == nullptr) {
             return;

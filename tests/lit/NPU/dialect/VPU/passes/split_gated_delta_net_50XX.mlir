@@ -72,3 +72,31 @@ func.func @SplitLongSeqOverCMXGroupedQuery(%q: tensor<1x1024x16x128xf16>, %k: te
     // CHECK-SAME:      multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>
     // CHECK:       VPU.Concat
 }
+
+// -----
+
+// Decode-mode (seq_len == 1) uses the specialized gated_delta_net_decode kernel,
+// which is pure shave code with all working state on the stack — it does not
+// touch the auxiliary scratch buffer. getAuxiliaryBufferType() must therefore
+// return a nominal 64-byte placeholder instead of the prefill-sized scratch
+// (~900KB for D=Dv=128), so CMX budgeting reflects reality and the compiler
+// does not add unnecessary head-axis tiling.
+
+// CHECK-LABEL: @DecodeScratchIsMinimal
+func.func @DecodeScratchIsMinimal(%q: tensor<1x1x32x128xf16>, %k: tensor<1x1x32x128xf16>, %v: tensor<1x1x32x128xf16>,
+                                  %s: tensor<1x32x128x128xf16>, %g: tensor<1x1x32xf16>, %b: tensor<1x1x32xf16>)
+        -> (tensor<1x1x32x128xf16>, tensor<1x32x128x128xf16>) {
+    %out, %state = IE.GatedDeltaNet(%q, %k, %v, %s, %g, %b) {
+        q_l2_norm_eps = 1.000000e-03 : f64, k_l2_norm_eps = 2.000000e-03 : f64
+    } : tensor<1x1x32x128xf16>, tensor<1x1x32x128xf16>, tensor<1x1x32x128xf16>, tensor<1x32x128x128xf16>,
+        tensor<1x1x32xf16>, tensor<1x1x32xf16> -> tensor<1x1x32x128xf16>, tensor<1x32x128x128xf16>
+    return %out, %state : tensor<1x1x32x128xf16>, tensor<1x32x128x128xf16>
+
+    // Decoding fits CMX by construction with the minimal scratch — no sequence split, no chunking.
+    // CHECK-NOT:   VPU.Slice
+    // CHECK-NOT:   VPU.Concat
+    // The materialized scratch operand's shape reflects the decode placeholder (64 bytes),
+    // not the prefill-sized workspace.
+    // CHECK:       VPU.GatedDeltaNet
+    // CHECK-SAME:      tensor<1x1x1x64xui8>
+}

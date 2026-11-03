@@ -37,6 +37,7 @@ mlir::LogicalResult genericOptimizeSliceImplicitShapeCastExpand(IE::ExpandOp lay
 
 bool isMiddleOpLegal(IE::SliceOp sliceOp, mlir::Operation* op, IE::ExpandOp expandOp);
 bool isSimpleOpLegal(IE::SliceOp sliceOp, mlir::Operation* middleOp, IE::ExpandOp expandOp);
+bool isLayoutCastLegal(IE::SliceOp sliceOp, IE::LayoutCastOp layoutCastOp, IE::ExpandOp expandOp);
 bool isPReluLegal(IE::SliceOp sliceOp, IE::PReluOp preluOp, IE::ExpandOp expandOp);
 bool isConcatLegal(IE::SliceOp sliceOp, IE::ConcatOp concatOp, IE::ExpandOp expandOp);
 
@@ -79,6 +80,24 @@ public:
     OptimizeSliceLayoutCastExpand(mlir::MLIRContext* ctx, Logger log)
             : mlir::OpRewritePattern<IE::ExpandOp>(ctx), _log(log) {
         setDebugName("OptimizeSliceLayoutCastExpand");
+    }
+
+public:
+    mlir::LogicalResult matchAndRewrite(IE::ExpandOp layerOp, mlir::PatternRewriter& rewriter) const final;
+
+private:
+    Logger _log;
+};
+
+//
+// OptimizeSliceLayoutCastChainExpand
+//
+
+class OptimizeSliceLayoutCastChainExpand final : public mlir::OpRewritePattern<IE::ExpandOp> {
+public:
+    OptimizeSliceLayoutCastChainExpand(mlir::MLIRContext* ctx, Logger log)
+            : mlir::OpRewritePattern<IE::ExpandOp>(ctx, /*benefit=*/2), _log(log) {
+        setDebugName("OptimizeSliceLayoutCastChainExpand");
     }
 
 public:
@@ -132,6 +151,23 @@ class OptimizeSliceExpand final : public mlir::OpRewritePattern<IE::ExpandOp> {
 public:
     OptimizeSliceExpand(mlir::MLIRContext* ctx, Logger log): mlir::OpRewritePattern<IE::ExpandOp>(ctx), _log(log) {
         setDebugName("OptimizeSliceExpand");
+    }
+
+public:
+    mlir::LogicalResult matchAndRewrite(IE::ExpandOp layerOp, mlir::PatternRewriter& rewriter) const final;
+
+private:
+    Logger _log;
+};
+
+//
+// FoldSliceExpand
+//
+
+class FoldSliceExpand final : public mlir::OpRewritePattern<IE::ExpandOp> {
+public:
+    FoldSliceExpand(mlir::MLIRContext* ctx, Logger log): mlir::OpRewritePattern<IE::ExpandOp>(ctx), _log(log) {
+        setDebugName("FoldSliceExpand");
     }
 
 public:

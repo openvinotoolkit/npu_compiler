@@ -85,11 +85,11 @@ mlir::MutableOperandRange vpux::VPUMI40XX::MappedInferenceOp::getListHeadMutable
         return mlir::cast<mlir::IntegerAttr>(attr[checked_cast<unsigned>(idx)]).getInt();
     };
 
-    auto taskListSizeIsNotValid = [&arrayIdx](mlir::ArrayAttr array, int64_t tileIdx) -> bool {
+    auto taskListSizeIsNotValid = [arrayIdx](mlir::ArrayAttr array, int64_t tileIdx) -> bool {
         return tileIdx >= static_cast<int64_t>(array.size()) || arrayIdx(array, tileIdx) == 0;
     };
 
-    auto taskSubListSizeIsNotValid = [&arrayIdx](mlir::ArrayAttr array, int64_t tileIdx, int64_t listIdx) -> bool {
+    auto taskSubListSizeIsNotValid = [arrayIdx](mlir::ArrayAttr array, int64_t tileIdx, int64_t listIdx) -> bool {
         return tileIdx >= static_cast<int64_t>(array.size()) || subArray(array, tileIdx).size() == 0 ||
                listIdx >= static_cast<int64_t>(subArray(array, tileIdx).size()) ||
                arrayIdx(subArray(array, tileIdx), listIdx) == 0;

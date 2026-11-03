@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-// RUN: vpux-opt --split-input-file --init-compiler="platform=%platform% allow-custom-values=true enable-sw-kernel-fifo-per-shave-engine=true" --resolve-wlm-task-location %s | FileCheck %s
+// RUN: vpux-opt --split-input-file --init-compiler="platform=%platform% allow-custom-values=true workload-management-mode=FWLM_V1_PAGES" --resolve-wlm-task-location %s | FileCheck %s
 // REQUIRES: platform-NPU5010
 
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
@@ -15,7 +15,6 @@ module @Convolution attributes {config.compilationMode = #config.compilation_mod
     config.Option @config.TaskBinarySizeActKernelInvocation : 96 : ui64
     config.Option @config.TaskBinarySizeActKernelRange : 40 : ui64
     config.Option @config.TaskBinarySizeDMA : 224 : ui64
-    config.Option @config.TaskBinarySizeM2I : 240 : ui64
   }
   config.Resources 1 of @NCE at 1.700000e+03 MHz {
     builtin.module @ReservedMemory {
@@ -27,7 +26,6 @@ module @Convolution attributes {config.compilationMode = #config.compilation_mod
     config.ExecutorResource 2 of @SHAVE_ACT
     config.ExecutorResource 1 of @DPU
   }
-  config.ExecutorResource 1 of @M2I
   config.ExecutorResource 1 of @DMA_NN
   config.MemoryResource 67108864000 bytes of @DDR {config.bandwidth = 64 : i64, config.derateFactor = 6.000000e-01 : f64}
   net.NetworkInfo entryPoint : @main inputsInfo : {
@@ -75,7 +73,7 @@ module @Convolution attributes {config.compilationMode = #config.compilation_mod
     %19 = VPUMI40XX.NNDMA <{port = 1 : i64}> inputs(%0 : memref<1x16x16x16xf16, @DDR>) outputs(%2 : memref<1x16x16x16xf16, [@CMX_NN, 0]>) previousDMA(%18 : !VPURegMapped.Index<0:0:1>) waits(%10 : !VPURegMapped.Index<0:0:0>) updates(%11 : !VPURegMapped.Index<0:0:1>) start_after(0) clean_after(0) acceleration_mode(<DISABLE>) -> !VPURegMapped.Index<0:0:2>
     %20 = VPUMI40XX.NNDMA <{is_out_of_order, port = 1 : i64}> inputs(%cst : memref<1x1x1x4864xui8>) outputs(%5 : memref<1x1x1x4864xui8, [@CMX_NN, 0]>) previousDMA(%19 : !VPURegMapped.Index<0:0:2>) updates(%12 : !VPURegMapped.Index<0:0:2>) start_after(0) clean_after(0) acceleration_mode(<DISABLE>) -> !VPURegMapped.Index<0:0:3>
     %21 = VPUMI40XX.NNDMA <{port = 1 : i64}> inputs(%4 : memref<1x16x14x14xf16, [@CMX_NN, 0]>) outputs(%1 : memref<1x16x14x14xf16, @DDR>) waits(%13 : !VPURegMapped.Index<0:0:3>) updates(%14 : !VPURegMapped.Index<0:0:4>) start_after(0) clean_after(0) acceleration_mode(<DISABLE>) -> !VPURegMapped.Index<0:1:0>
-    %22 = VPUMI40XX.MappedInference dmas((%17, %21) : (!VPURegMapped.Index<0:0:0>, !VPURegMapped.Index<0:1:0>)) invariants(%startIndexes#0 : !VPURegMapped.Index<0:0:0>) variants(%startIndexes#1 : !VPURegMapped.Index<0:0:0>) barriers(%10 : !VPURegMapped.Index<0:0:0>) dmaCount([[4, 1]]) invariantCount([2]) variantCount([2]) actKernelRangesCount([[0, 0]]) actKernelInvocationsCount([[0, 0]]) mediaCount(0) barrierCount(5) -> !VPURegMapped.Index<0:0:0>
+    %22 = VPUMI40XX.MappedInference dmas((%17, %21) : (!VPURegMapped.Index<0:0:0>, !VPURegMapped.Index<0:1:0>)) invariants(%startIndexes#0 : !VPURegMapped.Index<0:0:0>) variants(%startIndexes#1 : !VPURegMapped.Index<0:0:0>) barriers(%10 : !VPURegMapped.Index<0:0:0>) dmaCount([[4, 1]]) invariantCount([2]) variantCount([2]) actKernelRangesCount([[0, 0]]) actKernelInvocationsCount([[0, 0]]) barrierCount(5) -> !VPURegMapped.Index<0:0:0>
     return %arg1 : memref<1x16x14x14xf16, @DDR>
   }
 }
@@ -112,7 +110,6 @@ module @TestSoftmax {
     config.Option @config.TaskBinarySizeActKernelInvocation : 96 : ui64
     config.Option @config.TaskBinarySizeActKernelRange : 40 : ui64
     config.Option @config.TaskBinarySizeDMA : 224 : ui64
-    config.Option @config.TaskBinarySizeM2I : 240 : ui64
   }
   config.Resources 2 of @NCE at 1.700000e+03 MHz {
     builtin.module @ReservedMemory {
@@ -124,7 +121,6 @@ module @TestSoftmax {
     config.ExecutorResource 2 of @SHAVE_ACT
     config.ExecutorResource 1 of @DPU
   }
-  config.ExecutorResource 1 of @M2I
   config.ExecutorResource 1 of @DMA_NN
   config.MemoryResource 67108864000 bytes of @DDR {config.bandwidth = 64 : i64, config.derateFactor = 6.000000e-01 : f64}
   net.NetworkInfo entryPoint : @main inputsInfo : {
@@ -274,7 +270,7 @@ module @TestSoftmax {
   %53 = VPUMI40XX.NNDMA <{port = 0 : i64}> inputs(%21 : memref<1x1000x1x1xf16, [@CMX_NN, 0]>) outputs(%1 : memref<1x1000x1x1xf16, @DDR>) waits(%47 : !VPURegMapped.Index<0:0:5>) updates(%48 : !VPURegMapped.Index<0:0:6>) start_after(0) clean_after(0) acceleration_mode(<DISABLE>) dma_transaction(#VPUMI40XX.NNDMATransaction<inputType = memref<1x1000x1x1xf16, [@CMX_NN, 0]>, outputType = memref<1x1000x1x1xf16, @DDR>>) -> !VPURegMapped.Index<0:1:0>
   %54 = VPUMI40XX.PlatformInfo -> <0:0:0>
   %55 = VPUMI40XX.ActShaveRt kernel("nnActEntry") -> !VPURegMapped.Index<0:0:0>
-  %56 = VPUMI40XX.MappedInference dmas((%ft0, %53) : (!VPURegMapped.Index<0:0:0>, !VPURegMapped.Index<0:1:0>)) actKernelRanges((%startIndexes#0, %startIndexes_0#0), (%startIndexes_2#0, %startIndexes_4#0) : (!VPURegMapped.Index<0:0:0>, !VPURegMapped.Index<0:1:0>), (!VPURegMapped.Index<1:0:0>, !VPURegMapped.Index<1:1:0>)) actKernelInvocations((%startIndexes#1, %startIndexes_0#1), (%startIndexes_2#1, %startIndexes_4#1) : (!VPURegMapped.Index<0:0:0>, !VPURegMapped.Index<0:1:0>), (!VPURegMapped.Index<1:0:0>, !VPURegMapped.Index<1:1:0>)) barriers(%42 : !VPURegMapped.Index<0:0:0>) actShaveRt(%55 : !VPURegMapped.Index<0:0:0>) dmaHwpBase(%4 : memref<16xui32, [@CMX_NN, 0]>) dmaCount([[6, 1], [0, 0]]) invariantCount([0, 0]) variantCount([0, 0]) actKernelRangesCount([[4, 4], [4, 4]]) actKernelInvocationsCount([[4, 4], [4, 4]]) mediaCount(0) barrierCount(7) -> !VPURegMapped.Index<0:0:0>
+  %56 = VPUMI40XX.MappedInference dmas((%ft0, %53) : (!VPURegMapped.Index<0:0:0>, !VPURegMapped.Index<0:1:0>)) actKernelRanges((%startIndexes#0, %startIndexes_0#0), (%startIndexes_2#0, %startIndexes_4#0) : (!VPURegMapped.Index<0:0:0>, !VPURegMapped.Index<0:1:0>), (!VPURegMapped.Index<1:0:0>, !VPURegMapped.Index<1:1:0>)) actKernelInvocations((%startIndexes#1, %startIndexes_0#1), (%startIndexes_2#1, %startIndexes_4#1) : (!VPURegMapped.Index<0:0:0>, !VPURegMapped.Index<0:1:0>), (!VPURegMapped.Index<1:0:0>, !VPURegMapped.Index<1:1:0>)) barriers(%42 : !VPURegMapped.Index<0:0:0>) actShaveRt(%55 : !VPURegMapped.Index<0:0:0>) dmaHwpBase(%4 : memref<16xui32, [@CMX_NN, 0]>) dmaCount([[6, 1], [0, 0]]) invariantCount([0, 0]) variantCount([0, 0]) actKernelRangesCount([[4, 4], [4, 4]]) actKernelInvocationsCount([[4, 4], [4, 4]]) barrierCount(7) -> !VPURegMapped.Index<0:0:0>
   return %arg1 : memref<1x1000x1x1xf16, @DDR>
   }
 }

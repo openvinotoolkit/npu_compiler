@@ -40,11 +40,12 @@ namespace VPU {
 
 constexpr int64_t KMB_DPU_CHANNELS_ALIGNMENT = 16;
 constexpr StringLiteral multiClusterStrategy = "multiClusterStrategy";
-const SmallVector<int64_t> DISTRIBUTED_C_ALIGNMENT = SmallVector<int64_t>{1, 16, 1, 1};
-const SmallVector<int64_t> DISTRIBUTED_N_ALIGNMENT = SmallVector<int64_t>{16, 1, 1, 1};
 
-const SmallVector<int64_t> DISTRIBUTED_DW_ACT_C_ALIGNMENT = SmallVector<int64_t>{1, 32, 1, 1};
-const SmallVector<int64_t> DISTRIBUTED_DW_WT_C_ALIGNMENT = SmallVector<int64_t>{32, 1, 1, 1};
+constexpr int64_t DISTRIBUTED_C_ALIGNMENT = 16;
+constexpr int64_t DISTRIBUTED_N_ALIGNMENT = 16;
+
+constexpr int64_t DISTRIBUTED_DW_ACT_C_ALIGNMENT = 32;
+constexpr int64_t DISTRIBUTED_DW_WT_C_ALIGNMENT = 32;
 
 using TensorDistributionMap = llvm::DenseMap<mlir::Type, VPU::DistributionInfo>;
 
@@ -69,11 +70,10 @@ SmallVector<int64_t> getActivationTensorNumTiles(VPU::ClusteredOpInterface clust
                                                  VPU::MultiClusterStrategy strategy,
                                                  vpux::NDTypeInterface inputType = nullptr);
 std::optional<SmallVector<int64_t>> getActivationTensorAlignment(VPU::ClusteredOpInterface clusteredOp,
-                                                                 int64_t numClusters,
+                                                                 mlir::OpOperand& operand, int64_t numClusters,
                                                                  VPU::MultiClusterStrategy strategy,
                                                                  vpux::NDTypeInterface inputType = nullptr,
-                                                                 vpux::NDTypeInterface outputType = nullptr,
-                                                                 mlir::Value operand = nullptr);
+                                                                 vpux::NDTypeInterface outputType = nullptr);
 SmallVector<int64_t> getOutputTensorNumTiles(VPU::ClusteredOpInterface clusteredOp,
                                              int64_t numClustersAvailableForCompilation,
                                              VPU::MultiClusterStrategy strategy,
@@ -125,7 +125,7 @@ vpux::NDTypeInterface getDistributedTypeFromInput(VPU::ClusteredOpInterface clus
 // Computes the distributed type for an activation operand of a clustered op.
 // Handles the common preamble: optimal clusters, distribution mode, num tiles, alignment.
 vpux::NDTypeInterface getDistributedActivationTypeForOpOperand(VPU::ClusteredOpInterface clusteredOp,
-                                                               mlir::Value activationInput,
+                                                               mlir::OpOperand& activationInput,
                                                                VPU::MultiClusterStrategy strategy,
                                                                bool hasExplicitDistributedAttr,
                                                                SiblingOpsAnalysis& siblingsAnalysis);
@@ -183,7 +183,7 @@ VPU::DistributedTensorType createDistributedTensorType(VPU::GatherDMAOp gatherDM
                                                        bool uniformDistributedSegments);
 
 VPU::DistributedTypeInterface getDistributedActivationTypeFromOp(
-        VPU::ClusteredOpInterface clusteredOp, mlir::Value operand, vpux::NDTypeInterface inputType,
+        VPU::ClusteredOpInterface clusteredOp, mlir::OpOperand& operand, vpux::NDTypeInterface inputType,
         int64_t numClusters, vpux::NDTypeInterface tiledOutputType = nullptr,
         const vpux::TileInfo& tileInfo = vpux::TileInfo(ShapeRef()));
 
@@ -197,7 +197,7 @@ VPU::DistributedTypeInterface getDistributedOutputTypeFromOp(
         const std::optional<OverlapDistributionParams>& overlappedParams = std::nullopt);
 
 VPU::DistributedTypeInterface getDistributedActivationTypeFromOp(
-        VPU::ClusteredOpInterface clusteredOp, mlir::Value operand, vpux::NDTypeInterface inputType,
+        VPU::ClusteredOpInterface clusteredOp, mlir::OpOperand& operand, vpux::NDTypeInterface inputType,
         int64_t numClusters, VPU::MultiClusterStrategy customStrategy, ArrayRef<int64_t> customAlignment = {},
         vpux::NDTypeInterface tiledOutputType = nullptr, const vpux::TileInfo& tileInfo = vpux::TileInfo(ShapeRef()));
 
@@ -356,8 +356,9 @@ TensorDistributionMap getOutputDistributionAttrFromOp(VPU::ClusteredOpInterface 
                                                       const vpux::TileInfo& tileInfo = vpux::TileInfo(ShapeRef()),
                                                       bool hasExplicitDistributedAttr = false);
 
-TensorDistributionMap getActivationDistributionAttrFromOp(VPU::ClusteredOpInterface clusteredOp, mlir::Value operand,
-                                                          vpux::NDTypeInterface inputType, int64_t numClusters,
+TensorDistributionMap getActivationDistributionAttrFromOp(VPU::ClusteredOpInterface clusteredOp,
+                                                          mlir::OpOperand& operand, vpux::NDTypeInterface inputType,
+                                                          int64_t numClusters,
                                                           vpux::NDTypeInterface tiledOutputType = nullptr,
                                                           const vpux::TileInfo& tileInfo = vpux::TileInfo(ShapeRef()));
 
@@ -367,9 +368,9 @@ TensorDistributionMap getOutputDistributionAttrFromOp(VPU::ClusteredOpInterface 
                                                       const vpux::TileInfo& tileInfo = vpux::TileInfo(ShapeRef()),
                                                       bool hasExplicitDistributedAttr = false);
 
-TensorDistributionMap getActivationDistributionAttrFromOp(VPU::ClusteredOpInterface clusteredOp, mlir::Value operand,
-                                                          vpux::NDTypeInterface inputType, int64_t numClusters,
-                                                          SiblingOpsAnalysis& siblingsAnalysis,
+TensorDistributionMap getActivationDistributionAttrFromOp(VPU::ClusteredOpInterface clusteredOp,
+                                                          mlir::OpOperand& operand, vpux::NDTypeInterface inputType,
+                                                          int64_t numClusters, SiblingOpsAnalysis& siblingsAnalysis,
                                                           vpux::NDTypeInterface tiledOutputType = nullptr,
                                                           const vpux::TileInfo& tileInfo = vpux::TileInfo(ShapeRef()));
 
@@ -380,9 +381,9 @@ TensorDistributionMap getOutputDistributionAttrFromOp(VPU::ClusteredOpInterface 
                                                       const vpux::TileInfo& tileInfo = vpux::TileInfo(ShapeRef()),
                                                       bool hasExplicitDistributedAttr = false);
 
-TensorDistributionMap getActivationDistributionAttrFromOp(VPU::ClusteredOpInterface clusteredOp, mlir::Value operand,
-                                                          vpux::NDTypeInterface inputType, int64_t numClusters,
-                                                          VPU::MultiClusterStrategy customStrategy,
+TensorDistributionMap getActivationDistributionAttrFromOp(VPU::ClusteredOpInterface clusteredOp,
+                                                          mlir::OpOperand& operand, vpux::NDTypeInterface inputType,
+                                                          int64_t numClusters, VPU::MultiClusterStrategy customStrategy,
                                                           SiblingOpsAnalysis& siblingsAnalysis,
                                                           ArrayRef<int64_t> customAlignment = {},
                                                           vpux::NDTypeInterface tiledOutputType = nullptr,

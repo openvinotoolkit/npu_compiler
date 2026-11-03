@@ -8,6 +8,10 @@
 #include "vpux/compiler/dialect/IE/utils/dynamic_shape_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/layout_utils.hpp"
 #include "vpux/compiler/dialect/core/IR/tensor_attr.hpp"
+#include "vpux/compiler/utils/infer_output_shape.hpp"
+#include "vpux/compiler/utils/rewriter.hpp"
+
+#include <algorithm>
 
 using namespace vpux;
 
@@ -51,6 +55,35 @@ mlir::LogicalResult vpux::IE::UnsqueezeOp::inferReturnTypeComponents(
     const auto [outShape, outDesc] = std::move(*outShapeOrFail);
 
     inferredReturnShapes.emplace_back(outShape.raw(), inType.getElementType(), outDesc);
+    return mlir::success();
+}
+
+mlir::LogicalResult vpux::IE::UnsqueezeOp::reifyResultShapes(mlir::OpBuilder& builder,
+                                                             mlir::ReifiedRankedShapedTypeDims& reifiedReturnShapes) {
+    const auto loc = getLoc();
+
+    const auto axesOr = IE::getAxes(*this, loc);
+    if (mlir::failed(axesOr)) {
+        return mlir::failure();
+    }
+    const auto& axes = axesOr.value();
+
+    const auto inputType = mlir::cast<mlir::RankedTensorType>(getInput().getType());
+    const auto outputType = mlir::cast<mlir::RankedTensorType>(getOutput().getType());
+
+    SmallVector<mlir::OpFoldResult> shapes;
+    shapes.reserve(outputType.getRank());
+    int64_t inIdx = 0;
+    for (const auto outIdx : irange(outputType.getRank())) {
+        if (std::binary_search(axes.begin(), axes.end(), outIdx)) {
+            // Newly inserted trivial dimension.
+            shapes.push_back(builder.getIndexAttr(1));
+            continue;
+        }
+        shapes.push_back(reifyDim(builder, getInput(), inputType, inIdx, appendLoc(loc, "dim_{0}", outIdx)));
+        ++inIdx;
+    }
+    reifiedReturnShapes.emplace_back(std::move(shapes));
     return mlir::success();
 }
 

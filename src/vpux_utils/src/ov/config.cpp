@@ -5,15 +5,21 @@
 
 //
 
-#include "vpux/utils/ov/config.hpp"
-
 #include <algorithm>
 #include <cctype>
 #include <charconv>
 #include <cstdlib>
+#include <iterator>
+#include <sstream>
+#include <stdexcept>
+#include <string>
+#include <vector>
 
 #include <openvino/core/except.hpp>
 #include <openvino/runtime/properties.hpp>
+
+#include "vpux/utils/core/error.hpp"
+#include "vpux/utils/ov/config.hpp"
 
 namespace vpux {
 
@@ -315,39 +321,64 @@ std::string Config::toString() const {
     return resultStream.str();
 }
 
-void Config::fromString(const std::string& str) {
-    if (str.empty()) {
-        return;
-    }
+Config::ConfigMap parseConfigString(std::string_view str) {
+    std::vector<std::string> options;
+    std::stringstream input{std::string(str)};
 
-    std::map<std::string, std::string> config;
-    std::string str_cfg(str);
-
-    auto parse_token = [&](const std::string& token) {
-        if (token.empty()) {
-            return;
+    /// A singleOption is consist of one or more words, like value of NPU_COMPILATION_MODE_PARAMS
+    std::string word;
+    std::string singleOption = "";
+    while (input >> word) {
+        if (singleOption.compare("") == 0) {
+            /// Save the first word
+            singleOption = word;
+        } else {
+            /// Save the word that belongs to this option
+            singleOption = singleOption + " " + word;
         }
-        const auto pos_eq = token.find('=');
-        VPUX_THROW_WHEN(pos_eq == std::string::npos, "Invalid config token '{0}'", token);
-        VPUX_THROW_UNLESS(pos_eq + 3 <= token.size() && token[pos_eq + 1] == '"' && token.back() == '"',
-                          "Invalid config token '{0}'", token);
-        auto key = token.substr(0, pos_eq);
-        auto value = token.substr(pos_eq + 2, token.size() - pos_eq - 3);
-        config[key] = std::move(value);
-    };
 
-    size_t pos = 0;
-    std::string token;
-    while ((pos = str_cfg.find(' ')) != std::string::npos) {
-        token = str_cfg.substr(0, pos);
-        parse_token(token);
-        str_cfg.erase(0, pos + 1);
+        /// If this is not the last word of this option, contine for this option
+        if (word[word.size() - 1] != '"') {
+            continue;
+        }
+
+        /// Save current option
+        options.push_back(singleOption);
+        /// Clean for the next option
+        singleOption = "";
+    }
+    /// Save the last option
+    if (singleOption.compare("") != 0) {
+        options.push_back(std::move(singleOption));
     }
 
-    // Process tail
-    parse_token(str_cfg);
+    Config::ConfigMap config;
+    for (auto& option : options) {
+        if (option.find_first_not_of(' ') == std::string::npos) {
+            continue;
+        }
+        size_t length = option.size();
+        /// Skip the terminator of string
+        if (option[length - 1] == '\0') {
+            length--;
+        }
 
-    update(config);
+        std::size_t lastDelimPos = option.find_first_of('=');
+        /// Use 2 to skip =" , the format shall follow key="value"
+        if (lastDelimPos == std::string::npos || lastDelimPos + 2 > length) {
+            throw std::logic_error(option + " is in bad format!");
+        }
+        std::string key = option.substr(0, lastDelimPos);
+        /// For key="value", the val shall be value
+        /// Skip =" in the front and " at the end
+        config[key] = option.substr(lastDelimPos + 2, length - 1 - (lastDelimPos + 2));
+    }
+
+    return config;
+}
+
+void Config::fromString(const std::string& str) {
+    update(parseConfigString(str));
 }
 
 //

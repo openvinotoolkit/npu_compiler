@@ -23,3 +23,5 @@ add_npu_library(npu_compiler_dialect_vpurt_interfaces
         npu_compiler_dialect_vpurt_utils
         npu_compiler_utils
 )
+enable_lto_if_possible(npu_compiler_dialect_vpurt_interfaces)
+

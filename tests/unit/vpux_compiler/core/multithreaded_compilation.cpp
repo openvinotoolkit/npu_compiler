@@ -228,7 +228,6 @@ protected:
         _options->add<vpux::OV::PLATFORM>();
         _options->add<vpux::OV::DEVICE_ID>();
         _options->add<vpux::OV::BATCH_MODE>();
-        _options->add<vpux::OV::COMPILER_TYPE>();
         _options->add<vpux::OV::COMPILATION_MODE>();
         _options->add<vpux::OV::COMPILATION_MODE_PARAMS>();
         _options->add<vpux::OV::BACKEND_COMPILATION_PARAMS>();
@@ -382,7 +381,6 @@ protected:
         _options->add<vpux::OV::PLATFORM>();
         _options->add<vpux::OV::DEVICE_ID>();
         _options->add<vpux::OV::BATCH_MODE>();
-        _options->add<vpux::OV::COMPILER_TYPE>();
         _options->add<vpux::OV::COMPILATION_MODE>();
         _options->add<vpux::OV::COMPILATION_MODE_PARAMS>();
         _options->add<vpux::OV::BACKEND_COMPILATION_PARAMS>();

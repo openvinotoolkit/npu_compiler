@@ -37,7 +37,6 @@ public:
         actKernelInvocationSize = static_cast<int64_t>(args.actKernelInvocation);
         actKernelRangeSize = static_cast<int64_t>(args.actKernelRange);
         dmaSize = static_cast<int64_t>(args.dma);
-        m2iSize = static_cast<int64_t>(args.m2i);
         Base::initLogger(log, Base::getArgumentName());
     }
 
@@ -58,7 +57,6 @@ void setConstraint(mlir::OpBuilder& builder, config::PipelineOptionsOp pipelineO
 
 void SetupTaskDescriptorConstraints::safeRunOnModule() {
     auto moduleOp = getModuleOp(getOperation());
-    auto arch = config::getArch(getOperation());
     auto pipelineOptionsOp = config::getPipelineOptionsOp(getContext(), moduleOp);
     auto builder = mlir::OpBuilder::atBlockBegin(&pipelineOptionsOp.getOptions().front());
 
@@ -68,10 +66,6 @@ void SetupTaskDescriptorConstraints::safeRunOnModule() {
                   actKernelInvocationSize);
     setConstraint(builder, pipelineOptionsOp, VPUMI40XX::TASK_BINARY_SIZE_ACT_KERNEL_RANGE_ATTR, actKernelRangeSize);
     setConstraint(builder, pipelineOptionsOp, VPUMI40XX::TASK_BINARY_SIZE_DMA_ATTR, dmaSize);
-
-    if (!config::isArchVPUX3XXX(arch)) {
-        setConstraint(builder, pipelineOptionsOp, VPUMI40XX::TASK_BINARY_SIZE_M2I_ATTR, m2iSize);
-    }
 }
 
 }  // namespace

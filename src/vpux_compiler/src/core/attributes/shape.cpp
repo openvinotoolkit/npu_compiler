@@ -81,6 +81,7 @@ ShapeRef vpux::getBoundedShape(mlir::Type type) {
     }
 
     if (auto memrefType = mlir::dyn_cast<mlir::MemRefType>(type)) {
+        // Bufferized values can carry bounds inside a vpux::MemRefAttr layout.
         if (auto memrefAttr = mlir::dyn_cast_or_null<vpux::MemRefAttr>(memrefType.getLayout())) {
             if (auto bounds = memrefAttr.bounds(); !bounds.empty()) {
                 return ShapeRef{bounds.raw()};
@@ -89,6 +90,24 @@ ShapeRef vpux::getBoundedShape(mlir::Type type) {
     }
 
     return ndType.getShape();
+}
+
+//
+// hasUnboundedDynamicShape
+//
+
+bool vpux::hasUnboundedDynamicShape(mlir::Value val) {
+    return hasUnboundedDynamicShape(val.getType());
+}
+
+bool vpux::hasUnboundedDynamicShape(mlir::Type type) {
+    const auto ndType = mlir::dyn_cast<vpux::NDTypeInterface>(type);
+    if (ndType == nullptr || ndType.getShape().isStatic()) {
+        return false;
+    }
+
+    // getBoundedShape falls back to the raw shape when no bounds exist.
+    return getBoundedShape(type).isDynamic();
 }
 
 //

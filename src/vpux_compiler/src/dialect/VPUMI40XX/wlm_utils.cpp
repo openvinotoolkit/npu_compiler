@@ -45,7 +45,7 @@ void reindexEnqueueOps(llvm::SmallVector<VPURegMapped::EnqueueOp> enquOps) {
     }
 
     auto ctx = enquOps[0].getContext();
-    auto index = [&ctx](auto taskIdx) {
+    auto index = [ctx](auto taskIdx) {
         return VPURegMapped::IndexType::get(ctx, checked_cast<uint32_t>(taskIdx));
     };
 

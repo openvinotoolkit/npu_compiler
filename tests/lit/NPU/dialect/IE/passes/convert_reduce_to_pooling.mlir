@@ -718,3 +718,62 @@ func.func @DoNotConvertStaticReduceMeanCarryingBounds(
   // CHECK:       [[MEAN:%.+]] = IE.ReduceMean([[INPUT]]) {axes_value = [3], keep_dims}
   // CHECK:       return [[MEAN]]
 }
+
+// -----
+
+// Reduce on the channel axis where the remaining spatial size (H*W, H==1) is NOT a
+// multiple of VPU_CHANNEL_ALIGNMENT (16) but exceeds it: the input is split into an
+// aligned "bulk" slice (W rounded down to the nearest multiple of 16, eligible for the
+// free-PermuteCast avoidExpandCase path) and a small unaligned "remainder" slice, each
+// reduced independently and concatenated back together, instead of leaving the whole
+// unaligned tensor on the Pooling's W dimension.
+
+// CHECK-LABEL: @ConvertReduceSumChannelSplitUnalignedRemainder
+// CHECK-SAME: [[INPUT:%.+]]: tensor<1x4x1x19xf16>
+func.func @ConvertReduceSumChannelSplitUnalignedRemainder(%arg0: tensor<1x4x1x19xf16>) -> tensor<1x1x19xf16> {
+  %0 = IE.ReduceSum(%arg0) {axes_value = [1]} : tensor<1x4x1x19xf16> -> tensor<1x1x19xf16>
+  return %0 : tensor<1x1x19xf16>
+
+  // CHECK-NOT:   IE.ReduceSum
+  // CHECK-DAG:   [[CST:%.+]] = const.Declare tensor<1xf16> = dense<4.000000e+00> : tensor<1xf16>
+  // CHECK:       [[BULK:%.+]] = IE.Slice [[INPUT]] [0, 0, 0, 0] [1, 4, 1, 16] : tensor<1x4x1x19xf16> to tensor<1x4x1x16xf16>
+  // CHECK:       [[REMAINDER:%.+]] = IE.Slice [[INPUT]] [0, 0, 0, 16] [1, 4, 1, 3] : tensor<1x4x1x19xf16> to tensor<1x4x1x3xf16>
+
+  // Bulk (aligned, W=16): avoidExpandCase Transpose + balanced-kernel AvgPool + Multiply + Transpose + Reshape.
+  // CHECK:       [[BULK_T_IN:%.+]] = IE.Transpose([[BULK]]) {order_value = #NWCH} : tensor<1x4x1x16xf16> -> tensor<1x16x4x1xf16>
+  // CHECK:       [[BULK_RESHAPE_IN:%.+]] = IE.Reshape([[BULK_T_IN]]) {shape_value = [1, 16, 2, 2]} : tensor<1x16x4x1xf16> -> tensor<1x16x2x2xf16>
+  // CHECK:       [[BULK_AVGPOOL:%.+]] = IE.AvgPool([[BULK_RESHAPE_IN]]) {exclude_pads, kernel_size = [2, 2], pads_begin = [0, 0], pads_end = [0, 0], rounding_type = #IE.rounding_type<FLOOR>, strides = [1, 1]} : tensor<1x16x2x2xf16> -> tensor<1x16x1x1xf16>
+  // CHECK:       [[BULK_MUL:%.+]] = IE.Multiply([[BULK_AVGPOOL]], [[CST]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x16x1x1xf16>, tensor<1xf16> -> tensor<1x16x1x1xf16>
+  // CHECK:       [[BULK_T_OUT:%.+]] = IE.Transpose([[BULK_MUL]]) {order_value = #NHWC} : tensor<1x16x1x1xf16> -> tensor<1x1x1x16xf16>
+  // CHECK:       [[BULK_RESHAPE_OUT:%.+]] = IE.Reshape([[BULK_T_OUT]]) {shape_value = [1, 1, 16]} : tensor<1x1x1x16xf16> -> tensor<1x1x16xf16>
+
+  // Remainder (unaligned, W=3): plain Reshape + AvgPool + Multiply + Reshape, no Transpose.
+  // CHECK:       [[REM_RESHAPE_IN:%.+]] = IE.Reshape([[REMAINDER]]) {shape_value = [1, 1, 4, 3]} : tensor<1x4x1x3xf16> -> tensor<1x1x4x3xf16>
+  // CHECK:       [[REM_AVGPOOL:%.+]] = IE.AvgPool([[REM_RESHAPE_IN]]) {exclude_pads, kernel_size = [4, 1], pads_begin = [0, 0], pads_end = [0, 0], rounding_type = #IE.rounding_type<FLOOR>, strides = [1, 1]} : tensor<1x1x4x3xf16> -> tensor<1x1x1x3xf16>
+  // CHECK:       [[REM_MUL:%.+]] = IE.Multiply([[REM_AVGPOOL]], [[CST]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x1x3xf16>, tensor<1xf16> -> tensor<1x1x1x3xf16>
+  // CHECK:       [[REM_RESHAPE_OUT:%.+]] = IE.Reshape([[REM_MUL]]) {shape_value = [1, 1, 3]} : tensor<1x1x1x3xf16> -> tensor<1x1x3xf16>
+
+  // CHECK:       [[CONCAT:%.+]] = IE.Concat([[BULK_RESHAPE_OUT]], [[REM_RESHAPE_OUT]]) {per_axis = #IE.Concat<axis = 2 : i64>} : tensor<1x1x16xf16>, tensor<1x1x3xf16> -> tensor<1x1x19xf16>
+  // CHECK:       return [[CONCAT]] : tensor<1x1x19xf16>
+}
+
+// -----
+
+// The remainder is too small to bother splitting (vocab <= VPU_CHANNEL_ALIGNMENT):
+// falls through to the plain (unsplit) conversion path.
+
+// CHECK-LABEL: @DoNotSplitReduceSumChannelSmallVocab
+// CHECK-SAME: [[INPUT:%.+]]: tensor<1x4x1x10xf16>
+func.func @DoNotSplitReduceSumChannelSmallVocab(%arg0: tensor<1x4x1x10xf16>) -> tensor<1x1x10xf16> {
+  %0 = IE.ReduceSum(%arg0) {axes_value = [1]} : tensor<1x4x1x10xf16> -> tensor<1x1x10xf16>
+  return %0 : tensor<1x1x10xf16>
+
+  // CHECK-NOT:   IE.ReduceSum
+  // CHECK-NOT:   IE.Slice
+  // CHECK-NOT:   IE.Concat
+  // CHECK:       [[RESHAPE0:%.+]] = IE.Reshape([[INPUT]]) {shape_value = [1, 1, 4, 10]} : tensor<1x4x1x10xf16> -> tensor<1x1x4x10xf16>
+  // CHECK:       [[AVGPOOL:%.+]] = IE.AvgPool([[RESHAPE0]]) {exclude_pads, kernel_size = [4, 1], pads_begin = [0, 0], pads_end = [0, 0], rounding_type = #IE.rounding_type<FLOOR>, strides = [1, 1]} : tensor<1x1x4x10xf16> -> tensor<1x1x1x10xf16>
+  // CHECK:       [[MULTIPLY:%.+]] = IE.Multiply([[AVGPOOL]], %{{.+}}) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x1x10xf16>, tensor<1xf16> -> tensor<1x1x1x10xf16>
+  // CHECK:       [[RESHAPE1:%.+]] = IE.Reshape([[MULTIPLY]]) {shape_value = [1, 1, 10]} : tensor<1x1x1x10xf16> -> tensor<1x1x10xf16>
+  // CHECK:       return [[RESHAPE1]] : tensor<1x1x10xf16>
+}

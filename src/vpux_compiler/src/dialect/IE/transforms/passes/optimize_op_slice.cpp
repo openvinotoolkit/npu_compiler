@@ -398,8 +398,8 @@ mlir::LogicalResult SliceConcatRewriter::matchAndRewrite(IE::SliceOp origOp, mli
             return matchFailed(_log, rewriter, origOp,
                                "Could not add permuteCast when slice axis and concat axis is different");
         }
-        sliceParent =
-                IE::PermuteCastOp::create(rewriter, origOp->getLoc(), sliceParent, dimsOrder.toAffineMap(ctx), memPerm);
+        sliceParent = IE::PermuteCastOp::create(rewriter, takeOpLoc(origOp, "permute_in"), sliceParent,
+                                                dimsOrder.toAffineMap(ctx), memPerm);
     }
 
     const auto firstOffsets = parseIntArrayAttr<int64_t>(sliceOps.front().getStaticOffsets());
@@ -411,7 +411,7 @@ mlir::LogicalResult SliceConcatRewriter::matchAndRewrite(IE::SliceOp origOp, mli
         return a + sliceSize[refSliceAxis.value().ind()];
     });
 
-    auto newSlice = IE::SliceOp::create(rewriter, origOp->getLoc(), sliceParent,
+    auto newSlice = IE::SliceOp::create(rewriter, takeOpLoc(origOp, "slice_in"), sliceParent,
                                         getIntArrayAttr(getContext(), sliceOffset.raw()),
                                         getIntArrayAttr(getContext(), sliceShape.raw()));
 
@@ -480,10 +480,10 @@ mlir::LogicalResult RMSSliceRewriter::matchAndRewrite(IE::SliceOp origOp, mlir::
         if (sliceOffsets[normDim] != 0 || sliceSizes[normDim] != rmsInputShape[Dim(normDim)]) {
             return matchFailed(_log, rewriter, origOp, "Slice affects normalization dimension");
         }
-        auto inputSliceOp = IE::SliceOp::create(rewriter, origOp.getLoc(), rmsOp.getInput(),
+        auto inputSliceOp = IE::SliceOp::create(rewriter, takeOpLoc(origOp, "slice_in"), rmsOp.getInput(),
                                                 origOp.getStaticOffsetsAttr(), origOp.getStaticSizesAttr());
-        auto newRMSOp = IE::RMSOp::create(rewriter, rmsOp.getLoc(), inputSliceOp.getResult(), rmsOp.getGamma(),
-                                          rmsOp.getEpsAttr(), rmsOp.getEpsModeAttr());
+        auto newRMSOp = IE::RMSOp::create(rewriter, takeOpLoc(rmsOp, "rms_out"), inputSliceOp.getResult(),
+                                          rmsOp.getGamma(), rmsOp.getEpsAttr(), rmsOp.getEpsModeAttr());
         rewriter.replaceOp(origOp, newRMSOp.getResult());
         _log.trace("Optimize RMS and Slice operations successfully");
         return mlir::success();
@@ -540,9 +540,9 @@ mlir::LogicalResult RMSSliceRewriter::matchAndRewrite(IE::SliceOp origOp, mlir::
     }
 
     const auto ctx = rewriter.getContext();
-    auto inputSliceOp = IE::SliceOp::create(rewriter, origOp.getLoc(), rmsOp.getInput(),
+    auto inputSliceOp = IE::SliceOp::create(rewriter, takeOpLoc(origOp, "slice_in"), rmsOp.getInput(),
                                             getIntArrayAttr(ctx, rmsOffsets), getIntArrayAttr(ctx, rmsSizes));
-    auto newRMSOp = IE::RMSOp::create(rewriter, rmsOp.getLoc(), inputSliceOp.getResult(), rmsOp.getGamma(),
+    auto newRMSOp = IE::RMSOp::create(rewriter, takeOpLoc(rmsOp, "rms_out"), inputSliceOp.getResult(), rmsOp.getGamma(),
                                       rmsOp.getEpsAttr(), rmsOp.getEpsModeAttr());
     const auto newOutShape = getShape(origOp.getResult()).raw();
     rewriter.replaceOpWithNewOp<IE::AffineReshapeOp>(origOp, newRMSOp.getResult(), reshapeOp.getDimMappingAttr(),

@@ -7,7 +7,6 @@
 
 #include "vpux/compiler/core/attributes/shape.hpp"
 #include "vpux/compiler/dialect/core/interfaces/type_interfaces.hpp"
-#include "vpux/compiler/dialect/core/types.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -22,9 +21,7 @@ constexpr int64_t INTERPOLATE_LARGE_INPUT_ELEMENTS_BOUND = 3 * 810 * 1440;
 constexpr int64_t INTERPOLATE_4K = 3 * 2160 * 3840;
 
 inline double getInterpolateScalesBound(vpux::NDTypeInterface inputType) {
-    const auto hasUnboundedDynamicShape =
-            inputType.getShape().isDynamic() && !mlir::isa<vpux::Core::BoundedTensorType>(inputType);
-    if (hasUnboundedDynamicShape) {
+    if (vpux::hasUnboundedDynamicShape(inputType)) {
         return INTERPOLATE_LARGE_INPUT_SCALES_BOUND;
     }
 

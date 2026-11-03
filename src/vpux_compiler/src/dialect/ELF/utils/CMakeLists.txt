@@ -19,3 +19,5 @@ add_npu_library(npu_compiler_dialect_elf_utils
         npu_compiler_dialect_vpu
         npu_compiler_act_kernels
 )
+enable_lto_if_possible(npu_compiler_dialect_elf_utils)
+

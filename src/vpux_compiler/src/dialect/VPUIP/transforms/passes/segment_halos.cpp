@@ -10,6 +10,8 @@
 #include "vpux/compiler/dialect/VPURT/IR/task.hpp"
 #include "vpux/compiler/dialect/config/IR/resources.hpp"
 
+#include <llvm/ADT/DenseSet.h>
+
 namespace vpux::VPUIP {
 #define GEN_PASS_DECL_SEGMENTHALOS
 #define GEN_PASS_DEF_SEGMENTHALOS
@@ -371,7 +373,7 @@ void SegmentHalosPass::safeRunOnFunc() {
         updateNceOps(opToUpdate.first, newOutputs, _log);
     }
 
-    SmallVector<VPURT::DeclareBufferOp> bufferToErase = {};
+    llvm::DenseSet<VPURT::DeclareBufferOp> bufferToErase = {};
 
     // Delete old NCE ops
     for (auto nceOpsToErase : llvm::make_early_inc_range(newOutputs)) {
@@ -381,18 +383,19 @@ void SegmentHalosPass::safeRunOnFunc() {
                                   ? oldNceOp.getOutputSparsityMapBuff().getDefiningOp<VPURT::DeclareBufferOp>()
                                   : nullptr;
 
-        bufferToErase.push_back(outputBuff);
+        bufferToErase.insert(outputBuff);
         if (sparseBuff != nullptr) {
-            bufferToErase.push_back(sparseBuff);
+            bufferToErase.insert(sparseBuff);
         }
 
         auto taskOp = oldNceOp->getParentOfType<VPURT::TaskOp>();
         taskOp->erase();
     }
 
-    // Delete old buffers
-    for (auto buffer : llvm::make_early_inc_range(bufferToErase)) {
-        buffer->erase();
+    for (auto buffer : bufferToErase) {
+        if (buffer->use_empty()) {
+            buffer->erase();
+        }
     }
 }
 

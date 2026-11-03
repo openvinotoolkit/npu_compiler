@@ -29,9 +29,11 @@
 #include <mlir/IR/AffineExpr.h>
 #include <mlir/IR/BuiltinAttributes.h>
 #include <mlir/IR/BuiltinTypeInterfaces.h>
+#include <mlir/Interfaces/ValueBoundsOpInterface.h>
 #include "mlir/IR/Attributes.h"
 #include "mlir/IR/Operation.h"
 
+#include <array>
 #include <iterator>
 #include <numeric>
 
@@ -170,6 +172,28 @@ mlir::OpFoldResult vpux::VPU::getDimValue(mlir::OpBuilder& builder, mlir::Operat
     return resultShape[0][dim];
 }
 
+std::optional<int64_t> vpux::VPU::getConstantOrUpperBound(mlir::OpFoldResult ofr) {
+    // Positive-bound contract: a non-positive extent is treated as "no usable bound"
+    // because callers use the result to size tensors / clamp tile shapes.
+    if (const auto constVal = mlir::getConstantIntValue(ofr)) {
+        return *constVal > 0 ? constVal : std::nullopt;
+    }
+
+    const auto shapeVal = mlir::dyn_cast<mlir::Value>(ofr);
+    if (shapeVal == nullptr) {
+        return std::nullopt;
+    }
+
+    const auto upperBound = mlir::ValueBoundsConstraintSet::computeConstantBound(
+            mlir::presburger::BoundType::UB, mlir::ValueBoundsConstraintSet::Variable(shapeVal),
+            /*stopCondition=*/nullptr,
+            /*closedUB=*/true);
+    if (mlir::failed(upperBound) || *upperBound <= 0) {
+        return std::nullopt;
+    }
+    return *upperBound;
+}
+
 mlir::Value vpux::VPU::generateTile(mlir::Location loc, mlir::OpBuilder& builder, mlir::Value origInput,
                                     const SCFTileInfo& inputTileInfo, SmallVector<mlir::Operation*>& generatedSlices) {
     auto origType = mlir::cast<vpux::NDTypeInterface>(origInput.getType());
@@ -214,6 +238,10 @@ mlir::Value vpux::VPU::generateTile(mlir::Location loc, mlir::OpBuilder& builder
     // statically known).
     const auto origInputShape = to_small_vector(getShape(origInput));
 
+    // OpChainAnalysis is reused across dynamic dims; its internal caches amortize cost on the hot tiling path.
+    OpChainAnalysis opChainAnalysis;
+    ValueRangeMap valueMap;
+
     SmallVector<int64_t, 4> boundsValue(newShape.begin(), newShape.end());
     for (size_t ind = 0, sz = boundsValue.size(); ind < sz; ++ind) {
         if (boundsValue[ind] != mlir::ShapedType::kDynamic) {
@@ -223,9 +251,27 @@ mlir::Value vpux::VPU::generateTile(mlir::Location loc, mlir::OpBuilder& builder
         // Clamp the refined bound by the original input extent only when that extent is statically known;
         // kDynamic must not be used as an upper bound.
         const auto origDim = origInputShape[ind];
+        const bool origDimIsStatic = !mlir::ShapedType::isDynamic(origDim);
 
         // Default to the full input extent; refined below when a tighter upper bound is available.
         boundsValue[ind] = origDim;
+
+        if (const auto ub = getConstantOrUpperBound(inputTileInfo.shape[ind])) {
+            boundsValue[ind] = origDimIsStatic ? std::min(*ub, origDim) : *ub;
+            continue;
+        }
+
+        // Trying for symbolic evaluation of the op chain producing the tile size.
+        const auto evaluated = opChainAnalysis.getOpFoldResultValue(inputTileInfo.shape[ind], valueMap,
+                                                                    OpChainAnalysis::MODE::MAX_VALUE);
+        if (!evaluated.has_value()) {
+            continue;
+        }
+        VPUX_THROW_WHEN(evaluated.value().empty(), "Failed to evaluate op fold result");
+        const auto evaluatedBound = evaluated.value().front();
+        if (evaluatedBound > 0) {
+            boundsValue[ind] = origDimIsStatic ? std::min(evaluatedBound, origDim) : evaluatedBound;
+        }
     }
 
     if (llvm::any_of(boundsValue, mlir::ShapedType::isDynamic)) {
@@ -239,12 +285,30 @@ mlir::Value vpux::VPU::generateTile(mlir::Location loc, mlir::OpBuilder& builder
     return extractTile;
 }
 
+namespace {
+// The quantized axis is preserved when the tile keeps the whole extent of that axis.
+bool isPerAxisQuantDimPreserved(vpux::NDTypeInterface type, mlir::quant::UniformQuantizedPerAxisType perAxisQType,
+                                SCFShapeRef newShape) {
+    const auto quantDim = perAxisQType.getQuantizedDimension();
+    if (quantDim < 0 || checked_cast<size_t>(quantDim) >= newShape.size()) {
+        return false;
+    }
+
+    const auto newDimSize = mlir::getConstantIntValue(newShape[quantDim]);
+    return newDimSize.has_value() && newDimSize.value() == type.getShape()[Dim(quantDim)];
+}
+}  // namespace
+
 mlir::Type vpux::VPU::extractResultType(mlir::Type origType, SCFShapeRef newShape, BoundsRef bounds) {
     auto ndTensorType = mlir::cast<vpux::NDTypeInterface>(origType);
     auto origElemType = ndTensorType.getElementType();
 
-    VPUX_THROW_WHEN(mlir::isa<mlir::quant::UniformQuantizedPerAxisType>(origElemType),
-                    "Per axis quantized types are not supported in scf");
+    if (const auto perAxisQType = mlir::dyn_cast<mlir::quant::UniformQuantizedPerAxisType>(origElemType)) {
+        // Scales and zero points belong to the element type, which is shared by every iteration of the
+        // generated loop, so only a quantized axis that keeps its full extent can be represented.
+        VPUX_THROW_UNLESS(isPerAxisQuantDimPreserved(ndTensorType, perAxisQType, newShape),
+                          "Per axis quantized types are not supported in scf");
+    }
 
     const auto tensorDesc =
             vpux::getTensorAttr(origElemType.getContext(), ndTensorType.getDimsOrder(), ndTensorType.getMemSpace(),
@@ -545,6 +609,9 @@ void vpux::VPU::applyFusionPlan(const SCFFusionPlan& plan) {
 }
 
 bool vpux::VPU::isNceOpWithPadAttr(mlir::Operation* op) {
+    // TODO(E#236377): hasAttr("pad") alone isn't enough here: NCEEltwiseOp/NCEReduceOp/NCEPermuteOp (the other
+    // NCEOpInterface+TilingInterface ops that can reach this point) have the "pad" attribute, but it is not used during
+    // inference.
     return (mlir::isa<mlir::TilingInterface>(op) && mlir::isa<VPU::NCEOpInterface>(op) && op->hasAttr("pad"));
 }
 
@@ -1007,46 +1074,65 @@ SmallVector<mlir::Value> vpux::VPU::castOutputForInsertion(mlir::OpBuilder& buil
         const auto outputShape = getShape(origOperation->getResult(resultNumber));
         const auto& outputTile = outputTiles[resultNumber];
 
-        // Find dynamic dims that are not tiling dims — only those need a cast
-        const auto nonTilingDynDims = [&]() -> SmallVector<Dim> {
-            SmallVector<Dim> dynDims;
-            for (auto idx : irange(outputShape.size())) {
-                const auto dim = Dim(idx);
-                if (outputShape[dim] != mlir::ShapedType::kDynamic) {
-                    continue;
-                }
-                if (!llvm::is_contained(dims, dim)) {
-                    dynDims.push_back(dim);
-                }
+        // Try to fold dynamic dimensions that are not tiling dimensions when their affine expression returns a
+        // constant.
+        SmallVector<Dim> nonTilingDynDims;
+        for (auto idx : irange(outputShape.size())) {
+            const auto dim = Dim(idx);
+            if (outputShape[dim] != mlir::ShapedType::kDynamic) {
+                continue;
             }
-            return dynDims;
-        }();
+            if (!llvm::is_contained(dims, dim)) {
+                nonTilingDynDims.push_back(dim);
+            }
+        }
 
         mlir::Value resultValue = tiledOperation->getResult(resultNumber);
-        if (nonTilingDynDims.empty()) {
-            castedValues.push_back(resultValue);
-            continue;
-        }
-
-        auto tiledOpType = mlir::cast<vpux::NDTypeInterface>(resultValue.getType());
-        auto castedOutputShape = Shape(tiledOpType.getShape());
-        bool dimsMadeStatic = false;
-        for (const auto dynDim : nonTilingDynDims) {
-            if (auto evaluatedDim = mlir::getConstantIntValue(outputTile.shape[dynDim.ind()])) {
+        if (!nonTilingDynDims.empty()) {
+            auto tiledOpType = mlir::cast<vpux::NDTypeInterface>(resultValue.getType());
+            auto castedOutputShape = Shape(tiledOpType.getShape());
+            bool needsCast = false;
+            for (const auto dynDim : nonTilingDynDims) {
+                const auto evaluatedDim = mlir::getConstantIntValue(outputTile.shape[dynDim.ind()]);
+                if (!evaluatedDim.has_value()) {
+                    continue;
+                }
                 castedOutputShape[dynDim] = evaluatedDim.value();
-                dimsMadeStatic = true;
+                needsCast = true;
+            }
+
+            if (needsCast) {
+                mlir::Type castedTiledOutputType = tiledOpType.changeShape(castedOutputShape);
+                auto castOp = mlir::tensor::CastOp::create(builder, appendLoc(tiledOperation->getLoc(), "insert_cast"),
+                                                           castedTiledOutputType, resultValue);
+                resultValue = castOp.getResult();
             }
         }
 
-        if (!dimsMadeStatic) {
-            castedValues.push_back(resultValue);
-            continue;
+        // Pre-empt the upstream tensor.insert_slice canonicalizer, which may otherwise re-derive
+        // this source's type from the (bounds-less) accumulator destination and drop its bounds:
+        // template the canonical rank-reduced type off this tile's own type (keeping its bounds),
+        // not the destination, so a mismatched cast here becomes a no-op for that canonicalizer.
+        const auto resultRank = static_cast<unsigned>(outputShape.size());
+        const auto currentType = mlir::cast<mlir::RankedTensorType>(resultValue.getType());
+        const auto canonicalType = mlir::tensor::ExtractSliceOp::inferCanonicalRankReducedResultType(
+                resultRank, currentType, outputTile.shape);
+        auto mergedShape = to_small_vector(currentType.getShape());
+        for (auto idx : irange(mergedShape.size())) {
+            if (mergedShape[idx] == mlir::ShapedType::kDynamic &&
+                canonicalType.getShape()[idx] != mlir::ShapedType::kDynamic) {
+                mergedShape[idx] = canonicalType.getShape()[idx];
+            }
+        }
+        if (mergedShape != currentType.getShape()) {
+            const auto expectedType = mlir::cast<vpux::NDTypeInterface>(currentType).changeShape(ShapeRef(mergedShape));
+            resultValue =
+                    mlir::tensor::CastOp::create(builder, appendLoc(tiledOperation->getLoc(), "insert_slice_cast"),
+                                                 expectedType, resultValue)
+                            .getResult();
         }
 
-        mlir::Type castedTiledOutputType = tiledOpType.changeShape(castedOutputShape);
-        auto castOp = mlir::tensor::CastOp::create(builder, appendLoc(tiledOperation->getLoc(), "insert_cast"),
-                                                   castedTiledOutputType, resultValue);
-        castedValues.push_back(castOp.getResult());
+        castedValues.push_back(resultValue);
     }
 
     return castedValues;
@@ -1131,6 +1217,11 @@ bool isPadInsideSpatiallySegmentedForallLoop(mlir::tensor::PadOp padOp) {
                            return mlir::isa_and_nonnull<mlir::Value>(ofr);
                        });
 }
+
+// Defined below, alongside its helper isNestedInAffectedScopes; declared here so restorePaddingAttribute()
+// can reuse the same traversal instead of duplicating it.
+llvm::SmallPtrSet<mlir::Operation*, 16> collectTransitiveUsers(ArrayRef<mlir::Operation*> seedUsers,
+                                                               ArrayRef<mlir::Operation*> affectedScopes);
 }  // namespace
 
 TensorBoundResolver vpux::VPU::getInterpolateScalesBoundResolver() {
@@ -1335,6 +1426,11 @@ void vpux::VPU::restorePaddingAttribute(mlir::Operation* region, Logger log, boo
             auto lowPad = padOp.getMixedLowPad()[dim.ind()];
             auto highPad = padOp.getMixedHighPad()[dim.ind()];
 
+            // This code intentionally increases the amount of padding, thereby increasing the resulting bounds, instead
+            // of analyzing whether the maximum low and high pads can be applied in combination. Therefore, this uses
+            // max(shape) + max(low) + max(high), not max(shape + low + high). To align the new overpadded bounds with
+            // the NCE result, shapes are recalculated. This can be avoided if NCE ops or VPU.Pad can handle dynamic
+            // padding (as OpFoldResult).
             ValueRangeMap emptyMap;
             auto lowValue = opChainAnalysis.getOpFoldResultValue(lowPad, emptyMap);
             auto highValue = opChainAnalysis.getOpFoldResultValue(highPad, emptyMap);
@@ -1348,6 +1444,7 @@ void vpux::VPU::restorePaddingAttribute(mlir::Operation* region, Logger log, boo
     };
 
     mlir::IRRewriter rewriter(region->getContext());
+    SmallVector<mlir::Operation*> restoredOps;
     for (auto [nceOp, padOp] : llvm::make_early_inc_range(worklist)) {
         log.trace("Found convolution operation {0} with tensor.pad parent", nceOp->getName());
 
@@ -1361,6 +1458,7 @@ void vpux::VPU::restorePaddingAttribute(mlir::Operation* region, Logger log, boo
         newNceOp->setAttr("pad", restoredPadAttr);
 
         vpux::inferReturnTypes(newNceOp, vpux::InferShapedTypeMode::SHAPE);
+        restoredOps.push_back(newNceOp);
 
         if (auto nceIface = mlir::dyn_cast<VPU::NCEOpInterface>(newNceOp)) {
             // When the cloned op's input is still dynamic at this point, its inferred output is dynamic too, so the
@@ -1380,6 +1478,15 @@ void vpux::VPU::restorePaddingAttribute(mlir::Operation* region, Logger log, boo
             padOp.erase();
         }
     }
+    SmallVector<mlir::Operation*> seedUsers;
+    for (auto* restoredOp : restoredOps) {
+        for (auto result : restoredOp->getResults()) {
+            llvm::append_range(seedUsers, result.getUsers());
+        }
+    }
+    auto affectedOps = collectTransitiveUsers(seedUsers, ArrayRef<mlir::Operation*>{region});
+    VPU::refreshResultShapesInIROrder(ArrayRef<mlir::Operation*>{region},
+                                      SmallVector<mlir::Operation*>{affectedOps.begin(), affectedOps.end()});
 }
 
 void vpux::VPU::translateDeferredWorkloadsAfterInference(mlir::Operation* region, Logger log) {
@@ -1436,6 +1543,42 @@ void vpux::VPU::clampOversizedWorkloadsToStaticOutput(mlir::Operation* region, L
         // translation, which clamps the tile to the concrete output and recomputes the input tile and padding.
         translateWorkloadsForRestoredPadding(nceOp, rewriter, log);
     });
+}
+
+std::optional<int64_t> vpux::VPU::getConstantTripCount(mlir::Operation* loopOp) {
+    const auto tripCountOf = [](mlir::OpFoldResult lb, mlir::OpFoldResult ub,
+                                mlir::OpFoldResult step) -> std::optional<int64_t> {
+        const auto lbVal = mlir::getConstantIntValue(lb);
+        const auto ubVal = mlir::getConstantIntValue(ub);
+        const auto stepVal = mlir::getConstantIntValue(step);
+        if (!lbVal.has_value() || !ubVal.has_value() || !stepVal.has_value() || stepVal.value() <= 0) {
+            return std::nullopt;
+        }
+        return llvm::divideCeil(std::max<int64_t>(ubVal.value() - lbVal.value(), 0), stepVal.value());
+    };
+
+    if (auto forOp = mlir::dyn_cast_or_null<mlir::scf::ForOp>(loopOp)) {
+        return tripCountOf(forOp.getLowerBound(), forOp.getUpperBound(), forOp.getStep());
+    }
+    if (auto forallOp = mlir::dyn_cast_or_null<mlir::scf::ForallOp>(loopOp)) {
+        const auto mixedLB = forallOp.getMixedLowerBound();
+        const auto mixedUB = forallOp.getMixedUpperBound();
+        const auto mixedStep = forallOp.getMixedStep();
+        int64_t total = 1;
+        for (size_t dim = 0; dim < mixedLB.size(); ++dim) {
+            const auto dimCount = tripCountOf(mixedLB[dim], mixedUB[dim], mixedStep[dim]);
+            if (!dimCount.has_value()) {
+                return std::nullopt;
+            }
+            // A trip count that does not fit in int64 is not a number any caller can use;
+            // report it as unknown rather than wrapping around.
+            if (llvm::MulOverflow(total, dimCount.value(), total)) {
+                return std::nullopt;
+            }
+        }
+        return total;
+    }
+    return std::nullopt;
 }
 
 bool vpux::VPU::isDependentOnForallIv(mlir::OpFoldResult ofr, mlir::scf::ForallOp forallOp) {
@@ -1569,6 +1712,66 @@ llvm::DenseMap<mlir::Operation*, VPU::PendingSliceReplacement> vpux::VPU::analyz
     return skipConnectionMap;
 }
 
+void vpux::VPU::refreshInferredResultShapes(ArrayRef<mlir::Operation*> operations) {
+    for (auto* op : operations) {
+        // Used to skip utility ops like scf::YieldOp, tensor::CastOp, tensor::ExtractSliceOp, tensor::InsertSliceOp,
+        // tensor::PadOp
+        // If changed value somehow passed out from block it's not created by tiling algorithm
+        // and will be tracked and failed with common MLIR verifier
+        if (!mlir::dyn_cast<mlir::InferTypeOpInterface>(op)) {
+            continue;
+        }
+        vpux::inferReturnTypes(op, vpux::InferShapedTypeMode::SHAPE);
+    }
+}
+
+void vpux::VPU::refreshResultShapesInIROrder(ArrayRef<mlir::Operation*> scopes, ArrayRef<mlir::Operation*> targetOps) {
+    llvm::SmallPtrSet<mlir::Operation*, 16> pendingOps(targetOps.begin(), targetOps.end());
+    SmallVector<mlir::Operation*> orderedOpsToRefresh;
+    orderedOpsToRefresh.reserve(targetOps.size());
+
+    for (auto* scope : scopes) {
+        scope->walk([&](mlir::Operation* op) {
+            if (!pendingOps.contains(op)) {
+                return;
+            }
+            pendingOps.erase(op);
+            orderedOpsToRefresh.push_back(op);
+        });
+    }
+
+    VPU::refreshInferredResultShapes(orderedOpsToRefresh);
+}
+
+namespace {
+
+bool isNestedInAffectedScopes(mlir::Operation* op, ArrayRef<mlir::Operation*> affectedScopes) {
+    return llvm::any_of(affectedScopes, [&](mlir::Operation* scope) {
+        return scope->isAncestor(op);
+    });
+}
+
+llvm::SmallPtrSet<mlir::Operation*, 16> collectTransitiveUsers(ArrayRef<mlir::Operation*> seedUsers,
+                                                               ArrayRef<mlir::Operation*> affectedScopes) {
+    llvm::SmallPtrSet<mlir::Operation*, 16> affectedOps;
+    SmallVector<mlir::Operation*> worklist(seedUsers.begin(), seedUsers.end());
+
+    while (!worklist.empty()) {
+        auto* op = worklist.pop_back_val();
+        if (op == nullptr || !affectedOps.insert(op).second || !isNestedInAffectedScopes(op, affectedScopes)) {
+            continue;
+        }
+
+        for (auto result : op->getResults()) {
+            llvm::append_range(worklist, result.getUsers());
+        }
+    }
+
+    return affectedOps;
+}
+
+}  // namespace
+
 void vpux::VPU::applyDeferredSliceReplacements(
         mlir::RewriterBase& builder,
         const llvm::DenseMap<mlir::Operation*, VPU::PendingSliceReplacement>& skipConnectionMap, const Logger& log) {
@@ -1610,15 +1813,18 @@ void vpux::VPU::applyDeferredSliceReplacements(
             auto currentSliceTotalSize =
                     std::accumulate(currentSliceSizes.begin(), currentSliceSizes.end(), 1LL, multipleFunc);
 
-            if (biggestSliceTotalSize == currentSliceTotalSize) {
-                log.debug("Current slice has the same total size as biggest slice, replacing with biggest slice result "
-                          "directly");
+            const auto isSameType = tiledValue.getType() == sliceToReplace.getResultType();
+            if (biggestSliceTotalSize == currentSliceTotalSize && isSameType) {
+                log.debug("Current slice has the same total size and type as biggest slice, replacing with biggest "
+                          "slice result directly");
                 builder.replaceOp(sliceToReplace, tiledValue);
                 continue;
             }
-            VPUX_THROW_UNLESS(biggestSliceTotalSize > currentSliceTotalSize,
-                              "Biggest slice total size should be greater than current slice total size to handle skip "
-                              "connection properly");
+            // Equal total size but a mismatched type (e.g. a tighter bound on sliceToReplace) falls through to the
+            // slice-creation path below, which explicitly preserves sliceToReplace's own result type.
+            VPUX_THROW_UNLESS(biggestSliceTotalSize >= currentSliceTotalSize,
+                              "Biggest slice total size should be greater than or equal to current slice total size "
+                              "to handle skip connection properly");
 
             auto currentSliceOffsets = sliceToReplace.getMixedOffsets();
 
@@ -1634,9 +1840,12 @@ void vpux::VPU::applyDeferredSliceReplacements(
                 adjustedOffsets.push_back(adjustedOffset);
             }
 
-            auto newSliceOp = mlir::tensor::ExtractSliceOp::create(builder, sliceToReplace.getLoc(), tiledValue,
-                                                                   adjustedOffsets, sliceToReplace.getMixedSizes(),
-                                                                   sliceToReplace.getMixedStrides());
+            // Result type should match the original branch to avoid copying encodings (e.g. bounds) from the
+            // source. Bounds can be re-inferred from sliceToReplace.getMixedSizes() with UpperBound analysis, but that
+            // was already done for sliceToReplace's resultType, so reuse it here.
+            auto newSliceOp = mlir::tensor::ExtractSliceOp::create(
+                    builder, sliceToReplace.getLoc(), sliceToReplace.getResultType(), tiledValue, adjustedOffsets,
+                    sliceToReplace.getMixedSizes(), sliceToReplace.getMixedStrides());
 
             newSliceOp->setAttr(SKIP_CONNECTION_SLICE_MARKER_ATTR_NAME, builder.getUnitAttr());
             builder.replaceAllUsesWith(sliceToReplace.getResult(), newSliceOp.getResult());

@@ -54,7 +54,7 @@ void PipelineRegistry40XX::registerPipelines() {
             "host-compile", "Compile IE Network in Host mode (host and HW execution) for NPU40XX",
             [](mlir::OpPassManager& pm, const DefaultHWOptions40XX& options) {
                 VPU::InitCompilerOptions initCompilerOptions{config::Platform::NPU4000,
-                                                             config::CompilationMode::HostCompile, options};
+                                                             config::CompilationMode::HostCompile_Interpreter, options};
                 auto createPipelineStrategy = [&](config::CompilationMode compilationMode) {
                     return createDialectPipelineStrategy40XXHostCompile<DefaultHWOptions40XX>(
                             compilationMode, &initCompilerOptions, &options);

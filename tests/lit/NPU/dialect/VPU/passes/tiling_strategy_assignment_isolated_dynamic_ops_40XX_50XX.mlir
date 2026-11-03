@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-// RUN: vpux-opt --split-input-file --init-compiler="platform=%platform% compilation-mode=HostCompile allow-custom-values=true" --tiling-strategy-assignment="tiling-mode=ISOLATED" %s | FileCheck %s
+// RUN: vpux-opt --split-input-file --init-compiler="platform=%platform% compilation-mode=HostCompile_Interpreter allow-custom-values=true" --tiling-strategy-assignment="tiling-mode=ISOLATED" %s | FileCheck %s
 // REQUIRES: platform-NPU4000 || platform-NPU5010
 
 #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
@@ -266,4 +266,18 @@ func.func @D2SOpStrategy(%arg0: !inputStaticType, %arg1: !inputDynamicType) -> (
 
     return %0, %1 : !outputStaticType, !outputDynamicType
     // CHECK:       return [[D2S_STATIC]], [[D2S_DYN]]
+}
+
+// -----
+
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+// CHECK-LABEL: func.func @Yuv2RGBSplitDynamicScale
+// CHECK-SAME: [[ARG_0:%[^:]+]]: tensor<1x1x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 1, 2160, 3840]> : tensor<4xsi64>, order = #NHWC}>
+// CHECK-SAME: [[ARG_1:%[^:]+]]: tensor<1x2x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 2, 1080, 1920]> : tensor<4xsi64>, order = #NHWC}>
+func.func @Yuv2RGBSplitDynamicScale(%arg0: tensor<1x1x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 1, 2160, 3840]> : tensor<4xsi64>, order = #NHWC}>, %arg1: tensor<1x2x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 2, 1080, 1920]> : tensor<4xsi64>, order = #NHWC}>) -> tensor<1x3x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 3, 2160, 3840]> : tensor<4xsi64>, order = #NHWC}> {
+    %3 = VPU.YuvToRgb(%arg0, %arg1) {inFmt = #IE.color_fmt<NV12>, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, operandSegmentSizes = array<i32: 1, 1, 0>, outFmt = #IE.color_fmt<BGR>, scale = 0.00373366661 : f32} : tensor<1x1x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 1, 2160, 3840]> : tensor<4xsi64>, order = #NHWC}>, tensor<1x2x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 2, 1080, 1920]> : tensor<4xsi64>, order = #NHWC}> -> tensor<1x3x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 3, 2160, 3840]> : tensor<4xsi64>, order = #NHWC}>
+    return %3 : tensor<1x3x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 3, 2160, 3840]> : tensor<4xsi64>, order = #NHWC}>
+
+  // CHECK:    [[YUV2RGB:%.+]] = VPU.YuvToRgb([[ARG_0]], [[ARG_1]]) {inFmt = #IE.color_fmt<NV12>, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, operandSegmentSizes = array<i32: 1, 1, 0>, outFmt = #IE.color_fmt<BGR>, scale = 0.00373366661 : f32, tilingStrategy = [1, 1, {{12|13}}, 12]} : tensor<1x1x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 1, 2160, 3840]> : tensor<4xsi64>, order = #NHWC}>, tensor<1x2x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 2, 1080, 1920]> : tensor<4xsi64>, order = #NHWC}> -> tensor<1x3x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 3, 2160, 3840]> : tensor<4xsi64>, order = #NHWC}>
+  // CHECK:    return [[YUV2RGB]] : tensor<1x3x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 3, 2160, 3840]> : tensor<4xsi64>, order = #NHWC}>
 }

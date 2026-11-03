@@ -3,12 +3,14 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
+#include "vpux/compiler/dialect/VPU/IR/attributes.hpp"
 #include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
 #include "vpux/compiler/dialect/VPU/utils/permute_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/scf/scf_analysis_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/scf/scf_unroll_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/scf/scf_utils.hpp"
+#include "vpux/compiler/dialect/config/IR/attributes.hpp"
 #include "vpux/compiler/dialect/config/utils/config_option_utils.hpp"
 #include "vpux/compiler/dialect/net/IR/ops.hpp"
 #include "vpux/compiler/dialect/net/utils/network_info_utils.hpp"
@@ -88,6 +90,10 @@ void UnrollSCFLoopPass::collectForOpsInnerToOuter(mlir::Operation* rootOp, Small
 
     // Collect all ForOps and group by depth
     rootOp->walk([&](mlir::scf::ForOp forOp) {
+        // The sub-tile fallback path keeps dynamic slice sizes and is not unrollable
+        if (forOp->hasAttr(SUB_TILE_FALLBACK_ATTR)) {
+            return;
+        }
         unsigned depth = getNestingDepth(forOp.getOperation());
         depthMap[depth].push_back(forOp);
         maxDepth = std::max(maxDepth, depth);
@@ -127,11 +133,95 @@ mlir::scf::ForOp findParentForOpFromOffset(mlir::OpFoldResult offset) {
     return nullptr;
 }
 
+std::optional<int64_t> getStaticTripCount(mlir::scf::ForOp forOp) {
+    auto tripCount = forOp.getStaticTripCount();
+    if (!tripCount.has_value()) {
+        return std::nullopt;
+    }
+    return tripCount->getSExtValue();
+}
+
+// Returns the number of trips of a static loop kept in its main unrolled loop. The remaining trips go to a residual
+// loop, which must either be empty or run at least two trips. The main loop is marked no_await_all and relies on the
+// residual loop (no_reset_cmdlist) to submit their shared command list, but canonicalization promotes a single-trip
+// loop to straight-line code and drops these attributes. In that case one more unrolled iteration is handed over to
+// the residual loop.
+int64_t getStaticMainTrips(int64_t tripCount, int64_t fullTiles, int64_t unrollFactor) {
+    auto mainTrips = fullTiles - fullTiles % unrollFactor;
+    if (tripCount - mainTrips == 1) {
+        mainTrips -= unrollFactor;
+    }
+    return mainTrips;
+}
+
+// Splits a static loop before its residual trip(s), leaving a full-tile prefix whose trip count is a multiple of
+// the unroll factor. This is needed because loopUnrollByFactor uses the total ceil-divided trip count: when that
+// count is divisible by the factor, it would otherwise place the tail trip in the main unrolled loop. The split is
+// also used when loopUnrollByFactor would leave a single-trip epilogue (see getStaticMainTrips).
+std::optional<mlir::scf::ForOp> splitStaticLoopBeforeTail(mlir::scf::ForOp forOp, int64_t fullTiles,
+                                                          int64_t unrollFactor) {
+    const auto staticTripCount = getStaticTripCount(forOp);
+    if (!staticTripCount.has_value()) {
+        return std::nullopt;
+    }
+
+    const auto hasPartialTail = staticTripCount.value() > fullTiles;
+    const auto mainTrips = getStaticMainTrips(staticTripCount.value(), fullTiles, unrollFactor);
+    const auto residualTrips = staticTripCount.value() - mainTrips;
+    if (residualTrips == 0 || (!hasPartialTail && residualTrips == staticTripCount.value() % unrollFactor)) {
+        // Either nothing is left, or loopUnrollByFactor produces an epilogue with at least two trips.
+        return std::nullopt;
+    }
+    VPUX_THROW_UNLESS(mainTrips > 0, "Static loop has too few full tiles for unroll factor {0}", unrollFactor);
+
+    const auto lowerBound = mlir::getConstantIntValue(forOp.getLowerBound());
+    const auto step = mlir::getConstantIntValue(forOp.getStep());
+    VPUX_THROW_UNLESS(lowerBound.has_value() && step.has_value(), "Static loop has non-constant bounds or step");
+
+    mlir::OpBuilder splitBuilder(forOp);
+    auto splitUpperBound =
+            mlir::arith::ConstantOp::create(splitBuilder, forOp.getLoc(),
+                                            splitBuilder.getIntegerAttr(forOp.getUpperBound().getType(),
+                                                                        lowerBound.value() + mainTrips * step.value()));
+
+    splitBuilder.setInsertionPointAfter(forOp);
+    auto residualLoop = mlir::cast<mlir::scf::ForOp>(splitBuilder.clone(*forOp));
+    residualLoop.setLowerBound(splitUpperBound.getResult());
+
+    // Chain the residual loop after the full-tile prefix, as loopUnrollByFactor does for its epilogue loop.
+    const auto mainResults = forOp.getResults();
+    const auto residualResults = residualLoop.getResults();
+    for (auto [mainResult, residualResult] : llvm::zip(mainResults, residualResults)) {
+        mainResult.replaceAllUsesWith(residualResult);
+    }
+    residualLoop->setOperands(residualLoop.getNumControlOperands(), residualLoop.getInitArgs().size(), mainResults);
+    forOp.setUpperBound(splitUpperBound.getResult());
+
+    return residualLoop;
+}
+
 // Computes an automatic unroll factor from the max trip count of the given scf.for loop.
-std::optional<int64_t> computeAutoUnrollFactor(mlir::scf::ForOp forOp, Logger log) {
+// For dynamic loops the max trip count is derived from tensor bounds and used directly, since the
+// runtime trip count is smaller and residual iterations are handled by the cascade / epilogue.
+// For static loops the factor is derived from full source tiles, (high - low) / step; the final
+// partial tile stays in the residual loop. HostCompile outlining currently expects the loop body to
+// be a single Core.NestedCall or an scf.index_switch selecting that call. Keeping the tail out of
+// the main loop avoids requiring a merged body that mixes full-tile calls with the tail path. The
+// factor is chosen to run the main stage numTiles times (minimum number of workloads required to
+// occupy all DPU tiles); the remaining trips are covered by cascade stages / epilogue. Unrolling by
+// the full trip count would promote the loop to a single iteration and skip kernel merging, so a
+// factor yielding fewer than two main iterations is rejected.
+std::optional<int64_t> computeAutoUnrollFactor(mlir::scf::ForOp forOp, int64_t numTiles, Logger log) {
     OpChainAnalysis opChainAnalysis;
     auto [low, high, step] = opChainAnalysis.getLoopBoundsAndStep(forOp);
     int64_t factor = (high - low) / step;
+    if (auto staticTripCount = getStaticTripCount(forOp)) {
+        const auto fullTiles = factor;
+        factor /= numTiles;
+        if (factor < 2 || getStaticMainTrips(staticTripCount.value(), fullTiles, factor) / factor < 2) {
+            return std::nullopt;
+        }
+    }
     if (factor < 2) {
         return std::nullopt;
     }
@@ -149,6 +239,7 @@ mlir::FailureOr<SmallVector<LoopTileDimInfo>> collectLoopTileDimInfos(mlir::scf:
                                                                       mlir::func::FuncOp funcOp) {
     mlir::tensor::ExtractSliceOp firstSliceOp = nullptr;
     mlir::func::FuncOp newFuncOp = nullptr;
+    mlir::func::CallOp callOp = nullptr;
     auto directSliceOps = llvm::to_vector(forOp.getOps<mlir::tensor::ExtractSliceOp>());
     auto moduleOp = funcOp->getParentOfType<mlir::ModuleOp>();
 
@@ -168,12 +259,14 @@ mlir::FailureOr<SmallVector<LoopTileDimInfo>> collectLoopTileDimInfos(mlir::scf:
     }
 
     for (auto user : firstSliceOp.getResult().getUsers()) {
-        if (auto callOp = mlir::dyn_cast<mlir::func::CallOp>(user)) {
-            newFuncOp = moduleOp.lookupSymbol<mlir::func::FuncOp>(callOp.getCallee());
+        if (auto foundCallOp = mlir::dyn_cast<mlir::func::CallOp>(user)) {
+            callOp = foundCallOp;
+            newFuncOp = moduleOp.lookupSymbol<mlir::func::FuncOp>(foundCallOp.getCallee());
         } else if (auto castOp = mlir::dyn_cast<mlir::tensor::CastOp>(user)) {
             for (auto castUser : castOp.getResult().getUsers()) {
-                if (auto callOp = mlir::dyn_cast<mlir::func::CallOp>(castUser)) {
-                    newFuncOp = moduleOp.lookupSymbol<mlir::func::FuncOp>(callOp.getCallee());
+                if (auto foundCallOp = mlir::dyn_cast<mlir::func::CallOp>(castUser)) {
+                    callOp = foundCallOp;
+                    newFuncOp = moduleOp.lookupSymbol<mlir::func::FuncOp>(foundCallOp.getCallee());
                     break;
                 }
             }
@@ -208,7 +301,7 @@ mlir::FailureOr<SmallVector<LoopTileDimInfo>> collectLoopTileDimInfos(mlir::scf:
     // (e.g. NCHW after a PermuteCast). Fall back to the enclosing function
     // when no call is present (inline extract/insert pattern).
     auto funcToUse = (newFuncOp != nullptr) ? newFuncOp : funcOp;
-    auto unrollDimsOrFailure = remapDimsThroughInputPermuteCast(funcToUse, tensorDims);
+    auto unrollDimsOrFailure = remapDimsThroughInputPermuteCast(funcToUse, tensorDims, callOp);
     if (mlir::failed(unrollDimsOrFailure)) {
         return mlir::failure();
     }
@@ -251,6 +344,9 @@ mlir::FailureOr<SmallVector<LoopTileDimInfo>> collectLoopTileDimInfos(mlir::scf:
 void mapManualUnrollFactors(mlir::func::FuncOp funcOp, ArrayRef<int64_t> unrollFactor, SmallVector<LoopInfo>& loops,
                             Logger log) {
     funcOp.walk([&](mlir::scf::ForOp forOp) {
+        if (forOp->hasAttr(SUB_TILE_FALLBACK_ATTR)) {
+            return;
+        }
         auto infos = collectLoopTileDimInfos(forOp, funcOp);
         if (mlir::failed(infos)) {
             return;
@@ -281,8 +377,17 @@ void mapManualUnrollFactors(mlir::func::FuncOp funcOp, ArrayRef<int64_t> unrollF
 
 void mapAutoUnrollFactors(mlir::func::FuncOp funcOp, SmallVector<LoopInfo>& loops, Logger log) {
     llvm::DenseSet<mlir::Operation*> assignedLoops;
+    // Static auto-unrolling is a HostCompile_Interpreter optimization. Keep the existing behavior for
+    // DefaultHW and the other HostCompile modes; their static SCF loops have separate pipeline contracts.
+    const auto enableStaticAutoUnrolling = config::isHostCompileInterpreterMode(funcOp);
+    // Platform maximum rather than the configured NPU_TILES: the host loop feeds independent kernel
+    // invocations, so the target is full DPU occupancy of the device.
+    const auto numTiles = checked_cast<int64_t>(VPU::getMaxDPUClusterNum(config::getPlatform(funcOp)));
 
     funcOp.walk([&](mlir::scf::ForOp forOp) {
+        if (forOp->hasAttr(SUB_TILE_FALLBACK_ATTR)) {
+            return;
+        }
         auto infos = collectLoopTileDimInfos(forOp, funcOp);
         if (mlir::failed(infos)) {
             return;
@@ -292,7 +397,10 @@ void mapAutoUnrollFactors(mlir::func::FuncOp funcOp, SmallVector<LoopInfo>& loop
             if (parentLoop == nullptr || assignedLoops.contains(parentLoop.getOperation())) {
                 continue;
             }
-            auto factor = computeAutoUnrollFactor(parentLoop, log);
+            if (parentLoop.getStaticTripCount().has_value() && !enableStaticAutoUnrolling) {
+                continue;
+            }
+            auto factor = computeAutoUnrollFactor(parentLoop, numTiles, log);
             if (!factor.has_value()) {
                 continue;
             }
@@ -342,6 +450,10 @@ mlir::LogicalResult fuseSiblingUnrolledLoops(mlir::func::FuncOp funcOp) {
     llvm::SetVector<mlir::Block*> uniqueBlocks;
     SmallVector<SmallVector<mlir::scf::ForOp>> loopsToProcess;
     funcOp->walk([&](mlir::scf::ForOp loop) {
+        // Fallback loops were never collected for unrolling and carry no id
+        if (loop->hasAttr(SUB_TILE_FALLBACK_ATTR)) {
+            return;
+        }
         auto currentBlock = loop->getBlock();
         if (uniqueBlocks.contains(currentBlock)) {
             return;
@@ -351,6 +463,9 @@ mlir::LogicalResult fuseSiblingUnrolledLoops(mlir::func::FuncOp funcOp) {
         auto forOpsIt = loop->getBlock()->getOps<mlir::scf::ForOp>();
         SmallVector<mlir::scf::ForOp> loopsInBlock;
         for (auto forOp : forOpsIt) {
+            if (forOp->hasAttr(SUB_TILE_FALLBACK_ATTR)) {
+                continue;
+            }
             loopsInBlock.push_back(forOp);
         }
         loopsToProcess.push_back(loopsInBlock);
@@ -391,6 +506,9 @@ mlir::LogicalResult fuseSiblingUnrolledLoops(mlir::func::FuncOp funcOp) {
 
 mlir::LogicalResult processUnrolledLoops(mlir::func::FuncOp funcOp, ArrayRef<int64_t> unrollFactor) {
     auto walkResult = funcOp.walk([&](mlir::scf::ForOp forOp) {
+        if (forOp->hasAttr(SUB_TILE_FALLBACK_ATTR)) {
+            return mlir::WalkResult::skip();
+        }
         SmallVector<TileDimensionInfo> tileDimensionsInfo;
 
         auto infos = collectLoopTileDimInfos(forOp, funcOp);
@@ -592,9 +710,8 @@ mlir::LogicalResult postProcessUnrolledLoop(mlir::UnrolledLoopInfo& result, mlir
  * After unrolling, marks the main loop with an "unrolled-factor" attribute and the residual
  * sibling loop (remaining iterations) with a "residual" attribute.
  *
- * In auto-unrolling mode (!hasManualUnrollFactors) two guards are applied per loop based on
+ * In auto-unrolling mode (!hasManualUnrollFactors) a nesting guard is applied per loop based on
  * the autoUnrollingMode:
- *   - Static upper bound: loops with a compile-time constant upper bound are skipped (all modes).
  *   - Nesting guard (mode-dependent):
  *       INNER – skip outer loop if any direct descendant ForOp already carries factor > 1
  *       OUTER – skip inner loop if any ancestor loop in the candidate set has factor > 1
@@ -699,18 +816,7 @@ mlir::LogicalResult unrollLoopsAndSetAttributes(mlir::OpBuilder& builder, SmallV
         auto loopId = forOp->getAttrOfType<mlir::IntegerAttr>("id");
 
         if (!hasManualUnrollFactors) {
-            // Guard 1 (all modes): skip loops with a static (compile-time constant) upper bound.
-            // When the trip count is evenly divisible by the unroll factor, unrolling produces
-            // no epilogue and the main loop collapses to a single iteration, which is then
-            // canonicalized and inlined — eliminating the scf.for entirely and breaking
-            // downstream passes that rely on the loop structure. Conservative guard: skip all
-            // static loops.
-            // Track: E#218830
-            if (mlir::getConstantIntValue(forOp.getUpperBound()).has_value()) {
-                log.info("Skipping auto-unrolling for loop with id {0} because upper bound is static", loopId.getInt());
-                continue;
-            }
-            // Guard 2: nesting guard — behaviour depends on autoUnrollingMode.
+            // Nesting guard — behaviour depends on autoUnrollingMode.
             if (autoUnrollingMode == AutoUnrollingMode::INNER) {
                 // INNER: skip an outer loop when any descendant loop in the candidate set has unrollFactor > 1
                 if (!getCompetingLoops(forOp, AutoUnrollingMode::INNER).empty()) {
@@ -748,9 +854,26 @@ mlir::LogicalResult unrollLoopsAndSetAttributes(mlir::OpBuilder& builder, SmallV
         if (enableCascadedUnrolling) {
             log.trace("Cascaded unrolling enabled for loop id {0}", loopId.getInt());
             // Cascaded unrolling: 10 -> 5 -> 2 -> epilogue
-            // Generate sequence of factors by dividing by 2
+            // Generate sequence of factors by dividing by 2.
+            // For static trip counts the residual is known exactly. A stage that would run fewer than two
+            // iterations is skipped: zero iterations is dead code, and a single iteration is promoted to
+            // straight-line code by loopUnrollByFactor and never merged into a kernel, so the same trips
+            // cost the same number of launches when left in the residual loop.
+            auto remainingTrips = getStaticTripCount(forOp);
+            if (remainingTrips.has_value()) {
+                remainingTrips = remainingTrips.value() % currentFactor;
+            }
             while ((currentFactor / 2) > 1) {
                 currentFactor = currentFactor / 2;
+                if (remainingTrips.has_value()) {
+                    // The stage is marked no_await_all, so its epilogue must keep at least two trips as well:
+                    // canonicalization promotes a single-trip epilogue and erases an empty one, which would leave
+                    // the command list of this stage without a continuation that submits it.
+                    if (remainingTrips.value() / currentFactor < 2 || remainingTrips.value() % currentFactor < 2) {
+                        continue;
+                    }
+                    remainingTrips = remainingTrips.value() % currentFactor;
+                }
                 unrollFactors.push_back(currentFactor);
             }
         }
@@ -761,6 +884,16 @@ mlir::LogicalResult unrollLoopsAndSetAttributes(mlir::OpBuilder& builder, SmallV
         for (size_t i = 0; i < unrollFactors.size(); ++i) {
             int64_t factor = unrollFactors[i];
             log.trace("Applying unroll factor {0} for loop id {1}", factor, loopId.getInt());
+
+            // Preserve partial-tail trips outside the first static auto-unrolled stage. Subsequent stages operate on
+            // the residual loop and use the normal loopUnrollByFactor epilogue handling.
+            std::optional<mlir::scf::ForOp> forcedResidualLoop;
+            if (!hasManualUnrollFactors && i == 0 && getStaticTripCount(currentLoop).has_value()) {
+                OpChainAnalysis opChainAnalysis;
+                auto [low, high, step] = opChainAnalysis.getLoopBoundsAndStep(currentLoop);
+                const auto fullTiles = (high - low) / step;
+                forcedResidualLoop = splitStaticLoopBeforeTail(currentLoop, fullTiles, factor);
+            }
 
             auto result = mlir::loopUnrollByFactor(currentLoop, factor);
 
@@ -783,6 +916,13 @@ mlir::LogicalResult unrollLoopsAndSetAttributes(mlir::OpBuilder& builder, SmallV
                     "id", mlir::IntegerAttr::get(mlir::IntegerType::get(currentLoop.getContext(), 64), newLoopIdInt));
 
             if (!result->epilogueLoopOp.has_value()) {
+                if (forcedResidualLoop.has_value()) {
+                    result->mainLoopOp->getOperation()->setAttr("no_await_all", builder.getBoolAttr(true));
+                    forcedResidualLoop->getOperation()->setAttr("id", loopId);
+                    forcedResidualLoop->getOperation()->setAttr("residual", builder.getUnitAttr());
+                    forcedResidualLoop->getOperation()->setAttr("no_reset_cmdlist", builder.getBoolAttr(true));
+                    moveAffineArithOpsEarly(*result->mainLoopOp->getBody());
+                }
                 // static dims to unroll and no epilogue left
                 break;
             }

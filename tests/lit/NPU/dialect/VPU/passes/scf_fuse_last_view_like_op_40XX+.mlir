@@ -396,3 +396,48 @@ func.func @SkipViewLikeOnBlockArgument(%arg0: !argFull) -> !quantInputFull {
     // CHECK: [[LOOP:%.+]] = scf.for
     // CHECK: return [[LOOP]]
 }
+
+// -----
+
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+#map = affine_map<(d0)[s0] -> (-d0 + s0, 30)>
+
+// CHECK: #[[$MAP:.+]] = affine_map<(d0)[s0] -> (-d0 + s0, 30)>
+
+// CHECK-LABEL: @FuseLastSliceIntoScfWithSafeTensorDimUse
+// CHECK-SAME:      [[ARG_0:%[^:]+]]: tensor<1x16x?x1280xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 1280, 1280]> : tensor<4xsi64>, order = #NCHW}>
+func.func @FuseLastSliceIntoScfWithSafeTensorDimUse(%arg0: tensor<1x16x?x1280xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 1280, 1280]> : tensor<4xsi64>, order = #NCHW}>) -> (tensor<1x3x?x1280xf16, {bounds = #const.OpaqueI64Elements<[1, 3, 1280, 1280]> : tensor<4xsi64>, order = #NCHW}>, index) {
+  %c0 = arith.constant 0 : index
+  %c1 = arith.constant 1 : index
+  %c2 = arith.constant 2 : index
+  %c3 = arith.constant 3 : index
+  %c30 = arith.constant 30 : index
+  %dim = tensor.dim %arg0, %c2 : tensor<1x16x?x1280xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 1280, 1280]> : tensor<4xsi64>, order = #NCHW}>
+  %0 = tensor.empty(%dim) : tensor<1x16x?x1280xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 1280, 1280]> : tensor<4xsi64>, order = #NCHW}>
+  %1 = scf.for %iv = %c0 to %dim step %c30 iter_args(%acc = %0) -> (tensor<1x16x?x1280xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 1280, 1280]> : tensor<4xsi64>, order = #NCHW}>) {
+    %tile = affine.min affine_map<(d0)[s0] -> (-d0 + s0, 30)>(%iv)[%dim]
+    %slice_in_loop = tensor.extract_slice %arg0[0, 0, %iv, 0] [1, 16, %tile, 1280] [1, 1, 1, 1]
+      : tensor<1x16x?x1280xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 1280, 1280]> : tensor<4xsi64>, order = #NCHW}> to tensor<1x16x?x1280xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 30, 1280]> : tensor<4xsi64>, order = #NCHW}>
+    %inserted = tensor.insert_slice %slice_in_loop into %acc[0, 0, %iv, 0] [1, 16, %tile, 1280] [1, 1, 1, 1]
+      : tensor<1x16x?x1280xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 30, 1280]> : tensor<4xsi64>, order = #NCHW}> into tensor<1x16x?x1280xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 1280, 1280]> : tensor<4xsi64>, order = #NCHW}>
+    scf.yield %inserted : tensor<1x16x?x1280xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 1280, 1280]> : tensor<4xsi64>, order = #NCHW}>
+  }
+  %2 = VPU.Slice %1 [0, 0, 0, 0] [1, 3, -9223372036854775808, 1280] : tensor<1x16x?x1280xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 1280, 1280]> : tensor<4xsi64>, order = #NCHW}> to tensor<1x3x?x1280xf16, {bounds = #const.OpaqueI64Elements<[1, 3, 1280, 1280]> : tensor<4xsi64>, order = #NCHW}>
+  %dim_after = tensor.dim %1, %c3 : tensor<1x16x?x1280xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 1280, 1280]> : tensor<4xsi64>, order = #NCHW}>
+  return %2, %dim_after : tensor<1x3x?x1280xf16, {bounds = #const.OpaqueI64Elements<[1, 3, 1280, 1280]> : tensor<4xsi64>, order = #NCHW}>, index
+
+  // CHECK: [[CST_2:%.+]] = arith.constant 2 : index
+  // CHECK: [[CST_3:%.+]] = arith.constant 3 : index
+  // CHECK: [[CST_30:%.+]] = arith.constant 30 : index
+  // CHECK: [[DIM:%.+]] = tensor.dim [[ARG_0]], [[CST_2]]
+  // CHECK: [[OUT:%.+]] = tensor.empty([[DIM]]) : tensor<1x3x?x1280xf16, {bounds = #const.OpaqueI64Elements<[1, 3, 1280, 1280]> : tensor<4xsi64>, order = #NCHW}>
+  // CHECK: [[LOOP:%.+]] = scf.for [[IV:%.+]] = [[CST_0:%.+]] to [[DIM]] step [[CST_30:%.+]] iter_args([[ACC:%.+]] = [[OUT]]) -> (tensor<1x3x?x1280xf16, {bounds = #const.OpaqueI64Elements<[1, 3, 1280, 1280]> : tensor<4xsi64>, order = #NCHW}>)
+  // CHECK:   [[TILE:%.+]] = affine.min #[[$MAP]]([[IV]])[[[DIM]]]
+  // CHECK:   [[EXTRACTED_SLICE:%.+]] = tensor.extract_slice %arg0[0, 0, [[IV]], 0] [1, 16, [[TILE]], 1280] [1, 1, 1, 1]
+  // CHECK-SAME:      : tensor<1x16x?x1280xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 1280, 1280]> : tensor<4xsi64>, order = #NCHW}> to tensor<1x16x?x1280xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 30, 1280]> : tensor<4xsi64>, order = #NCHW}>
+  // CHECK:   [[SLICE:%.+]] = VPU.Slice [[EXTRACTED_SLICE]] [0, 0, 0, 0] [1, 3, -9223372036854775808, 1280] : tensor<1x16x?x1280xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 30, 1280]> : tensor<4xsi64>, order = #NCHW}> to tensor<1x3x?x1280xf16, {bounds = #const.OpaqueI64Elements<[1, 3, 30, 1280]> : tensor<4xsi64>, order = #NCHW}>
+  // CHECK:   [[INSERT:%.+]] = tensor.insert_slice [[SLICE]] into [[ACC]][0, 0, [[IV]], 0] [1, 3, [[TILE]], 1280] [1, 1, 1, 1]
+  // CHECK:   scf.yield [[INSERT]] : tensor<1x3x?x1280xf16, {bounds = #const.OpaqueI64Elements<[1, 3, 1280, 1280]> : tensor<4xsi64>, order = #NCHW}>
+  // CHECK: [[DIM_AFTER:%.+]] = tensor.dim [[LOOP]], [[CST_3]]
+  // CHECK: return [[LOOP]], [[DIM_AFTER]]
+}

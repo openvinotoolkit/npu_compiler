@@ -8,6 +8,7 @@
 
 include "vpux/compiler/dialect/core/types.td"
 include "vpux/compiler/dialect/core/constraints.td"
+include "vpux/compiler/dialect/core/ops_interfaces.td"
 include "vpux/compiler/dialect/VPU/ops/base.td"
 include "vpux/compiler/dialect/VPU/attributes.td"
 include "vpux/compiler/dialect/VPU/ops_interfaces.td"
@@ -193,7 +194,8 @@ def VPU_DepthToSpaceOp :
                 DeclareOpInterfaceMethods<VPU_TilingBuilderOpInterface>,
                 DeclareOpInterfaceMethods<VPU_SWOpInterface>,
                 DeclareOpInterfaceMethods<VPU_ClusteredOpInterface>,
-                DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface, ["reifyResultShapes"]>
+                DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface, ["reifyResultShapes"]>,
+                DeclareOpInterfaceMethods<StaticShapeOpInterface>
             ]
         > {
     let summary = "DepthToSpace VPU layer";

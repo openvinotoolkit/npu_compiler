@@ -12,6 +12,7 @@
 #include "vpux/compiler/dialect/VPU/IR/types.hpp"
 #include "vpux/compiler/dialect/VPU/utils/clustered_op_interface_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_invariant.hpp"
+#include "vpux/compiler/dialect/VPU/utils/nce_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/odu_utils.hpp"
 #include "vpux/compiler/dialect/config/IR/resources.hpp"
 #include "vpux/compiler/utils/error.hpp"
@@ -134,6 +135,20 @@ vpux::NDTypeInterface getDistributedTypeForOpResult(mlir::Operation* op, mlir::V
 //
 
 bool isPureViewOp(mlir::Operation* op);
+
+//
+// Heuristics of the greedy vertical fusion
+//
+
+// The AveragePool, which quantizes the input of the network: it reads a big f16 tile and writes a small 8 bit one.
+// Fused with its consumers, it makes the tiles of the whole group smaller than they could be for the consumers alone,
+// so the group is split after it.
+//
+// The slices removing the padded channels stay with the AveragePool, so the group returns only the real channels.
+bool isQuantizeAvgPoolOp(mlir::Operation* op);
+bool isSliceOfQuantizeAvgPoolOp(mlir::Operation* op);
+// The quantizing AveragePool is fused only with the slices after it
+bool canFuseQuantizeAvgPoolOp(mlir::Operation* op);
 
 //
 // SwOpInterface

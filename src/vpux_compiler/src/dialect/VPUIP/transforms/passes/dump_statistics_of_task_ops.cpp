@@ -167,7 +167,7 @@ CountersVec getSpillCounter(const std::string& category) {
     }
     const auto spillCategory = category == "DDR2CMX" ? "SPILL_READ" : "SPILL_WRITE";
     const auto targetSubstr = category == "DDR2CMX" ? SPILL_READ_OP_NAME_SUFFIX : SPILL_WRITE_OP_NAME_SUFFIX;
-    res.push_back(makeCounterNode(spillCategory, [=](mlir::Operation* op) {
+    res.push_back(makeCounterNode(spillCategory, [targetSubstr](mlir::Operation* op) {
         if (auto fusedLoc = mlir::dyn_cast<mlir::FusedLoc>(op->getLoc())) {
             const auto locations = fusedLoc.getLocations();
             for (auto it = std::rbegin(locations); it != std::rend(locations); ++it) {
@@ -286,7 +286,7 @@ CountersVec getDMANestedCounters() {
             auto nestedCounters = getInnerCounters(category);
             counters.push_back(makeCounterNode(
                     category,
-                    [=](auto op) {
+                    [checkInputOutputMemSpace, inputConf, outputConf](auto op) {
                         return checkInputOutputMemSpace(op, inputConf.second, outputConf.second);
                     },
                     std::move(nestedCounters)));

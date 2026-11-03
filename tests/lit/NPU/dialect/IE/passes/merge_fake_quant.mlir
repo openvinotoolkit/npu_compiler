@@ -19,7 +19,7 @@ func.func @PerTensor(%arg0 : tensor<1x4xf32>) -> tensor<1x4xf32> {
     // CHECK-DAG:       [[MAX:%.+]] = const.Declare tensor<1x1xf32> = dense<2.550000e+02> : tensor<1x1xf32>
 
     // CHECK:       [[FQ:%.+]] = IE.FakeQuantize([[ARG_0]], [[MIN]], [[MAX]], [[MIN]], [[MAX]])
-    // CHECK-SAME:      levels = 256
+    // CHECK-SAME:      levels_or_low_fp_type = 256
 
     // CHECK:       return [[FQ]]
 }
@@ -38,7 +38,7 @@ func.func @QuantizeCast(%arg0 : tensor<1x4xf32>) -> tensor<1x4xf32> {
     // CHECK-DAG:       [[MAX2:%.+]] = const.Declare tensor<1x1xf32> = dense<1.275000e+01> : tensor<1x1xf32>
 
     // CHECK:       [[FQ:%.+]] = IE.FakeQuantize([[ARG_0]], [[MIN1]], [[MAX1]], [[MIN2]], [[MAX2]])
-    // CHECK-SAME:      levels = 256
+    // CHECK-SAME:      levels_or_low_fp_type = 256
 
     // CHECK:       return [[FQ]]
 }

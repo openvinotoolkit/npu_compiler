@@ -63,7 +63,7 @@ VPURegMapped::TaskOpInterface getNextUntil(VPURegMapped::TaskOpInterface start, 
         return start;
     }
 
-    auto isTaskOpOfType = [&secondary](mlir::Operation* op) -> bool {
+    auto isTaskOpOfType = [secondary](mlir::Operation* op) -> bool {
         auto taskOp = mlir::dyn_cast<VPURegMapped::TaskOpInterface>(op);
         return taskOp && taskOp.getTaskType() == secondary;
     };
@@ -145,8 +145,6 @@ size_t getMetadataSize(mlir::Operation* op, VPURegMapped::TaskType taskType, con
         return config::getConstraint(op, config::METADATA_MAX_INVARIANT_COUNT) / 2;
     case VPU::TaskType::DPUVariant:
         return config::getConstraint(op, config::METADATA_MAX_VARIANT_COUNT) / 2;
-    case VPU::TaskType::M2I:
-        return config::getConstraint(op, config::METADATA_MAX_MEDIA_COUNT) / 2;
     default:
         // For types that do not have defined limits in the IR, use the default task list counts.
         return vpux::VPU::getDefaultTaskListCount(vpuTaskType, archKind) / 2;
@@ -225,12 +223,12 @@ void groupExecOps(VPUMI40XX::MappedInferenceOp mpi, const VPURegMapped::TaskType
                 // need to travel now to the next elem in chain before we move all ops into the new container
                 traveler = getNextOp(maxPrimary);
 
-                moveOpsIntoBlock(0, minPrimary, maxPrimary, group, [&group, &secondary](mlir::OpOperand& link) {
+                moveOpsIntoBlock(0, minPrimary, maxPrimary, group, [&group, secondary](mlir::OpOperand& link) {
                     bool isOwnerGroup = link.getOwner()->getParentOp() != group.getOperation();
                     auto ownerTaskOp = mlir::dyn_cast<VPURegMapped::TaskOpInterface>(link.getOwner());
-                    bool isOwnerSecodanry = ownerTaskOp ? (ownerTaskOp.getTaskType() == secondary) : false;
+                    bool isOwnerSecondary = ownerTaskOp ? (ownerTaskOp.getTaskType() == secondary) : false;
 
-                    return isOwnerGroup && !isOwnerSecodanry;
+                    return isOwnerGroup && !isOwnerSecondary;
                 });
 
                 moveOpsIntoBlock(1, minSecondary, maxSecondary, group, [&group](mlir::OpOperand& link) {

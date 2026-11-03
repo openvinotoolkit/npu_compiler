@@ -10,9 +10,7 @@
 #include "config.hpp"
 #include "openvino/core/type/element_type.hpp"
 
-namespace vpux {
-
-namespace OV {
+namespace vpux::OV {
 
 namespace Platform {
 
@@ -143,37 +141,6 @@ inline std::ostream& operator<<(std::ostream& out, const BatchMode& fmt) {
     } break;
     case BatchMode::PLUGIN: {
         out << "PLUGIN";
-    } break;
-    default:
-        out << static_cast<uint32_t>(fmt);
-        break;
-    }
-    return out;
-}
-
-/**
- * @brief [Only for NPU Plugin]
- * Type: string
- * Type of NPU compiler to be used for compilation of a network
- */
-enum class CompilerType { PLUGIN, DRIVER, PREFER_PLUGIN };
-
-/**
- * @brief Prints a string representation of vpux::CompilerType to a stream
- * @param out An output stream to send to
- * @param fmt A compiler type value to print to a stream
- * @return A reference to the `out` stream
- */
-inline std::ostream& operator<<(std::ostream& out, const CompilerType& fmt) {
-    switch (fmt) {
-    case CompilerType::PLUGIN: {
-        out << "PLUGIN";
-    } break;
-    case CompilerType::DRIVER: {
-        out << "DRIVER";
-    } break;
-    case CompilerType::PREFER_PLUGIN: {
-        out << "PREFER_PLUGIN";
     } break;
     default:
         out << static_cast<uint32_t>(fmt);
@@ -767,63 +734,6 @@ struct TURBO final : OptionBase<TURBO, bool> {
     }
 };
 
-struct COMPILER_TYPE final : OptionBase<COMPILER_TYPE, CompilerType> {
-    static std::string_view key() {
-        return "NPU_COMPILER_TYPE";
-    }
-
-    static constexpr std::string_view getTypeName() {
-        return "vpux::CompilerType";
-    }
-
-    static CompilerType defaultValue() {
-        return CompilerType::PREFER_PLUGIN;
-    }
-
-    static std::string_view envVar() {
-#ifdef VPUX_DEVELOPER_BUILD
-        return "IE_NPU_COMPILER_TYPE";
-#else
-        return "";
-#endif
-    }
-
-    static CompilerType parse(std::string_view val) {
-        if (val == "PLUGIN") {
-            return CompilerType::PLUGIN;
-        } else if (val == "DRIVER") {
-            return CompilerType::DRIVER;
-        } else if (val == "PREFER_PLUGIN") {
-            return CompilerType::PREFER_PLUGIN;
-        }
-
-        VPUX_THROW("Value '{0}' is not a valid COMPILER_TYPE option", val);
-    }
-
-    static std::string toString(const CompilerType& val) {
-        std::stringstream strStream;
-        if (val == CompilerType::PLUGIN) {
-            strStream << "PLUGIN";
-        } else if (val == CompilerType::DRIVER) {
-            strStream << "DRIVER";
-        } else if (val == CompilerType::PREFER_PLUGIN) {
-            strStream << "PREFER_PLUGIN";
-        } else {
-            VPUX_THROW("No valid string for current COMPILER_TYPE option: {0}", static_cast<int>(val));
-        }
-
-        return strStream.str();
-    }
-
-    static OptionMode mode() {
-        return OptionMode::RunTime;
-    }
-
-    static bool isPublic() {
-        return true;
-    }
-};
-
 struct COMPILATION_MODE final : OptionBase<COMPILATION_MODE, std::string> {
     static std::string_view key() {
         return "NPU_COMPILATION_MODE";
@@ -939,6 +849,30 @@ struct COMPILATION_MODE_PARAMS final : OptionBase<COMPILATION_MODE_PARAMS, std::
 
     static bool isPublic() {
         return true;
+    }
+};
+
+struct OPTIMIZATION_LEVEL final : OptionBase<OPTIMIZATION_LEVEL, uint32_t> {
+    static std::string_view key() {
+        return "NPU_OPTIMIZATION_LEVEL";
+    }
+
+    static uint32_t defaultValue() {
+        return 1;
+    }
+
+    static void validateValue(const uint32_t& value) {
+        if (value > 3) {
+            VPUX_THROW("{0} must be in range [0, 3]", OPTIMIZATION_LEVEL::key());
+        }
+    }
+
+    static OptionMode mode() {
+        return OptionMode::CompileTime;
+    }
+
+    static bool isPublic() {
+        return false;
     }
 };
 
@@ -1382,6 +1316,22 @@ struct CUSTOM_KERNEL_CONFIG_PATH final : OptionBase<CUSTOM_KERNEL_CONFIG_PATH, s
     }
 };
 
-}  // namespace OV
+struct POWER_OPTIMIZED final : OptionBase<POWER_OPTIMIZED, bool> {
+    static std::string_view key() {
+        return "NPU_POWER_OPTIMIZED";
+    }
 
-}  // namespace vpux
+    static bool defaultValue() {
+        return false;
+    }
+
+    static OptionMode mode() {
+        return OptionMode::CompileTime;
+    }
+
+    static bool isPublic() {
+        return false;
+    }
+};
+
+}  // namespace vpux::OV

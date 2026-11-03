@@ -15,7 +15,7 @@ func.func @ConvertTransposedConv2DToConv2DFQFilterF8E4M3FN(%input: tensor<1x32x2
     %high = const.Declare tensor<1x1x1x1xf16> = dense<4.480000e+02> : tensor<1x1x1x1xf16>
 
     %0 = IE.FakeQuantize(%weights, %low, %high, %low, %high) {
-        auto_broadcast = #IE.auto_broadcast_type<NUMPY>, low_fp_type = f8E4M3FN
+        auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = f8E4M3FN
     } : tensor<16x32x2x2xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<16x32x2x2xf16>
 
     %1 = IE.TransposedConvolution(%input, %0) {
@@ -29,7 +29,7 @@ func.func @ConvertTransposedConv2DToConv2DFQFilterF8E4M3FN(%input: tensor<1x32x2
     // CHECK-DAG:    [[HIGH:%.+]] = const.Declare tensor<1x1x1x1xf16> = dense<4.480000e+02> : tensor<1x1x1x1xf16>
 
     // CHECK: [[FQ:%.+]] = IE.FakeQuantize([[WEIGHTS]], [[LOW]], [[HIGH]], [[LOW]], [[HIGH]])
-    // CHECK-SAME:  {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, low_fp_type = f8E4M3FN} : tensor<16x32x2x2xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<16x32x2x2xf16>
+    // CHECK-SAME:  {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = f8E4M3FN} : tensor<16x32x2x2xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<16x32x2x2xf16>
 
     // CHECK:    [[UPSAMPLING:%.+]] = IE.Upsampling([[INPUT]])
     // CHECK-SAME:  {pad = #IE.UpsamplingPad<pads_channel = [0, 0], pads_height = [1, 1], pads_width = [1, 1]>, upsampling_factor = [2, 2, 1]} : tensor<1x32x23x30xf16> -> tensor<1x32x47x61xf16>

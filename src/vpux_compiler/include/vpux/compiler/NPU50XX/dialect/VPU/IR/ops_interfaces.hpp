@@ -7,6 +7,9 @@
 
 namespace vpux::VPU::arch50xx {
 
+void registerNCEOpInterface(mlir::DialectRegistry& registry);
+void registerConvolutionLikeNCEOpInterfaces(mlir::DialectRegistry& registry);
+
 void registerLayerWithPostOpModelInterface(mlir::DialectRegistry& registry);
 void registerClusterBroadcastingOpInterfaces(mlir::DialectRegistry& registry);
 void registerUnrollBatchOpInterfaces(mlir::DialectRegistry& registry);

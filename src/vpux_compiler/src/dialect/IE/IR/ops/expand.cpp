@@ -4,7 +4,6 @@
 //
 
 #include "vpux/compiler/dialect/IE/IR/ops/data_movement.hpp"
-#include "vpux/compiler/dialect/IE/utils/expand_utils.hpp"
 #include "vpux/compiler/dialect/const/attributes/content.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
@@ -65,33 +64,13 @@ mlir::LogicalResult vpux::IE::ExpandOp::inferReturnTypeComponents(
 
 mlir::OpFoldResult vpux::IE::ExpandOp::fold(FoldAdaptor adaptor) {
     auto operands = adaptor.getOperands();
+
+    // Handle identity case: if input type equals output type, return input
     if (getInput().getType() == getOutput().getType()) {
         return getInput();
     }
 
-    // Check for Slice->Expand pair which can be optimized if ExpandOp
-    // output is same as SliceOp input
-    if (auto sliceOp = getInput().getDefiningOp<IE::SliceOp>()) {
-        // If we got multiple eltwise ops in a chain, for example:
-        //       Expand->Add->(Slice->Expand)->Add->Slice
-        // We will want to keep the Expand between the 2 Adds instead of folding with Slice.
-        // So that we can utilize AdjustInputShapeForEltwise pass to optimize the 2nd Add.
-        if (this->getResult().hasOneUse()) {
-            auto childOp = *getOutput().getUsers().begin();
-            auto unExpandedShape = mlir::cast<vpux::NDTypeInterface>(getInput().getType()).getShape().toValues();
-            auto expandedShape = mlir::cast<vpux::NDTypeInterface>(getOutput().getType()).getShape().toValues();
-            if (beneficialToKeepExpand(unExpandedShape, expandedShape, childOp)) {
-                return nullptr;
-            }
-        }
-
-        const auto sliceOffsets = parseIntArrayAttr<int64_t>(sliceOp.getStaticOffsets());
-        const auto expandPadsBegin = parseIntArrayAttr<int64_t>(getPadsBegin());
-        if (sliceOp.getSource().getType() == getOutput().getType() && sliceOffsets == expandPadsBegin) {
-            return sliceOp.getSource();
-        }
-    }
-
+    // Handle constant content folding
     if (const auto attr = mlir::dyn_cast_or_null<Const::ContentAttr>(operands[0])) {
         const auto padsBefore = Shape(parseIntArrayAttr<int64_t>(getPadsBegin()));
         const auto padsAfter = Shape(parseIntArrayAttr<int64_t>(getPadsEnd()));

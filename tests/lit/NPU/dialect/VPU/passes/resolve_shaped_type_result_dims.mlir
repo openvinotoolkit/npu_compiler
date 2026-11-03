@@ -116,6 +116,7 @@ func.func @ReifyInterpolateDMAOpShape(%IN: !InterpDMAInType, %SCALES: tensor<2xf
     %IDX_3 = arith.constant 3 : index
     // CHECK: [[CST_W:%.+]] = arith.constant 6.000000e+00 : f64
     // CHECK: [[C1:%.+]] = arith.constant 1 : index
+    // CHECK: [[EPSILON:%.+]] = arith.constant 9.9999999999999995E-7 : f64
     // CHECK: [[CST_H:%.+]] = arith.constant 4.000000e+00 : f64
     // CHECK: [[C0:%.+]] = arith.constant 0 : index
 
@@ -128,12 +129,14 @@ func.func @ReifyInterpolateDMAOpShape(%IN: !InterpDMAInType, %SCALES: tensor<2xf
     %DIM_2 = tensor.dim %INTERP, %IDX_2 : !InterpDMAOutType
     %DIM_3 = tensor.dim %INTERP, %IDX_3 : !InterpDMAOutType
     // CHECK: [[SCALE_H:%.+]] = tensor.extract [[ARG1]]{{\[}}[[C0]]{{\]}} : tensor<2xf16>
-    // CHECK: [[SCALE_H_F64:%.+]] = arith.extf [[SCALE_H]] : f16 to f64
+    // CHECK: [[SCALE_H_TMP:%.+]] = arith.extf [[SCALE_H]] : f16 to f64
+    // CHECK: [[SCALE_H_F64:%.+]] = arith.addf [[SCALE_H_TMP]], [[EPSILON]] : f64
     // CHECK: [[H_MUL:%.+]] = arith.mulf [[SCALE_H_F64]], [[CST_H]] : f64
     // CHECK: [[H_I64:%.+]] = arith.fptosi [[H_MUL]] : f64 to i64
     // CHECK: [[DIM_2_REIFIED:%.+]] = arith.index_cast [[H_I64]] : i64 to index
     // CHECK: [[SCALE_W:%.+]] = tensor.extract [[ARG1]]{{\[}}[[C1]]{{\]}} : tensor<2xf16>
-    // CHECK: [[SCALE_W_F64:%.+]] = arith.extf [[SCALE_W]] : f16 to f64
+    // CHECK: [[SCALE_W_TMP:%.+]] = arith.extf [[SCALE_W]] : f16 to f64
+    // CHECK: [[SCALE_W_F64:%.+]] = arith.addf [[SCALE_W_TMP]], [[EPSILON]] : f64
     // CHECK: [[W_MUL:%.+]] = arith.mulf [[SCALE_W_F64]], [[CST_W]] : f64
     // CHECK: [[W_I64:%.+]] = arith.fptosi [[W_MUL]] : f64 to i64
     // CHECK: [[DIM_3_REIFIED:%.+]] = arith.index_cast [[W_I64]] : i64 to index
@@ -290,7 +293,7 @@ func.func @ExpandReifyStaticDim(%arg0: !ExpandInputStatic) -> (!ExpandOutputStat
 // CHECK-SAME:  [[Q:%arg[0-9]]]: tensor<1x6x?x64xf16
 func.func @AttentionDMADynSSL(%Q: !QType, %K: !KType, %V: !VType, %AUX: !AuxType) -> (!OutType, index) {
     %C2 = arith.constant 2 : index
-    %ATTN = VPU.AttentionDMA(%Q, %K, %V, %AUX) {operandSegmentSizes = array<i32: 1, 1, 1, 0, 0, 0, 0, 1, 0, 0, 0>} : !QType, !KType, !VType, !AuxType -> !OutType
+    %ATTN = VPU.AttentionDMA(%Q, %K, %V, %AUX) {operandSegmentSizes = array<i32: 1, 1, 1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0>} : !QType, !KType, !VType, !AuxType -> !OutType
     %DIM = tensor.dim %ATTN, %C2 : !OutType
     return %ATTN, %DIM : !OutType, index
 

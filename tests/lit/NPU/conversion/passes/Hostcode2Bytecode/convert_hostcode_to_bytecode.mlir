@@ -1522,3 +1522,90 @@ module {
 // CHECK:      [[VAL:%.+]] = bytecode.virtual_value_register
 // CHECK:      bytecode.buffer.load [[VAL]], {{%.+}} indices([[C0]])
 // CHECK:      bytecode.buffer.store {{%.+}}, [[VAL]] indices([[C0]])
+
+// -----
+
+// memref.global with a dense initial value is migrated into the bytecode constant section,
+// and each memref.get_global is lowered to a bytecode.buffer.from_const that references
+// the migrated symbol
+
+module @memref_global_dense {
+  memref.global "private" constant @dense_weights : memref<3xi64> = dense<[42, 100, 50]>
+  func.func @fn_use_dense_global() -> () attributes {config.pureHostCompileFunc} {
+    %0 = memref.get_global @dense_weights : memref<3xi64>
+    return
+  }
+}
+
+// CHECK-LABEL: module @memref_global_dense
+// CHECK:       bytecode.constant_section @constant_section
+// CHECK:         bytecode.constant @host_constant dense<[42, 100, 50]> : tensor<3xi64>
+// CHECK-NOT:   memref.global
+// CHECK:       bytecode.ext.func @fn_use_dense_global
+// CHECK-NOT:     memref.get_global
+// CHECK:         [[REG:%.+]] = bytecode.virtual_value_register
+// CHECK:         bytecode.buffer.from_const [[REG]], @constant_section::@host_constant, @type_section::@i64
+
+// -----
+
+// memref.global backed by a dense_resource is migrated into the bytecode constant section.
+{-#
+  dialect_resources: {
+    builtin: {
+      blob_weights: "0x400000002A0000006400000032000000"
+    }
+  }
+#-}
+module @memref_global_resource {
+  memref.global "private" constant @resource_weights : memref<3xi32> = dense_resource<blob_weights>
+  func.func @fn_use_resource_global() -> () attributes {config.pureHostCompileFunc} {
+    %0 = memref.get_global @resource_weights : memref<3xi32>
+    return
+  }
+}
+
+// CHECK-LABEL: module @memref_global_resource
+// CHECK:         bytecode.constant @host_constant dense_resource<blob_weights> : tensor<3xi32>
+// CHECK-NOT:   memref.global
+// CHECK:       bytecode.ext.func @fn_use_resource_global
+// CHECK:         [[REG:%.+]] = bytecode.virtual_value_register
+// CHECK:         bytecode.buffer.from_const [[REG]], @constant_section::@host_constant, @type_section::@i32
+
+// -----
+
+// memref.global migration also supports multiple constants in the same module.
+// This covers one resource-backed weight tensor and one plain dense tensor.
+{-#
+  dialect_resources: {
+    builtin: {
+      blob_weights: "0x400000002A0000006400000032000000"
+    }
+  }
+#-}
+
+module @memref_global_mixed_constants {
+  memref.global "private" constant @weights : memref<3xi32> = dense_resource<blob_weights>
+  memref.global "private" constant @bias : memref<4xi64> = dense<[7, 8, 9, 10]>
+  func.func @fn_use_mixed_globals(%weights_out: memref<3xi32>, %bias_out: memref<4xi64>)
+      -> () attributes {config.pureHostCompileFunc} {
+    %weights = memref.get_global @weights : memref<3xi32>
+    %bias = memref.get_global @bias : memref<4xi64>
+    memref.copy %weights, %weights_out : memref<3xi32> to memref<3xi32>
+    memref.copy %bias, %bias_out : memref<4xi64> to memref<4xi64>
+    return
+  }
+}
+
+// CHECK-LABEL: module @memref_global_mixed_constants
+// CHECK-DAG:    bytecode.constant_section @constant_section {
+// CHECK-DAG:      bytecode.constant @[[WEIGHTS:[A-Za-z0-9_]+]] dense_resource<blob_weights> : tensor<3xi32>
+// CHECK-DAG:      bytecode.constant @[[BIAS:[A-Za-z0-9_]+]] dense<[7, 8, 9, 10]> : tensor<4xi64>
+// CHECK-DAG:    }
+// CHECK-NOT:   memref.global
+// CHECK:       bytecode.ext.func @fn_use_mixed_globals
+// CHECK-DAG:     [[WEIGHTS_REG:%.+]] = bytecode.virtual_value_register
+// CHECK-DAG:     [[BIAS_REG:%.+]] = bytecode.virtual_value_register
+// CHECK-DAG:     bytecode.buffer.from_const [[WEIGHTS_REG]], @constant_section::@[[WEIGHTS]], @type_section::@i32
+// CHECK-DAG:     bytecode.buffer.from_const [[BIAS_REG]], @constant_section::@[[BIAS]], @type_section::@i64
+// CHECK-DAG:     bytecode.buffer.copy {{%.+}}, [[WEIGHTS_REG]]
+// CHECK-DAG:     bytecode.buffer.copy {{%.+}}, [[BIAS_REG]]

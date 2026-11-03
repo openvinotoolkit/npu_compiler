@@ -116,8 +116,8 @@ mlir::LogicalResult SwapTransposeWithFQ::TransposeOpConverter::matchAndRewrite(I
 
         auto newOp = rewriter.replaceOpWithNewOp<IE::FakeQuantizeOp>(
                 origOp, transposeOp.getOutput(), origFqOp.getInputLow(), origFqOp.getInputHigh(),
-                origFqOp.getOutputLow(), origFqOp.getOutputHigh(), origFqOp.getLevelsAttr(),
-                origFqOp.getLowFpTypeAttr(), origFqOp.getAutoBroadcast());
+                origFqOp.getOutputLow(), origFqOp.getOutputHigh(), origFqOp.getLevelsOrLowFpTypeAttr(),
+                origFqOp.getAutoBroadcast());
         extendOpLoc(newOp, "as_fq");
     }
 

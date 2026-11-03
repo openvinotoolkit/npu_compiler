@@ -97,10 +97,10 @@ mlir::LogicalResult AffineReshapePermuteCastRewriter::matchAndRewrite(IE::Dynami
         return matchFailed(_log, rewriter, origOp, "Pattern mismatch");
     }
 
-    auto newReshapeOp = IE::AffineReshapeOp::create(rewriter, origOp->getLoc(), origOp.getInput(),
+    auto newReshapeOp = IE::AffineReshapeOp::create(rewriter, takeOpLoc(origOp, "reshape_in"), origOp.getInput(),
                                                     reshapeOp.getDimMappingAttr(), reshapeOp.getShapeValueAttr());
 
-    auto newPermuteOp = IE::PermuteCastOp::create(rewriter, origOp->getLoc(), newReshapeOp.getOutput(),
+    auto newPermuteOp = IE::PermuteCastOp::create(rewriter, takeOpLoc(origOp, "permute_in"), newReshapeOp.getOutput(),
                                                   permuteOp.getDstOrderAttr(), permuteOp.getMemPermAttr());
 
     const auto origReshapeRank = reshapeOp.getOutput().getType().getRank();
@@ -111,11 +111,12 @@ mlir::LogicalResult AffineReshapePermuteCastRewriter::matchAndRewrite(IE::Dynami
     }
 
     const auto scaleShapeAttr = getIntArrayAttr(getContext(), newScaleShape);
-    auto scaleReshapeOp = IE::AffineReshapeOp::create(rewriter, origOp->getLoc(), origOp.getScale(),
+    auto scaleReshapeOp = IE::AffineReshapeOp::create(rewriter, takeOpLoc(origOp, "reshape_scale"), origOp.getScale(),
                                                       reshapeOp.getDimMappingAttr(), scaleShapeAttr);
 
-    auto scalePermuteOp = IE::PermuteCastOp::create(rewriter, origOp->getLoc(), scaleReshapeOp.getOutput(),
-                                                    permuteOp.getDstOrderAttr(), permuteOp.getMemPermAttr());
+    auto scalePermuteOp =
+            IE::PermuteCastOp::create(rewriter, takeOpLoc(origOp, "permute_scale"), scaleReshapeOp.getOutput(),
+                                      permuteOp.getDstOrderAttr(), permuteOp.getMemPermAttr());
 
     rewriter.replaceOpWithNewOp<IE::DynamicDequantizeOp>(permuteOp, newPermuteOp.getOutput(),
                                                          scalePermuteOp.getOutput(), origOp.getZp(),

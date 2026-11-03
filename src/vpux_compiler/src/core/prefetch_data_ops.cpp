@@ -355,9 +355,11 @@ void PrefetchDataOps::createDataOpPipeline() {
     _prefetchPipeline = std::move(DataOpPipeline);
     // reset for second scheduling iteration with defined DMA order
     _operationCycles.clear();
-    _executorPipelineCycles = {{config::ExecutorKind::DMA_NN, {}},    {config::ExecutorKind::DPU, {}},
-                               {config::ExecutorKind::NCE, {}},       {config::ExecutorKind::SHAVE_NN, {}},
-                               {config::ExecutorKind::SHAVE_ACT, {}}, {config::ExecutorKind::M2I, {}}};
+    _executorPipelineCycles = {{config::ExecutorKind::DMA_NN, {}},
+                               {config::ExecutorKind::DPU, {}},
+                               {config::ExecutorKind::NCE, {}},
+                               {config::ExecutorKind::SHAVE_NN, {}},
+                               {config::ExecutorKind::SHAVE_ACT, {}}};
 }
 
 void PrefetchDataOps::sortOps(SmallVector<CycleInfo>& toBeSorted) {

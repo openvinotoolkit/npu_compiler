@@ -7,7 +7,6 @@
 // REQUIRES: dev-build && platform-NPU4000
 
 module @OneDMAWithoutAttributes attributes {config.platform = #config.platform<NPU4000>} {
-  config.ExecutorResource 1 of @M2I
   config.ExecutorResource 1 of @DMA_NN
   config.Resources 6 of @NCE at 6.000000e+02 MHz
   net.NetworkInfo entryPoint : @main inputsInfo : {

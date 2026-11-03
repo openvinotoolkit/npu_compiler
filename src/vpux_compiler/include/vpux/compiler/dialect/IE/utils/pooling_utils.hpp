@@ -77,7 +77,9 @@ bool isAddOutputQuantized(IE::AddOp add);
 // Converts a scale tensor to FP32 by routing it through an identity MaxPool.
 // Preserves accuracy compared to a plain ConvertOp for f16 inputs.
 // Returns the scale unchanged if it is already FP32, or nullptr if scale is nullptr.
-mlir::Value createConvertPoolingForScaleTable(mlir::Value scale, mlir::PatternRewriter& rewriter);
+// Set nhwcLayout when called after layout adjustment, so the MaxPool is still NCE-legal.
+mlir::Value createConvertPoolingForScaleTable(mlir::Value scale, mlir::PatternRewriter& rewriter,
+                                              bool nhwcLayout = false);
 
 }  // namespace IE
 }  // namespace vpux

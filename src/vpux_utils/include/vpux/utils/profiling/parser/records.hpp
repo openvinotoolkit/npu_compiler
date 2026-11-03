@@ -279,11 +279,11 @@ protected:
     const HwpDpuIduOduData_t _timestamps;
 };
 
-class RawProfilingDPUHW50Record final : public RawProfilingDPUHW40Record {
+class RawProfilingDPUHW50Record : public RawProfilingDPUHW40Record {
 public:
     using RawProfilingDPUHW40Record::RawProfilingDPUHW40Record;
 
-private:
+protected:
     double getTaskDurationClock(const FrequenciesSetup& frequenciesSetup) const override;
 };
 

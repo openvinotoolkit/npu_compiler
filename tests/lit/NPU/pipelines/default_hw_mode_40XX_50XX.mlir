@@ -4,13 +4,13 @@
 //
 
 // TODO: #185311 remove enable-reorder-concat-branches option
-// RUN: vpux-opt --init-compiler="platform=%platform% enable-sw-kernel-fifo-per-shave-engine=true" --default-hw-mode-ie="verify-locations=off" --lower-IE-to-VPU --default-hw-mode-vpu="concat-repeating-block-outlining-min-seq-length=1 vf-outlining=false enable-reorder-concat-branches=false" %s -o %t
+// RUN: vpux-opt --init-compiler="platform=%platform% workload-management-mode=FWLM_V1_PAGES" --default-hw-mode-ie="verify-locations=off" --lower-IE-to-VPU --default-hw-mode-vpu="concat-repeating-block-outlining-min-seq-length=1 vf-outlining=false enable-reorder-concat-branches=false" %s -o %t
 // RUN: FileCheck --check-prefix=CHECK-VPU %s --input-file %t
 
 // "init-compiler" is used here instead of "platform" only because of the error
 // OneShotBufferizeVPU2VPUIP failed: "ppe_version_config.cpp Tried to access an uninitialized PpeFactory"
 // Looks like this is "by design"
-// RUN: vpux-opt --init-compiler="platform=%platform% allow-custom-values=true enable-sw-kernel-fifo-per-shave-engine=true" --lower-VPU-to-VPUIP --default-hw-mode-vpuip="workload-management-mode=FWLM_V1_PAGES vf-outlining=false" %t | FileCheck --check-prefix=CHECK-VPUIP %s
+// RUN: vpux-opt --init-compiler="platform=%platform% allow-custom-values=true workload-management-mode=FWLM_V1_PAGES" --lower-VPU-to-VPUIP --default-hw-mode-vpuip="workload-management-mode=FWLM_V1_PAGES vf-outlining=false" %t | FileCheck --check-prefix=CHECK-VPUIP %s
 
 // REQUIRES: platform-NPU4000 || platform-NPU5010
 

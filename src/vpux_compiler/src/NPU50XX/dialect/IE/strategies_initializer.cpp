@@ -15,6 +15,7 @@
 #include "vpux/compiler/NPU50XX/dialect/IE/impl/convert_to_palletization_lut_strategy.hpp"
 #include "vpux/compiler/NPU50XX/dialect/IE/impl/convert_weights_to_unsigned_strategy.hpp"
 #include "vpux/compiler/NPU50XX/dialect/IE/impl/expand_activation_channels_strategy.hpp"
+#include "vpux/compiler/NPU50XX/dialect/IE/impl/fuse_outstanding_dequant_strategy.hpp"
 #include "vpux/compiler/NPU50XX/dialect/IE/impl/fuse_outstanding_quant_strategy.hpp"
 #include "vpux/compiler/NPU50XX/dialect/IE/impl/fuse_quantized_ops_strategy.hpp"
 #include "vpux/compiler/NPU50XX/dialect/IE/impl/initial_low_precision_transformations_pipeline_strategy.hpp"
@@ -41,6 +42,10 @@ class StrategyFactory50XX : public IE::StrategyFactory {
 
     std::unique_ptr<IGreedilyPassStrategy> getFuseOutstandingQuantStrategy() override {
         return std::make_unique<arch50xx::FuseOutstandingQuantStrategy>();
+    }
+
+    std::unique_ptr<IGreedilyPassStrategy> getFuseOutstandingDequantStrategy() override {
+        return std::make_unique<arch50xx::FuseOutstandingDequantStrategy>();
     }
 
     std::unique_ptr<IExpandActivationChannelsStrategy> getExpandActivationChannelsStrategy(const bool seOpsEnabled,

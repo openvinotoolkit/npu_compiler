@@ -555,7 +555,7 @@ func.func @DoNotConvertTrivialShape(%arg0: tensor<1x1x512xf16>) -> tensor<1x1x51
 func.func @TransposeMultiply(%arg0: tensor<1x64x128x64xf16>) -> tensor<1x64x128x64xf16> {
     %cst = const.Declare tensor<1x1x1x64xf16> = dense<1.0> : tensor<1x1x1x64xf16>
     %cst_0 = const.Declare tensor<1x1x1x1xf16> = dense<1.0> : tensor<1x1x1x1xf16>
-    %0 = IE.FakeQuantize(%cst, %cst_0, %cst_0, %cst_0, %cst_0) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 255 : i64}
+    %0 = IE.FakeQuantize(%cst, %cst_0, %cst_0, %cst_0, %cst_0) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 255 : i64}
         : tensor<1x1x1x64xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>
                 -> tensor<1x1x1x64xf16>
     %1 = IE.Multiply(%arg0, %0) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x64x128x64xf16>, tensor<1x1x1x64xf16> -> tensor<1x64x128x64xf16>
@@ -564,7 +564,7 @@ func.func @TransposeMultiply(%arg0: tensor<1x64x128x64xf16>) -> tensor<1x64x128x
     // CHECK-DAG:   [[CONST_INPUT:%.+]] = const.Declare tensor<1x1x1x64xf16> = dense<1.000000e+00> : tensor<1x1x1x64xf16>
     // CHECK-DAG:   [[CONST_FQ:%.+]] = const.Declare tensor<1x1x1x1xf16> = dense<1.000000e+00> : tensor<1x1x1x1xf16>
     // CHECK:       [[FQ_INPUT:%.+]] = IE.FakeQuantize([[CONST_INPUT]], [[CONST_FQ]], [[CONST_FQ]], [[CONST_FQ]], [[CONST_FQ]]) {
-    // CHECK-SAME:      auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 255 : i64
+    // CHECK-SAME:      auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 255 : i64
     // CHECK-SAME:      : tensor<1x1x1x64xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>
     // CHECK-SAME:          -> tensor<1x1x1x64xf16>
     // CHECK:       [[ACT_TRANSPOSE:%.+]] = IE.Transpose([[INPUT]]) {order_value = #NWCH} : tensor<1x64x128x64xf16> -> tensor<1x64x64x128xf16>
@@ -587,7 +587,7 @@ func.func @TransposeMultiply(%arg0: tensor<1x64x128x64xf16>) -> tensor<1x64x128x
 func.func @TransposeSubtract(%arg0: tensor<1x64x128x64xf16>) -> tensor<1x64x128x64xf16> {
     %cst = const.Declare tensor<1x1x1x64xf16> = dense<1.0> : tensor<1x1x1x64xf16>
     %cst_0 = const.Declare tensor<1x1x1x1xf16> = dense<1.0> : tensor<1x1x1x1xf16>
-    %0 = IE.FakeQuantize(%cst, %cst_0, %cst_0, %cst_0, %cst_0) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 255 : i64}
+    %0 = IE.FakeQuantize(%cst, %cst_0, %cst_0, %cst_0, %cst_0) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 255 : i64}
         : tensor<1x1x1x64xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>
                 -> tensor<1x1x1x64xf16>
     %1 = IE.Subtract(%arg0, %0) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x64x128x64xf16>, tensor<1x1x1x64xf16> -> tensor<1x64x128x64xf16>
@@ -596,7 +596,7 @@ func.func @TransposeSubtract(%arg0: tensor<1x64x128x64xf16>) -> tensor<1x64x128x
     // CHECK-DAG:   [[CONST_INPUT:%.+]] = const.Declare tensor<1x1x1x64xf16> = dense<1.000000e+00> : tensor<1x1x1x64xf16>
     // CHECK-DAG:   [[CONST_FQ:%.+]] = const.Declare tensor<1x1x1x1xf16> = dense<1.000000e+00> : tensor<1x1x1x1xf16>
     // CHECK:       [[FQ_INPUT:%.+]] = IE.FakeQuantize([[CONST_INPUT]], [[CONST_FQ]], [[CONST_FQ]], [[CONST_FQ]], [[CONST_FQ]]) {
-    // CHECK-SAME:      auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 255 : i64
+    // CHECK-SAME:      auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 255 : i64
     // CHECK-SAME:      : tensor<1x1x1x64xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>
     // CHECK-SAME:          -> tensor<1x1x1x64xf16>
     // CHECK:       [[ACT_TRANSPOSE:%.+]] = IE.Transpose([[INPUT]]) {order_value = #NWCH} : tensor<1x64x128x64xf16> -> tensor<1x64x64x128xf16>
@@ -619,7 +619,7 @@ func.func @TransposeSubtract(%arg0: tensor<1x64x128x64xf16>) -> tensor<1x64x128x
 func.func @TransposeAdd(%arg0: tensor<1x64x128x64xf16>) -> tensor<1x64x128x64xf16> {
     %cst = const.Declare tensor<1x1x1x64xf16> = dense<1.0> : tensor<1x1x1x64xf16>
     %cst_0 = const.Declare tensor<1x1x1x1xf16> = dense<1.0> : tensor<1x1x1x1xf16>
-    %0 = IE.FakeQuantize(%cst, %cst_0, %cst_0, %cst_0, %cst_0) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 255 : i64}
+    %0 = IE.FakeQuantize(%cst, %cst_0, %cst_0, %cst_0, %cst_0) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 255 : i64}
         : tensor<1x1x1x64xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>
                 -> tensor<1x1x1x64xf16>
     %1 = IE.Add(%arg0, %0) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x64x128x64xf16>, tensor<1x1x1x64xf16> -> tensor<1x64x128x64xf16>
@@ -628,7 +628,7 @@ func.func @TransposeAdd(%arg0: tensor<1x64x128x64xf16>) -> tensor<1x64x128x64xf1
     // CHECK-DAG:   [[CONST_INPUT:%.+]] = const.Declare tensor<1x1x1x64xf16> = dense<1.000000e+00> : tensor<1x1x1x64xf16>
     // CHECK-DAG:   [[CONST_FQ:%.+]] = const.Declare tensor<1x1x1x1xf16> = dense<1.000000e+00> : tensor<1x1x1x1xf16>
     // CHECK:       [[FQ_INPUT:%.+]] = IE.FakeQuantize([[CONST_INPUT]], [[CONST_FQ]], [[CONST_FQ]], [[CONST_FQ]], [[CONST_FQ]]) {
-    // CHECK-SAME:      auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 255 : i64
+    // CHECK-SAME:      auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 255 : i64
     // CHECK-SAME:      : tensor<1x1x1x64xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>
     // CHECK-SAME:          -> tensor<1x1x1x64xf16>
     // CHECK:       [[ACT_TRANSPOSE:%.+]] = IE.Transpose([[INPUT]]) {order_value = #NWCH} : tensor<1x64x128x64xf16> -> tensor<1x64x64x128xf16>
