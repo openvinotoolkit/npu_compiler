@@ -3,7 +3,7 @@
 setuptools>=84.2.1
 
 # Core
-transformers>=5.20.1
+transformers>=5.22.1
 torch==2.14.1+cpu
 torchvision==0.29.1+cpu
 protobuf==7.36.2
