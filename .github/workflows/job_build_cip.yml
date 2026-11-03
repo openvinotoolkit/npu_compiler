@@ -1,0 +1,343 @@
+name: NPU CIP Build
+on:
+  workflow_dispatch:
+    inputs:
+      os:
+        description: 'OS in the form of "ubuntu_20_04" or "windows_2022".'
+        type: string
+        required: true
+        default: ubuntu_24_04
+      build-runner:
+        description: 'Runner tag on which the builds will run. Example: "ubuntu-latest-32-cores" or "windows-2022-16-core"'
+        type: string
+        required: true
+        default: ubuntu-latest-32-cores
+      openvino-cmake-options:
+        description: 'Extra OpenVINO CMake options (appended last, whitespace separated).'
+        type: string
+        required: false
+      build-cache:
+        description: 'Push packages to cache for the first run, use them in the following runs.'
+        type: boolean
+        required: false
+        default: true
+      build-cache-key-suffix:
+        description: 'Cache identifier. Merge commit hash by default.'
+        type: string
+        required: false
+      publish-release-assets:
+        description: 'Find the release tag associated with the commit and upload release assets.'
+        type: boolean
+        required: false
+        default: false
+
+  workflow_call:
+    inputs:
+      os:
+        description: 'OS in the form of "ubuntu_20_04" or "windows_2022".'
+        type: string
+        required: true
+      build-runner:
+        description: 'Runner tag on which the builds will run. Example: "ubuntu-latest-32-cores" or "windows-2022-16-core"'
+        type: string
+        required: true
+      openvino-cmake-options:
+        description: 'Extra OpenVINO CMake options (appended last, whitespace separated).'
+        type: string
+        required: false
+      build-cache:
+        description: 'Push packages to cache for the first run, use them in the following runs.'
+        type: boolean
+        required: false
+        default: false
+      build-cache-key-suffix:
+        description: 'Cache identifier. Merge commit hash by default.'
+        type: string
+        required: false
+      tbb-root:
+        description: 'Custom TBB root (optional). If set, passed as -DTBBROOT='
+        type: string
+        required: false
+      publish-release-assets:
+        description: 'Find the release tag associated with the commit and upload release assets.'
+        type: boolean
+        required: false
+        default: false
+    outputs:
+      build-package:
+        description: 'Produced CIP artifact name (uploaded artifact)'
+        value: ${{ jobs.Build.outputs.build-package }}
+    secrets:
+      release_token:
+        description: 'PAT with Contents: read/write'
+        required: false
+
+defaults:
+  run:
+    shell: bash
+
+permissions:
+  actions: read
+  contents: read
+  packages: read
+  statuses: read
+
+jobs:
+  Build:
+    name: Build
+    runs-on: ${{ inputs.build-runner }}
+    timeout-minutes: 240
+    permissions:
+      actions: read
+      contents: read
+      packages: read
+      statuses: read
+      id-token: write
+      attestations: write
+    outputs:
+      build-package: ${{ steps.set-build-package-name.outputs.build-package }}
+    env:
+      DEBIAN_FRONTEND: noninteractive
+      IS_WINDOWS: ${{ startsWith(inputs.os, 'windows_') && '1' || '0' }}
+      CMAKE_BUILD_TYPE: Release
+      OPENVINO_REPO: ./openvino
+      NPU_ACTIONS_DIR: ./npu_actions
+      NPU_COMPILER_REPO: ./npu_compiler
+      OPENVINO_BUILD_DIR: ./openvino_build
+      CIP_PACKAGE_ARTIFACTS_DIR: ./cip_artifacts
+
+    steps:
+      - name: Dump event info
+        run: |
+          echo "Event name: ${{ github.event_name }}"
+          echo "Full event payload:"
+          jq . "$GITHUB_EVENT_PATH"
+
+      - name: Prepare artifact dir
+        run: |
+          cmake -E make_directory "${CIP_PACKAGE_ARTIFACTS_DIR}"
+
+      - name: Checkout actions
+        uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
+        with:
+          path: ${{ env.NPU_ACTIONS_DIR }}
+          sparse-checkout: |
+            .github/actions
+          sparse-checkout-cone-mode: false
+
+      - name: Get versions
+        uses: ./npu_actions/.github/actions/versions
+        id: versions
+
+      - name: Compute packaging params
+        id: package-params
+        run: |
+          if [[ "${{ env.IS_WINDOWS }}" == "1" ]]; then
+            echo "package-prefix=w" >> $GITHUB_OUTPUT
+            echo "package-platform-tag=win" >> $GITHUB_OUTPUT
+            echo "package-extension=zip" >> $GITHUB_OUTPUT
+            echo "cpack-generator=ZIP" >> $GITHUB_OUTPUT
+          else
+            echo "package-prefix=l" >> $GITHUB_OUTPUT
+            echo "package-platform-tag=linux" >> $GITHUB_OUTPUT
+            echo "package-extension=tar.gz" >> $GITHUB_OUTPUT
+            echo "cpack-generator=TGZ" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Get package name
+        id: package-name
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            CI_CONTEXT="precommit"
+          else
+            CI_CONTEXT="postcommit"
+          fi
+          TIME_STAMP=$(date +'%y%m%d_%H%M')
+          BASE_PREFIX="${{ steps.package-params.outputs.package-prefix }}"
+          PLATFORM="${{ steps.package-params.outputs.package-platform-tag }}"
+          VERSION="${{ steps.versions.outputs.npu-compiler-version }}"
+          EXTENSION="${{ steps.package-params.outputs.package-extension }}"
+
+          cip_package_base_name="${BASE_PREFIX}_vpux_compiler_l0_${PLATFORM}_${{ inputs.os }}-${VERSION}-"
+          cip_package_base_name+="${CMAKE_BUILD_TYPE}_dyntbb_${CI_CONTEXT}_cip_${{ github.sha }}_${TIME_STAMP}"
+          cip_package_full_name="${cip_package_base_name}.${EXTENSION}"
+
+          echo "CIP package will be generated with the following name: $cip_package_full_name"
+          echo "cip-package-base-name=$cip_package_base_name" >> $GITHUB_OUTPUT
+          echo "cip-package-full-name=$cip_package_full_name" >> $GITHUB_OUTPUT
+
+      - name: Get cache key
+        if: ${{ inputs.build-cache }}
+        id: cache-key
+        run: |
+          BASE_PREFIX="${{ steps.package-params.outputs.package-prefix }}"
+          cache_key="${BASE_PREFIX}_cip_${{ inputs.os }}_cache_${{ inputs.build-cache-key-suffix || github.sha }}"
+          echo "cache-key=$cache_key" >> $GITHUB_OUTPUT
+
+      - name: Restore CIP artifacts from cache
+        if: ${{ inputs.build-cache }}
+        id: cache-restore
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          key: ${{ steps.cache-key.outputs.cache-key }}
+          path: ${{ env.CIP_PACKAGE_ARTIFACTS_DIR }}
+
+      - name: Clone OpenVINO
+        if: ${{ !steps.cache-restore.outputs.cache-hit }}
+        uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
+        timeout-minutes: 15
+        with:
+          repository: ${{ steps.versions.outputs.openvino-repository }}
+          path: ${{ env.OPENVINO_REPO }}
+          submodules: true
+          ref: ${{ steps.versions.outputs.openvino-sha }}
+
+      - name: Checkout NPU Compiler
+        if: ${{ !steps.cache-restore.outputs.cache-hit }}
+        uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
+        with:
+          path: ${{ env.NPU_COMPILER_REPO }}
+          submodules: true
+          lfs: true
+
+      - name: System info
+        if: ${{ !steps.cache-restore.outputs.cache-hit }}
+        uses: openvinotoolkit/openvino/.github/actions/system_info@7a975177ff432c687e5619e8fb22e4bf265e48b7 # 2025.4.0
+
+      - name: Setup python version
+        if: ${{ !steps.cache-restore.outputs.cache-hit }}
+        uses: actions/setup-python@83679a892e2d95755f2dac6acb0bfd1e9ac5d548 # v6.1.0
+        with:
+          python-version: '3.13'
+
+      - name: Install python deps
+        if: ${{ !steps.cache-restore.outputs.cache-hit }}
+        run: |
+          python -m pip install --require-hashes -r "${NPU_COMPILER_REPO}/.github/requirements-dev.txt"
+
+      - name: Setup MSVC env (x64)
+        if: ${{ !steps.cache-restore.outputs.cache-hit && env.IS_WINDOWS == '1' }}
+        uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756 # v1.13.0
+        with:
+          arch: x64
+
+      - name: Prepare environment
+        if: ${{ !steps.cache-restore.outputs.cache-hit }}
+        env:
+          TBB_ROOT_OPT: ${{ inputs.tbb-root }}
+        run: |
+          if [[ -n "${TBB_ROOT_OPT}" ]]; then
+            echo "EXTRA_OPTS=-DTBBROOT=${TBB_ROOT_OPT}" >> "$GITHUB_ENV"
+          else
+            echo "EXTRA_OPTS=" >> "$GITHUB_ENV"
+          fi
+          if [[ "${IS_WINDOWS}" == "1" ]]; then
+            OPENVINO_ABS="$(realpath "${OPENVINO_REPO}")"
+            TOOLCHAIN_FILE="${OPENVINO_ABS}/cmake/toolchains/onecoreuap.toolchain.cmake"
+            EXTRA_OPTS_VALUE="-DCMAKE_TOOLCHAIN_FILE=${TOOLCHAIN_FILE} -DENABLE_PDB_IN_RELEASE=ON ${EXTRA_OPTS:-}"
+            echo "EXTRA_OPTS=${EXTRA_OPTS_VALUE}" >> "$GITHUB_ENV"
+          fi
+
+      - name: CMake configure - OpenVINO + NPU
+        if: ${{ !steps.cache-restore.outputs.cache-hit }}
+        run: |
+          cmake \
+            -G Ninja \
+            -D CMAKE_BUILD_TYPE="${CMAKE_BUILD_TYPE}" \
+            -D BUILD_SHARED_LIBS=OFF \
+            -D OPENVINO_EXTRA_MODULES=$(realpath ${NPU_COMPILER_REPO}) \
+            -D ENABLE_LTO=OFF \
+            -D ENABLE_FASTER_BUILD=OFF \
+            -D ENABLE_CPPLINT=OFF \
+            -D ENABLE_TESTS=OFF \
+            -D ENABLE_FUNCTIONAL_TESTS=OFF \
+            -D ENABLE_SAMPLES=OFF \
+            -D ENABLE_JS=OFF \
+            -D ENABLE_PYTHON=OFF \
+            -D ENABLE_PYTHON_PACKAGING=OFF \
+            -D ENABLE_WHEEL=OFF \
+            -D ENABLE_OV_ONNX_FRONTEND=OFF \
+            -D ENABLE_OV_PYTORCH_FRONTEND=OFF \
+            -D ENABLE_OV_PADDLE_FRONTEND=OFF \
+            -D ENABLE_OV_TF_FRONTEND=OFF \
+            -D ENABLE_OV_TF_LITE_FRONTEND=OFF \
+            -D ENABLE_OV_JAX_FRONTEND=OFF \
+            -D ENABLE_OV_IR_FRONTEND=ON \
+            -D THREADING=TBB \
+            -D ENABLE_TBBBIND_2_5=OFF \
+            -D ENABLE_SYSTEM_TBB=OFF \
+            -D ENABLE_TBB_RELEASE_ONLY=OFF \
+            -D ENABLE_HETERO=OFF \
+            -D ENABLE_MULTI=OFF \
+            -D ENABLE_AUTO=OFF \
+            -D ENABLE_AUTO_BATCH=OFF \
+            -D ENABLE_TEMPLATE=OFF \
+            -D ENABLE_PROXY=OFF \
+            -D ENABLE_INTEL_CPU=OFF \
+            -D ENABLE_INTEL_GPU=OFF \
+            -D ENABLE_NPU_PLUGIN_ENGINE=OFF \
+            -D ENABLE_DRIVER_COMPILER_ADAPTER=OFF \
+            -D ENABLE_INTEL_NPU_INTERNAL=OFF \
+            -D ENABLE_INTEL_NPU_PROTOPIPE=OFF \
+            -D BUILD_COMPILER_FOR_DRIVER=OFF \
+            -D ENABLE_PRIVATE_TESTS=OFF \
+            -D ENABLE_NPU_LSP_SERVER=OFF \
+            ${EXTRA_OPTS} \
+            ${{ inputs.openvino-cmake-options }} \
+            -S ${OPENVINO_REPO} \
+            -B ${OPENVINO_BUILD_DIR}
+
+      - name: CMake build - CIP targets
+        if: ${{ !steps.cache-restore.outputs.cache-hit }}
+        run: |
+          cmake \
+            --build "${OPENVINO_BUILD_DIR}" \
+            --parallel \
+            --config "${CMAKE_BUILD_TYPE}" \
+            --target openvino_intel_npu_compiler compilerTest profilingTest vpuxCompilerL0Test loaderTest
+
+      - name: CMake cpack - CIP target
+        if: ${{ !steps.cache-restore.outputs.cache-hit }}
+        run: |
+          cpack -V \
+            --config "${OPENVINO_BUILD_DIR}/CPackConfig.cmake" \
+            -C "${CMAKE_BUILD_TYPE}" \
+            -G "${{ steps.package-params.outputs.cpack-generator }}" \
+            -B "${CIP_PACKAGE_ARTIFACTS_DIR}" \
+            -D CPACK_COMPONENTS_ALL=CiP \
+            -D CPACK_CMAKE_GENERATOR=Ninja \
+            -D CPACK_PACKAGE_FILE_NAME="${{ steps.package-name.outputs.cip-package-base-name }}"
+
+      - name: CIP Package renaming
+        run: |
+          mv "${CIP_PACKAGE_ARTIFACTS_DIR}/"*.${{ steps.package-params.outputs.package-extension }} \
+            "${CIP_PACKAGE_ARTIFACTS_DIR}/${{ steps.package-name.outputs.cip-package-full-name }}"
+
+      - name: Cache CIP artifacts
+        if: ${{ inputs.build-cache && !steps.cache-restore.outputs.cache-hit }}
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ${{ env.CIP_PACKAGE_ARTIFACTS_DIR }}
+          key: ${{ steps.cache-key.outputs.cache-key }}
+
+      - name: Upload CIP package
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
+        with:
+          name: ${{ steps.package-name.outputs.cip-package-full-name }}
+          path: |
+            ${{ env.CIP_PACKAGE_ARTIFACTS_DIR }}/${{ steps.package-name.outputs.cip-package-full-name }}
+
+      - name: Set build package name to outputs
+        id: set-build-package-name
+        run: |
+            echo "build-package=${{ steps.package-name.outputs.cip-package-full-name }}" >> $GITHUB_OUTPUT
+
+      - name: Attest, sign & upload CIP release package
+        if: ${{ github.event_name != 'pull_request' && inputs.publish-release-assets }}
+        uses: ./npu_actions/.github/actions/sign-and-release
+        with:
+          artifact-path: ${{ env.CIP_PACKAGE_ARTIFACTS_DIR }}/${{ steps.package-name.outputs.cip-package-full-name }}
+          release-tag: ${{ steps.versions.outputs.npu-compiler-tag }}
+          repository: ${{ steps.versions.outputs.npu-compiler-repository }}
+          release-token: ${{ secrets.release_token || secrets.RELEASE_WRITER_TOKEN }}
+          workflow-path: ".github/workflows/job_build_cip.yml"
