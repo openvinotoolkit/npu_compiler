@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-// RUN: vpux-opt --split-input-file --init-compiler="platform=%platform% compilation-mode=HostCompile allow-custom-values=true" --tiling-strategy-assignment="tiling-mode=ISOLATED enable-dynamic-dim-alignment=true" %s | FileCheck %s
+// RUN: vpux-opt --split-input-file --init-compiler="platform=%platform% compilation-mode=HostCompile_Interpreter allow-custom-values=true" --tiling-strategy-assignment="tiling-mode=ISOLATED enable-dynamic-dim-alignment=true" %s | FileCheck %s
 // REQUIRES: platform-NPU5010
 
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
@@ -14,7 +14,7 @@ func.func @ConvertDynamicWithDimAlignment(%arg0: tensor<1x1x?x?xf32, {bounds = #
     %0 = VPU.Convert(%arg0) {dstElemType = f16, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>} : tensor<1x1x?x?xf32, {bounds = #const.OpaqueI64Elements<[1, 1, 2160, 3840]> : tensor<4xsi64>, order = #NHWC}> -> tensor<1x1x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 1, 2160, 3840]> : tensor<4xsi64>, order = #NHWC}>
     return %0 : tensor<1x1x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 1, 2160, 3840]> : tensor<4xsi64>, order = #NHWC}>
     // CHECK:       VPU.Convert
-    // CHECK-SAME:  tilingStrategy = [1, 1, 2, {{4|8}}]
+    // CHECK-SAME:  tilingStrategy = [1, 1, 12, 12]
 }
 
 // -----
@@ -27,5 +27,5 @@ func.func @ConvertDynamicNCHWWithDimAlignment(%arg0: tensor<1x1x?x?xf16, {bounds
     %0 = VPU.Convert(%arg0) {dstElemType = f32, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>} : tensor<1x1x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 1, 4320, 7680]> : tensor<4xsi64>, order = #NCHW}> -> tensor<1x1x?x?xf32, {bounds = #const.OpaqueI64Elements<[1, 1, 4320, 7680]> : tensor<4xsi64>, order = #NCHW}>
     return %0 : tensor<1x1x?x?xf32, {bounds = #const.OpaqueI64Elements<[1, 1, 4320, 7680]> : tensor<4xsi64>, order = #NCHW}>
     // CHECK:       VPU.Convert
-    // CHECK-SAME:  tilingStrategy = [1, 1, 2, {{15|30}}]
+    // CHECK-SAME:  tilingStrategy = [1, 1, 24, {{15|30}}]
 }

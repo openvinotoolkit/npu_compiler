@@ -10,6 +10,7 @@
 #include "vpux/compiler/dialect/IE/interfaces/strategies.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
 #include "vpux/compiler/dialect/IE/utils/quantization.hpp"
+#include "vpux/compiler/dialect/config/constraints.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 #include "vpux/compiler/utils/types.hpp"
@@ -151,13 +152,16 @@ inline bool keepIntTypeQuantization(mlir::Operation* op) {
         // Consider Convolution, GroupConvolution and MatMul as valid usecase for mixed precision
         if (mlir::isa<IE::ConvolutionOp, IE::GroupConvolutionOp, IE::MatMulOp>(op)) {
             // Check if the quantization is compatible with mixed precision usecase
-            auto isQuantizationFusable = [&op](const mlir::quant::QuantizedType filterType) -> bool {
+            auto isQuantizationFusable = [op](const mlir::quant::QuantizedType filterType) -> bool {
                 const auto isPerChannelQuantType = mlir::isa<mlir::quant::UniformQuantizedPerAxisType>(filterType);
                 const auto isPerTensorQuantType = mlir::isa<mlir::quant::UniformQuantizedType>(filterType);
                 const auto isSymmetricQuant = IE::isSymmetricQuantType(filterType);
                 auto moduleOp = getModuleOp(op);
+                const auto context = op->getContext();
+                const auto& constraints = config::getNPUConstraints(context);
+                // use the context
                 const auto isAsymmetricPerChannelSupported = config::asymmetricPerChannelZeroPointSupported(moduleOp);
-                const auto isAsymmetricPerTensorSupported = config::asymmetricPerTensorZeroPointSupported(moduleOp);
+                const auto isAsymmetricPerTensorSupported = constraints.asymmetricPerTensorZP;
                 return (isPerChannelQuantType && (isAsymmetricPerChannelSupported || isSymmetricQuant)) ||
                        (isPerTensorQuantType && (isAsymmetricPerTensorSupported || isSymmetricQuant));
             };

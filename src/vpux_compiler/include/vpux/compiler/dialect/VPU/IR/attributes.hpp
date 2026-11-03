@@ -280,6 +280,15 @@ SmallVector<Shape> getPerClusterComputeShapes(ShapeRef shapeRef, const VPU::Dist
 SmallVector<Shape> getPerClusterComputeShapeOffsets(ShapeRef shapeRef, const VPU::DistributionInfo& distribution);
 //
 SmallVector<PadInfo> getPerClusterPadding(DistributionInfoAttr distributionAttr, PadInfo kernelPadding);
+// Non-throwing counterpart of getPerClusterMemoryStridedShapes(). Returns failure instead of throwing for a
+// distribution mode that has no per-cluster stride semantics, or when the strides cannot be adapted per
+// cluster. Intended for callers that must fall back in those cases rather than abort, e.g. cost queries.
+// `logCb` receives the same diagnostic getPerClusterMemoryStridedShapes() throws.
+mlir::FailureOr<SmallVector<StridedShape>> getPerClusterMemoryStridedShapesOrFailure(ShapeRef shape, StridesRef strides,
+                                                                                     const DimsOrder& dimsOrder,
+                                                                                     DistributionModeAttr mode,
+                                                                                     ArrayRef<Shape> memoryShapes,
+                                                                                     LogCb logCb = emptyLogCb);
 SmallVector<StridedShape> getPerClusterMemoryStridedShapes(ShapeRef shape, StridesRef strides,
                                                            const DimsOrder& dimsOrder, DistributionModeAttr mode,
                                                            ArrayRef<Shape> memoryShapes);

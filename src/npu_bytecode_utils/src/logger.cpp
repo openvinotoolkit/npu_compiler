@@ -305,7 +305,6 @@ void intel_npu::vm::detail::dispatchLogMessage(LogLevel level, const char* file,
                                                const std::vector<std::string>& args) {
     static std::mutex logMutex;
     std::lock_guard<std::mutex> lock(logMutex);
-
     std::ostringstream stream;
     stream << color(ANSI_WHITE) << "[" << makeTimestamp() << "] " << colorLevel(level) << levelPrefix(level) << ' '
            << getLogSource(file, line) << color(ANSI_RESET) << ' ' << formatString(format, args) << '\n';

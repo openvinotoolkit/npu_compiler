@@ -6894,6 +6894,196 @@ func.func @FuseCopiesThroughReshape4Dto5DSegmented(%arg0 : memref<1x8x64x128xf16
 
 // -----
 
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+#map = affine_map<(d0, d1, d2, d3, d4) -> (d0, d3, d4, d1, d2)>
+
+!FanOutOutput = !VPUIP.DistributedBuffer<1x32x28x28xf16, #NHWC, @CMX_NN, {
+    mode = "OVERLAPPED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64,
+    compute_shapes = [[1, 32, 14, 28], [1, 32, 14, 28]],
+    compute_offsets = [[0, 0, 0, 0], [0, 0, 14, 0]],
+    memory_shapes = [[1, 32, 16, 28], [1, 32, 16, 28]],
+    memory_offsets = [[0, 0, 0, 0], [0, 0, 12, 0]]
+}>
+
+// CHECK-LABEL: @FuseCopiesThroughReshapeWithFanOut
+// CHECK-SAME: [[INPUT:%.+]]: memref<1x32x50x28x28xf16, {order = #map}, @DDR>
+func.func @FuseCopiesThroughReshapeWithFanOut(
+        %arg0 : memref<1x32x50x28x28xf16, {order = #map}, @DDR>) -> (!FanOutOutput, !FanOutOutput) {
+    %0 = VPUIP.SubView %arg0 [0, 0, 0, 0, 0] [1, 32, 1, 28, 28] : memref<1x32x50x28x28xf16, {order = #map}, @DDR>
+        to memref<1x32x1x28x28xf16, {order = #map, strides = [1254400, 50, 1, 44800, 1600]}, @DDR>
+    %alloc = memref.alloc() : memref<1x32x1x28x28xf16, {order = #map}, @DDR>
+    %1 = VPUIP.Copy inputs(%0 : memref<1x32x1x28x28xf16, {order = #map, strides = [1254400, 50, 1, 44800, 1600]}, @DDR>)
+                    outputs(%alloc : memref<1x32x1x28x28xf16, {order = #map}, @DDR>) -> memref<1x32x1x28x28xf16, {order = #map}, @DDR>
+    %2 = VPUIP.GenericReshape inputs(%1 : memref<1x32x1x28x28xf16, {order = #map}, @DDR>) -> memref<1x32x28x28xf16, {order = #NHWC}, @DDR>
+    %3 = VPURT.AllocDistributed -> !FanOutOutput
+    %4 = VPUIP.Copy inputs(%2 : memref<1x32x28x28xf16, {order = #NHWC}, @DDR>)
+                    outputs(%3 : !FanOutOutput) -> !FanOutOutput
+    %5 = VPURT.AllocDistributed -> !FanOutOutput
+    %6 = VPUIP.Copy inputs(%2 : memref<1x32x28x28xf16, {order = #NHWC}, @DDR>)
+                    outputs(%5 : !FanOutOutput) -> !FanOutOutput
+
+    return %4, %6 : !FanOutOutput, !FanOutOutput
+
+    // CHECK:       [[SUBVIEW:%.+]] = VPUIP.SubView [[INPUT]] [0, 0, 0, 0, 0] [1, 32, 1, 28, 28]
+    // CHECK-NOT:   memref.alloc() : memref<1x32x1x28x28xf16, {order = #map}, @DDR>
+    // CHECK:       [[ALLOC_CMX:%.+]] = VPURT.AllocDistributed
+    // CHECK:       [[COPY:%.+]] = VPUIP.Copy inputs([[SUBVIEW]]
+    // CHECK:       [[RESHAPE:%.+]] = VPUIP.GenericReshape inputs([[COPY]]
+    // CHECK-NOT:   VPUIP.Copy inputs([[RESHAPE]]
+    // CHECK:       return [[RESHAPE]], [[RESHAPE]] : !VPUIP.DistributedBuffer<1x32x28x28xf16, #NHWC, @CMX_NN, {mode = "OVERLAPPED"
+}
+
+// -----
+
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+#map = affine_map<(d0, d1, d2, d3, d4) -> (d0, d3, d4, d1, d2)>
+
+!FanOutOutput = !VPUIP.DistributedBuffer<1x32x28x28xf16, #NHWC, @CMX_NN, {
+    mode = "OVERLAPPED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64,
+    compute_shapes = [[1, 32, 14, 28], [1, 32, 14, 28]],
+    compute_offsets = [[0, 0, 0, 0], [0, 0, 14, 0]],
+    memory_shapes = [[1, 32, 16, 28], [1, 32, 16, 28]],
+    memory_offsets = [[0, 0, 0, 0], [0, 0, 12, 0]]
+}>
+
+!FanOutOutputDifferent = !VPUIP.DistributedBuffer<1x32x28x28xf16, #NHWC, @CMX_NN, {
+    mode = "DUPLICATED", num_clusters = 2 : i64
+}>
+
+// CHECK-LABEL: @NotFuseCopiesThroughReshapeWithIncompatibleFanOutTypes
+// CHECK-SAME: [[INPUT:%.+]]: memref<1x32x50x28x28xf16, {order = #map}, @DDR>
+func.func @NotFuseCopiesThroughReshapeWithIncompatibleFanOutTypes(
+        %arg0 : memref<1x32x50x28x28xf16, {order = #map}, @DDR>) -> (!FanOutOutput, !FanOutOutputDifferent) {
+    %0 = VPUIP.SubView %arg0 [0, 0, 0, 0, 0] [1, 32, 1, 28, 28] : memref<1x32x50x28x28xf16, {order = #map}, @DDR>
+        to memref<1x32x1x28x28xf16, {order = #map, strides = [1254400, 50, 1, 44800, 1600]}, @DDR>
+    %alloc = memref.alloc() : memref<1x32x1x28x28xf16, {order = #map}, @DDR>
+    %1 = VPUIP.Copy inputs(%0 : memref<1x32x1x28x28xf16, {order = #map, strides = [1254400, 50, 1, 44800, 1600]}, @DDR>)
+                    outputs(%alloc : memref<1x32x1x28x28xf16, {order = #map}, @DDR>) -> memref<1x32x1x28x28xf16, {order = #map}, @DDR>
+    %2 = VPUIP.GenericReshape inputs(%1 : memref<1x32x1x28x28xf16, {order = #map}, @DDR>) -> memref<1x32x28x28xf16, {order = #NHWC}, @DDR>
+    %3 = VPURT.AllocDistributed -> !FanOutOutput
+    %4 = VPUIP.Copy inputs(%2 : memref<1x32x28x28xf16, {order = #NHWC}, @DDR>)
+                    outputs(%3 : !FanOutOutput) -> !FanOutOutput
+    %5 = VPURT.AllocDistributed -> !FanOutOutputDifferent
+    %6 = VPUIP.Copy inputs(%2 : memref<1x32x28x28xf16, {order = #NHWC}, @DDR>)
+                    outputs(%5 : !FanOutOutputDifferent) -> !FanOutOutputDifferent
+
+    return %4, %6 : !FanOutOutput, !FanOutOutputDifferent
+
+    // CHECK:       [[SUBVIEW:%.+]] = VPUIP.SubView [[INPUT]] [0, 0, 0, 0, 0] [1, 32, 1, 28, 28]
+    // CHECK:       [[DDR_ALLOC:%.+]] = memref.alloc() : memref<1x32x1x28x28xf16, {order = #map}, @DDR>
+    // CHECK:       [[DDR_COPY:%.+]] = VPUIP.Copy inputs([[SUBVIEW]]
+    // CHECK:       [[RESHAPE:%.+]] = VPUIP.GenericReshape inputs([[DDR_COPY]]
+    // CHECK:       [[COPY_0:%.+]] = VPUIP.Copy inputs([[RESHAPE]]
+    // CHECK:       [[COPY_1:%.+]] = VPUIP.Copy inputs([[RESHAPE]]
+}
+
+// -----
+
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+#map = affine_map<(d0, d1, d2, d3, d4) -> (d0, d3, d4, d1, d2)>
+
+!FanOutOutput = !VPUIP.DistributedBuffer<1x32x28x28xf16, #NHWC, @CMX_NN, {
+    mode = "OVERLAPPED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64,
+    compute_shapes = [[1, 32, 14, 28], [1, 32, 14, 28]],
+    compute_offsets = [[0, 0, 0, 0], [0, 0, 14, 0]],
+    memory_shapes = [[1, 32, 16, 28], [1, 32, 16, 28]],
+    memory_offsets = [[0, 0, 0, 0], [0, 0, 12, 0]]
+}>
+
+// CHECK-LABEL: @FuseCopiesThroughReshapeWithNonCopyFanOutUser
+// CHECK-SAME: [[INPUT:%.+]]: memref<1x32x50x28x28xf16, {order = #map}, @DDR>
+func.func @FuseCopiesThroughReshapeWithNonCopyFanOutUser(
+    %arg0 : memref<1x32x50x28x28xf16, {order = #map}, @DDR>) -> (!FanOutOutput, memref<32x28x28x1xf16, {order = #NHWC}, @DDR>) {
+    %0 = VPUIP.SubView %arg0 [0, 0, 0, 0, 0] [1, 32, 1, 28, 28] : memref<1x32x50x28x28xf16, {order = #map}, @DDR>
+        to memref<1x32x1x28x28xf16, {order = #map, strides = [1254400, 50, 1, 44800, 1600]}, @DDR>
+    %alloc = memref.alloc() : memref<1x32x1x28x28xf16, {order = #map}, @DDR>
+    %1 = VPUIP.Copy inputs(%0 : memref<1x32x1x28x28xf16, {order = #map, strides = [1254400, 50, 1, 44800, 1600]}, @DDR>)
+                    outputs(%alloc : memref<1x32x1x28x28xf16, {order = #map}, @DDR>) -> memref<1x32x1x28x28xf16, {order = #map}, @DDR>
+    %2 = VPUIP.GenericReshape inputs(%1 : memref<1x32x1x28x28xf16, {order = #map}, @DDR>) -> memref<1x32x28x28xf16, {order = #NHWC}, @DDR>
+    %3 = VPURT.AllocDistributed -> !FanOutOutput
+    %4 = VPUIP.Copy inputs(%2 : memref<1x32x28x28xf16, {order = #NHWC}, @DDR>)
+                    outputs(%3 : !FanOutOutput) -> !FanOutOutput
+    %5 = VPUIP.ShapeCast {shape = [32, 28, 28, 1]}
+                    inputs(%2 : memref<1x32x28x28xf16, {order = #NHWC}, @DDR>) -> memref<32x28x28x1xf16, {order = #NHWC}, @DDR>
+
+    return %4, %5 : !FanOutOutput, memref<32x28x28x1xf16, {order = #NHWC}, @DDR>
+
+    // CHECK:       [[SUBVIEW:%.+]] = VPUIP.SubView [[INPUT]] [0, 0, 0, 0, 0] [1, 32, 1, 28, 28]
+    // CHECK:       [[DDR_ALLOC:%.+]] = memref.alloc() : memref<1x32x1x28x28xf16, {order = #map}, @DDR>
+    // CHECK:       [[ALLOC_CMX:%.+]] = VPURT.AllocDistributed
+    // CHECK:       [[CMX_COPY:%.+]] = VPUIP.Copy inputs([[SUBVIEW]]
+    // CHECK:       [[CMX_RESHAPE:%.+]] = VPUIP.GenericReshape inputs([[CMX_COPY]]
+    // CHECK:       [[DDR_COPY:%.+]] = VPUIP.Copy inputs([[SUBVIEW]]
+    // CHECK-SAME: outputs([[DDR_ALLOC]]
+    // CHECK:       [[DDR_RESHAPE:%.+]] = VPUIP.GenericReshape inputs([[DDR_COPY]]
+    // CHECK:       [[NON_COPY:%.+]] = VPUIP.ShapeCast {shape = [32, 28, 28, 1]} inputs([[DDR_RESHAPE]]
+    // CHECK:       return [[CMX_RESHAPE]], [[NON_COPY]] : !VPUIP.DistributedBuffer<1x32x28x28xf16, #NHWC, @CMX_NN, {mode = "OVERLAPPED"
+}
+
+// -----
+
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+#map = affine_map<(d0, d1, d2, d3, d4) -> (d0, d3, d4, d1, d2)>
+
+!DupSlice = !VPUIP.DistributedBuffer<1x32x28x28xf16, #NHWC, @CMX_NN, {
+    mode = "DUPLICATED", num_clusters = 2 : i64
+}>
+
+!DupBig = !VPUIP.DistributedBuffer<2x32x28x28xf16, #NHWC, @CMX_NN, {
+    mode = "DUPLICATED", num_clusters = 2 : i64
+}>
+
+// One fan-out sibling writes into a SubView of a larger buffer.
+// getRootAlloc<VPURT::AllocDistributed>() does not look through SubView, so it
+// returns null for %4 and the rewrite silently drops the write while leaving
+// %big allocated. The first half of %big then contains undefined data.
+//
+// Expected (safe) behaviour: %4 stays in the IR.
+
+// CHECK-LABEL: @FanOutSiblingCopyIntoSubView
+// CHECK-SAME:      [[INPUT:%.+]]: memref<1x32x50x28x28xf16, {order = #map}, @DDR>
+func.func @FanOutSiblingCopyIntoSubView(
+        %arg0 : memref<1x32x50x28x28xf16, {order = #map}, @DDR>) -> (!DupSlice, !DupSlice, !DupBig) {
+    %0 = VPUIP.SubView %arg0 [0, 0, 0, 0, 0] [1, 32, 1, 28, 28] : memref<1x32x50x28x28xf16, {order = #map}, @DDR>
+        to memref<1x32x1x28x28xf16, {order = #map, strides = [1254400, 50, 1, 44800, 1600]}, @DDR>
+    %alloc = memref.alloc() : memref<1x32x1x28x28xf16, {order = #map}, @DDR>
+    %1 = VPUIP.Copy inputs(%0 : memref<1x32x1x28x28xf16, {order = #map, strides = [1254400, 50, 1, 44800, 1600]}, @DDR>)
+                    outputs(%alloc : memref<1x32x1x28x28xf16, {order = #map}, @DDR>) -> memref<1x32x1x28x28xf16, {order = #map}, @DDR>
+    %2 = VPUIP.GenericReshape inputs(%1 : memref<1x32x1x28x28xf16, {order = #map}, @DDR>) -> memref<1x32x28x28xf16, {order = #NHWC}, @DDR>
+
+    // Ineligible sibling: destination is a slice of a buffer shared with others.
+    %big = VPURT.AllocDistributed -> !DupBig
+    %3 = VPUIP.SubView %big [0, 0, 0, 0] [1, 32, 28, 28] : !DupBig to !DupSlice
+    %4 = VPUIP.Copy inputs(%2 : memref<1x32x28x28xf16, {order = #NHWC}, @DDR>)
+                    outputs(%3 : !DupSlice) -> !DupSlice
+
+    // Fusion root: owns its AllocDistributed.
+    %5 = VPURT.AllocDistributed -> !DupSlice
+    %6 = VPUIP.Copy inputs(%2 : memref<1x32x28x28xf16, {order = #NHWC}, @DDR>)
+                    outputs(%5 : !DupSlice) -> !DupSlice
+
+    return %4, %6, %big : !DupSlice, !DupSlice, !DupBig
+
+    // The directly allocated branch must be fused through the reshape.
+    // CHECK:       [[INPUT_SUBVIEW:%.+]] = VPUIP.SubView [[INPUT]]
+    // CHECK:       [[DDR_ALLOC:%.+]] = memref.alloc() : memref<1x32x1x28x28xf16, {order = #map}, @DDR>
+    // CHECK:       [[FUSED_ALLOC:%.+]] = VPURT.AllocDistributed
+    // CHECK:       [[FUSED_COPY:%.+]] = VPUIP.Copy inputs([[INPUT_SUBVIEW]]
+    // CHECK-SAME:  outputs([[FUSED_ALLOC]]
+    // CHECK:       [[FUSED_RESHAPE:%.+]] = VPUIP.GenericReshape inputs([[FUSED_COPY]]
+
+    // CHECK:       [[DDR_COPY:%.+]] = VPUIP.Copy inputs({{%.+}}) outputs([[DDR_ALLOC]]
+    // CHECK:       [[RESHAPE:%.+]] = VPUIP.GenericReshape inputs([[DDR_COPY]]
+
+    // The write into the slice of the shared buffer must not be dropped.
+    // CHECK:       [[ROOT_ALLOC:%.+]] = VPURT.AllocDistributed
+    // CHECK:       [[SUBVIEW_CMX:%.+]] = VPUIP.SubView [[ROOT_ALLOC]] [0, 0, 0, 0] [1, 32, 28, 28]
+    // CHECK:       [[SUBVIEW_COPY:%.+]] = VPUIP.Copy inputs([[RESHAPE]]{{.*}}) outputs([[SUBVIEW_CMX]]
+    // CHECK:       return [[SUBVIEW_COPY]], [[FUSED_RESHAPE]], [[ROOT_ALLOC]]
+}
+
+// -----
+
 #NC = affine_map<(d0, d1) -> (d0, d1)>
 #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
 

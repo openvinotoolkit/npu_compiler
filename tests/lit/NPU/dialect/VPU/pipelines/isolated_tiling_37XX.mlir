@@ -703,36 +703,32 @@ func.func @Gather4DSplitOptimize(%arg0: tensor<1x1x387072x3xf16>) -> tensor<1x1x
 
 // -----
 
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 // CHECK-LABEL: func.func @Yuv2RGBSplit
-// CHECK-SAME:        [[ARG_0:%[^:]+]]: tensor<1x993x982x1xf16>
-func.func @Yuv2RGBSplit(%arg0: tensor<1x993x982x1xf16>) -> tensor<1x662x982x3xf16> {
-  %0 = VPU.Slice %arg0 [0, 0, 0, 0] [1, 662, 982, 1] : tensor<1x993x982x1xf16> to tensor<1x662x982x1xf16>
-  %1 = VPU.Slice %arg0 [0, 662, 0, 0] [1, 331, 982, 1] : tensor<1x993x982x1xf16> to tensor<1x331x982x1xf16>
-  %2 = VPU.Reshape(%1) {shape_value = [1, 331, 491, 2]} : tensor<1x331x982x1xf16> -> tensor<1x331x491x2xf16>
-  %3 = VPU.YuvToRgb(%0, %2) {inFmt = #IE.color_fmt<NV12>, operandSegmentSizes = array<i32: 1, 1, 0>, outFmt = #IE.color_fmt<RGB>} : tensor<1x662x982x1xf16>, tensor<1x331x491x2xf16> -> tensor<1x662x982x3xf16>
-  return %3 : tensor<1x662x982x3xf16>
-
-    // CHECK:    [[SLICE:%.+]] = VPU.Slice [[ARG_0]] [0, 662, 0, 0] [1, 331, 982, 1] : tensor<1x993x982x1xf16> to tensor<1x331x982x1xf16>
-    // CHECK:    [[SLICE_1:%.+]] = VPU.ShapeCast {shape = [1, 331, 491, 2]} inputs([[SLICE]] : tensor<1x331x982x1xf16>) -> tensor<1x331x491x2xf16>
+// CHECK-SAME:        [[ARG_0:%[^:]+]]: tensor<1x1x662x982xf16, {order = #NHWC}>
+// CHECK-SAME:        [[ARG_1:%[^:]+]]: tensor<1x2x331x491xf16, {order = #NHWC}>
+func.func @Yuv2RGBSplit(%arg0: tensor<1x1x662x982xf16, {order = #NHWC}>, %arg1: tensor<1x2x331x491xf16, {order = #NHWC}>) -> tensor<1x3x662x982xf16, {order = #NHWC}> {
+    %3 = VPU.YuvToRgb(%arg0, %arg1) {inFmt = #IE.color_fmt<NV12>, operandSegmentSizes = array<i32: 1, 1, 0>, outFmt = #IE.color_fmt<RGB>} : tensor<1x1x662x982xf16, {order = #NHWC}>, tensor<1x2x331x491xf16, {order = #NHWC}> -> tensor<1x3x662x982xf16, {order = #NHWC}>
+    return %3 : tensor<1x3x662x982xf16, {order = #NHWC}>
 
     // Tile 0
-    // CHECK:    [[RESULT:%.+]] = VPU.Slice [[ARG_0]] [0, 0, 0, 0] [1, 222, 982, 1] : tensor<1x993x982x1xf16> to tensor<1x222x982x1xf16>
-    // CHECK:    [[YUV2RGB:%.+]] = VPU.Slice [[SLICE_1]] [0, 0, 0, 0] [1, 111, 491, 2] : tensor<1x331x491x2xf16> to tensor<1x111x491x2xf16>
-    // CHECK:    [[YUV2RGB_1:%.+]] = VPU.YuvToRgb([[RESULT]], [[YUV2RGB]]) {inFmt = #IE.color_fmt<NV12>, loop_tile_coord = {axes = array<i64: 1>, indices = array<i64: 0>}, operandSegmentSizes = array<i32: 1, 1, 0>, outFmt = #IE.color_fmt<RGB>, tiling_loop_index = 0 : i64} : tensor<1x222x982x1xf16>, tensor<1x111x491x2xf16> -> tensor<1x222x982x3xf16>
+        // CHECK:    [[SLICE0:%.+]] = VPU.Slice [[ARG_0]] [0, 0, 0, 0] [1, 1, 222, 982] : tensor<1x1x662x982xf16, {order = #NHWC}> to tensor<1x1x222x982xf16, {order = #NHWC}>
+        // CHECK:    [[SLICE1:%.+]] = VPU.Slice [[ARG_1]] [0, 0, 0, 0] [1, 2, 111, 491] : tensor<1x2x331x491xf16, {order = #NHWC}> to tensor<1x2x111x491xf16, {order = #NHWC}>
+        // CHECK:    [[YUV2RGB0:%.+]] = VPU.YuvToRgb([[SLICE0]], [[SLICE1]]) {inFmt = #IE.color_fmt<NV12>, loop_tile_coord = {axes = array<i64: 2>, indices = array<i64: 0>}, operandSegmentSizes = array<i32: 1, 1, 0>, outFmt = #IE.color_fmt<RGB>, tiling_loop_index = 0 : i64} : tensor<1x1x222x982xf16, {order = #NHWC}>, tensor<1x2x111x491xf16, {order = #NHWC}> -> tensor<1x3x222x982xf16, {order = #NHWC}>
 
     // Tile 1
-    // CHECK:    [[SLICE_2:%.+]] = VPU.Slice [[ARG_0]] [0, 222, 0, 0] [1, 222, 982, 1] : tensor<1x993x982x1xf16> to tensor<1x222x982x1xf16>
-    // CHECK:    [[SLICE_3:%.+]] = VPU.Slice [[SLICE_1]] [0, 111, 0, 0] [1, 111, 491, 2] : tensor<1x331x491x2xf16> to tensor<1x111x491x2xf16>
-    // CHECK:    [[YUV2RGB_2:%.+]] = VPU.YuvToRgb([[SLICE_2]], [[SLICE_3]]) {inFmt = #IE.color_fmt<NV12>, loop_tile_coord = {axes = array<i64: 1>, indices = array<i64: 1>}, operandSegmentSizes = array<i32: 1, 1, 0>, outFmt = #IE.color_fmt<RGB>, tiling_loop_index = 0 : i64} : tensor<1x222x982x1xf16>, tensor<1x111x491x2xf16> -> tensor<1x222x982x3xf16>
+        // CHECK:    [[SLICE2:%.+]] = VPU.Slice [[ARG_0]] [0, 0, 222, 0] [1, 1, 222, 982] : tensor<1x1x662x982xf16, {order = #NHWC}> to tensor<1x1x222x982xf16, {order = #NHWC}>
+        // CHECK:    [[SLICE3:%.+]] = VPU.Slice [[ARG_1]] [0, 0, 111, 0] [1, 2, 111, 491] : tensor<1x2x331x491xf16, {order = #NHWC}> to tensor<1x2x111x491xf16, {order = #NHWC}>
+        // CHECK:    [[YUV2RGB1:%.+]] = VPU.YuvToRgb([[SLICE2]], [[SLICE3]]) {inFmt = #IE.color_fmt<NV12>, loop_tile_coord = {axes = array<i64: 2>, indices = array<i64: 1>}, operandSegmentSizes = array<i32: 1, 1, 0>, outFmt = #IE.color_fmt<RGB>, tiling_loop_index = 0 : i64} : tensor<1x1x222x982xf16, {order = #NHWC}>, tensor<1x2x111x491xf16, {order = #NHWC}> -> tensor<1x3x222x982xf16, {order = #NHWC}>
 
     // Tile 2
-    // CHECK:    [[SLICE_4:%.+]] = VPU.Slice [[ARG_0]] [0, 444, 0, 0] [1, 218, 982, 1] : tensor<1x993x982x1xf16> to tensor<1x218x982x1xf16>
-    // CHECK:    [[SLICE_5:%.+]] = VPU.Slice [[SLICE_1]] [0, 222, 0, 0] [1, 109, 491, 2] : tensor<1x331x491x2xf16> to tensor<1x109x491x2xf16>
-    // CHECK:    [[YUV2RGB_3:%.+]] = VPU.YuvToRgb([[SLICE_4]], [[SLICE_5]]) {inFmt = #IE.color_fmt<NV12>, loop_tile_coord = {axes = array<i64: 1>, indices = array<i64: 2>}, operandSegmentSizes = array<i32: 1, 1, 0>, outFmt = #IE.color_fmt<RGB>, tiling_loop_index = 0 : i64} : tensor<1x218x982x1xf16>, tensor<1x109x491x2xf16> -> tensor<1x218x982x3xf16>
+        // CHECK:    [[SLICE4:%.+]] = VPU.Slice [[ARG_0]] [0, 0, 444, 0] [1, 1, 218, 982] : tensor<1x1x662x982xf16, {order = #NHWC}> to tensor<1x1x218x982xf16, {order = #NHWC}>
+        // CHECK:    [[SLICE5:%.+]] = VPU.Slice [[ARG_1]] [0, 0, 222, 0] [1, 2, 109, 491] : tensor<1x2x331x491xf16, {order = #NHWC}> to tensor<1x2x109x491xf16, {order = #NHWC}>
+        // CHECK:    [[YUV2RGB2:%.+]] = VPU.YuvToRgb([[SLICE4]], [[SLICE5]]) {inFmt = #IE.color_fmt<NV12>, loop_tile_coord = {axes = array<i64: 2>, indices = array<i64: 2>}, operandSegmentSizes = array<i32: 1, 1, 0>, outFmt = #IE.color_fmt<RGB>, tiling_loop_index = 0 : i64} : tensor<1x1x218x982xf16, {order = #NHWC}>, tensor<1x2x109x491xf16, {order = #NHWC}> -> tensor<1x3x218x982xf16, {order = #NHWC}>
 
-    // CHECK:    [[CONCAT:%.+]] = VPU.Concat([[YUV2RGB_1]], [[YUV2RGB_2]], [[YUV2RGB_3]])
-    // CHECK-SAME{LITERAL}: {static_offsets = [[0, 0, 0, 0], [0, 222, 0, 0], [0, 444, 0, 0]]} : tensor<1x222x982x3xf16>, tensor<1x222x982x3xf16>, tensor<1x218x982x3xf16> -> tensor<1x662x982x3xf16>
-    // CHECK:    return [[CONCAT]] : tensor<1x662x982x3xf16>
+    // CHECK:    [[CONCAT:%.+]] = VPU.Concat([[YUV2RGB0]], [[YUV2RGB1]], [[YUV2RGB2]])
+        // CHECK-SAME{LITERAL}: {static_offsets = [[0, 0, 0, 0], [0, 0, 222, 0], [0, 0, 444, 0]]} : tensor<1x3x222x982xf16, {order = #NHWC}>, tensor<1x3x222x982xf16, {order = #NHWC}>, tensor<1x3x218x982xf16, {order = #NHWC}> -> tensor<1x3x662x982xf16, {order = #NHWC}>
+        // CHECK:    return [[CONCAT]] : tensor<1x3x662x982xf16, {order = #NHWC}>
 }
 
 // -----
@@ -1561,7 +1557,7 @@ func.func @SplitFakeQuant(%arg0: tensor<1x128x80x80xf16>) -> tensor<1x128x80x80x
     %cst_0 = const.Declare tensor<1x1x1x1xf16> = dense<10.000000e+00> : tensor<1x1x1x1xf16>
     %cst_1 = const.Declare tensor<1x1x1x1xf16> = dense<2.000000e+00> : tensor<1x1x1x1xf16>
     %cst_2 = const.Declare tensor<1x1x1x1xf16> = dense<11.000000e+00> : tensor<1x1x1x1xf16>
-    %0 = VPU.FakeQuantize(%arg0, %cst, %cst_0, %cst_1, %cst_2) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 255 : i64} : tensor<1x128x80x80xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<1x128x80x80xf16>
+    %0 = VPU.FakeQuantize(%arg0, %cst, %cst_0, %cst_1, %cst_2) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 255 : i64} : tensor<1x128x80x80xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<1x128x80x80xf16>
     return %0 : tensor<1x128x80x80xf16>
 
     // CHECK-DAG:   [[CST:%.+]] = const.Declare tensor<1x1x1x1xf16> = dense<1.000000e+00> : tensor<1x1x1x1xf16>
@@ -1574,7 +1570,7 @@ func.func @SplitFakeQuant(%arg0: tensor<1x128x80x80xf16>) -> tensor<1x128x80x80x
     // CHECK-SAME:  : tensor<1x128x80x80xf16> to tensor<1x64x80x80xf16>
 
     // CHECK:       [[OUTPUT_TILE0:%.+]] = VPU.FakeQuantize([[INPUT_TILE0]], [[CST]], [[CST_0]], [[CST_1]], [[CST_2]])
-    // CHECK-SAME:       {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 255 : i64, loop_tile_coord = {axes = array<i64: 1>, indices = array<i64: 0>}, tiling_loop_index = 0 : i64}
+    // CHECK-SAME:       {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 255 : i64, loop_tile_coord = {axes = array<i64: 1>, indices = array<i64: 0>}, tiling_loop_index = 0 : i64}
     // CHECK-SAME:       : tensor<1x64x80x80xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<1x64x80x80xf16>
 
     // Tile 1
@@ -1582,7 +1578,7 @@ func.func @SplitFakeQuant(%arg0: tensor<1x128x80x80xf16>) -> tensor<1x128x80x80x
     // CHECK-SAME:  : tensor<1x128x80x80xf16> to tensor<1x64x80x80xf16>
 
     // CHECK:       [[OUTPUT_TILE1:%.+]] = VPU.FakeQuantize([[INPUT_TILE1]], [[CST]], [[CST_0]], [[CST_1]], [[CST_2]])
-    // CHECK-SAME:       {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 255 : i64, loop_tile_coord = {axes = array<i64: 1>, indices = array<i64: 1>}, tiling_loop_index = 0 : i64}
+    // CHECK-SAME:       {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 255 : i64, loop_tile_coord = {axes = array<i64: 1>, indices = array<i64: 1>}, tiling_loop_index = 0 : i64}
     // CHECK-SAME:       : tensor<1x64x80x80xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<1x64x80x80xf16>
 
     // Concat

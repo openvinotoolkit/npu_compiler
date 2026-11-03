@@ -19,6 +19,8 @@ add_npu_library(npu_compiler_act_kernels
     TARGET_SOURCES PRIVATE
         $<TARGET_OBJECTS:act_shave_kernels_lib>
         $<TARGET_OBJECTS:rt_kernel_lib>)
+enable_lto_if_possible(npu_compiler_act_kernels)
+
 
 target_include_directories(npu_compiler_act_kernels
     PUBLIC

@@ -512,3 +512,59 @@ func.func @DecomposeAttentionWithSinkAndBatchFold(%arg0: tensor<8x8x1x64xf32>, %
   // CHECK:     [[OUT:%.+]] = IE.Reshape([[OUT_MATMUL]]) {shape_value = [8, 8, 1, 64]} : tensor<1x64x1x64xf32> -> tensor<8x8x1x64xf32>
   // CHECK:     return [[OUT]]
 }
+
+// -----
+
+// CHECK-LABEL: @DecomposeAttentionWithMaskBroadcast
+// CHECK-SAME:  ([[ARG0:%.+]]: tensor<16x4x512x128xf32>, [[ARG1:%.+]]: tensor<16x1x512x128xf32>, [[ARG2:%.+]]: tensor<16x1x128x512xf32>, [[ARG3:%.+]]: tensor<16x1x512x512xi8>)
+func.func @DecomposeAttentionWithMaskBroadcast(%arg0: tensor<16x4x512x128xf32>, %arg1: tensor<16x1x512x128xf32>, %arg2: tensor<16x1x128x512xf32>, %arg3: tensor<16x1x512x512xi8>) -> tensor<16x4x512x128xf32> {
+  %cst_25 = const.Declare tensor<1xf32> = dense<1.0> : tensor<1xf32>
+  %0 = IE.Attention(%arg0, %arg1, %arg2, %arg3, %cst_25) {operandSegmentSizes = array<i32: 1, 1, 1, 1, 1, 0, 0>} : tensor<16x4x512x128xf32>, tensor<16x1x512x128xf32>, tensor<16x1x128x512xf32>, tensor<16x1x512x512xi8>, tensor<1xf32> -> tensor<16x4x512x128xf32>
+  return %0 : tensor<16x4x512x128xf32>
+
+  // CHECK-NOT: IE.Attention
+
+  // CHECK:     [[Q_RESHAPED:%.+]] = IE.Reshape([[ARG0]]) {shape_value = [1, 64, 512, 128]} : tensor<16x4x512x128xf32> -> tensor<1x64x512x128xf32>
+
+  // CHECK-DAG:  [[MASK_SHAPE:%.+]] = const.Declare tensor<4xsi32> = dense<[16, 4, 512, 512]>
+  // CHECK:     [[MASK_BROADCAST:%.+]] = IE.Broadcast([[ARG3]], [[MASK_SHAPE]]) {mode = #IE.broadcast_type<BIDIRECTIONAL>} : tensor<16x1x512x512xi8>, tensor<4xsi32> -> tensor<16x4x512x512xi8>
+  // CHECK:     [[MASK_RESHAPED:%.+]] = IE.Reshape([[MASK_BROADCAST]]) {shape_value = [1, 64, 512, 512]} : tensor<16x4x512x512xi8> -> tensor<1x64x512x512xi8>
+
+  // CHECK:     [[K_RESHAPED:%.+]] = IE.Reshape([[ARG1]]) {shape_value = [1, 16, 512, 128]} : tensor<16x1x512x128xf32> -> tensor<1x16x512x128xf32>
+  // CHECK:     [[K_5D:%.+]] = IE.AffineReshape([[K_RESHAPED]])
+  // CHECK-DAG: [[K_SHAPE:%.+]] = const.Declare tensor<5xsi32> = dense<[1, 16, 4, 512, 128]>
+  // CHECK:     [[K_BROADCAST:%.+]] = IE.Broadcast([[K_5D]], [[K_SHAPE]]) {mode = #IE.broadcast_type<BIDIRECTIONAL>} : tensor<1x16x1x512x128xf32>, tensor<5xsi32> -> tensor<1x16x4x512x128xf32>
+  // CHECK:     [[K_4D:%.+]] = IE.AffineReshape([[K_BROADCAST]])
+
+  // CHECK-DAG: [[V_SHAPE:%.+]] = const.Declare tensor<5xsi32> = dense<[1, 16, 4, 128, 512]>
+  // CHECK:     [[QK:%.+]] = IE.MatMul([[Q_RESHAPED]], [[K_4D]]) {transpose_b} : tensor<1x64x512x128xf32>, tensor<1x64x512x128xf32> -> tensor<1x64x512x512xf32>
+
+  // CHECK-DAG: [[KEEP_VAL:%.+]] = const.Declare tensor<f32> = dense<0.000000e+00> : tensor<f32>
+  // CHECK-DAG: [[MASK_VAL:%.+]] = const.Declare tensor<f32> = dense<0xFF800000> : tensor<f32>
+  // CHECK:     [[CONVERTED_MASK:%.+]] = IE.Select([[MASK_RESHAPED]], [[KEEP_VAL]], [[MASK_VAL]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x64x512x512xi8>, tensor<f32>, tensor<f32> -> tensor<1x64x512x512xf32>
+  // CHECK:     [[MASKED:%.+]] = IE.Add([[QK]], [[CONVERTED_MASK]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x64x512x512xf32>, tensor<1x64x512x512xf32> -> tensor<1x64x512x512xf32>
+  // CHECK:     [[SOFTMAX:%.+]] = IE.SoftMax([[MASKED]]) {axisInd = 3 : i64} : tensor<1x64x512x512xf32> -> tensor<1x64x512x512xf32>
+
+  // CHECK:     [[V_RESHAPED:%.+]] = IE.Reshape([[ARG2]]) {shape_value = [1, 16, 128, 512]} : tensor<16x1x128x512xf32> -> tensor<1x16x128x512xf32>
+  // CHECK:     [[V_5D:%.+]] = IE.AffineReshape([[V_RESHAPED]])
+  // CHECK:     [[V_BROADCAST:%.+]] = IE.Broadcast([[V_5D]], [[V_SHAPE]]) {mode = #IE.broadcast_type<BIDIRECTIONAL>} : tensor<1x16x1x128x512xf32>, tensor<5xsi32> -> tensor<1x16x4x128x512xf32>
+  // CHECK:     [[V_4D:%.+]] = IE.AffineReshape([[V_BROADCAST]])
+  // CHECK:     [[OUT_MATMUL:%.+]] = IE.MatMul([[SOFTMAX]], [[V_4D]]) {transpose_b} : tensor<1x64x512x512xf32>, tensor<1x64x128x512xf32> -> tensor<1x64x512x128xf32>
+  // CHECK:     [[OUT:%.+]] = IE.Reshape([[OUT_MATMUL]]) {shape_value = [16, 4, 512, 128]} : tensor<1x64x512x128xf32> -> tensor<16x4x512x128xf32>
+
+  // CHECK:     return [[OUT]]
+}
+
+// -----
+
+// CHECK-LABEL: @KeepLegalAttentionWithMaskAndScale
+// CHECK-SAME:  ([[ARG0:%.+]]: tensor<1x30x1536x128xf32>, [[ARG1:%.+]]: tensor<1x30x1536x128xf32>, [[ARG2:%.+]]: tensor<1x30x128x1536xf32>, [[ARG3:%.+]]: tensor<1x1x1x1536xf32>, [[ARG4:%.+]]: tensor<1x1x1x1xf32>)
+func.func @KeepLegalAttentionWithMaskAndScale(%arg0: tensor<1x30x1536x128xf32>, %arg1: tensor<1x30x1536x128xf32>, %arg2: tensor<1x30x128x1536xf32>, %arg3: tensor<1x1x1x1536xf32>, %arg4: tensor<1x1x1x1xf32>) -> tensor<1x30x1536x128xf32> {
+  %0 = IE.Attention(%arg0, %arg1, %arg2, %arg3, %arg4) {operandSegmentSizes = array<i32: 1, 1, 1, 1, 1, 0, 0>} : tensor<1x30x1536x128xf32>, tensor<1x30x1536x128xf32>, tensor<1x30x128x1536xf32>, tensor<1x1x1x1536xf32>, tensor<1x1x1x1xf32> -> tensor<1x30x1536x128xf32>
+  return %0 : tensor<1x30x1536x128xf32>
+
+  // CHECK: [[ATTENTION:%.+]] = IE.Attention([[ARG0]], [[ARG1]], [[ARG2]], [[ARG3]], [[ARG4]])
+  // CHECK-NOT: IE.MatMul
+  // CHECK-NOT: IE.SoftMax
+  // CHECK: return [[ATTENTION]]
+}

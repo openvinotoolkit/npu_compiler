@@ -18,6 +18,8 @@ constexpr uint32_t FREQ_STEP = 150;
 constexpr double PERF_CLK_DEFAULT_VALUE_MHZ = 38.4;
 // Maximum kernel size supported by the target DPU.
 constexpr uint32_t DPU_MAX_KERNEL_SIZE = 11;
+// Asymmetric zero point quantization per tensor support
+constexpr bool ASYMMETRIC_PER_TENSOR_ZP = false;
 
 }  // namespace arch37xx
 }  // namespace vpux

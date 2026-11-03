@@ -7,6 +7,7 @@
 #include "vpux/compiler/NPU50XX/dialect/IE/transforms/passes.hpp"
 #include "vpux/compiler/conversion.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
+#include "vpux/compiler/dialect/Shave/transforms/passes.hpp"
 #include "vpux/compiler/dialect/core/transforms/passes.hpp"
 #include "vpux/compiler/locverif/passes.hpp"
 #include "vpux/compiler/pipelines/options_setup.hpp"
@@ -134,6 +135,49 @@ void vpux::IE::arch50xx::buildLowPrecisionPipeline(mlir::OpPassManager& pm, cons
     pm.addPass(mlir::createCanonicalizerPass(grc));
 }
 
+void vpux::IE::arch50xx::buildOperationConversionPipeline(mlir::OpPassManager& pm,
+                                                          const IE::OperationConversionOptions& options, Logger log) {
+    const auto grc = getDefaultGreedyRewriteConfig();
+    // Resolve group quant MatMul pattern
+    pm.addPass(mlir::createCSEPass());
+    pm.addPass(IE::createMergeParallelFullyConnectedPass(log));
+
+    // this pass is added here so that every DynamicDequant op will have a quantized input.
+    // For now Dequantize op can only receive quantized inputs, with the current refactoring ongoing (Deq->DynamicDeq
+    // and quant inputs -> raw data types) there were regressions observed because ConvertDynamicDequantizeToDequantize
+    // received raw data types at input and needed to insert a QuantCast for Dequant. This led to
+    // MergeFullyConnectedPass not being able to merge the FCs because of the QuantCast in between. The consensus
+    // reached was that there should be no QuantCast inserted for Dequantize op, and the op should be extended to also
+    // receive raw data types through which probably it assumes that they are dummy quant casts (scale=1 zp =0). This is
+    // a temporary solution until the refactoring is completed. Ticket to address this issue:
+    // TODO #E-225955
+    pm.addPass(IE::createConvertDQRawDataTypeToQuantizedPass(log));
+    pm.addPass(IE::createUnrollGroupQuantizePass(log));
+    pm.addPass(IE::createUnrollFullyConnectedPass(log));
+    pm.addPass(IE::createFuseMatMulWithSlicePass(log));
+    if (options.convertDynamicDequantize) {
+        pm.addPass(IE::createConvertDynamicDequantizeToDequantizePass(log));
+    }
+    pm.addPass(IE::createMoveMultiplyDividePostOpPass(log));
+    pm.addPass(IE::createSwapOperationsWithGatherAndSlicePass(log));
+    pm.addPass(IE::createMergeFullyConnectedPass(isOptionEnabled(options.mergeUnrolledMatmulForLargeOC), log));
+
+    pm.addPass(IE::createConvertMatMulToConvPass(log));
+    if (options.enableConvertFCToConv) {
+        pm.addPass(IE::createConvertFCToConvPass(log));
+    }
+
+    pm.addPass(IE::createDecomposeConcatMatMulPass(log));
+    pm.addPass(IE::createConvertExtractImagePatchesPass(log));
+    pm.addPass(IE::createSwapEltwiseAndReducePass(log));
+    pm.addPass(IE::createConvertReduceSumToConvPass(log));
+    pm.addPass(IE::createUnrollReduceMinAllAxesPass(log));
+    pm.addPass(IE::createConvertReduceToPoolingPass(options.enableFuseReduceMinMaxToDpu, log));
+    pm.addPass(IE::createConvertPowerToMultPass(log));
+    pm.addPass(IE::createConvertGatherPass(log));
+    pm.addPass(mlir::createCanonicalizerPass(grc));
+}
+
 void vpux::IE::arch50xx::buildConvertToEfficientOpsPipeline(mlir::OpPassManager& pm,
                                                             const ConvertToEfficientOpsOptions& options, Logger log) {
     const auto grc = getDefaultGreedyRewriteConfig();
@@ -146,7 +190,7 @@ void vpux::IE::arch50xx::buildConvertToEfficientOpsPipeline(mlir::OpPassManager&
     // NOTE: Canonicalizer required after ConvertShapeTo4DPass
     pm.addPass(mlir::createCanonicalizerPass(grc));
     pm.addPass(IE::createConvertGatherElementsToGatherPass(log));
-    pm.addPass(IE::createConvertToSpatialOpPass(false, log));
+    pm.addPass(IE::createConvertToSpatialOpPass(log));
     pm.addPass(IE::createConvertSubtractToAddPass(log));
     pm.addPass(IE::createSwapTransposeConcatPass(log));
     pm.addPass(IE::createConvertSplitConcatToAffineReshapePass(log));
@@ -208,13 +252,14 @@ void vpux::IE::arch50xx::buildAttentionProcessingPipeline(mlir::OpPassManager& p
                                                           const IE::AttentionProcessingOptions& options, Logger log) {
     const auto grc = getDefaultGreedyRewriteConfig();
 
+    pm.addPass(IE::createConvertGQAToAttentionDMAPass(log));
     pm.addPass(IE::createOptimizeQuantizationForAttentionPass(log));
     if (options.enableFlashSDPAConversion) {
         pm.addPass(IE::createConvertSDPAToFlashSDPAPass(log));
     }
     pm.addPass(IE::createResolveStridedSlicePass(log));
     if (options.enableConvertToAttention) {
-        pm.addPass(IE::createFuseAttentionPass(log));
+        pm.addPass(IE::createFuseAttentionPass(/*fuseOnlyAttentionDMAPatterns=*/false, log));
         pm.addPass(IE::createConvertBlockCacheAttentionToFlashSDPAPass(log));
         pm.addPass(mlir::createCanonicalizerPass(grc));
     }
@@ -288,7 +333,7 @@ void vpux::IE::arch50xx::buildDefaultHWPipeline(mlir::OpPassManager& pm, const I
     // Couldn't move the pass before convert_precision_to_fp16 because of regressions, extra conversions are added
     pm.addPass(IE::createConvertAssignReadValueToReturnsAndInputs(log));
 
-    IE::buildOperationConversionPipeline(pm, IE::OperationConversionOptions(options), log);
+    IE::arch50xx::buildOperationConversionPipeline(pm, IE::OperationConversionOptions(options), log);
 
     IE::buildAdjustShapePipeline(pm, log);
     IE::buildSplitLargeOpsPipeline(pm, log);
@@ -321,9 +366,6 @@ void vpux::IE::arch50xx::buildDefaultHWPipeline(mlir::OpPassManager& pm, const I
     IE::buildOptimizeMemPermuteAndActivationChannelsExpandPipeline(pm, IE::ExpandActivationChannelsOptions(options),
                                                                    log);
 
-    // All locations unique with full verification after each pass to this point
-    pm.addPass(locverif::createStopLocationVerifierPass(log));
-
     IE::buildOptimizeViewLikeOpsPipeline(pm, log);
 
     IE::buildOptimizeSliceOpPipeline(pm, options.disableSliceToConvMinHWThreshold, log);
@@ -332,7 +374,9 @@ void vpux::IE::arch50xx::buildDefaultHWPipeline(mlir::OpPassManager& pm, const I
 
     IE::arch50xx::buildFinalTransformationPipeline(pm, options, log);
 
-    // Shave related optimization
+    // Shave custom kernel configuration pass, which applies the external kernel configurations to the model.
+    pm.addPass(Shave::createApplyExternalKernelConfigsPass(log));
+
     if (options.enableShaveCodeGen) {
         ShaveCodeGen::buildShaveCodeGenPipelineIE(pm, log, options.enableShaveCodeGenTiling);
     }
@@ -343,6 +387,8 @@ void vpux::IE::arch50xx::buildDefaultHWPipeline(mlir::OpPassManager& pm, const I
     }
 
     pm.addPass(IE::createDumpStatisticsOfIeOpsPass("End of IE pipeline statistics", log));
+
+    pm.addPass(locverif::createStopLocationVerifierPass(log));
 }
 
 void vpux::IE::arch50xx::buildReferenceSWPipeline(mlir::OpPassManager& pm,
@@ -372,11 +418,11 @@ void vpux::IE::arch50xx::buildReferenceSWPipeline(mlir::OpPassManager& pm,
     pm.addPass(mlir::createCSEPass());
     pm.addPass(IE::createUniquifySimilarOpsPass(log));
     pm.addPass(IE::createMergeParallelFullyConnectedPass(log));
-    pm.addPass(IE::createConvertDynamicDequantizeToFakeQuantizePass(log));
     pm.addPass(IE::createUnrollGroupQuantizePass(log));
     pm.addPass(IE::createUnrollFullyConnectedPass(log));
     pm.addPass(IE::createMergeFullyConnectedPass(isOptionEnabled(options.mergeUnrolledMatmulForLargeOC), log));
     pm.addPass(IE::createConvertMatMulToConvPass(log));
+    pm.addPass(IE::createConvertDynamicDequantizeToFakeQuantizePass(log));
     if (options.enableConvertFCToConv) {
         pm.addPass(IE::createConvertFCToConvPass(log));
     }
@@ -386,7 +432,7 @@ void vpux::IE::arch50xx::buildReferenceSWPipeline(mlir::OpPassManager& pm,
     pm.addPass(IE::createConvertNceOpsTo4DPass(log));
     pm.addPass(IE::createConvertShapeTo4DPass(isOptionEnabled(options.forceConvertGatherTo4D), log));
     pm.addPass(mlir::createCanonicalizerPass(grc));
-    pm.addPass(IE::createConvertToSpatialOpPass(false, log));
+    pm.addPass(IE::createConvertToSpatialOpPass(log));
     pm.addPass(IE::createConvertGRNToNormalizeL2Pass(log));
     pm.addPass(IE::createResolveScatterUpdateByTransposePass(log));
     IE::buildAdjustForVPUPipeline(pm, log);
@@ -428,6 +474,15 @@ void vpux::IE::arch50xx::registerIEPipelines() {
             "equivalent operations supported by the lower compilation levels",
             [](mlir::OpPassManager& pm, const IE::LowPrecisionTransformOptions& options) {
                 IE::arch50xx::buildInitialLowPrecisionTransformationsPipeline(pm, options);
+            });
+
+    mlir::PassPipelineRegistration<OperationConversionOptions>(
+            "operation-conversion",
+            "[OPTIMIZATION] Operation Conversion pipeline is responsible for changing type of existing operations."
+            "Main purpose is reducing subset of ops"
+            "which using in our graph for improve pattern matching of next passes ",
+            [](mlir::OpPassManager& pm, const OperationConversionOptions& options) {
+                IE::arch50xx::buildOperationConversionPipeline(pm, options);
             });
 
     mlir::PassPipelineRegistration<IE::AttentionProcessingOptions>(

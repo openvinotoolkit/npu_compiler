@@ -19,8 +19,8 @@ func.func @MatMul4dInputs4dWeightsTo2dQuantized(%arg0: tensor<1x2x650x750xf16>) 
     %cst_2 = const.Declare tensor<1x1x1x1xf16> = dense<2.550000e+02> : tensor<1x1x1x1xf32>, [#const.CastElemType<f16>]
     %cst_3 = const.Declare tensor<1x1x1x1xf16> = dense<0.000000e+00> : tensor<1x1x1x1xf32>, [#const.CastElemType<f16>]
     %cst_4 = const.Declare tensor<1x2x512x750xf16> = dense<1.0> : tensor<1x2x512x750xf32>, [#const.CastElemType<f16>]
-    %0 = IE.FakeQuantize(%cst_4, %cst_3, %cst_2, %cst, %cst_1) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i64} : tensor<1x2x512x750xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<1x2x512x750xf16>
-    %1 = IE.FakeQuantize(%arg0, %cst_3, %cst_2, %cst, %cst_1) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i64} : tensor<1x2x650x750xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<1x2x650x750xf16>
+    %0 = IE.FakeQuantize(%cst_4, %cst_3, %cst_2, %cst, %cst_1) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256 : i64} : tensor<1x2x512x750xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<1x2x512x750xf16>
+    %1 = IE.FakeQuantize(%arg0, %cst_3, %cst_2, %cst, %cst_1) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256 : i64} : tensor<1x2x650x750xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<1x2x650x750xf16>
     %2 = IE.MatMul(%1, %0) {transpose_b} : tensor<1x2x650x750xf16>, tensor<1x2x512x750xf16> -> tensor<1x2x650x512xf16>
 
     return %2 : tensor<1x2x650x512xf16>
@@ -31,10 +31,10 @@ func.func @MatMul4dInputs4dWeightsTo2dQuantized(%arg0: tensor<1x2x650x750xf16>) 
     // CHECK:       [[CST2:%.+]] = const.Declare tensor<1x1x1x1xf16> = dense<0.000000e+00> : tensor<1x1x1x1xf32>, [#const.CastElemType<f16>]
     // CHECK:       [[CST3:%.+]] = const.Declare tensor<1x2x512x750xf16> = dense<1.000000e+00> : tensor<1x2x512x750xf32>, [#const.CastElemType<f16>]
     // CHECK:       [[FQ0:%.+]] = IE.FakeQuantize([[CST3]], [[CST2]], [[CST1]], [[CST]], [[CST0]])
-    // CHECK-SAME:  {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i64} :
+    // CHECK-SAME:  {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256 : i64} :
     // CHECK-SAME:  tensor<1x2x512x750xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<1x2x512x750xf16>
     // CHECK:       [[FQ1:%.+]] = IE.FakeQuantize([[ARG0]], [[CST2]], [[CST1]], [[CST]], [[CST0]])
-    // CHECK-SAME:  {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i64} :
+    // CHECK-SAME:  {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256 : i64} :
     // CHECK-SAME:  tensor<1x2x650x750xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<1x2x650x750xf16>
     // CHECK:       [[SLICE0:%.+]] = IE.Slice [[FQ1]] [0, 0, 0, 0] [1, 1, 650, 750] : tensor<1x2x650x750xf16> to tensor<1x1x650x750xf16>
     // CHECK:       [[RESHAPE0:%.+]] = IE.AffineReshape([[SLICE0]])
@@ -99,10 +99,10 @@ func.func @MatMul4dInputs4dWeightsTo2dOutputQuantized(%arg0: tensor<1x2x650x750x
     %cst_2 = const.Declare tensor<1x1x1x1xf16> = dense<2.550000e+02> : tensor<1x1x1x1xf32>, [#const.CastElemType<f16>]
     %cst_3 = const.Declare tensor<1x1x1x1xf16> = dense<0.000000e+00> : tensor<1x1x1x1xf32>, [#const.CastElemType<f16>]
     %cst_4 = const.Declare tensor<1x2x512x750xf16> = dense<1.0> : tensor<1x2x512x750xf32>, [#const.CastElemType<f16>]
-    %0 = IE.FakeQuantize(%cst_4, %cst_3, %cst_2, %cst, %cst_1) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i64} : tensor<1x2x512x750xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<1x2x512x750xf16>
-    %1 = IE.FakeQuantize(%arg0, %cst_3, %cst_2, %cst, %cst_1) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i64} : tensor<1x2x650x750xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<1x2x650x750xf16>
+    %0 = IE.FakeQuantize(%cst_4, %cst_3, %cst_2, %cst, %cst_1) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256 : i64} : tensor<1x2x512x750xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<1x2x512x750xf16>
+    %1 = IE.FakeQuantize(%arg0, %cst_3, %cst_2, %cst, %cst_1) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256 : i64} : tensor<1x2x650x750xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<1x2x650x750xf16>
     %2 = IE.MatMul(%1, %0) {transpose_b} : tensor<1x2x650x750xf16>, tensor<1x2x512x750xf16> -> tensor<1x2x650x512xf16>
-    %3 = IE.FakeQuantize(%2, %cst_3, %cst_2, %cst, %cst_1) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i64} : tensor<1x2x650x512xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<1x2x650x512xf16>
+    %3 = IE.FakeQuantize(%2, %cst_3, %cst_2, %cst, %cst_1) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256 : i64} : tensor<1x2x650x512xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<1x2x650x512xf16>
 
     return %3 : tensor<1x2x650x512xf16>
 
@@ -112,10 +112,10 @@ func.func @MatMul4dInputs4dWeightsTo2dOutputQuantized(%arg0: tensor<1x2x650x750x
     // CHECK:       [[CST2:%.+]] = const.Declare tensor<1x1x1x1xf16> = dense<0.000000e+00> : tensor<1x1x1x1xf32>, [#const.CastElemType<f16>]
     // CHECK:       [[CST3:%.+]] = const.Declare tensor<1x2x512x750xf16> = dense<1.000000e+00> : tensor<1x2x512x750xf32>, [#const.CastElemType<f16>]
     // CHECK:       [[FQ0:%.+]] = IE.FakeQuantize([[CST3]], [[CST2]], [[CST1]], [[CST]], [[CST0]])
-    // CHECK-SAME:  {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i64} :
+    // CHECK-SAME:  {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256 : i64} :
     // CHECK-SAME:  tensor<1x2x512x750xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<1x2x512x750xf16>
     // CHECK:       [[FQ1:%.+]] = IE.FakeQuantize([[ARG0]], [[CST2]], [[CST1]], [[CST]], [[CST0]])
-    // CHECK-SAME:  {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i64} :
+    // CHECK-SAME:  {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256 : i64} :
     // CHECK-SAME:  tensor<1x2x650x750xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<1x2x650x750xf16>
     // CHECK:       [[SLICE0:%.+]] = IE.Slice [[FQ1]] [0, 0, 0, 0] [1, 1, 650, 750] : tensor<1x2x650x750xf16> to tensor<1x1x650x750xf16>
     // CHECK:       [[RESHAPE0:%.+]] = IE.AffineReshape([[SLICE0]])
@@ -136,7 +136,7 @@ func.func @MatMul4dInputs4dWeightsTo2dOutputQuantized(%arg0: tensor<1x2x650x750x
     // CHECK:       [[RESHAPE4:%.+]] = IE.AffineReshape([[CONCAT0]])
     // CHECK-SAME{LITERAL}:  {dim_mapping = [[0, 1, 2], [3]], shape_value = [1, 2, 650, 512]} : tensor<1300x512xf16> -> tensor<1x2x650x512xf16>
     // CHECK:       [[FQ2:%.+]] = IE.FakeQuantize([[RESHAPE4]], [[CST2]], [[CST1]], [[CST]], [[CST0]])
-    // CHECK-SAME:  {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i64} :
+    // CHECK-SAME:  {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256 : i64} :
     // CHECK-SAME:  tensor<1x2x650x512xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<1x2x650x512xf16>
     // CHECK:       return [[FQ2]] : tensor<1x2x650x512xf16>
 }

@@ -15,7 +15,7 @@ func.func @FixZeroPointForMatmul(%arg0: tensor<2x16x32xf16>) -> tensor<2x16x64xf
   %cst_1 = const.Declare tensor<1x1x1x1xf16> = dense<-2.520000e+02> : tensor<1x1x1x1xf16>
   %cst_2 = const.Declare tensor<1x1x1x1xf16> = dense<2.580000e+02> : tensor<1x1x1x1xf16>
   %cst_3 = const.Declare tensor<1x1x32x64xf16> = dense<1.0> : tensor<32x64xf16>, [#const.Reshape<[1, 1, 32, 64]>]
-  %0 = IE.FakeQuantize(%cst_3, %cst, %cst_0, %cst_1, %cst_2) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i64} : tensor<1x1x32x64xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<1x1x32x64xf16>
+  %0 = IE.FakeQuantize(%cst_3, %cst, %cst_0, %cst_1, %cst_2) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256 : i64} : tensor<1x1x32x64xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<1x1x32x64xf16>
   %1 = IE.Transpose(%0) {order_value = affine_map<(d0, d1, d2, d3) -> (d0, d1, d3, d2)>} : tensor<1x1x32x64xf16> -> tensor<1x1x64x32xf16>
   %2 = IE.AffineReshape(%arg0) {dim_mapping = [[0], [0], [1, 2, 3]], shape_value = [32, 32, 1, 1]} : tensor<2x16x32xf16> -> tensor<32x32x1x1xf16>
   %3 = IE.AffineReshape(%1) {dim_mapping = [[0], [0], [0], [1, 2, 3]], shape_value = [64, 32, 1, 1]} : tensor<1x1x64x32xf16> -> tensor<64x32x1x1xf16>
@@ -33,7 +33,7 @@ func.func @FixZeroPointForMatmul(%arg0: tensor<2x16x32xf16>) -> tensor<2x16x64xf
   // CHECK:   [[CST4:%.+]] = const.Declare tensor<1x1x32x64xf16> = dense<1.000000e+00> : tensor<32x64xf16>, [#const.Reshape<[1, 1, 32, 64]>]
 
   // CHECK:   [[FQ:%.+]] = IE.FakeQuantize([[CST4]], [[CST0]], [[CST1]], [[CST2]], [[CST3]])
-  // CHECK-SAME:      {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i64} :
+  // CHECK-SAME:      {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256 : i64} :
   // CHECK-SAME:      tensor<1x1x32x64xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>
   // CHECK-SAME:       -> tensor<1x1x32x64xf16>
 
@@ -71,7 +71,7 @@ func.func @FixZeroPointForMatmulPerChannelQuantized(%arg0: tensor<1x1x2048xf16>)
   %cst_1 = const.Declare tensor<1x2x1x1xf16> = dense<[[-5.000000e+00], [-1.019530e+01]]> : tensor<2x1xf16>, [#const.Reshape<[1, 2, 1, 1]>]
   %cst_2 = const.Declare tensor<1x2x1x1xf16> = dense<[[2.050000e+01], [4.078130e+01]]> : tensor<2x1xf16>, [#const.Reshape<[1, 2, 1, 1]>]
   %cst_3 = const.Declare tensor<1x2x1x2048xf16> = dense<226> : tensor<2x2048xui8>, [#const.Reshape<[1, 2, 1, 2048]>, #const.CastElemType<f16>]
-  %0 = IE.FakeQuantize(%cst_3, %cst, %cst_0, %cst_1, %cst_2) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i64} : tensor<1x2x1x2048xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x2x1x1xf16>, tensor<1x2x1x1xf16> -> tensor<1x2x1x2048xf16>
+  %0 = IE.FakeQuantize(%cst_3, %cst, %cst_0, %cst_1, %cst_2) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256 : i64} : tensor<1x2x1x2048xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x2x1x1xf16>, tensor<1x2x1x1xf16> -> tensor<1x2x1x2048xf16>
   %1 = IE.AffineReshape(%arg0) {dim_mapping = [[0], [0], [1, 2, 3]], shape_value = [1, 2048, 1, 1]} : tensor<1x1x2048xf16> -> tensor<1x2048x1x1xf16>
   %2 = IE.AffineReshape(%0) {dim_mapping = [[0], [0], [0], [1, 2, 3]], shape_value = [2, 2048, 1, 1]} : tensor<1x2x1x2048xf16> -> tensor<2x2048x1x1xf16>
   %3 = IE.Convolution(%1, %2) {dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]} : tensor<1x2048x1x1xf16>, tensor<2x2048x1x1xf16> -> tensor<1x2x1x1xf16>
@@ -91,7 +91,7 @@ func.func @FixZeroPointForMatmulPerChannelQuantized(%arg0: tensor<1x1x2048xf16>)
   // CHECK:   [[CST4:%.+]] = const.Declare tensor<1x2x1x2048xf16> = dense<226> : tensor<2x2048xui8>, [#const.Reshape<[1, 2, 1, 2048]>, #const.CastElemType<f16>]
 
   // CHECK:   [[FQ:%.+]] = IE.FakeQuantize([[CST4]], [[CST0]], [[CST1]], [[CST2]], [[CST3]])
-  // CHECK-SAME:      {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i64} :
+  // CHECK-SAME:      {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256 : i64} :
   // CHECK-SAME:      tensor<1x2x1x2048xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x2x1x1xf16>, tensor<1x2x1x1xf16>
   // CHECK-SAME:       -> tensor<1x2x1x2048xf16>
 
@@ -123,7 +123,7 @@ func.func @FixZeroPointForMatmulFQToWeightsPattern(%arg0: tensor<2x16x32xf16>) -
   %cst_1 = const.Declare tensor<1x1x1x1xf16> = dense<-2.520000e+02> : tensor<1x1x1x1xf16>
   %cst_2 = const.Declare tensor<1x1x1x1xf16> = dense<2.580000e+02> : tensor<1x1x1x1xf16>
   %cst_3 = const.Declare tensor<64x32x1x1xf16> = dense<1.0> : tensor<64x32xf16>, [#const.Reshape<[64, 32, 1, 1]>]
-  %0 = IE.FakeQuantize(%cst_3, %cst, %cst_0, %cst_1, %cst_2) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i64}
+  %0 = IE.FakeQuantize(%cst_3, %cst, %cst_0, %cst_1, %cst_2) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256 : i64}
     : tensor<64x32x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>
     -> tensor<64x32x1x1xf16>
   %1 = IE.AffineReshape(%arg0) {dim_mapping = [[0], [0], [1, 2, 3]], shape_value = [32, 32, 1, 1]}
@@ -145,7 +145,7 @@ func.func @FixZeroPointForMatmulFQToWeightsPattern(%arg0: tensor<2x16x32xf16>) -
   // CHECK:   [[CST4:%.+]] = const.Declare tensor<64x32x1x1xf16> = dense<1.000000e+00> : tensor<64x32xf16>, [#const.Reshape<[64, 32, 1, 1]>]
 
   // CHECK:   [[FQ:%.+]] = IE.FakeQuantize([[CST4]], [[CST0]], [[CST1]], [[CST2]], [[CST3]])
-  // CHECK-SAME:      {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i64} :
+  // CHECK-SAME:      {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256 : i64} :
   // CHECK-SAME:      tensor<64x32x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>
   // CHECK-SAME:       -> tensor<64x32x1x1xf16>
 
@@ -184,7 +184,7 @@ func.func @DontFixZeroPointForNon1x1Kernel(%arg0: tensor<2x16x32xf16>) -> tensor
   %cst_1 = const.Declare tensor<1x1x1x1xf16> = dense<-2.520000e+02> : tensor<1x1x1x1xf16>
   %cst_2 = const.Declare tensor<1x1x1x1xf16> = dense<2.580000e+02> : tensor<1x1x1x1xf16>
   %cst_3 = const.Declare tensor<3x3x32x64xf16> = dense<1.0> : tensor<3x3x32x64xf16>
-  %0 = IE.FakeQuantize(%cst_3, %cst, %cst_0, %cst_1, %cst_2) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i64} : tensor<3x3x32x64xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<3x3x32x64xf16>
+  %0 = IE.FakeQuantize(%cst_3, %cst, %cst_0, %cst_1, %cst_2) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256 : i64} : tensor<3x3x32x64xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<3x3x32x64xf16>
   %1 = IE.Transpose(%0) {order_value = affine_map<(d0, d1, d2, d3) -> (d0, d1, d3, d2)>} : tensor<3x3x32x64xf16> -> tensor<3x3x64x32xf16>
   %2 = IE.AffineReshape(%arg0) {dim_mapping = [[0], [0], [1, 2, 3]], shape_value = [32, 32, 1, 1]} : tensor<2x16x32xf16> -> tensor<32x32x1x1xf16>
   %3 = IE.AffineReshape(%1) {dim_mapping = [[0], [0], [0], [1, 2, 3]], shape_value = [64, 32, 3, 3]} : tensor<3x3x64x32xf16> -> tensor<64x32x3x3xf16>
@@ -200,7 +200,7 @@ func.func @DontFixZeroPointForNon1x1Kernel(%arg0: tensor<2x16x32xf16>) -> tensor
   // CHECK:   [[CST4:%.+]] = const.Declare tensor<3x3x32x64xf16> = dense<1.000000e+00> : tensor<3x3x32x64xf16>
 
   // CHECK:   [[FQ:%.+]] = IE.FakeQuantize([[CST4]], [[CST0]], [[CST1]], [[CST2]], [[CST3]])
-  // CHECK-SAME:      {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i64} :
+  // CHECK-SAME:      {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256 : i64} :
   // CHECK-SAME:      tensor<3x3x32x64xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>
   // CHECK-SAME:       -> tensor<3x3x32x64xf16>
 
@@ -230,7 +230,7 @@ func.func @SkipConvolutionwithStaticScale(%arg0: tensor<2x16x32xf16>) -> tensor<
   %cst_1 = const.Declare tensor<1x1x1x1xf16> = dense<-2.520000e+02> : tensor<1x1x1x1xf16>
   %cst_2 = const.Declare tensor<1x1x1x1xf16> = dense<2.580000e+02> : tensor<1x1x1x1xf16>
   %cst_3 = const.Declare tensor<1x1x32x64xf16> = dense<1.0> : tensor<32x64xf16>, [#const.Reshape<[1, 1, 32, 64]>]
-  %0 = IE.FakeQuantize(%cst_3, %cst, %cst_0, %cst_1, %cst_2) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i64} : tensor<1x1x32x64xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<1x1x32x64xf16>
+  %0 = IE.FakeQuantize(%cst_3, %cst, %cst_0, %cst_1, %cst_2) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256 : i64} : tensor<1x1x32x64xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<1x1x32x64xf16>
   %1 = IE.Transpose(%0) {order_value = affine_map<(d0, d1, d2, d3) -> (d0, d1, d3, d2)>} : tensor<1x1x32x64xf16> -> tensor<1x1x64x32xf16>
   %2 = IE.AffineReshape(%arg0) {dim_mapping = [[0], [0], [1, 2, 3]], shape_value = [32, 32, 1, 1]} : tensor<2x16x32xf16> -> tensor<32x32x1x1xf16>
   %3 = IE.AffineReshape(%1) {dim_mapping = [[0], [0], [0], [1, 2, 3]], shape_value = [64, 32, 1, 1]} : tensor<1x1x64x32xf16> -> tensor<64x32x1x1xf16>
@@ -247,7 +247,7 @@ func.func @SkipConvolutionwithStaticScale(%arg0: tensor<2x16x32xf16>) -> tensor<
   // CHECK:   [[CST4:%.+]] = const.Declare tensor<1x1x32x64xf16> = dense<1.000000e+00> : tensor<32x64xf16>, [#const.Reshape<[1, 1, 32, 64]>]
 
   // CHECK:   [[FQ:%.+]] = IE.FakeQuantize([[CST4]], [[CST0]], [[CST1]], [[CST2]], [[CST3]])
-  // CHECK-SAME:      {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i64} :
+  // CHECK-SAME:      {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256 : i64} :
   // CHECK-SAME:      tensor<1x1x32x64xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>
   // CHECK-SAME:       -> tensor<1x1x32x64xf16>
 
@@ -290,7 +290,7 @@ func.func @ZeroPointPerChannelBothSplat(%arg0: tensor<1x1x2048xf16>) -> tensor<1
   %cst_1 = const.Declare tensor<1x2x1x1xf16> = dense<-2.520000e+02> : tensor<1x2x1x1xf16>
   %cst_2 = const.Declare tensor<1x2x1x1xf16> = dense<2.580000e+02> : tensor<1x2x1x1xf16>
   %cst_3 = const.Declare tensor<1x2x1x2048xf16> = dense<1.0> : tensor<2x2048xf16>, [#const.Reshape<[1, 2, 1, 2048]>]
-  %0 = IE.FakeQuantize(%cst_3, %cst, %cst_0, %cst_1, %cst_2) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i64}
+  %0 = IE.FakeQuantize(%cst_3, %cst, %cst_0, %cst_1, %cst_2) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256 : i64}
     : tensor<1x2x1x2048xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x2x1x1xf16>, tensor<1x2x1x1xf16>
     -> tensor<1x2x1x2048xf16>
   %1 = IE.AffineReshape(%arg0) {dim_mapping = [[0], [0], [1, 2, 3]], shape_value = [1, 2048, 1, 1]}
@@ -314,7 +314,7 @@ func.func @ZeroPointPerChannelBothSplat(%arg0: tensor<1x1x2048xf16>) -> tensor<1
   // CHECK-DAG:   [[CST4:%.+]] = const.Declare tensor<1x2x1x2048xf16> = dense<1.000000e+00> : tensor<2x2048xf16>, [#const.Reshape<[1, 2, 1, 2048]>]
 
   // CHECK:   [[FQ:%.+]] = IE.FakeQuantize([[CST4]], [[CST0]], [[CST1]], [[CST2]], [[CST3]])
-  // CHECK-SAME:      {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i64} :
+  // CHECK-SAME:      {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256 : i64} :
   // CHECK-SAME:      tensor<1x2x1x2048xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x2x1x1xf16>, tensor<1x2x1x1xf16>
   // CHECK-SAME:       -> tensor<1x2x1x2048xf16>
 
@@ -345,7 +345,7 @@ func.func @ZeroPointPerChannelMixedSplat(%arg0: tensor<1x1x2048xf16>) -> tensor<
   %cst_1 = const.Declare tensor<1x2x1x1xf16> = dense<-2.520000e+02> : tensor<1x2x1x1xf16>
   %cst_2 = const.Declare tensor<1x2x1x1xf16> = dense<[[[[2.580000e+02]], [[2.600000e+02]]]]> : tensor<1x2x1x1xf16>
   %cst_3 = const.Declare tensor<1x2x1x2048xf16> = dense<1.0> : tensor<2x2048xf16>, [#const.Reshape<[1, 2, 1, 2048]>]
-  %0 = IE.FakeQuantize(%cst_3, %cst, %cst_0, %cst_1, %cst_2) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i64}
+  %0 = IE.FakeQuantize(%cst_3, %cst, %cst_0, %cst_1, %cst_2) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256 : i64}
     : tensor<1x2x1x2048xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x2x1x1xf16>, tensor<1x2x1x1xf16>
     -> tensor<1x2x1x2048xf16>
   %1 = IE.AffineReshape(%arg0) {dim_mapping = [[0], [0], [1, 2, 3]], shape_value = [1, 2048, 1, 1]}
@@ -371,7 +371,7 @@ func.func @ZeroPointPerChannelMixedSplat(%arg0: tensor<1x1x2048xf16>) -> tensor<
   // CHECK-DAG:   [[CST4:%.+]] = const.Declare tensor<1x2x1x2048xf16> = dense<1.000000e+00> : tensor<2x2048xf16>, [#const.Reshape<[1, 2, 1, 2048]>]
 
   // CHECK:   [[FQ:%.+]] = IE.FakeQuantize([[CST4]], [[CST0]], [[CST1]], [[CST2]], [[CST3]])
-  // CHECK-SAME:      {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i64} :
+  // CHECK-SAME:      {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256 : i64} :
   // CHECK-SAME:      tensor<1x2x1x2048xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x2x1x1xf16>, tensor<1x2x1x1xf16>
   // CHECK-SAME:       -> tensor<1x2x1x2048xf16>
 

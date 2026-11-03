@@ -379,7 +379,7 @@ const CfgMap coeffDeterminingConfigBatchInCompiler{
          std::make_pair(vpux::OV::BATCH_COMPILER_MODE_SETTINGS::key().data(), turnOffDebatchDisableConditions)}};
 const CfgMap coeffDeterminingConfigBatchInCompilerForHostCompile{
         {std::make_pair(vpux::OV::BATCH_MODE::key().data(), "COMPILER"),
-         std::make_pair(vpux::OV::COMPILATION_MODE::key().data(), "HostCompile"),
+         std::make_pair(vpux::OV::COMPILATION_MODE::key().data(), "HostCompile_Interpreter"),
          std::make_pair(vpux::OV::BATCH_COMPILER_MODE_SETTINGS::key().data(), turnOffDebatchDisableConditions)}};
 const CfgMap coeffDeterminingConfigBatchInPlugin{{std::make_pair(vpux::OV::BATCH_MODE::key().data(), "PLUGIN")}};
 const std::string predefinedDebatchCoefficients{

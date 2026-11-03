@@ -4,6 +4,7 @@
 //
 
 #include "vpux/compiler/core/cost_model_utils.hpp"
+#include "vpux/compiler/core/attributes/shape.hpp"
 #include "vpux/compiler/dialect/VPU/IR/attributes.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/data_movement.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops_interfaces.hpp"
@@ -49,43 +50,29 @@ VPUNN::VPUTensor getVPUNNTensor(ShapeRef tensorShape, VPUNN::DataType dataType) 
     }
 }
 
-// E#226943: need to refer directly to reference implementation getVPUNNElementType in cost_model and remove this
-// duplication
-VPUNN::DataType getElementType(mlir::Type type, [[maybe_unused]] VPUNN::VPUDevice vpuDevice) {
-    if (type.isBF16()) {
-        return VPUNN::DataType::BFLOAT16;
-    } else if (type.isF16()) {
-        return VPUNN::DataType::FLOAT16;
-    } else if (type.isInteger(CHAR_BIT * sizeof(int8_t))) {
-        return VPUNN::DataType::INT8;
-    } else if (type.isUnsignedInteger(CHAR_BIT * sizeof(int8_t))) {
-        return VPUNN::DataType::UINT8;
-    } else if (auto qType = mlir::dyn_cast<mlir::quant::QuantizedType>(type)) {
-        auto storageType = qType.getStorageType();
-        if (mlir::isa<mlir::Float8E5M2Type>(storageType)) {
-            return VPUNN::DataType::BF8;
-        } else if (mlir::isa<mlir::Float8E4M3FNType>(storageType)) {
-            return VPUNN::DataType::HF8;
-        }
+namespace {
 
-        if (qType.getStorageTypeIntegralWidth() == 8) {
-            return qType.isSigned() ? VPUNN::DataType::INT8 : VPUNN::DataType::UINT8;
-        } else if (qType.getStorageTypeIntegralWidth() == 4 && vpuDevice >= VPUNN::VPUDevice::NPU_5_0) {
-            // set INT4 only for 50XX+, see E#152912
+// CostModel does not support F32/SI32 layers below NPU_5_0 (DPU) and through NPU_5_0_W (SHAVE)
+bool hasLegacyUnsupportedType(mlir::Type inputElemType, mlir::Type outputElemType) {
+    return inputElemType.isF32() || outputElemType.isF32() || inputElemType.isSignedInteger(32) ||
+           outputElemType.isSignedInteger(32);
+}
+
+// SHAVE on NPU5 keeps the upstream mapping: legacy set plus FLOAT32 and quantized 4-bit types
+VPUNN::DataType getShaveElementType(mlir::Type type, VPUNN::VPUDevice vpuDevice) {
+    if (vpuDevice == VPUNN::VPUDevice::NPU_5_0 || vpuDevice == VPUNN::VPUDevice::NPU_5_0_W) {
+        if (type.isF32()) {
+            return VPUNN::DataType::FLOAT32;
+        }
+        if (const auto qType = mlir::dyn_cast<mlir::quant::QuantizedType>(type);
+            qType != nullptr && qType.getStorageTypeIntegralWidth() == 4) {
             return qType.isSigned() ? VPUNN::DataType::INT4 : VPUNN::DataType::UINT4;
         }
-    } else if (type.isF32() && vpuDevice >= VPUNN::VPUDevice::NPU_5_0) {
-        // set FP32 only for 50XX+, see E#158088
-        return VPUNN::DataType::FLOAT32;
-    } else if (mlir::isa<mlir::Float8E5M2Type>(type)) {
-        return VPUNN::DataType::BF8;
-    } else if (mlir::isa<mlir::Float8E4M3FNType>(type)) {
-        return VPUNN::DataType::HF8;
     }
-
-    // default until support for more types introduced
-    return VPUNN::DataType::BFLOAT16;
+    return VPU::getVPUNNWorkloadElementType(type, VPU::getVPUNNShaveMappingDevice(vpuDevice));
 }
+
+}  // namespace
 
 VPUNN::Swizzling vpux::getVPUNNSwizzlingKey(mlir::Type type) {
     SmallVector<VPUNN::Swizzling> swizzlingKeyVPUNN = {VPUNN::Swizzling::KEY_0, VPUNN::Swizzling::KEY_1,
@@ -274,25 +261,24 @@ VPUNN::SEPModeInfo vpux::getSEPModeInfo(const VPUIP::SEPInfo& sepInfo) {
     return sepModeInfo;
 }
 
-VPUNN::DPUWorkload vpux::getDPUWorkload(VPUIP::DPUTaskOp dpuTaskOp, [[maybe_unused]] config::ArchKind arch) {
+VPUNN::DPUWorkload vpux::getDPUWorkload(VPUIP::DPUTaskOp dpuTaskOp, config::ArchKind arch) {
     auto nceClusterOp = dpuTaskOp->getParentOfType<VPUIP::NCEClusterTaskOp>();
     VPUX_THROW_WHEN(nceClusterOp == nullptr, "The parent of dpuTaskOp {0} must be a NCEClusterTaskOp but not",
                     dpuTaskOp->getLoc());
     auto inputOneType = nceClusterOp->getOperand(0).getType();
     auto outputType = nceClusterOp->getResult(0).getType();
-    auto inputTwoType = nceClusterOp->getNumOperands() > 1 ? nceClusterOp->getOperand(1).getType() : nullptr;
+    const auto weightsOperand = nceClusterOp.getWeights();
+    auto inputTwoType = weightsOperand != nullptr ? weightsOperand.getType() : nullptr;
 
     auto inputElemType = mlir::cast<vpux::NDTypeInterface>(inputOneType).getElementType();
     auto inputTwoElemType =
             inputTwoType != nullptr ? mlir::cast<vpux::NDTypeInterface>(inputTwoType).getElementType() : nullptr;
     auto outputElemType = mlir::cast<vpux::NDTypeInterface>(outputType).getElementType();
 
-    // CostModel does not support F32/SI32 layers
+    // Below NPU_5_0 CostModel does not support F32 input or SI32 layers; F32 output is let through
     // TODO: Support FP32 output element type E#149202
-    if (inputElemType.isF32()) {
-        VPUX_THROW("Can't convert a F32/SI32 workload as CostModel does not support");
-    }
-    if (inputElemType.isSignedInteger(32) || outputElemType.isSignedInteger(32)) {
+    if ((inputElemType.isF32() || inputElemType.isSignedInteger(32) || outputElemType.isSignedInteger(32)) &&
+        VPU::getVPUDeviceType(arch) < VPUNN::VPUDevice::NPU_5_0) {
         VPUX_THROW("Can't convert a F32/SI32 workload as CostModel does not support");
     }
 
@@ -410,14 +396,14 @@ VPUNN::DPUWorkload vpux::getDPUWorkload(VPUIP::DPUTaskOp dpuTaskOp, [[maybe_unus
 
     const auto inputTensor = VPUNN::VPUTensor(
             {static_cast<unsigned int>(IW), static_cast<unsigned int>(IH), static_cast<unsigned int>(IC), 1},
-            getElementType(inputElemType, vpunnDevice), inputLayout, isInputSparsityEnabled);
+            VPU::getVPUNNWorkloadElementType(inputElemType, vpunnDevice), inputLayout, isInputSparsityEnabled);
     const auto outputTensor = VPUNN::VPUTensor(
             {static_cast<unsigned int>(OW), static_cast<unsigned int>(OH), static_cast<unsigned int>(OC), 1},
-            getElementType(outputElemType, vpunnDevice), outputLayout, isOutputSparsityEnabled);
+            VPU::getVPUNNWorkloadElementType(outputElemType, vpunnDevice), outputLayout, isOutputSparsityEnabled);
 
     VPUNN::DPUWorkload vpunnDPUWorkload;
     if (inputTwoElemType != nullptr) {
-        vpunnDPUWorkload.weight_type = getElementType(inputTwoElemType, vpunnDevice);
+        vpunnDPUWorkload.weight_type = VPU::getVPUNNWorkloadElementType(inputTwoElemType, vpunnDevice);
     }
     vpunnDPUWorkload.device = vpunnDevice;
     vpunnDPUWorkload.op = opType;
@@ -663,7 +649,7 @@ std::vector<VPUNN::VPUTensor> getVPUNNTensorFromArrayRef(ArrayRef<mlir::Value> v
     std::vector<VPUNN::VPUTensor> tensors;
     for (const auto& value : values) {
         auto ndType = mlir::cast<vpux::NDTypeInterface>(value.getType());
-        tensors.push_back(getVPUNNTensor(ndType.getShape(), getElementType(ndType.getElementType(), vpuDev)));
+        tensors.push_back(getVPUNNTensor(ndType.getShape(), getShaveElementType(ndType.getElementType(), vpuDev)));
     }
     return tensors;
 }
@@ -861,12 +847,14 @@ std::unique_ptr<VPUNN::SHAVEWorkload> vpux::getVPUNNSWKernelOp(VPU::SWOpInterfac
     const auto operName = operation->getName().stripDialect().str();
     std::vector<VPUNN::VPUTensor> outputTensors;
     for (auto outputNd : outputTypes) {
-        outputTensors.push_back(getVPUNNTensor(outputNd.getShape(), getElementType(outputNd.getElementType(), vpuDev)));
+        outputTensors.push_back(
+                getVPUNNTensor(outputNd.getShape(), getShaveElementType(outputNd.getElementType(), vpuDev)));
     }
 
     std::vector<VPUNN::VPUTensor> inputTensors;
     for (auto inputNd : inputTypes) {
-        inputTensors.push_back(getVPUNNTensor(inputNd.getShape(), getElementType(inputNd.getElementType(), vpuDev)));
+        inputTensors.push_back(
+                getVPUNNTensor(inputNd.getShape(), getShaveElementType(inputNd.getElementType(), vpuDev)));
     }
 
     return getShaveWorkloadFunction(operation, std::move(inputTensors), std::move(outputTensors));
@@ -886,16 +874,20 @@ size_t vpux::calculateShaveActCycles(VPUIP::SwKernelOp swKernelOp,
         return 1;
     }
 
+    const auto isUnbounded = [](mlir::Value value) {
+        return hasUnboundedDynamicShape(value);
+    };
+    if (llvm::any_of(swKernelOp.getInputs(), isUnbounded) || llvm::any_of(swKernelOp.getOutputBuffs(), isUnbounded)) {
+        return 1;
+    }
+
     auto inputNdType = mlir::cast<vpux::NDTypeInterface>(swKernelOp->getOperand(0).getType());
     auto outputNdType = mlir::cast<vpux::NDTypeInterface>(swKernelOp->getResult(0).getType());
     auto inputElemType = inputNdType.getElementType();
     auto outputElemType = outputNdType.getElementType();
-    // CostModel does not support F32/SI32 layers
-
-    if (inputElemType.isF32() || outputElemType.isF32()) {
-        return 1;
-    }
-    if (inputElemType.isSignedInteger(32) || outputElemType.isSignedInteger(32)) {
+    const auto arch = config::getArch(swKernelOp);
+    if (hasLegacyUnsupportedType(inputElemType, outputElemType) &&
+        VPU::getVPUDeviceType(arch) <= VPUNN::VPUDevice::NPU_5_0_W) {
         return 1;
     }
 
@@ -932,18 +924,25 @@ size_t vpux::getDPUTaskOpCost(VPUIP::DPUTaskOp dpuTaskOp, const std::shared_ptr<
     auto nceOp = dpuTaskOp->getParentOfType<VPUIP::NCEClusterTaskOp>();
     VPUX_THROW_WHEN(nceOp == nullptr, "The parent of dpuTaskOp {0} must be a NCEClusterTaskOp but not",
                     dpuTaskOp->getLoc());
-    auto inputOneType = nceOp->getOperand(0).getType();
-    auto outputType = nceOp->getResult(0).getType();
-
-    auto inputElemType = mlir::cast<vpux::NDTypeInterface>(inputOneType).getElementType();
-    auto outputElemType = mlir::cast<vpux::NDTypeInterface>(outputType).getElementType();
-
-    // CostModel does not support F32/SI32 layers
+    auto inputElemType = mlir::cast<vpux::NDTypeInterface>(nceOp->getOperand(0).getType()).getElementType();
+    const auto weightsOperand = nceOp.getWeights();
+    auto inputTwoElemType = weightsOperand != nullptr
+                                    ? mlir::cast<vpux::NDTypeInterface>(weightsOperand.getType()).getElementType()
+                                    : nullptr;
+    auto outputElemType = mlir::cast<vpux::NDTypeInterface>(nceOp->getResult(0).getType()).getElementType();
+    const auto vpuDevice = VPU::getVPUDeviceType(arch);
+    // Temporary FP32 cost fallback until output costs are supported (E#149202).
     if (inputElemType.isF32() || outputElemType.isF32()) {
         return 1;
     }
-    if (inputElemType.isSignedInteger(32) || outputElemType.isSignedInteger(32)) {
+    if (hasLegacyUnsupportedType(inputElemType, outputElemType) && vpuDevice < VPUNN::VPUDevice::NPU_5_0) {
         return 1;
+    }
+    if (vpuDevice >= VPUNN::VPUDevice::NPU_5_0 &&
+        (!VPU::isVPUNNSupportedElementType(inputElemType, arch) ||
+         (inputTwoElemType != nullptr && !VPU::isVPUNNSupportedElementType(inputTwoElemType, arch)) ||
+         !VPU::isVPUNNSupportedElementType(outputElemType, arch))) {
+        return VPU::INVALID_COST_BASE;
     }
 
     // Enable a cache for DPU workload costs because the sanity check step within the VPU cost model is

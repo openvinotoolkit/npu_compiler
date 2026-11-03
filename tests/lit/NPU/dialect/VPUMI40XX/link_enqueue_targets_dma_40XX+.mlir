@@ -33,7 +33,7 @@ func.func @multiDMA() {
   %e3 = VPURegMapped.Enqueue at(%b : !VPURegMapped.Index<0:0:0>) (%10 -> %11 : <1:0:0> -> <1:0:1>) -> !VPURegMapped.Index<0:0:3> {taskType = #VPURegMapped.task_type<DMA>}
   %e4 = VPURegMapped.Enqueue at(%b : !VPURegMapped.Index<0:0:0>) (%12 -> %12 : <1:1:0> -> <1:1:0>) -> !VPURegMapped.Index<0:0:4> {taskType = #VPURegMapped.task_type<DMA>}
 
-  %13 = VPUMI40XX.MappedInference dmas((%7, %9), (%10, %12) : (!VPURegMapped.Index<0:0:0>, !VPURegMapped.Index<0:1:0>), (!VPURegMapped.Index<1:0:0>, !VPURegMapped.Index<1:1:0>)) barriers(%b : !VPURegMapped.Index<0:0:0>) workItemTasks(%e0 : !VPURegMapped.Index<0:0:0>) dmaCount([[3, 1], [2, 1], [0, 0], [0, 0], [0, 0], [0, 0]]) invariantCount([0, 0, 0, 0, 0, 0]) variantCount([0, 0, 0, 0, 0, 0]) actKernelRangesCount([[0, 0], [0, 0], [0, 0], [0, 0], [0, 0], [0, 0]]) actKernelInvocationsCount([[0, 0], [0, 0], [0, 0], [0, 0], [0, 0], [0, 0]]) mediaCount(0) barrierCount(1) workItemCount(5) -> !VPURegMapped.Index<0:0:0>
+  %13 = VPUMI40XX.MappedInference dmas((%7, %9), (%10, %12) : (!VPURegMapped.Index<0:0:0>, !VPURegMapped.Index<0:1:0>), (!VPURegMapped.Index<1:0:0>, !VPURegMapped.Index<1:1:0>)) barriers(%b : !VPURegMapped.Index<0:0:0>) workItemTasks(%e0 : !VPURegMapped.Index<0:0:0>) dmaCount([[3, 1], [2, 1], [0, 0], [0, 0], [0, 0], [0, 0]]) invariantCount([0, 0, 0, 0, 0, 0]) variantCount([0, 0, 0, 0, 0, 0]) actKernelRangesCount([[0, 0], [0, 0], [0, 0], [0, 0], [0, 0], [0, 0]]) actKernelInvocationsCount([[0, 0], [0, 0], [0, 0], [0, 0], [0, 0], [0, 0]]) barrierCount(1) workItemCount(5) -> !VPURegMapped.Index<0:0:0>
 
   return
 }

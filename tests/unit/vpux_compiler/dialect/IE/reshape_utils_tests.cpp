@@ -56,3 +56,40 @@ TEST_F(MLIR_IE_ReshapeUtils, origMapValidButExtensionInvalid) {
         EXPECT_TRUE(mlir::failed(mapExtension));
     }
 }
+
+TEST_F(MLIR_IE_ReshapeUtils, DynamicDimsMapOnlyToDynamicDims) {
+    constexpr int64_t DYN = mlir::ShapedType::kDynamic;
+    mlir::SmallVector<
+            //            inShape               outShape
+            std::tuple<SmallVector<int64_t>, SmallVector<int64_t>, SmallVector<SmallVector<int64_t>>>, 5>
+            inShapeOutShapeExpectedOut = {
+                    {{1, DYN, 64}, {DYN, 64}, {{0}, {0}, {1}}},
+                    {{DYN, 64}, {1, DYN, 64}, {{0, 1}, {2}}},
+                    {{1, DYN, 64}, {1, 1, DYN, 8, 8}, {{0, 1}, {2}, {3, 4}}},
+                    {{DYN, 1, 64}, {DYN, 64}, {{0}, {0}, {1}}},
+                    {{DYN, DYN}, {DYN, 1, DYN}, {{0, 1}, {2}}},
+            };
+
+    for (auto& it : inShapeOutShapeExpectedOut) {
+        const auto& inShape = std::get<0>(it);
+        const auto& outShape = std::get<1>(it);
+        auto map = IE::getReassociationMap(inShape, outShape);
+        ASSERT_TRUE(mlir::succeeded(map));
+        EXPECT_EQ(map.value(), std::get<2>(it));
+    }
+}
+
+TEST_F(MLIR_IE_ReshapeUtils, DynamicDimsNotMergedWithStaticDims) {
+    constexpr int64_t DYN = mlir::ShapedType::kDynamic;
+    mlir::SmallVector<std::pair<SmallVector<int64_t>, SmallVector<int64_t>>, 4> inShapeOutShape = {
+            {{DYN, 64}, {DYN}},
+            {{DYN}, {DYN, 64}},
+            {{4, DYN}, {DYN, 4}},
+            {{2, DYN}, {DYN}},
+    };
+
+    for (const auto& [inShape, outShape] : inShapeOutShape) {
+        EXPECT_TRUE(mlir::failed(IE::getReassociationMap(inShape, outShape)));
+        EXPECT_TRUE(mlir::failed(IE::getReassociationMapExtension(inShape, outShape)));
+    }
+}

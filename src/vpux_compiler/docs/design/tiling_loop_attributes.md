@@ -70,7 +70,7 @@ a C/H tiled VF region; its coordinate must contain only H, rather than copying t
 
 Any pass that materializes static tiles must do all of the following:
 
-1. Assign a module-wide unused `tiling_loop_index` for a normal tiled region, or a module-wide unused
+1. Assign a function-local unused `tiling_loop_index` for a normal tiled region, or a function-local unused
    `vf_loop_index` for a VF region.
 2. Attach `loop_tile_coord` to every materialized compute producer, derived from that producer's actual output tiles.
 3. For VF, also attach `vf_loop_tile_index` when the physical VF lane is required by VF-specific consumers.
@@ -93,7 +93,8 @@ Current producers are:
 Before adding a pass that unrolls, clones, or otherwise materializes operations for static tiling:
 
 1. Identify the final logical loop domain and choose the normal or VF region identity attribute.
-2. Obtain a module-wide index with `getNextTilingLoopIndex()` or `getNextVFLoopIndex()`.
+2. Construct `LoopIndexAllocator` from the function, then obtain indices with
+   `getNextTilingLoopIndex()` or `getNextVFLoopIndex()`.
 3. Derive each materialized compute operation's coordinate with `getTileCoordinates()` and serialize it with
    `getTileCoordinateAttr()`.
 4. Ensure any pass that creates replacement compute operations propagates the attrs.

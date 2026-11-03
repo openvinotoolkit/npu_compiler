@@ -1,5 +1,5 @@
 //
-// Copyright (C) 2026 Intel Corporation.
+// Copyright (C) 2026 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -12,9 +12,7 @@
 using namespace vpux;
 
 void Shave::registerShaveOpInterfaces(mlir::DialectRegistry& registry) {
-    registry.addExtension(+[](mlir::MLIRContext* ctx, Shave::ShaveDialect*) {
-        Shave::ExternalKernelOp::attachInterface<VPU::LayerOpInterface>(*ctx);
-    });
+    VPUX_UNUSED(registry);
 }
 
 //

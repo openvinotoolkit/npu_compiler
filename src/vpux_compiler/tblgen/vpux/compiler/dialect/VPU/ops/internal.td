@@ -33,6 +33,8 @@ def VPU_GenericSwLayerOp :
                 DeclareOpInterfaceMethods<VPU_TilingBuilderOpInterface>,
                 DeclareOpInterfaceMethods<InferTypeOpInterface>,
                 DeclareOpInterfaceMethods<VPU_AuxiliaryBufferOpInterface>,
+                DeclareOpInterfaceMethods<VPU_ClusteredOpInterface>,
+                DeclareOpInterfaceMethods<VPU_VerticalFusionOpInterface>,
                 AttrSizedOperandSegments
             ]
         > {
@@ -100,7 +102,8 @@ def VPU_GenericSwLayerOp :
         OptionalAttr<VPU_JITTilingAttr>:$tilingProperties,
         Variadic<Index>:$dynamic_sizes,
         Variadic<Index>:$dynamic_offsets,
-        ArrayAttr:$returnTypes
+        ArrayAttr:$returnTypes,
+        OptionalAttr<VPU_MultiClusterStrategyAttr>:$multiClusterStrategy
     );
 
     let results = (outs
@@ -114,7 +117,7 @@ def VPU_GenericSwLayerOp :
 
     let builders = [
         // Builder automatically creates returnTypes from resultTypes
-        // Usage: builder.create<VPU::GenericSwLayerOp>(loc, resultTypes, callee, inputs,
+        // Usage: VPU::GenericSwLayerOp::create(builder, loc, resultTypes, callee, inputs,
         //            [tilingProperties], [dynamic_sizes], [dynamic_offsets], [scratch])
         OpBuilder<(ins "mlir::TypeRange":$resultTypes,
                        "mlir::SymbolRefAttr":$callee,
@@ -127,12 +130,21 @@ def VPU_GenericSwLayerOp :
 
     let extraClassDeclaration = [{
         static bool isCompatibleReturnTypes(::mlir::TypeRange lhs, ::mlir::TypeRange rhs) {
-            return vpux::areTypesCompatible(lhs, rhs, vpux::IE::TypeComparisonMode::STRICT_EQUAL,
+            return vpux::areTypesCompatible(lhs, rhs, vpux::IE::TypeComparisonMode::ALLOW_DISTRIBUTED_OUTPUT,
                                             /*checkDimsOrder=*/true, /*checkMemSpace=*/false);
         }
 
         bool fitIntoCMX(::llvm::ArrayRef<vpux::NDTypeInterface> buffers, Byte reservedMem);
         bool fitIntoCMX(::llvm::ArrayRef<vpux::NDTypeInterface> buffers);
+        bool isVFSupported();
+        DimArr restrictedFusionAxes();
+        // Distribution methods/helpers.
+        SmallVector<int64_t> getSWInputTensorNumTiles(int64_t numClusters, VPU::MultiClusterStrategy strategy,
+                                                      mlir::OpOperand& operand,
+                                                      vpux::NDTypeInterface inputType);
+        DistributionMode getSWInputTensorDistributionMode(VPU::MultiClusterStrategy strategy,
+                                                          mlir::OpOperand& operand,
+                                                          vpux::NDTypeInterface inputType);
     }];
 }
 

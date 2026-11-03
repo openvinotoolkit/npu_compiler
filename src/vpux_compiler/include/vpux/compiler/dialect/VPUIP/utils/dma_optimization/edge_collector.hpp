@@ -22,29 +22,11 @@
 #include "vpux/utils/logger/logger.hpp"
 
 #include <llvm/ADT/DenseMap.h>
-#include <llvm/ADT/DenseSet.h>
 #include <mlir/Dialect/Func/IR/FuncOps.h>
 #include <mlir/IR/Operation.h>
 #include <mlir/IR/Value.h>
 
-namespace vpux {
-namespace VPUIP {
-
-/// Region cut points supplied by grouping layers.
-/// Internal ops are skipped by the global collector. Values in `valueToPort`
-/// are represented as LoopRegion boundaries instead of ordinary IR values.
-struct LoopRegionBoundaryInfo {
-    llvm::DenseSet<mlir::Value> inputCutPoints;
-    llvm::DenseSet<mlir::Value> outputCutPoints;
-    llvm::DenseSet<mlir::Operation*> internalOps;
-    llvm::DenseMap<mlir::Value, size_t> cutPointToGroupIndex;
-
-    llvm::DenseMap<mlir::Value, LoopRegionPortLocation> valueToPort;
-
-    bool hasGroups() const {
-        return !inputCutPoints.empty() || !outputCutPoints.empty();
-    }
-};
+namespace vpux::VPUIP::DmaOptimization {
 
 /// True for ops treated as compute boundaries by the DMA edge model.
 bool isComputeOp(mlir::Operation* op);
@@ -77,9 +59,6 @@ private:
     void mergeEdgeComponents(int32_t lhsEdgeIndex, int32_t rhsEdgeIndex);
     int32_t getOrCreateEdgeIndex(mlir::Operation* edgeOp);
 
-    /// True for ops owned by LoopRegion-internal collection.
-    bool isInternal(mlir::Operation* op) const;
-
     Logger _log;
     const LoopRegionBoundaryInfo* _loopRegionBoundaries = nullptr;
 
@@ -91,11 +70,9 @@ private:
     // Diagnostics
     size_t _diagEdgeOps = 0;
     size_t _diagBoundaryOps = 0;
-    size_t _diagSkippedInternal = 0;
     size_t _diagDroppedIncompleteEdges = 0;
     size_t _diagDroppedNoSources = 0;
     size_t _diagDroppedNoTargets = 0;
 };
 
-}  // namespace VPUIP
-}  // namespace vpux
+}  // namespace vpux::VPUIP::DmaOptimization

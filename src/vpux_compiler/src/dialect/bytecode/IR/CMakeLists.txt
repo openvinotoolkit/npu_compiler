@@ -15,3 +15,5 @@ add_npu_library(npu_compiler_dialect_bytecode
             npu_core_utils
             npu_bytecode_utils
     )
+enable_lto_if_possible(npu_compiler_dialect_bytecode)
+

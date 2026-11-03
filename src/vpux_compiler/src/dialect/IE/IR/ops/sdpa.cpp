@@ -37,7 +37,7 @@ mlir::LogicalResult vpux::IE::SDPAOp::inferReturnTypeComponents(
 
 mlir::LogicalResult vpux::IE::SDPAOp::reifyResultShapes(mlir::OpBuilder& builder,
                                                         mlir::ReifiedRankedShapedTypeDims& reifiedReturnShapes) {
-    return reifyAttentionResultShape(builder, getInputQ(), getInputV(), getLoc(), reifiedReturnShapes);
+    return reifyAttentionResultShape(builder, getInputQ(), getInputK(), getInputV(), getLoc(), reifiedReturnShapes);
 }
 
 //

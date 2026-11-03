@@ -161,7 +161,7 @@ mlir::LogicalResult FakeQuantReshapeSwapper::matchAndRewrite(IE::FakeQuantizeOp 
     if (allOnes || bigDimNotLast) {  // Per-tensor quantization
         newFQ = IE::FakeQuantizeOp::create(rewriter, origOp->getLoc(), lastReshapeOp->getResult(0),
                                            origOp.getInputLow(), origOp.getInputHigh(), origOp.getOutputLow(),
-                                           origOp.getOutputHigh(), origOp.getLevelsAttr(), origOp.getLowFpTypeAttr(),
+                                           origOp.getOutputHigh(), origOp.getLevelsOrLowFpTypeAttr(),
                                            origOp.getAutoBroadcastAttr());
     } else {  // Reshape the quantization arrays accordingly when the quantization is per-channel
         auto inputLow = origOp.getInputLow();
@@ -175,8 +175,7 @@ mlir::LogicalResult FakeQuantReshapeSwapper::matchAndRewrite(IE::FakeQuantizeOp 
         auto inputHighReshaped = IE::ReshapeOp::create(rewriter, origOp->getLoc(), inputHigh, newInputShapeAttr);
         newFQ = IE::FakeQuantizeOp::create(rewriter, origOp->getLoc(), lastReshapeOp->getResult(0), inputLowReshaped,
                                            inputHighReshaped, origOp.getOutputLow(), origOp.getOutputHigh(),
-                                           origOp.getLevelsAttr(), origOp.getLowFpTypeAttr(),
-                                           origOp.getAutoBroadcast());
+                                           origOp.getLevelsOrLowFpTypeAttr(), origOp.getAutoBroadcast());
     }
 
     lastReshapeOp->getResult(0).replaceAllUsesExcept(newFQ.getOutput(), llvm::SmallPtrSet<mlir::Operation*, 1>{newFQ});
@@ -228,8 +227,7 @@ mlir::LogicalResult FakeQuantStridedSliceSwapper::matchAndRewrite(IE::FakeQuanti
         rewriter.setInsertionPointAfter(user);
         auto newFQ = IE::FakeQuantizeOp::create(rewriter, origOp->getLoc(), user->getResult(0), origOp.getInputLow(),
                                                 origOp.getInputHigh(), origOp.getOutputLow(), origOp.getOutputHigh(),
-                                                origOp.getLevelsAttr(), origOp.getLowFpTypeAttr(),
-                                                origOp.getAutoBroadcastAttr());
+                                                origOp.getLevelsOrLowFpTypeAttr(), origOp.getAutoBroadcastAttr());
         user->getResult(0).replaceAllUsesExcept(newFQ.getOutput(), llvm::SmallPtrSet<mlir::Operation*, 1>{newFQ});
     }
 

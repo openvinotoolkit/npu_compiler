@@ -25,7 +25,7 @@
 // TILED-SAME:    [[ARG0:%.+]]: tensor<1x?x?x?xi32>, [[ARG1:%.+]]: tensor<1x?x?x?xi32>,
 // TILED-SAME:    [[ARG2:%.+]]: index, [[ARG3:%.+]]: index, [[ARG4:%.+]]: index, [[ARG5:%.+]]: index, [[ARG6:%.+]]: index, [[ARG7:%.+]]: index)
 // TILED-SAME: -> tensor<1x?x?x?xi32>
-// TILED-SAME: kernelInfo = #VPU.KernelInfo<tilingInfoFunc = @generated_info_0, tilingAxes = [1, 2, 3], numSlicedInputs = 2 : i64>
+// TILED-SAME: kernelInfo = #VPU.KernelInfo<tilingInfoFunc = @generated_info_0, tilingAxes = [1, 2, 3], numSlicedInputs = 2 : i64, numTensorInputs = 2 : i64, numAuxBuffers = 0 : i64, inputSegmentationAxes = []>
 // TILED:      [[EMPTY:%.+]] = tensor.empty([[ARG2]], [[ARG3]], [[ARG4]]) : tensor<1x?x?x?xi32>
 // TILED:      [[OP:%.+]] = linalg.generic
 // TILED-SAME:     ins([[ARG0]], [[ARG1]] : tensor<1x?x?x?xi32>, tensor<1x?x?x?xi32>)
@@ -109,7 +109,7 @@ module @OutlineTiledWithPaddedInputAndLayout {
 
 // TILED:    func.func @generated_0(
 // TILED-SAME: [[ARG0:%.+]]: tensor<1x?x4000x?xf32>, [[ARG1:%.+]]: index, [[ARG2:%.+]]: index, [[ARG3:%.+]]: index, [[ARG4:%.+]]: index) -> tensor<1x?x4000x?xf32>
-// TILED-SAME: kernelInfo = #VPU.KernelInfo<tilingInfoFunc = @generated_info_0, tilingAxes = [1, 3], numSlicedInputs = 1 : i64>}
+// TILED-SAME: kernelInfo = #VPU.KernelInfo<tilingInfoFunc = @generated_info_0, tilingAxes = [1, 3], numSlicedInputs = 1 : i64, numTensorInputs = 1 : i64, numAuxBuffers = 0 : i64, inputSegmentationAxes = []>}
 // TILED-DAG:      [[CST:%.+]] = arith.constant -3.40282347E+38 : f32
 // TILED-DAG:      [[C0:%.+]] = arith.constant 0.000000e+00 : f32
 // TILED-DAG:      [[EMPTY_MAX:%.+]] = tensor.empty([[ARG1]], [[ARG2]]) : tensor<1x?x?xf32>
@@ -246,7 +246,7 @@ module @PaddedSoftmax {
 // TILED:    func.func @generated_0(
 // TILED-SAME:    [[ARG0:%.+]]: tensor<1x?x?x?xf32>, [[ARG1:%.+]]: index, [[ARG2:%.+]]: index, [[ARG3:%.+]]: index, [[ARG4:%.+]]: index, [[ARG5:%.+]]: index, [[ARG6:%.+]]: index)
 // TILED-SAME: -> tensor<1x?x?x?xf32>
-// TILED-SAME:  kernelInfo = #VPU.KernelInfo<tilingInfoFunc = @generated_info_0, tilingAxes = [1, 2, 3], numSlicedInputs = 1 : i64>
+// TILED-SAME:  kernelInfo = #VPU.KernelInfo<tilingInfoFunc = @generated_info_0, tilingAxes = [1, 2, 3], numSlicedInputs = 1 : i64, numTensorInputs = 1 : i64, numAuxBuffers = 0 : i64, inputSegmentationAxes = []>
 // TILED-DAG:   [[MIN0:%.+]] = affine.min [[MAP]](){{\[}}[[ARG6]]{{\]}}
 // TILED-DAG:   [[MIN1:%.+]] = affine.min [[MAP1]](){{\[}}[[MIN0]], [[ARG3]]{{\]}}
 // TILED-DAG:   [[PADSZ:%.+]] = affine.apply [[MAP2]](){{\[}}[[ARG3]], [[MIN1]]{{\]}}
@@ -408,7 +408,7 @@ module @DynamicSlice {
 // TILED: func.func @generated_0(
 // TILED-SAME: [[ARG0:%.+]]: tensor<1x?x?x?xi8>, [[ARG1:%.+]]: index, [[ARG2:%.+]]: index, [[ARG3:%.+]]: index, [[ARG4:%.+]]: index, [[ARG5:%.+]]: index, [[ARG6:%.+]]: index)
 // TILED-SAME: -> tensor<1x?x?x?xf16>
-// TILED-SAME:  kernelInfo = #VPU.KernelInfo<tilingInfoFunc = @generated_info_0, tilingAxes = [1, 2, 3], numSlicedInputs = 1 : i64>
+// TILED-SAME:  kernelInfo = #VPU.KernelInfo<tilingInfoFunc = @generated_info_0, tilingAxes = [1, 2, 3], numSlicedInputs = 1 : i64, numTensorInputs = 1 : i64, numAuxBuffers = 0 : i64, inputSegmentationAxes = []>
 // TILED-DAG:   [[CI:%.+]] = arith.constant dense<0> : tensor<3xi8>
 // TILED-DAG:   [[CF:%.+]] = arith.constant dense<[{{.*}}]> : tensor<3xf16>
 // TILED-DAG:   [[SLICE_F:%.+]] = tensor.extract_slice [[CF]]{{\[}}[[ARG6]]{{\]}} {{\[}}[[ARG3]]{{\]}} [1] : tensor<3xf16> to tensor<?xf16>

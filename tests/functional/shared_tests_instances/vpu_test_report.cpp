@@ -1,5 +1,5 @@
 //
-// Copyright (C) 2022-2025 Intel Corporation
+// Copyright (C) 2022-2026 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -12,7 +12,7 @@
 namespace LayerTestsUtils {
 
 const std::array<std::string, static_cast<int>(VpuTestStage::LAST_VALUE)> VpuTestReport::stages = {
-        "RUN", "COMPILED", "IMPORTED", "INFERRED", "VALIDATED", "SKIPPED_EXCEPTION"};
+        "RUN", "COMPILED", "INFERRED", "VALIDATED", "SKIPPED_EXCEPTION"};
 
 std::string testName(const testing::TestInfo* testInfo) {
     const std::string name(testInfo->test_case_name());
@@ -30,10 +30,6 @@ void VpuTestReport::run(const testing::TestInfo* testInfo) {
 
 void VpuTestReport::compiled(const testing::TestInfo* testInfo) {
     ++counters[testName(testInfo)][static_cast<int>(VpuTestStage::COMPILED)];
-}
-
-void VpuTestReport::imported(const testing::TestInfo* testInfo) {
-    ++counters[testName(testInfo)][static_cast<int>(VpuTestStage::IMPORTED)];
 }
 
 void VpuTestReport::inferred(const testing::TestInfo* testInfo) {

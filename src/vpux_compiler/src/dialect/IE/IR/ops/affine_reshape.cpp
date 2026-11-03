@@ -4,6 +4,7 @@
 //
 
 #include "vpux/compiler/dialect/const/utils/affine_reshape.hpp"
+#include "vpux/compiler/core/attributes/shape.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/shape_manipulation.hpp"
 #include "vpux/compiler/dialect/IE/transforms/rewriters.hpp"
 #include "vpux/compiler/dialect/IE/utils/elem_type_info_utils.hpp"
@@ -84,6 +85,31 @@ bool vpux::IE::AffineReshapeOp::shouldJITCompileToEnableFusion() {
 mlir::LogicalResult vpux::IE::AffineReshapeOp::verify() {
     const auto inType = mlir::cast<vpux::NDTypeInterface>(getInput().getType());
     const auto outType = mlir::cast<vpux::NDTypeInterface>(getOutput().getType());
+
+    // An unbounded extent has no element count; it is carried over unchanged, so only the static extents are compared.
+    if (hasUnboundedDynamicShape(inType) || hasUnboundedDynamicShape(outType)) {
+        const auto getStaticVolumeAndDynamicDimCount = [](ShapeRef shape) {
+            int64_t staticVolume = 1;
+            int64_t dynamicDimCount = 0;
+            for (const auto dim : shape) {
+                if (dim == mlir::ShapedType::kDynamic) {
+                    ++dynamicDimCount;
+                } else {
+                    staticVolume *= dim;
+                }
+            }
+            return std::make_pair(staticVolume, dynamicDimCount);
+        };
+        const auto [inStaticVolume, inDynamicDimCount] = getStaticVolumeAndDynamicDimCount(inType.getShape());
+        const auto [outStaticVolume, outDynamicDimCount] = getStaticVolumeAndDynamicDimCount(outType.getShape());
+        if (inStaticVolume != outStaticVolume || inDynamicDimCount != outDynamicDimCount) {
+            return errorAt(*this,
+                           "AffineReshape of an unbounded shape must keep every dynamic dim and the static volume. "
+                           "Got: input shape '{0}'; output shape '{1}'",
+                           inType.getShape(), outType.getShape());
+        }
+        return mlir::success();
+    }
 
     auto inNumElem = inType.getNumElements();
     auto outNumElem = outType.getNumElements();

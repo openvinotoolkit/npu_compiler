@@ -21,6 +21,7 @@
 #include <mlir/IR/Builders.h>
 #include <mlir/IR/BuiltinAttributes.h>
 #include <mlir/IR/BuiltinTypes.h>
+#include <mlir/IR/DialectResourceBlobManager.h>
 #include <mlir/IR/OpImplementation.h>
 #include <mlir/IR/SymbolTable.h>
 #include <mlir/Support/LLVM.h>
@@ -121,31 +122,73 @@ size_t bytecode::ConstantSectionOp::getBinarySize() {
     return size;
 }
 
-void bytecode::ConstantOp::serialize(vpux::bytecode::BytecodeWriter& writer) {
-    auto value = mlir::cast<mlir::DenseElementsAttr>(getValue());
-    auto rawdata = value.getRawData();
-    if (!value.isSplat()) {
-        writer.appendRawData(reinterpret_cast<const uint8_t*>(rawdata.data()), rawdata.size());
+namespace {
+
+void appendDenseConstantPayload(vpux::bytecode::BytecodeWriter& writer, mlir::DenseElementsAttr denseValue) {
+    const auto rawData = denseValue.getRawData();
+    if (!denseValue.isSplat()) {
+        writer.appendRawData(reinterpret_cast<const uint8_t*>(rawData.data()), rawData.size());
         return;
     }
-    // A splat attribute keeps a single element regardless of how many the type holds, so repeat it to
-    // fill the constant. Writing the raw data as is would leave the section shorter than getBinarySize().
-    const auto numElements = value.getNumElements();
-    VPUX_THROW_UNLESS(rawdata.size() * checked_cast<size_t>(numElements) == getBinarySize(),
-                      "Splat constant of {0} elements does not fill its binary size {1}", numElements, getBinarySize());
+
+    const auto numElements = denseValue.getNumElements();
+    VPUX_THROW_UNLESS(
+            rawData.size() * checked_cast<size_t>(numElements) ==
+                    checked_cast<size_t>(mlir::cast<NDTypeInterface>(denseValue.getType()).getTotalAllocSize().count()),
+            "Splat constant of {0} elements does not fill its declared binary size", numElements);
     for (int64_t idx = 0; idx < numElements; ++idx) {
-        writer.appendRawData(reinterpret_cast<const uint8_t*>(rawdata.data()), rawdata.size());
+        writer.appendRawData(reinterpret_cast<const uint8_t*>(rawData.data()), rawData.size());
     }
+}
+
+size_t getDenseConstantBinarySize(mlir::DenseElementsAttr denseValue) {
+    const auto rawData = denseValue.getRawData();
+    if (!denseValue.isSplat()) {
+        return rawData.size();
+    }
+
+    return rawData.size() * checked_cast<size_t>(denseValue.getNumElements());
+}
+
+mlir::ArrayRef<char> getResourceConstantRawData(mlir::DenseResourceElementsAttr denseResourceValue) {
+    auto blob = denseResourceValue.getRawHandle().getBlob();
+    VPUX_THROW_WHEN(blob == nullptr, "Constant op resource-backed value '{0}' has no backing blob", denseResourceValue);
+    return blob->getData();
+}
+
+}  // namespace
+
+void bytecode::ConstantOp::serialize(vpux::bytecode::BytecodeWriter& writer) {
+    llvm::TypeSwitch<mlir::ElementsAttr>(getValue())
+            .Case<mlir::DenseElementsAttr>([&](auto denseValue) {
+                appendDenseConstantPayload(writer, denseValue);
+            })
+            .Case<mlir::DenseResourceElementsAttr>([&](auto denseResourceValue) {
+                auto rawdata = getResourceConstantRawData(denseResourceValue);
+                writer.appendRawData(reinterpret_cast<const uint8_t*>(rawdata.data()), rawdata.size());
+            })
+            .Default([&](auto) {
+                VPUX_THROW("Unsupported constant value for serialization");
+            });
 }
 
 size_t bytecode::ConstantOp::getBinarySize() {
-    auto value = mlir::cast<mlir::DenseElementsAttr>(getValue());
-    return mlir::cast<NDTypeInterface>(value.getType()).getTotalAllocSize().count();
+    return llvm::TypeSwitch<mlir::ElementsAttr, size_t>(getValue())
+            .Case<mlir::DenseElementsAttr>([](auto denseValue) {
+                return getDenseConstantBinarySize(denseValue);
+            })
+            .Case<mlir::DenseResourceElementsAttr>([](auto denseResourceValue) {
+                return getResourceConstantRawData(denseResourceValue).size();
+            })
+            .Default([](auto) -> size_t {
+                VPUX_THROW("Unsupported constant value for size calculation");
+            });
 }
 
 mlir::LogicalResult bytecode::ConstantOp::verify() {
-    if (!mlir::isa<mlir::DenseElementsAttr>(getValue())) {
-        return emitOpError() << "Constant operations only support DenseElementsAttr for values";
+    if (!mlir::isa<mlir::DenseElementsAttr, mlir::DenseResourceElementsAttr>(getValue())) {
+        return emitOpError()
+               << "Constant operations only support DenseElementsAttr or DenseResourceElementsAttr for values";
     }
     return mlir::success();
 }

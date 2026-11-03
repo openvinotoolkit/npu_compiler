@@ -48,6 +48,8 @@
 
 #include <mlir/Dialect/Affine/IR/ValueBoundsOpInterfaceImpl.h>
 #include <mlir/Dialect/Arith/IR/ValueBoundsOpInterfaceImpl.h>
+#include <mlir/Dialect/Linalg/IR/ValueBoundsOpInterfaceImpl.h>
+#include <mlir/Dialect/MemRef/IR/ValueBoundsOpInterfaceImpl.h>
 #include <mlir/Dialect/SCF/IR/SCF.h>
 #include <mlir/Dialect/SCF/IR/ValueBoundsOpInterfaceImpl.h>
 #include <mlir/Dialect/Tensor/IR/Tensor.h>
@@ -133,11 +135,14 @@ mlir::DialectRegistry vpux::createDialectRegistry(DummyOpMode dummyOpMode) {
     Core::CoreDialect::setupExtraInterfaces(registry);
     VPUIP::VPUIPDialect::setupExtraInterfaces(registry);
 
-    // ValueBoundsOpInterface external models — required for
-    // mlir::ValueBoundsConstraintSet::computeConstantBound() to fold affine.min /
-    // affine.apply / arith / scf Induction Variable / tensor.dim chains.
+    // ValueBoundsOpInterface external models - required by
+    // mlir::ValueBoundsConstraintSet (computeConstantBound(), areEqual(),
+    // areEquivalentSlices()) to walk index chains, and by One-Shot Bufferize's
+    // subset-equivalence analysis.
     mlir::affine::registerValueBoundsOpInterfaceExternalModels(registry);
     mlir::arith::registerValueBoundsOpInterfaceExternalModels(registry);
+    mlir::linalg::registerValueBoundsOpInterfaceExternalModels(registry);
+    mlir::memref::registerValueBoundsOpInterfaceExternalModels(registry);
     mlir::scf::registerValueBoundsOpInterfaceExternalModels(registry);
     mlir::tensor::registerValueBoundsOpInterfaceExternalModels(registry);
 

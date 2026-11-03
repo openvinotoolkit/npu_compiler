@@ -67,7 +67,7 @@ SmallVector<TimelineInterval> VFLinearContainer::getAllIntervals() const {
     return _containerMapper;
 }
 
-VFPipelineContainer::VFPipelineContainer() {
+VFPipelineContainer::VFPipelineContainer(bool prefetchDMAWithinTile): _prefetchDMAWithinTile(prefetchDMAWithinTile) {
 }
 
 bool VFPipelineContainer::setPlaceInTimeline(mlir::Location location, mlir::Operation* operation, int64_t index,
@@ -86,21 +86,27 @@ bool VFPipelineContainer::setPlaceInTimeline(mlir::Location location, mlir::Oper
         return false;
     }
 
-    if (_lastInterval.value()._mIndex == index) {
-        // add further to the timeline
-        auto lastEnd = _lastInterval.value()._mEnd;
-        _containerMapper.emplace_back(lastEnd, lastEnd + cost, location, operation, index, isLast);
-        _lastInterval = _containerMapper.back();
-        return true;
-    }
-
-    // else try to pipeline
     auto executor = getExecutorByOperation(operation);
     auto reversedContainer = llvm::reverse(_containerMapper);
     auto foundExecutor = llvm::find_if(reversedContainer, [&](const auto& item) {
         return item._mExecutor == executor;
     });
 
+    if (_lastInterval.value()._mIndex == index) {
+        // add further to the timeline
+        auto lastEnd = _lastInterval.value()._mEnd;
+        if (!isLast && _prefetchDMAWithinTile && executor == config::ExecutorKind::DMA_NN &&
+            foundExecutor != reversedContainer.end()) {
+            lastEnd = foundExecutor->_mEnd;
+        }
+        _containerMapper.emplace_back(lastEnd, lastEnd + cost, location, operation, index, isLast);
+        if (lastEnd + cost >= _lastInterval.value()._mEnd) {
+            _lastInterval = _containerMapper.back();
+        }
+        return true;
+    }
+
+    // else try to pipeline
     auto foundByIndex = llvm::find_if(reversedContainer, [&](const auto& item) {
         return item._mIndex == index;
     });

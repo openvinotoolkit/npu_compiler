@@ -898,16 +898,78 @@ func.func @ConvNestedScfForWidthForallHeightUneven(
     // CHECK:           tensor.pad
     // CHECK:           [[C13:%.+]] = arith.constant 13 : index
     // CHECK:           [[CMP_H:%.+]] = arith.cmpi eq, {{%.+}}, [[C13]] : index
-    // CHECK:           [[C52:%.+]] = arith.constant 52 : index
-    // CHECK:           [[CMP_W:%.+]] = arith.cmpi eq, {{%.+}}, [[C52]] : index
-    // CHECK:           [[COND:%.+]] = arith.andi [[CMP_H]], [[CMP_W]] : i1
     // CHECK:           VPU.NCE.Convolution
     // CHECK-SAME:        pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>
-    // CHECK:             scf.if [[COND]] {
+    // CHECK:             scf.if [[CMP_H]] {
     // CHECK:               VPU.DPU.Workload inOffsets [0, 0, 0, 0] inSizes [1, 16, 13, 52] outOffsets [0, 0, 0, 0] outSizes [1, 32, 11, 50] pad [0, 0, 0, 0] <CUBOID_16x16>
     // CHECK:             } else {
     // CHECK:               VPU.DPU.Workload inOffsets [0, 0, 0, 0] inSizes [1, 16, 12, 52] outOffsets [0, 0, 0, 0] outSizes [1, 32, 10, 50] pad [0, 0, 0, 0] <CUBOID_16x16>
     // CHECK:             }
     // CHECK:           tensor.parallel_insert_slice {{%.+}} into {{%.+}}[0, 0, {{%.+}}, 0]
     // CHECK:       tensor.insert_slice {{%.+}} into {{%.+}}[0, 0, 0, {{%.+}}]
+}
+
+// -----
+
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+
+!FilterBounded256 = tensor<?x16x1x1xf16, {bounds = #const.OpaqueI64Elements<[256, 16, 1, 1]> : tensor<4xsi64>, mem_space = @CMX_NN, order = #NHWC}>
+!OutBounded256 = tensor<1x?x16x16xf16, {bounds = #const.OpaqueI64Elements<[1, 256, 16, 16]> : tensor<4xsi64>, mem_space = @CMX_NN, order = #NHWC}>
+!AccType256 = tensor<1x640x16x16xf16, {mem_space = @CMX_NN, order = #NHWC}>
+
+// Convolution with a fully static activation reused on every iteration (no per-tile
+// extract_slice on the input) but weights/output tiled unevenly over output channels
+// (640 = 256+256+128, like MatMul-as-Convolution). The activation has no dynamic dim to key
+// runtime dispatch on, so this exercises dispatch on a non-activation operand: the key is
+// tensor.dim on the weights slice, which is what actually tells the two tiles apart.
+// CHECK-LABEL: @ConvStaticInputDynamicOutputChannels
+func.func @ConvStaticInputDynamicOutputChannels(
+        %arg0: tensor<1x16x16x16xf16, {mem_space = @CMX_NN, order = #NHWC}>,
+        %weights: tensor<640x16x1x1xf16, {mem_space = @CMX_NN, order = #NHWC}>)
+        -> !AccType256 {
+
+    %acc = tensor.empty() : !AccType256
+    %c0 = arith.constant 0 : index
+    %c256 = arith.constant 256 : index
+    %c640 = arith.constant 640 : index
+
+    %result = scf.for %iv = %c0 to %c640 step %c256 iter_args(%out = %acc) -> (!AccType256) {
+        %tile_sz = affine.min affine_map<(d0) -> (256, 640 - d0)>(%iv)
+
+        %w_slice = tensor.extract_slice %weights[%iv, 0, 0, 0] [%tile_sz, 16, 1, 1] [1, 1, 1, 1]
+            : tensor<640x16x1x1xf16, {mem_space = @CMX_NN, order = #NHWC}>
+            to !FilterBounded256
+
+        %conv = VPU.NCE.Convolution(%arg0, %w_slice) rawFilterShape [256, 16, 1, 1] {
+            resultSegmentSizes = array<i32: 1, 0, 0, 0>,
+            pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
+            ppe = #VPU.PPEFp<mode = <NOOP>, clamp_low = -3.4028234663852886E+38 : f64, clamp_high = 3.4028234663852886E+38 : f64, scale = 1.000000e+00 : f64, prelu_alpha = [1.000000e+00], bias = 0.000000e+00 : f64, adder = 0.000000e+00 : f64>,
+            strides = [1, 1]
+        } : tensor<1x16x16x16xf16, {mem_space = @CMX_NN, order = #NHWC}>,
+            !FilterBounded256
+          -> !OutBounded256
+
+        %ins = tensor.insert_slice %conv into %out[0, %iv, 0, 0] [1, %tile_sz, 16, 16] [1, 1, 1, 1]
+            : !OutBounded256 into !AccType256
+
+        scf.yield %ins : !AccType256
+    }
+
+    return %result : !AccType256
+
+    // CHECK:       scf.for [[IV:%.+]] = %c0 to %c640 step %c256 iter_args([[OUT:%.+]] = {{%.+}}) -> (tensor<1x640x16x16xf16
+    // CHECK:         [[TILESZ:%.+]] = affine.min
+    // CHECK:         [[SLICE_RES:%.+]] = tensor.extract_slice %arg1[[[IV]], 0, 0, 0] [[[TILESZ]], 16, 1, 1] [1, 1, 1, 1]
+    // CHECK:         [[C0:%.+]] = arith.constant 0 : index
+    // CHECK:         [[DIM:%.+]] = tensor.dim [[SLICE_RES]], [[C0]]
+    // CHECK:         [[C256:%.+]] = arith.constant 256 : index
+    // CHECK:         [[CMP:%.+]] = arith.cmpi eq, [[DIM]], [[C256]] : index
+    // CHECK:         [[CONV:%.+]] = VPU.NCE.Convolution
+    // CHECK-SAME:      -> tensor<1x?x16x16xf16
+    // CHECK:           scf.if [[CMP]] {
+    // CHECK-NEXT:        VPU.DPU.Workload inOffsets [0, 0, 0, 0] inSizes [1, 16, 16, 16] outOffsets [0, 0, 0, 0] outSizes [1, 256, 16, 16] pad [0, 0, 0, 0] <CUBOID_8x16>
+    // CHECK:           } else {
+    // CHECK-NEXT:        VPU.DPU.Workload inOffsets [0, 0, 0, 0] inSizes [1, 16, 16, 16] outOffsets [0, 0, 0, 0] outSizes [1, 128, 16, 16] pad [0, 0, 0, 0] <CUBOID_8x16>
+    // CHECK:           }
+    // CHECK:         tensor.insert_slice [[CONV]] into [[OUT]][0, [[IV]], 0, 0] [1, [[TILESZ]], 16, 16] [1, 1, 1, 1]
 }

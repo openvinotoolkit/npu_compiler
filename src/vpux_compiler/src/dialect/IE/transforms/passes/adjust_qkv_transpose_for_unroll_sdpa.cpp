@@ -135,7 +135,7 @@ void AdjustQKVTransposeForUnrollSDPA::rebuildSubgraph(mlir::PatternRewriter& rew
         auto outputHigh = createConstParams(fqOp.getOutputHigh(), appendLoc(fqOp.getLoc(), "output_high"));
 
         return IE::FakeQuantizeOp::create(rewriter, appendLoc(fqOp.getLoc(), "_{}", offset), input, inputLow, inputHigh,
-                                          outputLow, outputHigh, fqOp.getLevelsAttr(), fqOp.getLowFpTypeAttr(),
+                                          outputLow, outputHigh, fqOp.getLevelsOrLowFpTypeAttr(),
                                           fqOp.getAutoBroadcastAttr())
                 .getOutput();
     };

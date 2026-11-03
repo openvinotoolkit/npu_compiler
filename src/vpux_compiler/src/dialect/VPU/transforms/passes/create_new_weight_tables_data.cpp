@@ -14,7 +14,7 @@
 #include "vpux/compiler/dialect/VPU/utils/const_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/distributed_tensor_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_sparsity.hpp"
-#include "vpux/compiler/dialect/VPU/utils/workload_split_utils.hpp"
+#include "vpux/compiler/dialect/config/IR/utils.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
 #include "vpux/compiler/dialect/const/utils/utils.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
@@ -119,29 +119,18 @@ SmallVector<SmallVector<int32_t>> extractWorkloadChannels(VPU::NCEOpInterface nc
         bool allIdentical = true;
 
         for (int64_t i = 1; i < numClusters; ++i) {
-            // Check if size and content match
-            if (workloadSizes[i].size() != firstClusterWorkloads.size()) {
+            if (workloadSizes[i] != firstClusterWorkloads) {
                 allIdentical = false;
-                break;
-            }
-
-            // Check each workload size in the pattern
-            for (size_t j = 0; j < firstClusterWorkloads.size(); ++j) {
-                if (workloadSizes[i][j] != firstClusterWorkloads[j]) {
-                    allIdentical = false;
-                    break;
-                }
-            }
-
-            if (!allIdentical) {
                 break;
             }
         }
 
         if (allIdentical) {
-            // Workloads are identical across all clusters, keep DUPLICATED mode
-            // Return single cluster workloads since they're all the same
-            return {firstClusterWorkloads};
+            // Workloads are identical across all clusters, keep DUPLICATED mode.
+            // Return single cluster workloads since they're all the same; move to avoid copying.
+            SmallVector<SmallVector<int32_t>> result;
+            result.emplace_back(std::move(workloadSizes[0]));
+            return result;
         } else {
             // Workloads differ across clusters, need to switch to SEGMENTED mode
             shouldSwitchToSegmented = true;
@@ -193,7 +182,7 @@ mlir::Value sliceZeroPoints(mlir::IRRewriter& rewriter, WeightTableType weightTa
         auto createSlicedValues = [&](auto storageType) {
             using StorageT = decltype(storageType);
 
-            const auto zpValues = to_small_vector(content.getValues<StorageT>());
+            const auto zpValues = content.getValues<StorageT>();
             for (int64_t i = ocOffset; i < ocOffset + ocSize; ++i) {
                 slicedValues.push_back(llvm::APInt(bitWidth, zpValues[i], zpIntElemType.isSigned()));
             }
@@ -214,13 +203,14 @@ WeightTableType updateWeightTableOp(mlir::IRRewriter& rewriter, VPU::NCEOpInterf
                                     WeightTableType weightTableOp, ArrayRef<SmallVector<int32_t>> workloadChannels,
                                     bool shouldSwitchToSegmented,
                                     llvm::DenseMap<WeightTableKey, mlir::Operation*>& createdTables,
-                                    mlir::Value adjustedZeroPoints, Logger log) {
+                                    mlir::Value adjustedZeroPoints, NCESparsity::ZeroPointTableLayout layout,
+                                    Logger log) {
     const auto outputType = mlir::cast<vpux::NDTypeInterface>(nceOp->getResult(0).getType());
     const auto outputShape = outputType.getShape();
 
     // Calculate output channels
     const auto channelDim = getActChannelDim(outputShape.size());
-    int64_t outChannels = outputType.getShape()[channelDim];
+    int64_t outChannels = outputShape[channelDim];
     if (shouldSwitchToSegmented) {
         // When switching from DUPLICATED to SEGMENTED, calculate as sum of all workload channels
         int64_t totalChannels = 0;
@@ -240,15 +230,21 @@ WeightTableType updateWeightTableOp(mlir::IRRewriter& rewriter, VPU::NCEOpInterf
 
     // Flatten workload channels to append as an attribute of weight table operation and use for materialization of
     // zero-point table.
+    size_t totalWorkloadChannels = 0;
+    for (const auto& clusterWorkloads : workloadChannels) {
+        totalWorkloadChannels += clusterWorkloads.size();
+    }
+
     SmallVector<int32_t> flatWorkloadChannels;
+    flatWorkloadChannels.reserve(totalWorkloadChannels);
     for (const auto& clusterWorkloads : workloadChannels) {
         flatWorkloadChannels.append(clusterWorkloads.begin(), clusterWorkloads.end());
     }
 
     // Create the table data based on the weight table type.
     if (mlir::isa<VPU::ZeroPointTableOp>(weightTableOp)) {
-        weightTableData =
-                VPU::materializeZeroPointTable(weightsElemType, outChannels, flatWorkloadChannels, adjustedZeroPoints);
+        weightTableData = VPU::materializeZeroPointTable(weightsElemType, outChannels, flatWorkloadChannels,
+                                                         adjustedZeroPoints, layout);
 
         // Use appropriate shape based on rank
         // For 5D table, the Group dim is set to 1. We can re-use the same table for each group.
@@ -454,7 +450,8 @@ mlir::Operation* findWeightTableOp(mlir::Value value) {
 
 template <typename WeightTableType>
 void processWeightTableOp(mlir::IRRewriter& rewriter, VPU::NCEOpInterface nceOp, mlir::Value tableOperand,
-                          llvm::DenseMap<WeightTableKey, mlir::Operation*>& createdTables, Logger log) {
+                          llvm::DenseMap<WeightTableKey, mlir::Operation*>& createdTables,
+                          NCESparsity::ZeroPointTableLayout layout, Logger log) {
     auto oldWeightTableOp = mlir::cast<WeightTableType>(findWeightTableOp(tableOperand));
 
     // 1. Extract workload channels and determine if we need to switch from DUPLICATED to SEGMENTED mode on the table.
@@ -477,8 +474,9 @@ void processWeightTableOp(mlir::IRRewriter& rewriter, VPU::NCEOpInterface nceOp,
 
     // 4. Materialize a new weight table based on workloads and append it to a set of created tables to reuse if the
     // same table is needed again.
-    auto newWeightTableOp = updateWeightTableOp(rewriter, nceOp, oldWeightTableOp, workloadChannels,
-                                                shouldSwitchToSegmented, createdTables, adjustedZeroPoints, log);
+    auto newWeightTableOp =
+            updateWeightTableOp(rewriter, nceOp, oldWeightTableOp, workloadChannels, shouldSwitchToSegmented,
+                                createdTables, adjustedZeroPoints, layout, log);
 
     // 5. Update CopyOp and its distribution information of a new table
     if (auto oldCopyOp = tableOperand.getDefiningOp<VPU::CopyOp>()) {
@@ -517,6 +515,8 @@ void CreateNewWeightTablesDataPass::safeRunOnFunc() {
     auto func = getOperation();
     mlir::IRRewriter rewriter(&getContext());
 
+    auto layout = NCESparsity::ZeroPointTableLayout::Shuffled;
+
     // Track created weight tables by their data and attributes to avoid duplicates
     llvm::DenseMap<WeightTableKey, mlir::Operation*> createdTables;
 
@@ -531,9 +531,10 @@ void CreateNewWeightTablesDataPass::safeRunOnFunc() {
         }
 
         if (dataPointerTable) {
-            processWeightTableOp<VPU::DataPointerTableOp>(rewriter, nceOp, dataPointerTable, createdTables, _log);
+            processWeightTableOp<VPU::DataPointerTableOp>(rewriter, nceOp, dataPointerTable, createdTables, layout,
+                                                          _log);
         } else if (zeroPointTable) {
-            processWeightTableOp<VPU::ZeroPointTableOp>(rewriter, nceOp, zeroPointTable, createdTables, _log);
+            processWeightTableOp<VPU::ZeroPointTableOp>(rewriter, nceOp, zeroPointTable, createdTables, layout, _log);
         }
     });
 }

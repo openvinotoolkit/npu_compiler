@@ -38,7 +38,7 @@ enum class VFPrefetchHint : uint8_t {
 
 struct PersistentFitBufferInfo {
     AddressType size = 0;
-    AddressType alignment = 1;
+    AddressType offsetAlignment = 1;
 };
 
 AddressType getRawBufferSize(mlir::Value buf);

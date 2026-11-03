@@ -30,7 +30,7 @@ module @FuseConstDivideToMatMul {
         %cst_17 = const.Declare tensor<1xf16> = dense<7.95201873> : tensor<1xf16>
         %cst_18 = const.Declare tensor<1xf16> = dense<2.460000e+02> : tensor<1xf16>
         %cst_fq = IE.FakeQuantize(%cst_18, %cst_0, %cst_1, %cst_16, %cst_17) {
-            auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i64
+            auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256 : i64
         } : tensor<1xf16>, tensor<1xf16>, tensor<1xf16>, tensor<1xf16>, tensor<1xf16> -> tensor<1xf16>
 
         %28 = IE.MatMul(%arg0, %arg1) {transpose_b}

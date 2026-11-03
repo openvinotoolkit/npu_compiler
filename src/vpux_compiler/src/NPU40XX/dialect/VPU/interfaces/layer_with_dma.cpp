@@ -16,6 +16,7 @@ using namespace vpux;
 void vpux::VPU::arch40xx::registerLayerWithDmaInterface(mlir::DialectRegistry& registry) {
     registry.addExtension(+[](mlir::MLIRContext* ctx, IE::IEDialect*) {
         IE::AtanOp::attachInterface<VPU::LayerWithDmaInterfaceActivation<IE::AtanOp>>(*ctx);
+        IE::ReduceMeanOp::attachInterface<VPU::LayerWithDmaInterfaceReduceMean>(*ctx);
         IE::InterpolateOp::attachInterface<VPU::LayerWithDmaInterfaceFwlm<IE::InterpolateOp>>(*ctx);
         IE::ScatterUpdateOp::attachInterface<VPU::LayerWithDmaInterfaceScatterUpdate>(*ctx);
         IE::AttentionDMAOp::attachInterface<VPU::LayerWithDmaInterfaceFwlm<IE::AttentionDMAOp>>(*ctx);

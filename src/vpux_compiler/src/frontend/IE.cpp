@@ -9,9 +9,11 @@
 #include "vpux/compiler/dialect/IE/IR/attributes.hpp"
 #include "vpux/compiler/dialect/IE/IR/dialect.hpp"
 #include "vpux/compiler/dialect/IE/IR/import/batch_norm.hpp"
+#include "vpux/compiler/dialect/IE/IR/import/embedding_bag_offsets_sum.hpp"
 #include "vpux/compiler/dialect/IE/IR/import/embedding_segments_sum.hpp"
 #include "vpux/compiler/dialect/IE/IR/import/gather.hpp"
 #include "vpux/compiler/dialect/IE/IR/import/reshape.hpp"
+#include "vpux/compiler/dialect/IE/IR/import/yuv_to_rgb.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/activation.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/arithmetic.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/bitwise.hpp"
@@ -44,6 +46,7 @@
 #include "vpux/compiler/dialect/core/interfaces/type_interfaces.hpp"
 #include "vpux/compiler/dialect/core/types.hpp"
 #include "vpux/compiler/dialect/net/utils/network_info_utils.hpp"
+#include "vpux/compiler/frontend/group_query_attention_utils.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
 #include "vpux/compiler/utils/cal_range_data.hpp"
 #include "vpux/compiler/utils/locations.hpp"
@@ -83,6 +86,8 @@
 #include <openvino/core/rt_info/weightless_caching_attributes.hpp>
 #include <openvino/core/type.hpp>
 #include <openvino/core/type/element_type.hpp>
+#include <openvino/core/validation_util.hpp>
+#include <openvino/op/gated_delta_net.hpp>
 #include <openvino/op/identity.hpp>
 #include <openvino/op/istft.hpp>
 #include <openvino/op/stft.hpp>
@@ -107,6 +112,7 @@
 #include <transformations/common_optimizations/mul_conv_fusion.hpp>
 #include <transformations/common_optimizations/mul_fake_quantize_fusion.hpp>
 #include <transformations/common_optimizations/mvn_fusion.hpp>
+#include <transformations/common_optimizations/nop_elimination.hpp>
 #include <transformations/common_optimizations/pad_fusion.hpp>
 #include <transformations/common_optimizations/pull_through_reduce.hpp>
 #include <transformations/common_optimizations/reduce_reshape_fusion.hpp>
@@ -376,8 +382,10 @@ std::shared_ptr<const T> getParentNodeAs(InputType input) {
 NGraphImporter::Callback NGraphImporter::getParser(const std::shared_ptr<ov::Node>& op) {
     using DispatchMap = std::map<ov::NodeTypeInfo, Callback>;
 
+    // clang-format off
 #define MAP_ENTRY(_NodeType_) \
     { _NodeType_::get_type_info_static(), &NGraphImporter::parseDispatch<_NodeType_> }
+    // clang-format on
 
     static const DispatchMap dispatchMap{
             {ov::op::v0::Parameter::get_type_info_static(), &NGraphImporter::parseEmpty},
@@ -570,6 +578,7 @@ NGraphImporter::Callback NGraphImporter::getParser(const std::shared_ptr<ov::Nod
             MAP_ENTRY(ov::opset1::VariadicSplit),
             MAP_ENTRY(ov::op::internal::RoPE),
             MAP_ENTRY(ov::opset13::ScaledDotProductAttention),
+            MAP_ENTRY(ov::op::internal::GroupQueryAttention),
             MAP_ENTRY(ov::op::v16::Identity),
             MAP_ENTRY(ov::opset10::IsNaN),
             MAP_ENTRY(ov::opset10::IsInf),
@@ -644,6 +653,12 @@ mlir::Type importPrecision(mlir::MLIRContext* ctx, const ov::element::Type& prec
     }
 }
 
+// OV marks an absent optional input with an empty constant of dynamic element type; it imports as a null value.
+bool isAbsentInputConstant(const std::shared_ptr<ov::Node>& node) {
+    return ov::is_type<ov::op::v0::Constant>(node) && node->get_output_element_type(0).is_dynamic() &&
+           ov::util::is_empty_constant_tensor(node->output(0));
+}
+
 bool isIdentityOrder(const std::vector<uint64_t>& order) {
     for (size_t ind = 0; ind < order.size(); ++ind) {
         if (order[ind] != ind) {
@@ -710,6 +725,19 @@ mlir::Value convertToElemType(mlir::OpBuilder& builder, mlir::Location loc, mlir
     return IE::ConvertOp::create(builder, loc, input, mlir::TypeAttr::get(elemType)).getOutput();
 }
 
+IE::GQAQuantTypeAttr importGQAQuantType(mlir::MLIRContext* ctx, ov::op::internal::GroupQueryAttentionQuantType type) {
+    switch (type) {
+    case ov::op::internal::GroupQueryAttentionQuantType::NONE:
+        return IE::GQAQuantTypeAttr::get(ctx, IE::GQAQuantType::NONE);
+    case ov::op::internal::GroupQueryAttentionQuantType::PER_TENSOR:
+        return IE::GQAQuantTypeAttr::get(ctx, IE::GQAQuantType::PER_TENSOR);
+    case ov::op::internal::GroupQueryAttentionQuantType::PER_CHANNEL:
+        return IE::GQAQuantTypeAttr::get(ctx, IE::GQAQuantType::PER_CHANNEL);
+    default:
+        VPUX_THROW("Unknown GroupQueryAttention quantization type");
+    }
+}
+
 }  // namespace
 
 //
@@ -717,39 +745,17 @@ mlir::Value convertToElemType(mlir::OpBuilder& builder, mlir::Location loc, mlir
 //
 
 void NGraphImporter::saveBoundsInfoForInput(::mlir::BlockArgument& funcInputVal, const ov::PartialShape& partialShape) {
+    if (!hasValidBounds(partialShape)) {
+        _log.trace("Leaving function argument {0} unbounded, shape {1} has an axis without an upper bound",
+                   funcInputVal.getArgNumber(), partialShape);
+        return;
+    }
+
     const ov::Shape ovShape = partialShape.get_max_shape();
     const Bounds bounds(ovShape.begin(), ovShape.end());
     auto ndType = mlir::cast<NDTypeInterface>(funcInputVal.getType());
     funcInputVal.setType(Core::BoundedTensorType::get(ndType, bounds));
     _log.trace("Set bounds {0} for function argument {1}", bounds, funcInputVal.getArgNumber());
-}
-
-bool NGraphImporter::isUpperBoundsMissing(const OrigNodePtr& origNode) {
-    const auto ngraphNodeInputs = origNode->inputs();
-    const auto mlirNodeInputs = getInputs(origNode);
-
-    VPUX_THROW_UNLESS(ngraphNodeInputs.size() == mlirNodeInputs.size(),
-                      "Input size mismatch for '{0}' node '{1}': nGraph inputs = {2}, MLIR inputs = {3}",
-                      origNode->get_type_name(), origNode->get_friendly_name(), ngraphNodeInputs.size(),
-                      mlirNodeInputs.size());
-
-    bool foundInputWithoutBounds = false;
-    for (size_t i = 0; i < mlirNodeInputs.size(); i++) {
-        if (auto boundedType = mlir::dyn_cast<Core::BoundedTensorType>(mlirNodeInputs[i].getType())) {
-            auto bounds = boundedType.getBounds();
-            // Validate that all bounds values not a max value of this type
-            if (std::any_of(bounds.begin(), bounds.end(), [](ov::Interval::value_type dim) {
-                    return dim == std::numeric_limits<ov::Interval::value_type>::max();
-                })) {
-                // Name of operation in MLIR representation might be different, but since we can't get it here, use
-                // ngraph data instead.
-                _log.error("Upper bounds are not specified for node '{0}' (type '{1}'): input '{2}' bounds are '{3}'",
-                           origNode->get_friendly_name(), origNode->get_type_name(), i, bounds);
-                foundInputWithoutBounds = true;
-            }
-        }
-    }
-    return foundInputWithoutBounds;
 }
 
 // Check for valid bounds (not equal to val max)
@@ -764,6 +770,22 @@ bool NGraphImporter::hasValidBounds(const ov::PartialShape& partialShape) {
 
     return std::all_of(partialShape.begin(), partialShape.end(), hasValidBounds);
 }
+
+namespace {
+
+// Upper bounds of the node output. An unbounded network input can reach an operation whose attributes need bounds,
+// so a missing bound is reported instead of storing the int64_t max sentinel.
+ov::Shape getOutputUpperBounds(const std::shared_ptr<ov::Node>& origNode) {
+    const auto& output = origNode->output(0);
+    const auto& partialShape = output.get_partial_shape();
+    VPUX_THROW_UNLESS(NGraphImporter::hasValidBounds(partialShape),
+                      "Missing upper bound for dynamic dimension(s) of '{0}' node '{1}' output with shape '{2}'. "
+                      "Provide an explicit upper bound (e.g. via model reshape) before compilation.",
+                      origNode->get_type_name(), origNode->get_friendly_name(), partialShape);
+    return partialShape.get_max_shape();
+}
+
+}  // namespace
 
 //
 // extractPrecisionInfo
@@ -803,6 +825,11 @@ mlir::func::FuncOp NGraphImporter::buildMainFunc(mlir::OpBuilder& moduleBuilder,
     // This may be enough for now - can apply bounds taken from OV APIx
     // Simple and straightforward
     auto applyBounds = [](const ov::PartialShape& partialShape) -> ov::PartialShape {
+        VPUX_THROW_UNLESS(hasValidBounds(partialShape),
+                          "Cannot make shape '{0}' static: it has a dimension without an upper bound to take the "
+                          "extent from. Provide an explicit upper bound (e.g. via model reshape) before compilation.",
+                          partialShape);
+
         ov::PartialShape boundedOutShape;
         std::transform(partialShape.begin(), partialShape.end(), std::back_inserter(boundedOutShape), toBoundedDim);
         return boundedOutShape;
@@ -854,7 +881,6 @@ mlir::func::FuncOp NGraphImporter::buildMainFunc(mlir::OpBuilder& moduleBuilder,
         _importedVals.emplace(paramNode->output(0), funcInputVal);
     }
 
-    bool upperBoundMissing = false;
     std::optional<net::PrecisionRequirementOp> precReqOp;
     for (const auto& origNode : _netGraph->get_ordered_ops()) {
         _log.trace("Convert {0} layer {1}", origNode->get_type_name(), origNode->get_friendly_name());
@@ -862,7 +888,8 @@ mlir::func::FuncOp NGraphImporter::buildMainFunc(mlir::OpBuilder& moduleBuilder,
 
         if (parser != nullptr) {
             mlir::Operation* op = (this->*parser)(builder, origNode);
-            VPUX_THROW_WHEN(op == nullptr && origNode->get_type_name() != parameterNodeType &&
+            VPUX_THROW_WHEN(op == nullptr && !isAbsentInputConstant(origNode) &&
+                                    origNode->get_type_name() != parameterNodeType &&
                                     origNode->get_type_name() != std::string("Result") &&
                                     origNode->get_type_name() != std::string("Identity"),
                             "Valid parser but NULL operation.\n");
@@ -876,13 +903,6 @@ mlir::func::FuncOp NGraphImporter::buildMainFunc(mlir::OpBuilder& moduleBuilder,
                               origNode->get_friendly_name(), typeInfo.name, typeInfo.version_id);
             parseNodeAsStub(builder, origNode);
         }
-
-        if (!importCfg.dynamicShapeToStatic) {
-            upperBoundMissing |= isUpperBoundsMissing(origNode);
-        }
-    }
-    if (!importCfg.dynamicShapeToStatic) {
-        VPUX_THROW_WHEN(upperBoundMissing, "Missing upper bound for one or more nodes.\n");
     }
 
     SmallVector<mlir::Value> funcOutputs;
@@ -1174,6 +1194,11 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
     const auto inputs = getInputs(origNode);
     VPUX_THROW_UNLESS(inputs.empty(), "nGraph Constant node '{0}' has unsupported number of inputs '{1}'",
                       origNode->get_friendly_name(), inputs.size());
+
+    if (isAbsentInputConstant(origNode)) {
+        _importedVals.emplace(origNode->output(0), mlir::Value());
+        return nullptr;
+    }
 
     auto tensorType = importTensor(origNode->get_output_partial_shape(0), origNode->get_output_element_type(0));
     // QuantileType types (such as NF4) cannot be directly imported. Instead,
@@ -1872,12 +1897,16 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
                       "nGraph NV12toRGB node '{0}' has unsupported number of inputs '{1}'",
                       origNode->get_friendly_name(), inputs.size());
 
-    auto secondInput = inputs.size() == 1 ? nullptr : inputs[1];
-    auto op = IE::YuvToRgbOp::create(builder, createLocation(origNode), inputs[0], secondInput, nullptr,
-                                     IE::ColorFmt::NV12, IE::ColorFmt::RGB, builder.getF32FloatAttr(1.0f));
-
-    addOutputs(origNode, op);
-    return op;
+    const auto loc = createLocation(origNode);
+    const auto input0 = YuvToRgb::canonicalizeYuvToRgbInput(builder, loc, inputs[0], "canonicalize_y");
+    const auto input1 = inputs.size() == 1
+                                ? nullptr
+                                : YuvToRgb::canonicalizeYuvToRgbInput(builder, loc, inputs[1], "canonicalize_uv");
+    auto yuvToRgb = IE::YuvToRgbOp::create(builder, loc, input0, input1, nullptr, IE::ColorFmt::NV12, IE::ColorFmt::RGB,
+                                           builder.getF32FloatAttr(1.0f));
+    const auto finalOutput = YuvToRgb::restoreYuvToRgbOutput(builder, loc, yuvToRgb.getOutput());
+    addOutputs(origNode, std::vector<mlir::Value>{finalOutput});
+    return finalOutput.getDefiningOp();
 }
 
 mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
@@ -1890,12 +1919,16 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
                       "nGraph NV12toBGR node '{0}' has unsupported number of inputs '{1}'",
                       origNode->get_friendly_name(), inputs.size());
 
-    auto secondInput = inputs.size() == 1 ? nullptr : inputs[1];
-    auto op = IE::YuvToRgbOp::create(builder, createLocation(origNode), inputs[0], secondInput, nullptr,
-                                     IE::ColorFmt::NV12, IE::ColorFmt::BGR, builder.getF32FloatAttr(1.0f));
-
-    addOutputs(origNode, op);
-    return op;
+    const auto loc = createLocation(origNode);
+    const auto input0 = YuvToRgb::canonicalizeYuvToRgbInput(builder, loc, inputs[0], "canonicalize_y");
+    const auto input1 = inputs.size() == 1
+                                ? nullptr
+                                : YuvToRgb::canonicalizeYuvToRgbInput(builder, loc, inputs[1], "canonicalize_uv");
+    auto yuvToRgb = IE::YuvToRgbOp::create(builder, loc, input0, input1, nullptr, IE::ColorFmt::NV12, IE::ColorFmt::BGR,
+                                           builder.getF32FloatAttr(1.0f));
+    const auto finalOutput = YuvToRgb::restoreYuvToRgbOutput(builder, loc, yuvToRgb.getOutput());
+    addOutputs(origNode, std::vector<mlir::Value>{finalOutput});
+    return finalOutput.getDefiningOp();
 }
 
 mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
@@ -1908,32 +1941,43 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
                       "nGraph I420toRGB node '{0}' has unsupported number of inputs '{1}'",
                       origNode->get_friendly_name(), inputs.size());
 
-    auto secondInput = inputs.size() == 1 ? nullptr : inputs[1];
-    auto thirdInput = inputs.size() == 1 ? nullptr : inputs[2];
-    IE::YuvToRgbOp op = IE::YuvToRgbOp::create(builder, createLocation(origNode), inputs[0], secondInput, thirdInput,
-                                               IE::ColorFmt::I420, IE::ColorFmt::RGB, builder.getF32FloatAttr(1.0f));
-
-    addOutputs(origNode, op);
-    return op;
+    const auto loc = createLocation(origNode);
+    const auto input0 = YuvToRgb::canonicalizeYuvToRgbInput(builder, loc, inputs[0], "canonicalize_y");
+    const auto input1 = inputs.size() == 1
+                                ? nullptr
+                                : YuvToRgb::canonicalizeYuvToRgbInput(builder, loc, inputs[1], "canonicalize_u");
+    const auto input2 = inputs.size() == 1
+                                ? nullptr
+                                : YuvToRgb::canonicalizeYuvToRgbInput(builder, loc, inputs[2], "canonicalize_v");
+    auto yuvToRgb = IE::YuvToRgbOp::create(builder, loc, input0, input1, input2, IE::ColorFmt::I420, IE::ColorFmt::RGB,
+                                           builder.getF32FloatAttr(1.0f));
+    const auto finalOutput = YuvToRgb::restoreYuvToRgbOutput(builder, loc, yuvToRgb.getOutput());
+    addOutputs(origNode, std::vector<mlir::Value>{finalOutput});
+    return finalOutput.getDefiningOp();
 }
 
 mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
                                            const std::shared_ptr<ov::opset8::I420toBGR>& origNode) {
     static_assert(std::is_same<std::decay<decltype(*origNode)>::type, ov::opset8::I420toBGR>::value,
                   "opset operation mismatch");
-
     const auto inputs = getInputs(origNode);
     VPUX_THROW_UNLESS((inputs.size() == 1) || (inputs.size() == 3),
                       "nGraph I420toBGR node '{0}' has unsupported number of inputs '{1}'",
                       origNode->get_friendly_name(), inputs.size());
 
-    auto secondInput = inputs.size() == 1 ? nullptr : inputs[1];
-    auto thirdInput = inputs.size() == 1 ? nullptr : inputs[2];
-    IE::YuvToRgbOp op = IE::YuvToRgbOp::create(builder, createLocation(origNode), inputs[0], secondInput, thirdInput,
-                                               IE::ColorFmt::I420, IE::ColorFmt::BGR, builder.getF32FloatAttr(1.0f));
-
-    addOutputs(origNode, op);
-    return op;
+    const auto loc = createLocation(origNode);
+    const auto input0 = IE::YuvToRgb::canonicalizeYuvToRgbInput(builder, loc, inputs[0], "canonicalize_y");
+    const auto input1 = inputs.size() == 1
+                                ? nullptr
+                                : IE::YuvToRgb::canonicalizeYuvToRgbInput(builder, loc, inputs[1], "canonicalize_u");
+    const auto input2 = inputs.size() == 1
+                                ? nullptr
+                                : IE::YuvToRgb::canonicalizeYuvToRgbInput(builder, loc, inputs[2], "canonicalize_v");
+    auto yuvToRgb = IE::YuvToRgbOp::create(builder, loc, input0, input1, input2, IE::ColorFmt::I420, IE::ColorFmt::BGR,
+                                           builder.getF32FloatAttr(1.0f));
+    const auto finalOutput = IE::YuvToRgb::restoreYuvToRgbOutput(builder, loc, yuvToRgb.getOutput());
+    addOutputs(origNode, std::vector<mlir::Value>{finalOutput});
+    return finalOutput.getDefiningOp();
 }
 
 mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
@@ -2165,7 +2209,11 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
                             "Reshape node '{0}': expected exactly 1 dynamic output bound dimension, got {1}", nodeName,
                             dynamicDimCount);
 
-            const auto& inputBounds = mlir::dyn_cast<Core::BoundedTensorType>(inputs[0].getType()).getBounds();
+            const auto inputType = mlir::dyn_cast<Core::BoundedTensorType>(inputs[0].getType());
+            VPUX_THROW_WHEN(inputType == nullptr,
+                            "Reshape node '{0}': cannot compute output bounds, the input has no upper bounds",
+                            nodeName);
+            const auto& inputBounds = inputType.getBounds();
             const int64_t inputBoundsProduct =
                     std::accumulate(inputBounds.begin(), inputBounds.end(), int64_t{1}, std::multiplies<int64_t>());
             const int64_t outputBoundsProduct =
@@ -2365,7 +2413,7 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
     if (checkDynamicInputsOutputs(origNode)) {
         const auto outputShape = importShape(origNode->output(0).get_partial_shape());
         const auto outputShapeAttr = getIntArrayAttr(builder.getContext(), outputShape);
-        const auto outputBounds = origNode->output(0).get_partial_shape().get_max_shape();
+        const auto outputBounds = getOutputUpperBounds(origNode);
         const auto outputBoundsAttr = getIntArrayAttr(builder.getContext(), outputBounds);
 
         IE::DynamicBroadcastOp op =
@@ -2395,7 +2443,7 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
     if (checkDynamicInputsOutputs(origNode)) {
         const auto outputShape = importShape(origNode->output(0).get_partial_shape());
         const auto outputShapeAttr = getIntArrayAttr(builder.getContext(), outputShape);
-        const auto outputBounds = origNode->output(0).get_partial_shape().get_max_shape();
+        const auto outputBounds = getOutputUpperBounds(origNode);
         const auto outputBoundsAttr = getIntArrayAttr(builder.getContext(), outputBounds);
 
         auto thirdInput = inputs.size() >= 3 ? inputs[2] : nullptr;
@@ -2662,7 +2710,7 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
     if (checkDynamicInputsOutputs(origNode)) {
         const auto outputShape = importShape(origNode->output(0).get_partial_shape());
         const auto outputShapeAttr = getIntArrayAttr(builder.getContext(), outputShape);
-        const auto outputBounds = origNode->output(0).get_partial_shape().get_max_shape();
+        const auto outputBounds = getOutputUpperBounds(origNode);
         const auto outputBoundsAttr = getIntArrayAttr(builder.getContext(), outputBounds);
 
         const auto outShapeRank = checked_cast<int64_t>(outputShape.size());
@@ -2995,12 +3043,14 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
 
     const auto& autob = origNode->get_auto_broadcast();
 
-    const auto levelsAttr = getIntAttr(_ctx, origNode->get_levels());
+    const auto levels = getIntAttr(_ctx, origNode->get_levels());
+    VPUX_THROW_WHEN(levels == nullptr, "nGraph FakeQuantize node '{}' has no levels attribute",
+                    origNode->get_friendly_name());
 
-    // ov FakeQuantize does not support low FP types, nullptr is passed.
-    auto op =
-            IE::FakeQuantizeOp::create(builder, createLocation(origNode), inputs[0], inputs[1], inputs[2], inputs[3],
-                                       inputs[4], levelsAttr, /*lowFpType=*/nullptr, importBroadcastType(autob.m_type));
+    // ov FakeQuantize does not support low FP values, but since LowFp type and levels are stored in a single attr now,
+    // we only pass the levelsAttr.
+    auto op = IE::FakeQuantizeOp::create(builder, createLocation(origNode), inputs[0], inputs[1], inputs[2], inputs[3],
+                                         inputs[4], levels, importBroadcastType(autob.m_type));
     addOutputs(origNode, op);
     return op;
 }
@@ -3515,7 +3565,7 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder, const std::
     mlir::ArrayAttr outputBoundsAttr = nullptr;
 
     if (checkDynamicInputsOutputs(origNode)) {
-        auto outputBounds = origNode->output(0).get_partial_shape().get_max_shape();
+        const auto outputBounds = getOutputUpperBounds(origNode);
         outputShapeAttr = getIntArrayAttr(builder.getContext(), outputShapeImport);
         outputBoundsAttr = getIntArrayAttr(builder.getContext(), outputBounds);
     }
@@ -3959,6 +4009,42 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
     auto op = IE::FlashSDPAOp::create(builder, createLocation(origNode), inputs[0], inputs[1], inputs[2], inputs[3],
                                       inputs[4], inputs[5], attentionMask, isHeadAttr, isTailAttr, seqLenPadding);
 
+    addOutputs(origNode, op);
+    return op;
+}
+
+mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
+                                           const std::shared_ptr<ov::op::internal::GroupQueryAttention>& origNode) {
+    static_assert(std::is_same<std::decay<decltype(*origNode)>::type, ov::op::internal::GroupQueryAttention>::value,
+                  "opset operation mismatch");
+
+    using GQAInput = ov::op::internal::GroupQueryAttentionInputs;
+
+    const auto inputs = getInputs(origNode);
+    VPUX_THROW_UNLESS(origNode->get_output_size() == 3,
+                      "nGraph GroupQueryAttention node '{0}' has unsupported number of outputs '{1}'",
+                      origNode->get_friendly_name(), origNode->get_output_size());
+
+    const auto getInput = [&](GQAInput input) -> mlir::Value {
+        return IE::hasGroupQueryAttentionInput(origNode, input) ? inputs[static_cast<size_t>(input)] : nullptr;
+    };
+    const auto getUnitAttr = [&](bool value) {
+        return value ? mlir::UnitAttr::get(_ctx) : nullptr;
+    };
+
+    auto op = IE::GroupQueryAttentionOp::create(
+            builder, createLocation(origNode), getInput(GQAInput::QUERY), getInput(GQAInput::KEY),
+            getInput(GQAInput::VALUE), getInput(GQAInput::PAST_KEY), getInput(GQAInput::PAST_VALUE),
+            getInput(GQAInput::SEQLENS_K), getInput(GQAInput::TOTAL_SEQUENCE_LENGTH), getInput(GQAInput::COS_CACHE),
+            getInput(GQAInput::SIN_CACHE), getInput(GQAInput::POSITION_IDS), getInput(GQAInput::ATTENTION_BIAS),
+            getInput(GQAInput::HEAD_SINK), getInput(GQAInput::K_SCALE), getInput(GQAInput::V_SCALE),
+            getIntAttr(_ctx, origNode->get_num_heads()), getIntAttr(_ctx, origNode->get_kv_num_heads()),
+            builder.getF32FloatAttr(origNode->get_scale()), getUnitAttr(origNode->get_do_rotary()),
+            getUnitAttr(origNode->get_rotary_interleaved()), getIntAttr(_ctx, origNode->get_kv_cache_bit_width()),
+            importGQAQuantType(_ctx, origNode->get_k_quant_type()),
+            importGQAQuantType(_ctx, origNode->get_v_quant_type()), getIntAttr(_ctx, origNode->get_local_window_size()),
+            getUnitAttr(origNode->get_sliding_window_cache()), getUnitAttr(origNode->get_smooth_softmax()),
+            getUnitAttr(origNode->get_causal()));
     addOutputs(origNode, op);
     return op;
 }
@@ -4451,11 +4537,10 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
                   "opset operation mismatch");
 
     const auto inputs = getInputs(origNode);
-    IE::EmbeddingBagOffsetsSumOp op;
-    mlir::Value defaultIndex = (inputs.size() >= 4) ? inputs[3] : nullptr;
+    const auto defaultIndex = IE::EmbeddingBagOffsetsSum::parseDefaultIndex(inputs);
     mlir::Value weights = (inputs.size() >= 5) ? inputs[4] : nullptr;
-    op = IE::EmbeddingBagOffsetsSumOp::create(builder, createLocation(origNode), inputs[0], inputs[1], inputs[2],
-                                              defaultIndex, weights, nullptr, nullptr, nullptr, nullptr);
+    auto op = IE::EmbeddingBagOffsetsSumOp::create(builder, createLocation(origNode), inputs[0], inputs[1], inputs[2],
+                                                   weights, nullptr, nullptr, defaultIndex, nullptr);
     addOutputs(origNode, op);
     return op;
 }
@@ -5798,7 +5883,6 @@ mlir::RankedTensorType importUserTensor(mlir::MLIRContext* ctx, const ov::descri
         if (NGraphImporter::hasValidBounds(partialShape)) {
             std::transform(partialShape.begin(), partialShape.end(), std::back_inserter(boundedOutShape), toBoundedDim);
         } else {
-            // Cases with incorrect bounds will be detected during nodes validation.
             return importedTensor;
         }
 
@@ -6066,6 +6150,9 @@ static void addCommonOptimizationsPasses(ov::pass::Manager& manager, const Impor
     // TransposeToReshape, and SubtractFusion can optimize the decomposed subgraph.
     // Without this, each transformer layer retains its own copy of RoPE Gather
     // and attention mask computation instead of sharing them.
+    // Any pass that transforms ov::op::internal::GroupQueryAttention nodes must be registered
+    // before this one, since isGQAFlashEligible's per-node eligibility check runs against the
+    // GQA node as it exists at this point in the pipeline.
     manager.register_pass<ov::pass::GroupQueryAttentionDecomposition>();
     // MOCTransformations contain StridedSliceOptimization transformation,
     // so we must call SliceToStridedSlice before MOCTransformations call
@@ -6075,6 +6162,11 @@ static void addCommonOptimizationsPasses(ov::pass::Manager& manager, const Impor
     manager.register_pass<ov::pass::MOCTransformations>(true, false);
 
     auto pass_config = manager.get_pass_config();
+    pass_config->set_callback<ov::pass::GroupQueryAttentionDecomposition>(
+            [optimizationLevel = importCfg.optimizationLevel,
+             arch = importCfg.arch](const std::shared_ptr<const ov::Node>& node) -> bool {
+                return isGQAFlashEligible(node, optimizationLevel, arch);
+            });
     pass_config->disable<ov::pass::PadFusionConvolution>();
     pass_config->disable<ov::pass::PadFusionGroupConvolution>();
     pass_config->disable<ov::pass::MVNFusionWithConstantsInside>();
@@ -6091,9 +6183,17 @@ static void addCommonOptimizationsPasses(ov::pass::Manager& manager, const Impor
     manager.register_pass<ov::pass::ConvertNMS4ToNMS9>();
     manager.register_pass<ov::pass::ConvertNMS5ToNMS9>();
 
-    auto static_shape = manager.register_pass<ov::pass::GraphRewrite>();
-    static_shape->add_matcher<ov::pass::ConvertNMS9ToNMSIEInternal>();
-    static_shape->set_name("ov::pass::CommonStaticShape");
+    // When disabled, NMS-9 is kept dynamic (data-dependent output) instead of being converted to
+    // NMSIEInternal. This is the entry point for dynamic-shape NMS support (E#223694).
+    // parseNode() builds an identical IE::NonMaxSuppressionOp in both cases (same op, same static
+    // result type), but the surrounding module still differs: NonMaxSuppressionIEInternal reports a
+    // bounded dynamic shape inference result (see tests/lit/NPU/pipelines/import_IE_nms_convert_to_static_option.mlir
+    // for an example). The downstream (VPU dialect / lowering) passes are not yet updated to consume a genuinely
+    if (importCfg.enableConvertNMSToStatic) {
+        auto static_shape = manager.register_pass<ov::pass::GraphRewrite>();
+        static_shape->add_matcher<ov::pass::ConvertNMS9ToNMSIEInternal>();
+        static_shape->set_name("ov::pass::CommonStaticShape");
+    }
 
     auto common_fusions = manager.register_pass<ov::pass::GraphRewrite>();
     common_fusions->add_matcher<ov::pass::DepthToSpaceFusion>();
@@ -6213,18 +6313,11 @@ void NGraphPasses::runNGraphPasses(const std::shared_ptr<ov::Model>& netGraph, m
                 return skipMixedPrecisionU16QDQ(node);
             });
     manager.register_pass<ov::pass::GatedDeltaNetFusion>();
-    passConfig->set_callback<ov::pass::FuseGDNLoop>([](const std::shared_ptr<const ov::Node>& node) -> bool {
-        // Skip fusion for decode (seq_len==1): the original loop graph is faster on NPU.
-        // Loop query input is at index 2, shape: [batch, head_num, seq_len, head_size]
-        auto queryShape = node->input(2).get_partial_shape();
-        if (queryShape.rank().is_static() && queryShape.rank().get_length() == 4) {
-            auto seqDim = queryShape[2];
-            if (seqDim.is_static() && seqDim.get_length() == 1) {
-                return true;
-            }
-        }
-        return false;
-    });
+
+    // Eliminate dead ScatterUpdate branches (empty indices/updates) before the first ConstantFolding
+    // below. Otherwise it may trigger a division-by-zero crash in case Broadcast + ScatterUpdate.
+    // E#234101: Once the root cause is identified and fixed in OV, we can remove pass EliminateScatterUpdate.
+    manager.register_pass<ov::pass::EliminateScatterUpdate>();
     manager.register_pass<ov::pass::ConstantFolding>();
     manager.register_pass<ov::pass::ConvertScatterElementsUpdate12ToScatterElementsUpdate3>();
     manager.register_pass<ov::pass::ConvertInterpolate1ToInterpolate4>();

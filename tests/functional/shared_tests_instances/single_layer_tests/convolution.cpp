@@ -653,6 +653,59 @@ INSTANTIATE_TEST_SUITE_P(smoke_Convolution2D_LargeKernel_OneDim, ConvolutionLaye
                                             ::testing::Values(test_utils::TARGET_DEVICE)),
                          ConvolutionLayerTest::getTestCaseName);
 
+/* ============= 2D Convolution / LargeKernel / SpaceToDepth (kernel == stride, no padding) ============= */
+
+const auto conv2DParams_LargeKernel_SpaceToDepth_K16 =
+        ::testing::Combine(::testing::ValuesIn<std::vector<size_t>>({{16, 16}}),   // kernels
+                           ::testing::ValuesIn<std::vector<size_t>>({{16, 16}}),   // strides
+                           ::testing::ValuesIn<std::vector<ptrdiff_t>>({{0, 0}}),  // padBegins
+                           ::testing::ValuesIn<std::vector<ptrdiff_t>>({{0, 0}}),  // padEnds
+                           ::testing::ValuesIn<std::vector<size_t>>({{1, 1}}),     // dilations
+                           ::testing::Values(33, 64),                              // numOutChannels
+                           ::testing::Values(ov::op::PadType::EXPLICIT)            // padType
+        );
+// Square and rectangular inputs, one spatial dim equal to the block size, and IC=1 (IC*KY*KX=256).
+std::vector<std::vector<ov::Shape>> iShapeLargeKernelSpaceToDepthK16 = {
+        {{1, 3, 224, 224}}, {{1, 3, 64, 160}}, {{1, 3, 16, 64}}, {{1, 1, 128, 128}}};
+const auto conv2D_LargeKernel_SpaceToDepth_K16 = ::testing::Combine(
+        conv2DParams_LargeKernel_SpaceToDepth_K16,                                                    //
+        ::testing::Values(ov::element::f16),                                                          // netPrc
+        ::testing::ValuesIn(static_shapes_to_test_representation(iShapeLargeKernelSpaceToDepthK16)),  // inputShapes
+        ::testing::Values(test_utils::TARGET_DEVICE));
+
+INSTANTIATE_TEST_SUITE_P(smoke_Convolution2D_LargeKernel_SpaceToDepth_K16, ConvolutionLayerTest_HW,
+                         conv2D_LargeKernel_SpaceToDepth_K16, ConvolutionLayerTest::getTestCaseName);
+
+// IC*KY*KX = 3*17*17 = 867 is not channel-aligned and needs expansion after the fold.
+const auto conv2DParams_LargeKernel_SpaceToDepth_K17 =
+        ::testing::Combine(::testing::ValuesIn<std::vector<size_t>>({{17, 17}}),   // kernels
+                           ::testing::ValuesIn<std::vector<size_t>>({{17, 17}}),   // strides
+                           ::testing::ValuesIn<std::vector<ptrdiff_t>>({{0, 0}}),  // padBegins
+                           ::testing::ValuesIn<std::vector<ptrdiff_t>>({{0, 0}}),  // padEnds
+                           ::testing::ValuesIn<std::vector<size_t>>({{1, 1}}),     // dilations
+                           ::testing::Values(64),                                  // numOutChannels
+                           ::testing::Values(ov::op::PadType::EXPLICIT)            // padType
+        );
+std::vector<std::vector<ov::Shape>> iShapeLargeKernelSpaceToDepthK17 = {{{1, 3, 272, 272}}, {{1, 3, 68, 136}}};
+const auto conv2D_LargeKernel_SpaceToDepth_K17 = ::testing::Combine(
+        conv2DParams_LargeKernel_SpaceToDepth_K17,                                                    //
+        ::testing::Values(ov::element::f16),                                                          // netPrc
+        ::testing::ValuesIn(static_shapes_to_test_representation(iShapeLargeKernelSpaceToDepthK17)),  // inputShapes
+        ::testing::Values(test_utils::TARGET_DEVICE));
+
+INSTANTIATE_TEST_SUITE_P(smoke_Convolution2D_LargeKernel_SpaceToDepth_K17, ConvolutionLayerTest_HW,
+                         conv2D_LargeKernel_SpaceToDepth_K17, ConvolutionLayerTest::getTestCaseName);
+
+// Batch > 1: the fold is skipped on NPU3720 but applied on newer platforms.
+const auto conv2D_LargeKernel_SpaceToDepth_Batch = ::testing::Combine(
+        conv2DParams_LargeKernel_SpaceToDepth_K16,                                               //
+        ::testing::Values(ov::element::f16),                                                     // netPrc
+        ::testing::ValuesIn({static_shapes_to_test_representation({ov::Shape{2, 3, 64, 64}})}),  // inputShapes
+        ::testing::Values(test_utils::TARGET_DEVICE));
+
+INSTANTIATE_TEST_SUITE_P(smoke_Convolution2D_LargeKernel_SpaceToDepth_Batch, ConvolutionLayerTest_HW,
+                         conv2D_LargeKernel_SpaceToDepth_Batch, ConvolutionLayerTest::getTestCaseName);
+
 /* ============= 2D Convolution / Dilated ============= */
 
 const auto conv2DParams_Dilated =

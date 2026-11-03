@@ -4,9 +4,17 @@
 #
 
 file(GLOB_RECURSE SRC_FILES *.cpp)
+# This library is intentionally left out of MSVC LTO: its archive would
+# exceed the 4 GB PE/COFF limit under lib.exe /LTCG (LNK1248). As a
+# consequence it must not reuse the shared PCH either, which is compiled
+# with /GL when LTO is enabled (C4652).
+if(ENABLE_LTO AND MSVC)
+    set(NPU_PCH_OPTS SKIP_PCH_REUSE)
+endif()
 add_npu_library(npu_compiler_dialect_ie_transforms
     ${SRC_FILES}
     DIALECT_LIB
+    ${NPU_PCH_OPTS}
     LINK_LIBS
       PUBLIC
         npu_compiler_core
@@ -33,5 +41,4 @@ add_npu_library(npu_compiler_dialect_ie_transforms
         npu_compiler_dialect_vpuip_utils
         npu_compiler_dialect_hostexec
         npu_compiler_dialect_hostexec_transforms
-        openvino::npu_al
 )

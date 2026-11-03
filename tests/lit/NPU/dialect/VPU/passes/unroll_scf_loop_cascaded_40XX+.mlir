@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-// RUN: vpux-opt --split-input-file --init-compiler="platform=%platform% compilation-mode=HostCompile allow-custom-values=true" --unroll-scf-loop="loop-unroll-factor=1,1,10,1 enable-cascaded-unrolling=true" --canonicalize %s | FileCheck %s
+// RUN: vpux-opt --split-input-file --init-compiler="platform=%platform% compilation-mode=HostCompile_Interpreter allow-custom-values=true" --unroll-scf-loop="loop-unroll-factor=1,1,10,1 enable-cascaded-unrolling=true" --canonicalize %s | FileCheck %s
 // REQUIRES: platform-NPU4000 || platform-NPU5010
 
 #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
@@ -51,13 +51,13 @@ module @DynamicPermute2DCascaded   {
 // CHECK-DAG: #[[$MAP_H_235:.+]] = affine_map<(d0)[s0] -> (s0 - 235, d0)>
 // CHECK-DAG: #[[$MAP_H_94:.+]] = affine_map<(d0)[s0] -> (s0 - 94, d0)>
 
-// CHECK-LABEL:   func.func @merged_vpu_func_2(
+// CHECK-LABEL:   func.func private @merged_vpu_func_2(
 // CHECK-COUNT-2:   VPU.NCE.Permute
 
-// CHECK-LABEL:   func.func @merged_vpu_func_1(
+// CHECK-LABEL:   func.func private @merged_vpu_func_1(
 // CHECK-COUNT-5:   VPU.NCE.Permute
 
-// CHECK-LABEL:   func.func @merged_vpu_func_0(
+// CHECK-LABEL:   func.func private @merged_vpu_func_0(
 // CHECK-COUNT-10:   VPU.NCE.Permute
 
 // CHECK-LABEL:   func.func @main_func0_static(

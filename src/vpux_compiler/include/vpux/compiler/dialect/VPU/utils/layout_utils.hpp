@@ -15,6 +15,13 @@
 #include "vpux/compiler/dialect/config/IR/attributes.hpp"
 #include "vpux/compiler/dialect/config/utils/config_option_utils.hpp"
 #include "vpux/utils/core/error.hpp"
+#include "vpux/utils/core/range.hpp"
+
+#include "vpux/compiler/dialect/Shave/IR/attributes.hpp"
+#include "vpux/compiler/dialect/Shave/IR/dialect.hpp"
+#include "vpux/compiler/dialect/Shave/IR/ops/meta-ops.hpp"
+
+#include <llvm/Support/Format.h>
 
 namespace vpux {
 namespace VPU {
@@ -642,6 +649,20 @@ public:
     IE::LayerLayoutInfo getLayoutInfo(mlir::Operation* origOp) const {
         return IE::getLayoutInfo(origOp);
     }
+};
+
+//
+// YuvToRgbDimsOrderOpModel_NHWC
+//
+
+class YuvToRgbDimsOrderOpModel_NHWC final :
+        public IE::LayoutInfoOpInterface::FallbackModel<YuvToRgbDimsOrderOpModel_NHWC> {
+public:
+    static void inferLayoutInfo(mlir::Operation* op, IE::LayerLayoutInfo& info);
+
+    mlir::LogicalResult verifyLayout(mlir::Operation* op) const;
+
+    IE::LayerLayoutInfo getLayoutInfo(mlir::Operation* origOp) const;
 };
 
 //

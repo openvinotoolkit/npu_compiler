@@ -14,6 +14,7 @@ add_tool_target(
     LINK_LIBRARIES
          npu_elf
          npu_mlir_compiler_static
+         npu_ov_utils
 )
 
 if(ENABLE_UB_SANITIZER)

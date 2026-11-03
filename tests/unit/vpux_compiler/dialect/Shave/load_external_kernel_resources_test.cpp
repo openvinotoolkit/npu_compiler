@@ -149,11 +149,13 @@ struct LoadExternalKernelResourcesTest : MLIR_UnitBase {
         getShaveBinaryResources(&ctx);
     }
 
-    /// Creates an empty (no args, no results) function named `name` in the module,
-    /// with the builder positioned at the start of its entry block.
+    /// Creates a function named `name`, with a single tensor argument (to serve as a
+    /// dummy operand for ExternalKernelOps added below), with the builder positioned
+    /// at the start of its entry block.
     mlir::func::FuncOp addFunc(llvm::StringRef name) {
         builder.setInsertionPointToEnd(mod->getBody());
-        auto funcType = builder.getFunctionType({}, {});
+        auto dummyType = mlir::RankedTensorType::get({1}, builder.getF16Type());
+        auto funcType = builder.getFunctionType({dummyType}, {});
         auto func = mlir::func::FuncOp::create(builder, builder.getUnknownLoc(), name, funcType);
         func.setPrivate();
         auto* entryBlock = func.addEntryBlock();
@@ -161,11 +163,18 @@ struct LoadExternalKernelResourcesTest : MLIR_UnitBase {
         return func;
     }
 
-    /// Appends a Shave.ExternalKernelOp (no operands/results) to the function the
-    /// builder is currently positioned in.
+    /// Appends a Shave.ExternalKernelOp to the function the builder is currently
+    /// positioned in. Uses the function's own argument as a dummy operand and a
+    /// matching dummy result type -- Shave_ExternalKernelOp implements
+    /// VPU_LayerOpInterface, whose verifier (IE::verifyLayer) requires at least one
+    /// operand and one result, even though this pass's logic itself never inspects
+    /// them.
     Shave::ExternalKernelOp addExternalKernelOp(llvm::StringRef uniqueId) {
-        return Shave::ExternalKernelOp::create(builder, builder.getUnknownLoc(), mlir::TypeRange{}, mlir::ValueRange{},
-                                               builder.getDictionaryAttr({}), builder.getStringAttr(uniqueId));
+        auto dummyType = mlir::RankedTensorType::get({1}, builder.getF16Type());
+        auto dummyInput = builder.getInsertionBlock()->getArgument(0);
+        return Shave::ExternalKernelOp::create(builder, builder.getUnknownLoc(), mlir::TypeRange{dummyType},
+                                               mlir::ValueRange{dummyInput}, builder.getDictionaryAttr({}),
+                                               builder.getStringAttr(uniqueId));
     }
 
     /// Terminates the function the builder is currently positioned in.

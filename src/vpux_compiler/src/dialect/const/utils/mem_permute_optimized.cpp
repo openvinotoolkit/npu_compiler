@@ -200,7 +200,7 @@ bool Const::details::isOptimizedTransformationSupported(vpux::Const::Content& in
     }
 
     const auto createDimsVerifier = [](const vpux::DimsOrder& order1, const vpux::DimsOrder& order2) {
-        return [=](const DimsOrder& typeOrder1, const DimsOrder& typeOrder2) {
+        return [order1, order2](const DimsOrder& typeOrder1, const DimsOrder& typeOrder2) {
             return (typeOrder1 == order1 && typeOrder2 == order2) || (typeOrder1 == order2 && typeOrder2 == order1);
         };
     };

@@ -11,6 +11,7 @@
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
 #include "vpux/compiler/dialect/VPU/utils/auto_padding_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_sparsity.hpp"
+#include "vpux/compiler/dialect/VPU/utils/nce_utils.hpp"
 #include "vpux/compiler/dialect/config/utils/config_option_utils.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
 #include "vpux/compiler/dialect/const/utils/utils.hpp"
@@ -52,11 +53,28 @@ std::tuple<SmallVector<int64_t>, SmallVector<uint32_t>> getOffsetsAndWeightsPtrs
 
 std::tuple<SmallVector<int64_t>, SmallVector<uint32_t>> getOffsetsAndWeightsPtrsForMatMul(vpux::NDTypeInterface type) {
     SmallVector<int64_t> offsets;
-    auto shape = type.getShape();
-    for (auto group : irange(shape[DimsGroups5D::Filter::G])) {
-        offsets.push_back(group * shape[DimsGroups5D::Filter::OC]);
+    const auto shape = type.getShape();
+    VPUX_THROW_UNLESS(shape.size() == DimsGroups5D::Filter::numDims,
+                      "Expected a rank-5 MatMul weight table, got shape '{0}'", shape);
+
+    SmallVector<int64_t> outputChannelOffsets{0};
+    if (const auto distributedType = mlir::dyn_cast<VPU::DistributedTensorType>(type)) {
+        outputChannelOffsets.clear();
+        for (const auto& clusterOffset : distributedType.getPerClusterMemoryShapeOffsets()) {
+            outputChannelOffsets.push_back(clusterOffset[DimsGroups5D::Filter::OC]);
+        }
+        llvm::sort(outputChannelOffsets);
+        outputChannelOffsets.erase(std::unique(outputChannelOffsets.begin(), outputChannelOffsets.end()),
+                                   outputChannelOffsets.end());
     }
-    SmallVector<uint32_t> weightsPtrPerCluster(shape[DimsGroups5D::Filter::G], static_cast<int32_t>(0));
+
+    const auto outputChannels = shape[DimsGroups5D::Filter::OC];
+    for (auto group : irange(shape[DimsGroups5D::Filter::G])) {
+        for (const auto outputChannelOffset : outputChannelOffsets) {
+            offsets.push_back(group * outputChannels + outputChannelOffset);
+        }
+    }
+    SmallVector<uint32_t> weightsPtrPerCluster(offsets.size(), static_cast<int32_t>(0));
     return {offsets, weightsPtrPerCluster};
 }
 
@@ -418,7 +436,7 @@ void RelocateWeightTableForReusePass::safeRunOnFunc() {
 
         auto originalOC = 0;
         if (VPU::canAutopadOutput(nceOp.getOperation())) {
-            originalOC = mlir::cast<vpux::NDTypeInterface>(nceOp->getResult(0).getType()).getShape()[Dims4D::Act::C];
+            originalOC = VPU::getPreODUOutputChannels(nceOp.getOperation());
         }
 
         auto newConstAttr = cstOp.getContentAttr()

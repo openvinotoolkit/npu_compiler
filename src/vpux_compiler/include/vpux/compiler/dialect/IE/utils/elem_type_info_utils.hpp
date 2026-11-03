@@ -12,6 +12,7 @@
 #include "vpux/compiler/dialect/VPU/IR/ops/dpu.hpp"
 namespace vpux {
 namespace IE {
+bool isElemTypeTransparentViewLikeOp(mlir::Operation* op);
 
 void propagateElementTypeDown(LayerDataInfo<mlir::Type>& info);
 void propagateElementTypeUp(LayerDataInfo<mlir::Type>& info);

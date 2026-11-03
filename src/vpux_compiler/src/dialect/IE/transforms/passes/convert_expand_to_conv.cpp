@@ -68,7 +68,7 @@ mlir::Value reshapeInput(mlir::Location loc, mlir::Value input, ShapeRef origSha
     const auto width = origShape[Dims4D::Act::W] / channelAlignment;
 
     const SmallVector<int64_t> targetShape = {batch, channels, height, width};
-    const auto reshapedLoc = appendLoc(loc, "reshape input for DPU expand");
+    const auto reshapedLoc = appendLoc(loc, "reshape_in");
     return buildReshape(reshapedLoc, input, ArrayRef(targetShape), rewriter);
 }
 
@@ -80,7 +80,7 @@ mlir::Value reshapeInputFromHeightToChannel(mlir::Location loc, mlir::Value inpu
     const auto width = origShape[Dims4D::Act::W];
 
     const SmallVector<int64_t> targetShape = {batch, channels, height, width};
-    const auto reshapedLoc = appendLoc(loc, "reshape input for DPU expand");
+    const auto reshapedLoc = appendLoc(loc, "reshape_in");
     return buildReshape(reshapedLoc, input, ArrayRef(targetShape), rewriter);
 }
 
@@ -97,7 +97,8 @@ mlir::Value padHReshapeInput(mlir::Location loc, mlir::Value input, ShapeRef ori
     // reshape as a one dimensional vector
     const auto totalElemSize = origShape.totalSize();
     const SmallVector<int64_t> targetShapeLinear = {1, 1, totalElemSize, 1};
-    auto linearReshaped = buildReshape(loc, input, ArrayRef(targetShapeLinear), rewriter);
+    auto linearReshaped =
+            buildReshape(appendLoc(loc, "reshape_linear_in"), input, ArrayRef(targetShapeLinear), rewriter);
 
     const auto origWidthPadded = origWidth + channelAlignment - (origWidth % channelAlignment);
     const auto totalPaddedElemSize = origBatch * origChannels * origHeight * origWidthPadded;
@@ -107,7 +108,7 @@ mlir::Value padHReshapeInput(mlir::Location loc, mlir::Value input, ShapeRef ori
     auto padEnd = mlir::SmallVector<int64_t>(origShape.size(), 0);
     padEnd[vpux::Dims4D::Act::H.ind()] = totalPaddedElemSize - totalElemSize;
     const auto ctx = rewriter.getContext();
-    auto padExpand = IE::ExpandOp::create(rewriter, appendLoc(loc, "pad"), linearReshaped,
+    auto padExpand = IE::ExpandOp::create(rewriter, appendLoc(loc, "expand_in"), linearReshaped,
                                           getIntArrayAttr(ctx, padBegin), getIntArrayAttr(ctx, padEnd));
 
     const SmallVector<int64_t> targetPaddedShape = {origBatch, origChannels, origHeight, origWidthPadded};
@@ -121,7 +122,7 @@ mlir::Value padWReshapeInput(mlir::Location loc, mlir::Value input, ShapeRef ori
     SmallVector<int64_t> padEnd(origShape.size(), 0);
     padEnd[Dims4D::Act::W.ind()] = channelAlignment - origShape[Dims4D::Act::W] % channelAlignment;
 
-    auto expandOp = IE::ExpandOp::create(rewriter, appendLoc(loc, "input_pad"), input,
+    auto expandOp = IE::ExpandOp::create(rewriter, appendLoc(loc, "expand_in"), input,
                                          getIntArrayAttr(rewriter.getContext(), ArrayRef(padBegin)),
                                          getIntArrayAttr(rewriter.getContext(), ArrayRef(padEnd)));
 
@@ -130,7 +131,7 @@ mlir::Value padWReshapeInput(mlir::Location loc, mlir::Value input, ShapeRef ori
 
 mlir::Value reshapeOutput(mlir::Location loc, mlir::Value convOutput, ShapeRef outShape,
                           mlir::PatternRewriter& rewriter) {
-    const auto reshapedLoc = appendLoc(loc, "reshape output for DPU expand");
+    const auto reshapedLoc = appendLoc(loc, "reshape_out");
     return buildReshape(reshapedLoc, convOutput, ArrayRef(outShape.raw()), rewriter);
 }
 
@@ -150,7 +151,8 @@ mlir::Value unpadHReshapeOutput(mlir::Location loc, ShapeRef origOutShape, mlir:
     // reshape as a one dimensional vector
     const auto totalPaddedElemSize = origBatch * origChannels * origHeight * paddedWidth;
     const SmallVector<int64_t> targetShapeLinear = {1, 1, totalPaddedElemSize, 1};
-    auto linearReshaped = buildReshape(loc, convOutput, ArrayRef(targetShapeLinear), rewriter);
+    auto linearReshaped =
+            buildReshape(appendLoc(loc, "reshape_linear_out"), convOutput, ArrayRef(targetShapeLinear), rewriter);
 
     // remove the padded memory allocated
     const auto totalElemSize = origBatch * origChannels * origHeight * origWidth;
@@ -261,14 +263,14 @@ mlir::Value composeWeights(mlir::Location loc, ShapeRef origInShape, ShapeRef or
     const auto weightStorageType = mlir::RankedTensorType::get(weightShape.raw(), mlir::Float16Type::get(ctx));
     const auto weightStorageAttr = Const::createConstContent(weightStorageType, ArrayRef(weightValues));
     const auto weightContentAttr = Const::ContentAttr::get(weightStorageAttr);
-    const auto declLoc = appendLoc(loc, "weights for DPU expand");
+    const auto declLoc = appendLoc(loc, "const_filter");
 
     const auto weightExpressedElemType = IE::composeWeightsExpressedType(convolutionInputType);
     const auto weightExpressedType = mlir::RankedTensorType::get(weightShape.raw(), weightExpressedElemType);
     auto targetContentAttr = weightContentAttr.transform().castElemType(weightExpressedElemType).get();
     auto declOp = Const::DeclareOp::create(rewriter, declLoc, weightExpressedType, std::move(targetContentAttr));
 
-    const auto reorderLoc = appendLoc(loc, "reorder weights for DPU expand");
+    const auto reorderLoc = appendLoc(loc, "reorder_filter");
     const auto weightTypeNCHW = mlir::cast<vpux::NDTypeInterface>(declOp.getOutput().getType());
     const auto reorderType = weightTypeNCHW.changeDimsOrder(DimsOrder::NHWC);
     const auto orderMap = DimsOrder::NHWC.toAffineMap(ctx);
@@ -530,7 +532,7 @@ mlir::Value quantCastOutput(IE::ExpandOp expandOp, mlir::Value reshapeOutput, ml
         return reshapeOutput;
     }
 
-    const auto quantCastLoc = appendLoc(expandOp.getLoc(), "quantize cast for DPU expand");
+    const auto quantCastLoc = appendLoc(expandOp.getLoc(), "quantize_in");
     auto quantCast = IE::QuantizeCastOp::create(
             rewriter, quantCastLoc, reshapeOutput,
             mlir::cast<vpux::NDTypeInterface>(origInputQuantCast.getOutput().getType()).getElementType());
@@ -605,7 +607,7 @@ mlir::LogicalResult ExpandQuantizeSliceRewriter::matchAndRewrite(IE::ExpandOp or
         // Apply the reduction of expanded channels to 4 and therefore also substitute the final sliceOp
         auto staticOffsetsAttr = sliceOp.getStaticOffsetsAttr();
         auto staticSizesAttr = sliceOp.getStaticSizesAttr();
-        const auto sliceLoc = appendLoc(sliceOp.getLoc(), "replace output slice op");
+        const auto sliceLoc = appendLoc(sliceOp.getLoc(), "slice_out");
         auto newSliceOp = IE::SliceOp::create(rewriter, sliceLoc, reshapeOut, staticOffsetsAttr, staticSizesAttr);
         rewriter.replaceOp(sliceOp, newSliceOp.getResult());
     }
@@ -771,21 +773,21 @@ mlir::LogicalResult ConvertExpandLayoutRewriter::matchAndRewrite(IE::ExpandOp or
     // PermuteCast changes the logical layout without moving data
     // The memory layout (mem_perm) is always NCHW, we just reinterpret it as NHWC
     auto inputPermuteCast =
-            IE::PermuteCastOp::create(rewriter, appendLoc(origOp.getLoc(), "input_permute_to_nhwc"), origOp.getInput(),
+            IE::PermuteCastOp::create(rewriter, appendLoc(origOp.getLoc(), "permute_in"), origOp.getInput(),
                                       mlir::AffineMapAttr::get(supportedLayout.toAffineMap(ctx)),
                                       mlir::AffineMapAttr::get(DimsOrder::NCHW.toAffineMap(ctx)));
 
     // Create new ExpandOp with NHWC layout
     auto newExpandOp =
-            IE::ExpandOp::create(rewriter, appendLoc(origOp.getLoc(), "expand_nhwc"), inputPermuteCast.getOutput(),
+            IE::ExpandOp::create(rewriter, appendLoc(origOp.getLoc(), "expand_in"), inputPermuteCast.getOutput(),
                                  getIntArrayAttr(ctx, padsBegin), getIntArrayAttr(ctx, padsEnd));
 
     // Create output PermuteCast: convert back to original layout
     // mem_perm is always NCHW (memory layout doesn't change)
-    auto outputPermuteCast = IE::PermuteCastOp::create(rewriter, appendLoc(origOp.getLoc(), "output_permute_from_nhwc"),
-                                                       newExpandOp.getOutput(),
-                                                       mlir::AffineMapAttr::get(expandInLayout.toAffineMap(ctx)),
-                                                       mlir::AffineMapAttr::get(DimsOrder::NCHW.toAffineMap(ctx)));
+    auto outputPermuteCast =
+            IE::PermuteCastOp::create(rewriter, appendLoc(origOp.getLoc(), "permute_out"), newExpandOp.getOutput(),
+                                      mlir::AffineMapAttr::get(expandInLayout.toAffineMap(ctx)),
+                                      mlir::AffineMapAttr::get(DimsOrder::NCHW.toAffineMap(ctx)));
 
     rewriter.replaceOp(origOp, outputPermuteCast.getOutput());
 

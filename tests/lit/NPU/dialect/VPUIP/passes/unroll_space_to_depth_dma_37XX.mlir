@@ -483,7 +483,7 @@ func.func @UnrollSpaceToDepthDMADepthFirstNCHWToNHWC(%input: memref<1x2x4x6xf16>
     //CHECK:    VPURT.Task waits([[BARRIER_0]] : !VPURT.Barrier) updates([[BARRIER_1]] : !VPURT.Barrier) {
     //CHECK:        VPUIP.SpaceToDepthDMA <{
     //CHECK-SAME:           block_size = 2 : i64,
-    //CHECK-SAME:            dma_descriptor = #VPUIP.DMADescriptorAttr<numPlanes = 2 : i64, len = 24 : i64, srcWidth = 12 : i64, srcStride = 24 : i64, srcPlaneStride = 12 : i64, dstWidth = 4 : i64, dstStride = 16 : i64, dstPlaneStride = 24 : i64>,
+    //CHECK-SAME:            dma_descriptor = #VPUIP.DMADescriptorAttr<numPlanes = 2 : i64, len = 24 : i64, srcWidth = 12 : i64, srcStride = 24 : i64, srcPlaneStride = 12 : i64, dstWidth = 4 : i64, dstStride = 16 : i64, dstPlaneStride = 4 : i64>,
     //CHECK-SAME:           mode = #IE.space_to_depth_mode<DEPTH_FIRST>
     //CHECK-SAME:           }>
     //CHECK:            inputs([[INPUT_0]] : memref<1x1x4x6xf16, [@CMX_NN, 0]>)
@@ -493,7 +493,7 @@ func.func @UnrollSpaceToDepthDMADepthFirstNCHWToNHWC(%input: memref<1x2x4x6xf16>
     //CHECK:    VPURT.Task waits([[BARRIER_0]] : !VPURT.Barrier) updates([[BARRIER_1]] : !VPURT.Barrier) {
     //CHECK:        VPUIP.SpaceToDepthDMA <{
     //CHECK-SAME:           block_size = 2 : i64,
-    //CHECK-SAME:            dma_descriptor = #VPUIP.DMADescriptorAttr<numPlanes = 2 : i64, len = 24 : i64, srcWidth = 12 : i64, srcStride = 24 : i64, srcPlaneStride = 12 : i64, dstWidth = 4 : i64, dstStride = 16 : i64, dstPlaneStride = 24 : i64>,
+    //CHECK-SAME:            dma_descriptor = #VPUIP.DMADescriptorAttr<numPlanes = 2 : i64, len = 24 : i64, srcWidth = 12 : i64, srcStride = 24 : i64, srcPlaneStride = 12 : i64, dstWidth = 4 : i64, dstStride = 16 : i64, dstPlaneStride = 4 : i64>,
     //CHECK-SAME:           mode = #IE.space_to_depth_mode<DEPTH_FIRST>
     //CHECK-SAME:           port = 1 : i64}>
     //CHECK:            inputs([[INPUT_1]] : memref<1x1x4x6xf16, [@CMX_NN, 0]>)

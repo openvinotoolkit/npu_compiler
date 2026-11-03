@@ -3,9 +3,10 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-// RUN: vpux-opt --split-input-file --init-compiler="platform=%platform% allow-custom-values=true enable-sw-kernel-fifo-per-shave-engine=false" --add-sw-kernel-instruction-prefetch="minimum-shave-init-time=5000 minimum-shave-idle-time-for-prefetch=0" %s | FileCheck %s
+// RUN: vpux-opt --split-input-file --init-compiler="platform=%platform% allow-custom-values=true workload-management-mode=PWLM_V0_1_PAGES" --add-sw-kernel-instruction-prefetch="minimum-shave-init-time=5000 minimum-shave-idle-time-for-prefetch=0" %s | FileCheck %s
 // REQUIRES: platform-NPU5010
-// Specify how dedicated SW FIFOs are used so that when defaults change,
+// workload-management-mode is pinned to PWLM_V0_1_PAGES solely to force dedicated-SW-FIFO-per-shave
+// to a known state for the cost model, so that when defaults change,
 // it would not impact the cost and order of allocation of prefetch ops to tiles.
 
 !DummyDDRT = memref<48000x1x1x1xf16, @DDR>

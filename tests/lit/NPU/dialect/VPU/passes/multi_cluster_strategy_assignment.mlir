@@ -298,7 +298,7 @@ func.func @FakeQuantizeAssignedSplitOverHeightInParamPerAxis(%arg0: tensor<1x1x3
     %outLow = const.Declare tensor<1x1x1x1xf16> = dense<-1.000000e+01> : tensor<1x1x1x1xf16>
     %outHigh = const.Declare tensor<1x1x1x1xf16> = dense<1.000000e+01> : tensor<1x1x1x1xf16>
 
-    %fq = VPU.FakeQuantize(%arg0, %inLow, %inHigh, %outLow, %outHigh) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i64} : tensor<1x1x384x640xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<1x1x384x640xf16>
+    %fq = VPU.FakeQuantize(%arg0, %inLow, %inHigh, %outLow, %outHigh) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256 : i64} : tensor<1x1x384x640xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<1x1x384x640xf16>
     return %fq : tensor<1x1x384x640xf16>
 
     // CHECK-DAG: [[IN_LOW:%.+]] = const.Declare tensor<1x1x1x1xf16> = dense<-1.000000e+01> : tensor<1x1x1x1xf16>
@@ -307,7 +307,7 @@ func.func @FakeQuantizeAssignedSplitOverHeightInParamPerAxis(%arg0: tensor<1x1x3
     // CHECK-DAG: [[OUT_HIGH:%.+]] = const.Declare tensor<1x1x1x1xf16> = dense<1.000000e+01> : tensor<1x1x1x1xf16>
 
     // CHECK: [[FQ:%.+]] = VPU.FakeQuantize([[INPUT_DATA]], [[IN_LOW]], [[IN_HIGH]], [[OUT_LOW]], [[OUT_HIGH]])
-    // CHECK-SAME:         {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i64,
+    // CHECK-SAME:         {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256 : i64,
     // CHECK-SAME:          multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>}
     // CHECK-SAME:    tensor<1x1x384x640xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<1x1x384x640xf16>
     // CHECK:   return [[FQ]] : tensor<1x1x384x640xf16>
@@ -323,7 +323,7 @@ func.func @FakeQuantizeAssignedSplitOverKernelOutParamPerAxis(%arg0: tensor<1x12
     %outLow = const.Declare tensor<1x128x1x1xf16> = dense<-1.000000e+01> : tensor<1x128x1x1xf16>
     %outHigh = const.Declare tensor<1x128x1x1xf16> = dense<1.000000e+01> : tensor<1x128x1x1xf16>
 
-    %fq = VPU.FakeQuantize(%arg0, %inLow, %inHigh, %outLow, %outHigh) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i64} : tensor<1x128x1x512xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x128x1x1xf16>, tensor<1x128x1x1xf16> -> tensor<1x128x1x512xf16>
+    %fq = VPU.FakeQuantize(%arg0, %inLow, %inHigh, %outLow, %outHigh) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256 : i64} : tensor<1x128x1x512xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x128x1x1xf16>, tensor<1x128x1x1xf16> -> tensor<1x128x1x512xf16>
     return %fq : tensor<1x128x1x512xf16>
 
     // CHECK-DAG: [[IN_LOW:%.+]] = const.Declare tensor<1x1x1x1xf16> = dense<-1.000000e+01> : tensor<1x1x1x1xf16>
@@ -332,7 +332,7 @@ func.func @FakeQuantizeAssignedSplitOverKernelOutParamPerAxis(%arg0: tensor<1x12
     // CHECK-DAG: [[OUT_HIGH:%.+]] = const.Declare tensor<1x128x1x1xf16> = dense<1.000000e+01> : tensor<1x128x1x1xf16>
 
     // CHECK: [[FQ:%.+]] = VPU.FakeQuantize([[INPUT_DATA]], [[IN_LOW]], [[IN_HIGH]], [[OUT_LOW]], [[OUT_HIGH]])
-    // CHECK-SAME:         {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i64,
+    // CHECK-SAME:         {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256 : i64,
     // CHECK-SAME:          multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>}
     // CHECK-SAME:   tensor<1x128x1x512xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x128x1x1xf16>, tensor<1x128x1x1xf16> -> tensor<1x128x1x512xf16>
     // CHECK:   return [[FQ]] : tensor<1x128x1x512xf16>
@@ -348,7 +348,7 @@ func.func @FakeQuantizeAssignedClustering(%arg0: tensor<1x1x1x512xf16>) -> tenso
     %outLow = const.Declare tensor<1x1x1x512xf16> = dense<-1.000000e+01> : tensor<1x1x1x512xf16>
     %outHigh = const.Declare tensor<1x1x1x512xf16> = dense<1.000000e+01> : tensor<1x1x1x512xf16>
 
-    %fq = VPU.FakeQuantize(%arg0, %inLow, %inHigh, %outLow, %outHigh) {auto_broadcast = #IE.auto_broadcast_type<NONE_OR_EXPLICIT>, levels = 256 : i64} : tensor<1x1x1x512xf16>, tensor<1x1x1x512xf16>, tensor<1x1x1x512xf16>, tensor<1x1x1x512xf16>, tensor<1x1x1x512xf16> -> tensor<1x1x1x512xf16>
+    %fq = VPU.FakeQuantize(%arg0, %inLow, %inHigh, %outLow, %outHigh) {auto_broadcast = #IE.auto_broadcast_type<NONE_OR_EXPLICIT>, levels_or_low_fp_type = 256 : i64} : tensor<1x1x1x512xf16>, tensor<1x1x1x512xf16>, tensor<1x1x1x512xf16>, tensor<1x1x1x512xf16>, tensor<1x1x1x512xf16> -> tensor<1x1x1x512xf16>
     return %fq : tensor<1x1x1x512xf16>
 
     // CHECK-DAG: [[IN_LOW:%.+]] = const.Declare tensor<1x1x1x512xf16> = dense<-1.000000e+01> : tensor<1x1x1x512xf16>
@@ -357,7 +357,7 @@ func.func @FakeQuantizeAssignedClustering(%arg0: tensor<1x1x1x512xf16>) -> tenso
     // CHECK-DAG: [[OUT_HIGH:%.+]] = const.Declare tensor<1x1x1x512xf16> = dense<1.000000e+01> : tensor<1x1x1x512xf16>
 
     // CHECK: [[FQ:%.+]] = VPU.FakeQuantize([[INPUT_DATA]], [[IN_LOW]], [[IN_HIGH]], [[OUT_LOW]], [[OUT_HIGH]])
-    // CHECK-SAME:         {auto_broadcast = #IE.auto_broadcast_type<NONE_OR_EXPLICIT>, levels = 256 : i64,
+    // CHECK-SAME:         {auto_broadcast = #IE.auto_broadcast_type<NONE_OR_EXPLICIT>, levels_or_low_fp_type = 256 : i64,
     // CHECK-SAME:          multiClusterStrategy = #VPU.multi_cluster_strategy<Clustering>}
     // CHECK-SAME:   tensor<1x1x1x512xf16>, tensor<1x1x1x512xf16>, tensor<1x1x1x512xf16>, tensor<1x1x1x512xf16>, tensor<1x1x1x512xf16> -> tensor<1x1x1x512xf16>
     // CHECK:   return [[FQ]] : tensor<1x1x1x512xf16>
@@ -2887,4 +2887,132 @@ func.func @ConvertAssignedSplitOverWidth(%arg0: tensor<1x1x1x16512xsi64>) -> ten
     // CHECK:   [[CONVERT:%.+]] = VPU.Convert([[INPUT]]) {dstElemType = i8,
     // CHECK-SAME:  multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverWidth>}
     // CHECK:   return [[CONVERT]] : tensor<1x1x1x16512xi8>
+}
+
+// -----
+
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+
+module @VPU.SW {
+  func.func nested @generated_info_0(%arg0: index, %arg1: index, %arg2: index, %arg3: index, %arg4: index, %arg5: index) -> (index, index, index, index, index, index, index, index, index, index, index, index, index, index, index, index)
+  func.func nested @generated_0(tensor<1x?x?x?xf16>, tensor<1x?x1x1xf16>, index, index, index, index, index, index) -> tensor<1x?x?x?xf16> attributes {
+    kernelInfo = #VPU.KernelInfo<
+      tilingInfoFunc = @generated_info_0,
+      tilingAxes = [1, 2, 3],
+      numSlicedInputs = 2 : i64,
+      numTensorInputs = 2 : i64,
+      numAuxBuffers = 0 : i64,
+      inputSegmentationAxes = [array<i64: 1, 1>, array<i64: 2, -1>, array<i64: 3, -1>]
+    >
+  }
+}
+
+// CHECK-LABEL: @GenericSwLayerNCHW
+func.func @GenericSwLayerNCHW(%arg0: tensor<1x8x80x960xf16>, %arg1: tensor<1x8x1x1xf16>) -> tensor<1x8x80x960xf16> {
+  %0 = VPU.GenericSwLayer(%arg0, %arg1 : tensor<1x8x80x960xf16>, tensor<1x8x1x1xf16>) @VPU.SW::@generated_0 tiling(sizes = [8, 80, 960], offsets = [0, 0, 0]) -> tensor<1x8x80x960xf16>
+  return %0 : tensor<1x8x80x960xf16>
+
+  // CHECK: VPU.GenericSwLayer
+  // CHECK-SAME: multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>
+}
+
+// -----
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+
+module @VPU.SW {
+  func.func nested @generated_info_0(%arg0: index, %arg1: index, %arg2: index, %arg3: index, %arg4: index, %arg5: index) -> (index, index, index, index, index, index, index, index, index, index, index, index, index, index, index, index)
+  func.func nested @generated_0(tensor<1x?x?x?xf16>, tensor<1x1x1x?xf16>, index, index, index, index, index, index) -> tensor<1x?x?x?xf16> attributes {
+    kernelInfo = #VPU.KernelInfo<
+      tilingInfoFunc = @generated_info_0,
+      tilingAxes = [1, 2, 3],
+      numSlicedInputs = 2 : i64,
+      numTensorInputs = 2 : i64,
+      numAuxBuffers = 0 : i64,
+      inputSegmentationAxes = [array<i64: 1, -1>, array<i64: 2, -1>, array<i64: 3, 3>]
+    >
+  }
+}
+
+// CHECK-LABEL: @GenericSwLayerNHWC
+func.func @GenericSwLayerNHWC(%arg0: tensor<1x8x80x960xf16, {order = #NHWC}>, %arg1: tensor<1x8x1x1xf16, {order = #NHWC}>) -> tensor<1x8x80x960xf16, {order = #NHWC}> {
+  %0 = VPU.GenericSwLayer(%arg0, %arg1 : tensor<1x8x80x960xf16, {order = #NHWC}>, tensor<1x8x1x1xf16, {order = #NHWC}>) @VPU.SW::@generated_0 tiling(sizes = [80, 960, 8], offsets = [0, 0, 0]) -> tensor<1x8x80x960xf16, {order = #NHWC}>
+  return %0 : tensor<1x8x80x960xf16, {order = #NHWC}>
+
+    // CHECK: VPU.GenericSwLayer
+    // CHECK-SAME: multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>
+}
+
+// -----
+
+#NWCH = affine_map<(d0, d1, d2, d3) -> (d0, d3, d1, d2)>
+module @VPU.SW {
+  func.func nested @generated_info_0(%arg0: index, %arg1: index, %arg2: index, %arg3: index, %arg4: index, %arg5: index) -> (index, index, index, index, index, index, index, index, index, index, index, index, index, index, index, index)
+  func.func nested @generated_0(tensor<1x?x?x?xf16>, tensor<1x1x?x1xf16>, index, index, index, index, index, index) -> tensor<1x?x?x?xf16> attributes {
+    kernelInfo = #VPU.KernelInfo<
+      tilingInfoFunc = @generated_info_0,
+      tilingAxes = [1, 2, 3],
+      numSlicedInputs = 2 : i64,
+      numTensorInputs = 2 : i64,
+      numAuxBuffers = 0 : i64,
+      inputSegmentationAxes = [array<i64: 1, -1>, array<i64: 2, 2>, array<i64: 3, -1>]
+    >
+  }
+}
+// CHECK-LABEL: @GenericSwLayerNWCH
+func.func @GenericSwLayerNWCH(%arg0: tensor<1x8x80x960xf16, {order = #NWCH}>, %arg1: tensor<1x8x1x1xf16, {order = #NWCH}>) -> tensor<1x8x80x960xf16, {order = #NWCH}> {
+  %0 = VPU.GenericSwLayer(%arg0, %arg1 : tensor<1x8x80x960xf16, {order = #NWCH}>, tensor<1x8x1x1xf16, {order = #NWCH}>) @VPU.SW::@generated_0 tiling(sizes = [960, 8, 80], offsets = [0, 0, 0]) -> tensor<1x8x80x960xf16, {order = #NWCH}>
+  return %0 : tensor<1x8x80x960xf16, {order = #NWCH}>
+    // CHECK: VPU.GenericSwLayer(
+    // CHECK-SAME: multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>
+}
+
+// -----
+
+#NWCH = affine_map<(d0, d1, d2, d3) -> (d0, d3, d1, d2)>
+module @VPU.SW {
+  func.func nested @generated_info_0(%arg0: index, %arg1: index, %arg2: index, %arg3: index, %arg4: index, %arg5: index) -> ()
+  func.func nested @generated_0(tensor<1x?x?x?xf16>, tensor<1x1x?x1xf16>, index, index, index, index, index, index) -> tensor<1x?x?x?xf16> attributes {
+    kernelInfo = #VPU.KernelInfo<
+      tilingInfoFunc = @generated_info_0,
+      tilingAxes = [1, 2, 3],
+      numSlicedInputs = 0 : i64,
+      numTensorInputs = 2 : i64,
+      numAuxBuffers = 0 : i64,
+      inputSegmentationAxes = []
+    >
+  }
+}
+// CHECK-LABEL: @ClusteredGenericSwLayer
+func.func @ClusteredGenericSwLayer(%arg0: tensor<1x8x80x960xf16, {order = #NWCH}>, %arg1: tensor<1x8x1x1xf16, {order = #NWCH}>) -> tensor<1x8x80x960xf16, {order = #NWCH}> {
+  %0 = VPU.GenericSwLayer(%arg0, %arg1 : tensor<1x8x80x960xf16, {order = #NWCH}>, tensor<1x8x1x1xf16, {order = #NWCH}>) @VPU.SW::@generated_0 tiling(sizes = [960, 8, 80], offsets = [0, 0, 0]) -> tensor<1x8x80x960xf16, {order = #NWCH}>
+  return %0 : tensor<1x8x80x960xf16, {order = #NWCH}>
+
+    // CHECK: VPU.GenericSwLayer(
+    // CHECK-SAME: multiClusterStrategy = #VPU.multi_cluster_strategy<Clustering>
+}
+
+// -----
+
+module @VPU.SW {
+  func.func nested @generated_info_0(%arg0: index, %arg1: index, %arg2: index, %arg3: index, %arg4: index, %arg5: index) -> (index, index, index, index, index, index, index, index, index, index, index, index, index, index, index, index)
+  func.func nested @generated_0(tensor<1x?x?x?xf16>, tensor<1x?x1x1xf16>, tensor<1x?x?x?xf16>, index, index, index, index, index, index) -> tensor<1x?x?x?xf16> attributes {
+    kernelInfo = #VPU.KernelInfo<
+      tilingInfoFunc = @generated_info_0,
+      tilingAxes = [1, 2, 3],
+      numSlicedInputs = 1 : i64,
+      numTensorInputs = 2 : i64,
+      numAuxBuffers = 1 : i64,
+      inputSegmentationAxes = [array<i64: 1, -1, -2>, array<i64: 2, -1, -2>, array<i64: 3, -1, -2>]
+    >
+  }
+}
+
+// CHECK-LABEL: @GenericSwLayerWithUnknownScratchSegmentation
+func.func @GenericSwLayerWithUnknownScratchSegmentation(%arg0: tensor<1x8x80x960xf16>, %arg1: tensor<1x8x1x1xf16>) -> tensor<1x8x80x960xf16> {
+  %scratch = VPU.Empty : tensor<1x8x80x960xf16>
+  %0 = VPU.GenericSwLayer(%arg0, %arg1 : tensor<1x8x80x960xf16>, tensor<1x8x1x1xf16>) scratch(%scratch : tensor<1x8x80x960xf16>) @VPU.SW::@generated_0 tiling(sizes = [8, 80, 960], offsets = [0, 0, 0]) -> tensor<1x8x80x960xf16>
+  return %0 : tensor<1x8x80x960xf16>
+
+    // CHECK: VPU.GenericSwLayer(
+    // CHECK-SAME: multiClusterStrategy = #VPU.multi_cluster_strategy<Clustering>
 }

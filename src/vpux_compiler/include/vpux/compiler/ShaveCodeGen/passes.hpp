@@ -7,6 +7,7 @@
 
 #include "vpux/compiler/dialect/IE/IR/dialect.hpp"
 #include "vpux/compiler/dialect/Shave/IR/dialect.hpp"
+#include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
 #include "vpux/compiler/utils/passes.hpp"
 #include "vpux/utils/logger/logger.hpp"
 
@@ -35,7 +36,6 @@ namespace ShaveCodeGen {
 
 std::unique_ptr<mlir::Pass> createEncapsulateCodeGenOpsPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createEarlyCodeGenCapsuleFusionPass(Logger log = Logger::global());
-std::unique_ptr<mlir::Pass> createFoldUnitDimReshapesPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createOutlineCodeGenCapsulesPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createLinalgTileAndFuseSwLayersPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createAdaptLLVMFuncsForShavePass(Logger log = Logger::global());
@@ -48,6 +48,10 @@ std::unique_ptr<mlir::Pass> createParametricCapsuleTilingPass(Logger log = Logge
 std::unique_ptr<mlir::Pass> createOneShotBufferizeSWKernelsPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createWrapInKernelRegionPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createSplitCodeGenCapsulesPass(Logger log = Logger::global());
+std::unique_ptr<mlir::Pass> createRewriteInDestinationStylePass(Logger log = Logger::global());
+std::unique_ptr<mlir::Pass> createComputeSegmentationAxesPass(Logger log = Logger::global());
+std::unique_ptr<mlir::Pass> createSpecializeSwKernelsPass(Logger log = Logger::global());
+std::unique_ptr<mlir::Pass> createDeduplicateSwKernelsPass(Logger log = Logger::global());
 
 //
 // Registration

@@ -35,29 +35,17 @@ public:
     }
 
     static void setupOptionsCommon(DefaultHWOptions37XX& options) {
+        setupReferenceSWOptionsCommon<DefaultHWOptions37XX>(options);
+
+        // NPU37XX specific values
         overwriteIfUnset(options.enableDummyOpReplacement, false);
-        overwriteIfUnset(options.enableOptimizeReorders, false);
         overwriteIfUnset(options.enableExperimentalSEPtrsOperations, false);
         overwriteIfUnset(options.enableFuseClampOperations, false);
         overwriteIfUnset(options.reduceParallelControlFlows, true);
         overwriteIfUnset(options.enableGroupedMatMul, false);
         overwriteIfUnset(options.enableFP16CompressedConvolution, false);
-        overwriteIfUnset(options.enableVPUNNPreSplit, false);
-        overwriteIfUnset(options.enableODULocalRegion, false);
         overwriteIfUnset(options.enableInPlaceBufferization, false);
         overwriteIfUnset(options.useMemrefForHostFunctionBufferization, false);
-        overwriteIfUnset(options.enableRuntimeDequant, false);
-
-        // ReferenceSW specific values
-        overwriteIfUnset(options.enableForceZMajorConcat, false);
-        overwriteIfUnset(options.enableSwapTransposeWithFQ, false);
-        overwriteIfUnset(options.enableAlignScales, false);
-        overwriteIfUnset(options.enableConvertFCToConv, false);
-        overwriteIfUnset(options.enableAdjustNonZeroFakeQuant, false);
-        overwriteIfUnset(options.enableExtraStaticShapeOps, false);
-
-        overwriteIfUnset(options.enableConvertFFTToConv, false);
-        overwriteIfUnset(options.enableDecomposeGRUSequence, false);
         overwriteIfUnset(options.enableConvertToReduceSquare, false);
     }
 };
@@ -132,9 +120,7 @@ public:
     }
 
     void buildLowerVPU2VPUIPPipeline(mlir::OpPassManager& pm, Logger log) override {
-        vpux::buildLowerVPU2VPUIPPipeline(pm, _optionsContainer->getPipelineOptions().enableInPlaceBufferization,
-                                          _optionsContainer->getPipelineOptions().useMemrefForHostFunctionBufferization,
-                                          log);
+        vpux::buildLowerVPU2VPUIPPipeline(pm, _optionsContainer->getPipelineOptions(), log);
     }
 
     void buildVPUIPPipeline(mlir::OpPassManager& pm, Logger log) override {
@@ -181,8 +167,7 @@ public:
     }
 
     void buildLowerVPU2VPUIPPipeline(mlir::OpPassManager& pm, Logger log) override {
-        vpux::buildLowerVPU2VPUIPPipeline(pm, _optionsContainer->getPipelineOptions().enableInPlaceBufferization,
-                                          /*useMemrefForHostFunctionBufferization*/ false, log);
+        vpux::buildLowerVPU2VPUIPPipeline(pm, _optionsContainer->getPipelineOptions(), log);
     }
 
     void buildVPUIPPipeline(mlir::OpPassManager& pm, Logger log) override {

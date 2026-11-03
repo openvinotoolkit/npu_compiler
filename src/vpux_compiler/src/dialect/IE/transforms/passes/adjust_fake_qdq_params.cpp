@@ -485,8 +485,8 @@ IE::FakeQuantizeOp updateFqParams(IE::FakeQuantizeOp origFq, float scale, OpPara
             Const::createFloatConst(rewriter, origFq->getLoc(), origFq.getOutputHigh().getType(), outHigh * scale);
 
     return rewriter.replaceOpWithNewOp<IE::FakeQuantizeOp>(origFq, origFq.getInput(), newInputLo, newInputHi,
-                                                           newOutputLo, newOutputHi, origFq.getLevelsAttr(),
-                                                           origFq.getLowFpTypeAttr(), origFq.getAutoBroadcastAttr());
+                                                           newOutputLo, newOutputHi, origFq.getLevelsOrLowFpTypeAttr(),
+                                                           origFq.getAutoBroadcastAttr());
 }
 
 inline std::pair<mlir::LogicalResult, bool> OpParamScaler<IE::FakeQuantizeOp>::operator()(
@@ -1065,11 +1065,20 @@ mlir::LogicalResult traverseSubgraph(llvm::SmallVector<mlir::Operation*>& subgra
 // multiply operations through the graph, as outlined in the ticket E#171489.
 mlir::LogicalResult FakeQdqParamsRewriter::matchAndRewrite(IE::FakeQuantizeOp fakeQuantizeOp,
                                                            mlir::PatternRewriter& rewriter) const {
-    auto levels = fakeQuantizeOp.getLevels();
+    auto levelsOrLowFpType = fakeQuantizeOp.getLevelsOrLowFpTypeAttr();
+    auto intAttr = mlir::dyn_cast<mlir::IntegerAttr>(levelsOrLowFpType);
+
+    // Skip if it's not an integer attribute (i.e., it's a low_fp_type)
+    if (!intAttr) {
+        return matchFailed(_log, rewriter, fakeQuantizeOp,
+                           "Skipping AdjustFQParams pass for low floating point type {0} at {1}",
+                           fakeQuantizeOp->getName(), fakeQuantizeOp->getLoc());
+    }
 
     // Maximum number of levels that don't exceeds I8/U8 storage type . TODO: E#169024 adjust logic for int16 quant
     // levels.
-    if (!levels.has_value() || *levels <= QuantizationLevels::QUANT_LEVELS_8BIT) {
+    int64_t levels = intAttr.getInt();
+    if (levels <= QuantizationLevels::QUANT_LEVELS_8BIT) {
         return matchFailed(_log, rewriter, fakeQuantizeOp,
                            "Skipping AdjustFQParams pass for quantization range < i8 {0} at {1}",
                            fakeQuantizeOp->getName(), fakeQuantizeOp->getLoc());

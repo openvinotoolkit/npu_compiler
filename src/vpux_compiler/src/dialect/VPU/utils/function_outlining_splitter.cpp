@@ -5,11 +5,11 @@
 
 #include "vpux/compiler/dialect/VPU/utils/function_outlining_splitter.hpp"
 #include <llvm/ADT/ArrayRef.h>
+#include <mlir/Dialect/Func/IR/FuncOps.h>
 #include <mlir/Support/LLVM.h>
 #include "vpux/compiler/core/attributes/shape.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/data_movement.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/data_type.hpp"
-#include "vpux/compiler/dialect/VPU/IR/ops/dpu.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/internal.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/shape_manipulation.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/specialized.hpp"
@@ -342,7 +342,7 @@ SmallVector<OutliningInstance> VFOutliningSplitter::getOutliningInstances(mlir::
 
     /*
         Given pattern:
-            -> Concat -> Slice (on K) -> VerticalFusion tiling-on-K { ... }
+            -> Concat / tiled compute op -> Slice (on K) -> VerticalFusion tiling-on-K { ... }
         If we outline right between the Slice and the Verticalfusion block we may lose the opportunity to optimize
         a DDR2DDR DMA transaction.
 
@@ -359,23 +359,39 @@ SmallVector<OutliningInstance> VFOutliningSplitter::getOutliningInstances(mlir::
         Copy optimization patterns should be able to merge the Slice -> Copy -> Slice pattern, thus removing
         the DDR2DDR copy.
 
+        Other VF blocks can appear between the slice producer and the VF consumer. Keep this whole interval
+        together. Rejecting only the consumer as an outlining candidate does not prevent an earlier split.
+
         Ticket for improvement: E#215360
     */
-    const auto hasPotentialDDR2DDRCopy = [&](VPU::VerticalFusionOp vfOp, ArrayRef<size_t> tilingStrategy) {
+    const auto getPotentialDDR2DDRCopyProducers = [&](VPU::VerticalFusionOp vfOp) {
+        OpOrderedSet sliceProducers;
+        const auto tilingStrategy = parseIntArrayAttr<size_t>(vfOp.getTilingStrategy());
         for (auto operand : vfOp.getOperands()) {
             auto sliceOp = mlir::dyn_cast_if_present<VPU::SliceOp>(operand.getDefiningOp());
             if (sliceOp == nullptr) {
                 continue;
             }
 
-            auto concatOp = sliceOp.getSource().getDefiningOp<VPU::ConcatOp>();
-            if (concatOp == nullptr) {
-                continue;
-            }
-
-            // If Concat can fit in CMX, there is a good chance it will be moved. Thus, the DDR2DDR copy
-            // could be optimized out by fusing it to the CMX2DDR transaction.
-            if (concatOp.fitIntoCMX(mlir::cast<NDTypeInterface>(concatOp.getOutput().getType()))) {
+            auto sourceOp = sliceOp.getSource().getDefiningOp();
+            if (auto concatOp = mlir::dyn_cast_if_present<VPU::ConcatOp>(sourceOp)) {
+                // If Concat can fit in CMX, there is a good chance it will be moved. Thus, the DDR2DDR copy
+                // could be optimized out by fusing it to the CMX2DDR transaction.
+                if (concatOp.fitIntoCMX(mlir::cast<NDTypeInterface>(concatOp.getOutput().getType()))) {
+                    continue;
+                }
+            } else if (auto tilingOp = mlir::dyn_cast_if_present<VPU::TilingBuilderOpInterface>(sourceOp)) {
+                auto producerTilingAttr = tilingOp->getAttrOfType<mlir::ArrayAttr>("tilingStrategy");
+                if (producerTilingAttr == nullptr) {
+                    continue;
+                }
+                const auto producerTiling = parseIntArrayAttr<size_t>(producerTilingAttr);
+                if (llvm::none_of(producerTiling, [](auto tiles) {
+                        return tiles > 1;
+                    })) {
+                    continue;
+                }
+            } else {
                 continue;
             }
 
@@ -396,40 +412,69 @@ SmallVector<OutliningInstance> VFOutliningSplitter::getOutliningInstances(mlir::
                 if (tilingStrategy[sliceDim.ind()] > 1) {
                     // slice is on the same axis as tiling, can not outline since would result in slice and VF ops
                     // in different functions
-                    return true;
+                    sliceProducers.insert(sourceOp);
+                    break;
                 }
             }
         }
-        return false;
+        return sliceProducers;
     };
 
-    const auto isVfOutliningInstanceCandidate = [&](mlir::Operation* op) {
-        if (auto vfOp = mlir::dyn_cast_or_null<VPU::VerticalFusionOp>(op)) {
-            const auto tilingStrategy = parseIntArrayAttr<size_t>(vfOp.getTilingStrategy());
-            const auto numTiles =
-                    std::accumulate(tilingStrategy.begin(), tilingStrategy.end(), size_t(1), std::multiplies<size_t>());
-            const auto tiledOnMultiDims = llvm::count_if(tilingStrategy, [](auto value) {
-                                              return value > 1;
-                                          }) > 1;
-            if (numTiles < _verticalFusionTileThreshold) {
-                return false;
-            }
-
-            if (hasPotentialDDR2DDRCopy(vfOp, tilingStrategy)) {
-                _log.nest().trace("Outlining VerticalFusion block may potentially leave DDR to DDR copies unoptimized; "
-                                  "do not outline.");
-                return false;
-            }
-
-            if (isParallelConcatInput(op, tiledOnMultiDims)) {
-                return false;
-            }
-            return true;
+    const auto isVfOutliningInstanceCandidate = [&](mlir::Operation* op, VPU::VerticalFusionOp lastDependentVF) {
+        auto vfOp = mlir::dyn_cast_if_present<VPU::VerticalFusionOp>(op);
+        if (vfOp == nullptr) {
+            return false;
         }
-        return false;
+
+        const auto tilingStrategy = parseIntArrayAttr<size_t>(vfOp.getTilingStrategy());
+        const auto numTiles =
+                std::accumulate(tilingStrategy.begin(), tilingStrategy.end(), size_t(1), std::multiplies<size_t>());
+        if (numTiles < _verticalFusionTileThreshold) {
+            return false;
+        }
+
+        // An active slice dependency blocks outlining until the walk passes its last VF consumer.
+        const bool hasPendingSliceConsumer = lastDependentVF != nullptr && !lastDependentVF->isBeforeInBlock(vfOp);
+        if (hasPendingSliceConsumer) {
+            _log.nest().trace("Outlining VerticalFusion block may potentially leave DDR to DDR copies unoptimized; "
+                              "do not outline.");
+            return false;
+        }
+
+        const auto tiledOnMultiDims = llvm::count_if(tilingStrategy, [](auto value) {
+                                          return value > 1;
+                                      }) > 1;
+        return !isParallelConcatInput(op, tiledOnMultiDims);
     };
 
+    // Discover dependencies before outlining: a slice consumer can appear much later than its producer.
+    // Block-order iteration makes the last assignment record the latest consumer for each producer.
+    mlir::DenseMap<mlir::Operation*, VPU::VerticalFusionOp> lastDependentVFs;
+    for (auto vfOp : netFunc.getOps<VPU::VerticalFusionOp>()) {
+        for (auto producer : getPotentialDDR2DDRCopyProducers(vfOp)) {
+            lastDependentVFs[producer] = vfOp;
+        }
+    }
+
+    // Activate protection at the producer and extend the endpoint when dependency intervals overlap.
+    const auto updateLastDependentVF = [&lastDependentVFs](mlir::Operation* op,
+                                                           VPU::VerticalFusionOp& lastDependentVF) {
+        const auto dependentVF = lastDependentVFs.find(op);
+        if (dependentVF == lastDependentVFs.end()) {
+            return;
+        }
+        if (lastDependentVF == nullptr || lastDependentVF->isBeforeInBlock(dependentVF->second)) {
+            lastDependentVF = dependentVF->second;
+        }
+    };
+
+    // Track the furthest consumer of any producer encountered by the main walk.
+    // No reset is needed: candidates strictly after this consumer are no longer protected.
+    VPU::VerticalFusionOp lastDependentVF = nullptr;
     for (auto& op : netFunc.getOps()) {
+        // Update before skipping processed operations: recursive collection may have visited the producer already.
+        updateLastDependentVF(&op, lastDependentVF);
+
         if (_outlinedOperations.find(&op) != _outlinedOperations.end()) {
             // skip already outlined operations
             continue;
@@ -441,7 +486,7 @@ SmallVector<OutliningInstance> VFOutliningSplitter::getOutliningInstances(mlir::
         }
 
         // Building outlining instance CASE 1
-        if (!instanceOps.empty() && isVfOutliningInstanceCandidate(&op)) {
+        if (!instanceOps.empty() && isVfOutliningInstanceCandidate(&op, lastDependentVF)) {
             // operation exist in outlining instance and current op is target for outlining
             // need to add new instance from the previous operations in storage
             // and instance for current op will be build in CASE 3
@@ -466,7 +511,7 @@ SmallVector<OutliningInstance> VFOutliningSplitter::getOutliningInstances(mlir::
         processOutputsRecursively(op, instanceOps);
 
         // Building outlining instance CASE 3
-        if (isVfOutliningInstanceCandidate(&op)) {
+        if (isVfOutliningInstanceCandidate(&op, lastDependentVF)) {
             // current op is target for outlining, add new instance
             moveOpsToInstance(instanceOps, opInstances, true);
         }

@@ -34,7 +34,6 @@ module @executors {
 // CHECK-DAG:   {{  }}config.Resources 1 of @global {
 // CHECK-DAG:   {{    }}config.MemoryResource 67108864000 bytes of @DDR {config.bandwidth = 64 : i64, config.derateFactor = 6.000000e-01 : f64}
 // CHECK-DAG:   {{    }}config.ExecutorResource 5 of @DMA_NN
-// CHECK-DAG:   {{    }}config.ExecutorResource 1 of @M2I
 
 // -----
 
@@ -56,4 +55,3 @@ module @memory {
 // CHECK-DAG:   {{  }}config.Resources 1 of @global {
 // CHECK-DAG:   {{    }}config.MemoryResource 500000 bytes of @DDR {config.bandwidth = 64 : i64, config.derateFactor = 6.000000e-01 : f64}
 // CHECK-DAG:   {{    }}config.ExecutorResource 2 of @DMA_NN
-// CHECK-DAG:   {{    }}config.ExecutorResource 1 of @M2I

@@ -285,7 +285,7 @@ bool VFConfig::isPipelined() const {
 const SmallVector<NDTypeInterface>& VFConfig::getOperationTypes(mlir::Operation* operation) {
     VPUX_THROW_WHEN(!_vfOps.contains(operation), "Cannot find operation {0} in VF", *operation);
 
-    auto origShape = Shape(getShape(operation->getResult(0)));
+    auto origShape = Shape(getBoundedShape(operation->getResult(0)));
     const auto hash = computeOpShapeHash(operation, origShape);
     auto cachedTypes = _cache.get().getCachedOperationTypes(hash);
     if (cachedTypes != nullptr) {

@@ -482,6 +482,15 @@ private:
     Logger _log{"Config", Logger::global().level()};
 };
 
+/// Split a config string of whitespace-separated `KEY="value"` pairs, as produced by Config::toString(), into its
+/// key/value pairs. This is how the compiler reads the options given after `--config`.
+/// A pair ends at the first whitespace-separated word ending with a double quote, so a value may contain spaces and
+/// double quotes, but not a double quote followed by whitespace. Runs of whitespace are read as a single space, and a
+/// trailing null terminator is ignored. The quotes are not checked: the character after `=` and the last character of
+/// a pair are dropped as if they were quotes. Neither keys nor values are validated against an OptionsDesc.
+/// @throws std::logic_error when a pair has no `=`, or nothing after it
+Config::ConfigMap parseConfigString(std::string_view str);
+
 template <class Opt>
 bool Config::has() const {
     return _impl.count(Opt::key().data()) != 0;

@@ -14,6 +14,8 @@
 #include <openvino/runtime/infer_request.hpp>
 #include <openvino/runtime/tensor.hpp>
 
+#include "vpux/utils/ov/npu_op_extensions.hpp"
+
 #include <algorithm>
 #include <cctype>
 #include <chrono>
@@ -88,6 +90,11 @@ DEFINE_string(ioml, "",
               "Example: -ioml \"input:NCHW, output:NHWC\".\n"
               "Notice that quotes are required.\n"
               "Overwrites layout from il and ol options for specified layers.");
+DEFINE_string(shape, "",
+              "[Optional] Set shape for model input. For example, \"input1[1,3,224,224],input2[1,4]\" or "
+              "\"[1,3,224,224]\" in case of one input size. This parameter affects the model input shape "
+              "and can be dynamic. For dynamic dimensions use symbol `?` or '-1'. Ex. [?,3,?,?]. For bounded "
+              "dimensions specify a range 'min..max'. Ex. [1..10,3,?,?].");
 DEFINE_bool(pc, false, "[Optional] Print performance counters (per-layer execution statistics) after inference.");
 
 namespace {
@@ -255,6 +262,69 @@ void configurePrePostProcessing(std::shared_ptr<ov::Model>& model, const std::st
     }
 
     model = preprocessor.build();
+}
+
+// Note: the original implementation is from the compile_tool, found in the OpenVINO project
+std::string parameterNameToTensorName(const std::string& name, const std::vector<ov::Output<ov::Node>>& inputsInfo) {
+    // Looking for a tensor name match
+    for (const auto& port : inputsInfo) {
+        if (port.get_names().count(name) > 0) {
+            return port.get_any_name();
+        }
+    }
+    // Looking for a node name match
+    for (const auto& port : inputsInfo) {
+        if (!port.get_names().empty() && name == port.get_node()->get_friendly_name()) {
+            return port.get_any_name();
+        }
+    }
+    OPENVINO_THROW("Provided I/O name \"", name, "\" is not found neither in tensor names nor in nodes names.");
+}
+
+// Applies the -shape option to the model's inputs, using the same syntax as the OpenVINO
+// compile_tool's -shape option: "input0[shape0],input1[shape1]" or "[shape]" when there is a
+// single input. Supports dynamic ('?' or '-1') and bounded ('min..max') dimensions.
+// Note: the original implementation is from the compile_tool, found in the OpenVINO project
+void reshapeModel(std::shared_ptr<ov::Model>& model, const std::string& shapeString) {
+    const auto inputsInfo = model->inputs();
+
+    std::map<std::string, std::string> shapesMap;
+    std::string searchString = shapeString;
+    auto startPos = searchString.find_first_of('[');
+    while (startPos != std::string::npos) {
+        auto endPos = searchString.find_first_of(']');
+        OPENVINO_ASSERT(endPos != std::string::npos, "Can't parse shape parameter string: ", shapeString);
+        auto inputName = searchString.substr(0, startPos);
+        auto inputValue = searchString.substr(startPos + 1, endPos - startPos - 1);
+        if (!inputName.empty()) {
+            const auto tensorName = parameterNameToTensorName(inputName, inputsInfo);
+            OPENVINO_ASSERT(!shapesMap.count(tensorName),
+                            "shape command line parameter doesn't support multiple shapes for one input.");
+            shapesMap[tensorName] = std::move(inputValue);
+        } else {
+            for (const auto& port : inputsInfo) {
+                shapesMap[port.get_any_name()] = inputValue;
+            }
+        }
+        searchString = searchString.substr(endPos + 1);
+        if (searchString.empty() || (searchString.front() != ',' && searchString.front() != '[')) {
+            break;
+        }
+        if (searchString.front() == ',') {
+            OPENVINO_ASSERT(searchString.length() > 1,
+                            "Can't parse input parameter string, there is nothing after the comma ", shapeString);
+            searchString = searchString.substr(1);
+        }
+        startPos = searchString.find_first_of('[');
+    }
+    OPENVINO_ASSERT(searchString.empty(), "Can't parse shape parameter string: ", shapeString);
+
+    std::map<std::string, ov::PartialShape> newShapes;
+    for (const auto& port : inputsInfo) {
+        const auto name = port.get_any_name();
+        newShapes[name] = shapesMap.count(name) ? ov::PartialShape(shapesMap.at(name)) : port.get_partial_shape();
+    }
+    model->reshape(newShapes);
 }
 
 // Note: the original implementation is from the compile_tool, found in the OpenVINO project
@@ -490,6 +560,12 @@ int main(int argc, char* argv[]) {
         }
 
         ov::Core core;
+
+        // Register custom op extensions so the IR reader can deserialize NPU-specific ops
+        // (e.g. GroupQueryAttention, RMS, RoPE, FlashAttentionTile) when reading a non-precompiled model.
+        // Shared with the compiler frontend via vpux::getNpuOpExtensions() (vpux_utils/src/ov), no OV changes needed.
+        core.add_extension(vpux::getNpuOpExtensions());
+
         ov::CompiledModel compiledModel;
         if (modelPrecompiled) {
             std::cout << "Importing blob" << std::endl;
@@ -503,6 +579,11 @@ int main(int argc, char* argv[]) {
             std::cout << "Configuring model pre / post processing" << std::endl;
             configurePrePostProcessing(model, FLAGS_ip, FLAGS_op, FLAGS_iop, FLAGS_il, FLAGS_ol, FLAGS_iol, FLAGS_iml,
                                        FLAGS_oml, FLAGS_ioml);
+
+            if (!FLAGS_shape.empty()) {
+                std::cout << "Reshaping model" << std::endl;
+                reshapeModel(model, FLAGS_shape);
+            }
 
             std::cout << "Compiling model" << std::endl;
             compiledModel = core.compile_model(model, FLAGS_d, {configs.begin(), configs.end()});

@@ -9,6 +9,7 @@
 #include "vpux/compiler/dialect/VPU/utils/auto_padding_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/const_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_sparsity.hpp"
+#include "vpux/compiler/dialect/VPU/utils/nce_utils.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
 
 namespace vpux::VPU {
@@ -71,8 +72,7 @@ void RecomputeSparsityPtrsPass::safeRunOnFunc() {
         _log.nest().trace("Sparsity pointer step '{0}' for sparsity map of shape '{1}'", sparsityPtrStep,
                           sparsityMapShape);
 
-        auto outType = mlir::cast<vpux::NDTypeInterface>(nceOp->getResult(0).getType());
-        auto OC = outType.getShape()[Dims4D::Act::C];
+        auto OC = VPU::getPreODUOutputChannels(nceOp);
         std::optional<int64_t> ocOptional = std::nullopt;
         if (VPU::canAutopadOutput(nceOp)) {
             ocOptional = OC;

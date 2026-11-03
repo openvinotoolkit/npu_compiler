@@ -239,18 +239,27 @@ static mlir::LogicalResult emitLinalgReduceHelper(mlir::Operation* op, mlir::Val
     //    tiling).
     // 3. An element-wise normalization stage, which will perform the required post-reduction
     //    adjustments (e.g. sqrt for L2, or a div for mean).
+
+    auto getPaddingAmounts = [](std::optional<mlir::ArrayAttr> padding, int64_t rank) {
+        if (!padding || *padding == nullptr) {
+            return SmallVector<int64_t>(rank, 0);
+        }
+        return parseIntArrayAttr<int64_t>(*padding);
+    };
+
     auto input = op->getOperands().front();
     auto inputType = mlir::cast<mlir::RankedTensorType>(input.getType());
     auto inputRank = inputType.getRank();
     auto inputPad = getInputPadAttr(op);
+    const auto inputPadding = getPaddingAmounts(inputPad, inputRank);
 
     inputType = ShaveCodeGen::getUnpaddedTensorType(inputType, op->getLoc(), inputPad);
 
     auto result = op->getResult(0);
     auto resultType = mlir::cast<mlir::RankedTensorType>(result.getType());
     auto resultRank = resultType.getRank();
-    mlir::RankedTensorType resultPaddedType = ShaveCodeGen::normalizeType(resultType);
     auto outputPad = getOutputPadAttr(op);
+    const auto outputPadding = getPaddingAmounts(outputPad, resultRank);
     resultType = ShaveCodeGen::getUnpaddedTensorType(resultType, op->getLoc(), outputPad);
 
     // Element type from the output of the normalization stage
@@ -299,14 +308,8 @@ static mlir::LogicalResult emitLinalgReduceHelper(mlir::Operation* op, mlir::Val
     // the reduced dimensions being unit dimensions in the keep_dims case.
     SmallVector<int64_t> reduceShape = finalMemoryShape;
 
-    mlir::Value outputEmptyTensor = nullptr;
-    mlir::Value padded = nullptr;
-    if (outputPad && !hasNorm) {
-        std::tie(outputEmptyTensor, padded) =
-                ShaveCodeGen::emitTensorSlice(op->getLoc(), reduceShape, resultPaddedType, rewriter);
-    } else {
-        outputEmptyTensor = mlir::tensor::EmptyOp::create(rewriter, op->getLoc(), reduceShape, reduceResultElTy);
-    }
+    mlir::Value outputEmptyTensor =
+            mlir::tensor::EmptyOp::create(rewriter, op->getLoc(), reduceShape, reduceResultElTy);
     auto nullScalar = getNullScalar(op, reduceResultElTy, rewriter);
     auto outputTensor = mlir::linalg::FillOp::create(rewriter, op->getLoc(), mlir::ValueRange{nullScalar},
                                                      mlir::ValueRange{outputEmptyTensor})
@@ -314,7 +317,7 @@ static mlir::LogicalResult emitLinalgReduceHelper(mlir::Operation* op, mlir::Val
 
     // Phase 2, emit the linalg reduce operation.
     auto linalgOperands =
-            SmallVector<mlir::Value>(1, ShaveCodeGen::removePadding(input, convertedInput, rewriter, inputPad));
+            SmallVector<mlir::Value>(1, ShaveCodeGen::removePadding(input, convertedInput, rewriter, inputPadding));
 
     // Compute the affine map for the linalg output operand.
     // This is a composition of the output memory order permutation, the operations
@@ -391,10 +394,7 @@ static mlir::LogicalResult emitLinalgReduceHelper(mlir::Operation* op, mlir::Val
         // element type.
         bool needsTruncate = (postNormElTy != reduceResultElTy);
         mlir::Value normalizeOutputTensor = nullptr;
-        if (outputPad) {
-            std::tie(normalizeOutputTensor, padded) =
-                    ShaveCodeGen::emitTensorSlice(op->getLoc(), finalMemoryShape, resultPaddedType, rewriter);
-        } else if (needsTruncate) {
+        if (needsTruncate) {
             normalizeOutputTensor =
                     mlir::tensor::EmptyOp::create(rewriter, op->getLoc(), finalMemoryShape, postNormElTy);
         } else {
@@ -415,19 +415,8 @@ static mlir::LogicalResult emitLinalgReduceHelper(mlir::Operation* op, mlir::Val
                 });
     }
 
-    if (outputPad) {
-        SmallVector<mlir::OpFoldResult> zeros(resultRank, rewriter.getIndexAttr(0));
-        SmallVector<mlir::OpFoldResult> ones(resultRank, rewriter.getIndexAttr(1));
-        SmallVector<mlir::OpFoldResult> sizes =
-                mlir::tensor::getMixedSizes(rewriter, op->getLoc(), linalgOp->getResult(0));
-
-        auto insertSliceOp = mlir::tensor::InsertSliceOp::create(rewriter, op->getLoc(), linalgOp->getResult(0), padded,
-                                                                 zeros, sizes, ones);
-        rewriter.replaceOp(op, insertSliceOp);
-        return mlir::success();
-    }
-
-    rewriter.replaceOp(op, linalgOp);
+    // Add the zero-filled output padding, if any.
+    rewriter.replaceOp(op, ShaveCodeGen::addPadding(result, linalgOp->getResult(0), rewriter, outputPadding));
     return mlir::success();
 }
 

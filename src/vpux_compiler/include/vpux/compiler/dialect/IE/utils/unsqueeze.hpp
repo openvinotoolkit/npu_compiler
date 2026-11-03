@@ -66,29 +66,37 @@ mlir::FailureOr<SmallVector<int64_t>> getAxes(UnsqueezeType unsqueeze, mlir::Loc
         return errorAt(loc, "Missed axes representation");
     }
 
+    SmallVector<int64_t> axes;
     if (unsqueeze.getAxesValue().has_value()) {
-        return parseIntArrayAttr<int64_t>(unsqueeze.getAxesValue().value());
-    }
+        axes = parseIntArrayAttr<int64_t>(unsqueeze.getAxesValue().value());
+    } else {
+        auto axesConst = unsqueeze.getAxes().template getDefiningOp<Const::DeclareOp>();
+        if (axesConst == nullptr) {
+            return errorAt(loc, "Only constant axes are supported");
+        }
 
-    auto axesConst = unsqueeze.getAxes().template getDefiningOp<Const::DeclareOp>();
-    if (axesConst == nullptr) {
-        return errorAt(loc, "Only constant axes are supported");
+        const auto axesContent = axesConst.getContent();
+        axes = to_small_vector(axesContent.template getValues<int64_t>());
     }
-
-    const auto axesContent = axesConst.getContent();
-    auto axes = to_small_vector(axesContent.template getValues<int64_t>());
-    std::sort(axes.begin(), axes.end());
 
     const auto inType = mlir::cast<mlir::ShapedType>(unsqueeze.getInput().getType());
     const auto inRank = inType.getRank();
     const auto numAxes = checked_cast<int64_t>(axes.size());
+    const auto outRank = inRank + numAxes;
 
     for (auto& axis : axes) {
         if (axis < 0) {
-            axis += inRank + numAxes;
+            axis += outRank;
+        }
+        if (axis < 0 || axis >= outRank) {
+            return errorAt(loc, "Axis '{0}' is out of bounds for output rank {1}", axis, outRank);
         }
     }
 
+    std::sort(axes.begin(), axes.end());
+    if (std::adjacent_find(axes.begin(), axes.end()) != axes.end()) {
+        return errorAt(loc, "Axes must be unique");
+    }
     return axes;
 }
 

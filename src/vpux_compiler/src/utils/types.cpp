@@ -4,6 +4,7 @@
 //
 
 #include "vpux/compiler/utils/types.hpp"
+#include "vpux/compiler/core/attributes/shape.hpp"
 #include "vpux/compiler/core/attributes/stride_reqs.hpp"
 #include "vpux/compiler/core/attributes/strides.hpp"
 #include "vpux/compiler/core/types/quantile_types/types.hpp"
@@ -16,6 +17,7 @@
 #include "vpux/compiler/dialect/core/interfaces/type_interfaces.hpp"
 #include "vpux/compiler/dialect/core/types.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
+#include "vpux/compiler/utils/memref_attr_utils.hpp"
 #include "vpux/compiler/utils/quantization.hpp"
 #include "vpux/utils/core/error.hpp"
 
@@ -26,6 +28,7 @@
 #include <mlir/IR/BuiltinTypes.h>
 
 #include <numeric>
+#include <optional>
 
 using namespace vpux;
 
@@ -286,6 +289,11 @@ mlir::MemRefType vpux::getMemRefType(ShapeRef shape, mlir::Type elemType, const 
     const auto orderAttr = mlir::AffineMapAttr::get(effectiveOrder.toAffineMap(ctx));
 
     mlir::ArrayAttr stridesAttr = nullptr;
+    const auto isUnbounded = shape.isDynamic() && (bounds.empty() || ShapeRef(bounds.raw()).isDynamic());
+    // A shape without an upper bound has only the identity layout, like a dynamic memref in MLIR: its strides are
+    // known at runtime only, so they are never computed, stored or passed here.
+    VPUX_THROW_WHEN(isUnbounded && !strides.empty(),
+                    "Shape '{0}' without an upper bound cannot have explicit strides, got '{1}'", shape, strides);
     if (!strides.empty()) {
         const Bit elemSize = getElemTypeSize(elemType);
         auto memShape = effectiveOrder.toMemoryOrder(shape);
@@ -319,11 +327,27 @@ mlir::MemRefType vpux::getMemRefType(ShapeRef shape, mlir::Type elemType, const 
         return builder;
     }
 
+    // vpux::MemRefAttr requires bounds for a dynamic shape (see MemRefAttrLayout::verifyLayout), so a shape without an
+    // upper bound is representable only by the bare identity layout.
+    VPUX_THROW_WHEN(isUnbounded,
+                    "Shape '{0}' without an upper bound supports only the identity order without layout extras, got "
+                    "order '{1}'",
+                    shape, effectiveOrder);
+
     const auto layoutAttr =
             vpux::MemRefAttr::get(orderAttr, stridesAttr, allocSizeAttr, bounds,
                                   {swizzlingSchemeAttr, sparsityCompressionAttr, compressionState}, ctx);
     builder.setLayout(mlir::cast<mlir::MemRefLayoutAttrInterface>(layoutAttr));
     return builder;
+}
+
+Strides vpux::getStridesUnlessUnbounded(NDTypeInterface type) {
+    if (!hasUnboundedDynamicShape(type)) {
+        return type.getStrides();
+    }
+    VPUX_THROW_WHEN(hasStridedLayout(type),
+                    "Strides of '{0}' are unknown at compile time, its strided layout cannot be rebuilt", type);
+    return Strides();
 }
 
 mlir::SmallVector<float> vpux::getFloatStrides(StridesRef strides) {
@@ -400,6 +424,12 @@ bool vpux::isCompatibleForInplaceOp(vpux::NDTypeInterface inInterface, vpux::NDT
                                     vpux::Logger log) {
     if (inInterface.getShape() != outInterface.getShape()) {
         log.trace("Different in and out shape {0} != {1}", inInterface.getShape(), outInterface.getShape());
+        return false;
+    }
+
+    // Strides of a shape without an upper bound are unknown, so no shared layout can be proven.
+    if (hasUnboundedDynamicShape(inInterface) || hasUnboundedDynamicShape(outInterface)) {
+        log.trace("In or out shape has a dimension with no upper bound, {0} and {1}", inInterface, outInterface);
         return false;
     }
 

@@ -68,3 +68,5 @@ add_npu_library(npu_compiler_npu40xx
         cost_model_data_4_0
         cost_model_data_4_0_fast
 )
+enable_lto_if_possible(npu_compiler_npu40xx)
+

@@ -4,6 +4,7 @@
 //
 
 #include "vpux/compiler/dialect/VPUIP/utils/sw_utils.hpp"
+#include "vpux/compiler/core/layers.hpp"
 #include "vpux/compiler/dialect/IE/IR/attributes.hpp"
 #include "vpux/compiler/dialect/Shave/IR/ops/meta-ops.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/internal.hpp"
@@ -127,6 +128,8 @@ mlir::SymbolRefAttr createBuiltInFunction(mlir::ModuleOp module, VPU::LayerOpInt
     SmallString builtInFunctionName{VPUIP::SW_KERNEL_NAME_PREFIX};
     if (auto externalKernelOp = mlir::dyn_cast<Shave::ExternalKernelOp>(origOp.getOperation())) {
         builtInFunctionName.append(externalKernelOp.getUniqueId().str());
+    } else if (auto repeatedExternalKernelOp = mlir::dyn_cast<Shave::RepeatedExternalKernelOp>(origOp.getOperation())) {
+        builtInFunctionName.append(repeatedExternalKernelOp.getUniqueId().str());
     } else {
         auto nonNamespaceOpName = origOp->getName().getStringRef().slice(
                 origOp->getName().getDialectNamespace().size() + 1, mlir::StringRef::npos);
@@ -477,6 +480,11 @@ bool isSwKernelTilingSupported(VPUIP::SwKernelOp swKernelOp) {
 
 // Check whether SwKernelOp use dpu.
 bool isSwKernelUseDpu(VPUIP::SwKernelOp swKernelOp) {
+    // Custom external kernels express uses-dpu via the 'uses_dpu' UnitAttr
+    // propagated from Shave::ExternalKernelOp through bufferization.
+    if (swKernelOp->hasAttr(VPUIP::SW_KERNEL_USES_DPU_ATTR_NAME)) {
+        return true;
+    }
     auto kernelEntryName = getSwKernelEntryName(swKernelOp);
     if (llvm::find(SW_KERNELS_USE_DPU, kernelEntryName) != SW_KERNELS_USE_DPU.end()) {
         return true;
@@ -515,6 +523,9 @@ bool isIoDmaSwKernel(VPUIP::SwKernelOp swKernelOp) {
     if (!kernelEntryName.has_value()) {
         // Expected case: cache_flush/invalidate ops or phony SW ops
         return false;
+    }
+    if (swKernelOp->hasAttr(VPUIP::SW_KERNEL_USES_DMA_ATTR_NAME)) {
+        return true;
     }
     return llvm::is_contained(SW_KERNELS_IO_DMA, kernelEntryName.value());
 }
@@ -2137,13 +2148,13 @@ InputTiling backInferFlashSDPASwKernelInputTile(VPUIP::SwKernelOp swKernelOp, co
 }
 
 InputTiling backInferYUVToRGBSwKernelInputTile(VPUIP::SwKernelOp swKernelOp, const vpux::TileInfo& outputTile, Logger) {
-    auto H = Dim(1), W = Dim(2), C = Dim(3);  // N = Dim(0)
-
-    VPUX_THROW_UNLESS(outputTile.shape[H] % 2 == 0 && outputTile.shape[W] % 2 == 0,
-                      "Invalid YuvToRgbOp outputTile, output C,H channels are not even");
+    using namespace Dims4D::Act;
 
     const auto inputs = swKernelOp.getInputs();
     const auto singlePlane = (inputs.size() == 1);
+
+    VPUX_THROW_UNLESS(outputTile.shape[H] % 2 == 0 && outputTile.shape[W] % 2 == 0,
+                      "Invalid YuvToRgbOp outputTile, output semantic H,W are not even");
 
     if (!singlePlane) {
         if (inputs.size() == 2) {
@@ -2302,6 +2313,46 @@ InputTiling backInferSwKernelInputTile(VPUIP::SwKernelOp swKernelOp, const Small
     return TilingInfo{inputTiles};
 }
 
+SmallVector<mlir::Attribute> getJitKernelSwkernelNewAttrsAfterTiling(VPUIP::SwKernelOp swKernelOp,
+                                                                     ArrayRef<mlir::Attribute> origAttr,
+                                                                     const TilingInfo&, const TileInfo& outTile,
+                                                                     Logger log) {
+    auto* ctx = swKernelOp->getContext();
+    auto module = swKernelOp->getParentOfType<mlir::ModuleOp>();
+    auto kernelFunc = module.lookupSymbol<mlir::FunctionOpInterface>(swKernelOp.getKernelFunctionAttr());
+    VPUX_THROW_UNLESS(kernelFunc, "Cannot find kernel function for JIT SwKernelOp at '{0}'", swKernelOp->getLoc());
+
+    auto kernelInfo = kernelFunc->getAttrOfType<VPU::KernelInfoAttr>(VPU::KernelInfoAttr::kFuncAttrName);
+    VPUX_THROW_UNLESS(kernelInfo, "JIT SwKernelOp at '{0}' is missing KernelInfo attribute", swKernelOp->getLoc());
+
+    const auto tilingAxes = kernelInfo.getTilingAxes().asArrayRef();
+    const auto itSpaceRank = tilingAxes.size();
+    VPUX_THROW_UNLESS(origAttr.size() >= 2 * itSpaceRank,
+                      "Expected at least (2 * {0}) attributes, got {1} for JIT SwKernelOp at '{2}'", itSpaceRank,
+                      origAttr.size(), swKernelOp->getLoc());
+
+    // tilingAxes are in memory order; outTile is in logical order.
+    // Use the dims order of the first output to convert between the two.
+    const auto outType = mlir::cast<vpux::NDTypeInterface>(swKernelOp.getOutputs()[0].getType());
+    const auto dimsOrder = outType.getDimsOrder();
+
+    log.trace("Update attrs for JIT SwKernel Op at '{0}' for out tile {1}", swKernelOp, outTile);
+
+    SmallVector<mlir::Attribute> newAttrs(origAttr.begin(), origAttr.end());
+    for (const auto& axis : llvm::enumerate(tilingAxes)) {
+        const auto logicalDimIdx = dimsOrder.toDim(MemDim(axis.value())).ind();
+
+        // Update sizes (first itSpaceRank attrs).
+        newAttrs[axis.index()] = getIntAttr(ctx, outTile.shape.raw()[logicalDimIdx]);
+
+        // Update offsets (last itSpaceRank attrs): original offset + outTile offset.
+        const int64_t origOffset = mlir::cast<mlir::IntegerAttr>(origAttr[itSpaceRank + axis.index()]).getInt();
+        newAttrs[itSpaceRank + axis.index()] = getIntAttr(ctx, origOffset + outTile.offsets.raw()[logicalDimIdx]);
+    }
+
+    return newAttrs;
+}
+
 SmallVector<mlir::Attribute> getSwkernelNewAttrsAfterTiling(VPUIP::SwKernelOp swKernelOp,
                                                             ArrayRef<mlir::Attribute> origAttr,
                                                             const TilingInfo& inputTiling, const TileInfo& outTile,
@@ -2322,6 +2373,8 @@ SmallVector<mlir::Attribute> getSwkernelNewAttrsAfterTiling(VPUIP::SwKernelOp sw
         return getDequantizeSwkernelNewAttrsAfterTiling(swKernelOp, origAttr, outTile, log);
     } else if (kernelEntryName == "max_pool8") {
         return getMaxPool8SwkernelNewAttrsAfterTiling(swKernelOp, origAttr, inputTiling, outTile, log);
+    } else if (isJitKernelOp(swKernelOp)) {
+        return getJitKernelSwkernelNewAttrsAfterTiling(swKernelOp, origAttr, inputTiling, outTile, log);
     } else {
         return SmallVector<mlir::Attribute>(origAttr.begin(), origAttr.end());
     }
@@ -2423,15 +2476,7 @@ SmallVector<vpux::NDTypeInterface> getSwKernelTiledTypes(VPUIP::SwKernelOp swKer
 
         tiledTypes.push_back(outputType);
         return tiledTypes;
-    } else if (kernelEntryName == "eltwise_mul" || kernelEntryName == "eltwise_mul_quantized_output" ||
-               kernelEntryName == "eltwise_power" || kernelEntryName == "eltwise_div" ||
-               kernelEntryName == "prelu_fp16" || kernelEntryName == "eltwise_greater" ||
-               kernelEntryName == "eltwise_less" || kernelEntryName == "eltwise_sub" ||
-               kernelEntryName == "eltwise_add" || kernelEntryName == "eltwise_squared_difference" ||
-               kernelEntryName == "eltwise_select" || kernelEntryName == "eltwise_logical_or" ||
-               kernelEntryName == "eltwise_bitwise_or" || kernelEntryName == "eltwise_bitwise_and" ||
-               kernelEntryName == "eltwise_bitwise_not" || kernelEntryName == "eltwise_bitwise_xor" ||
-               kernelEntryName == "eltwise_bitwise_right_shift" || kernelEntryName == "eltwise_bitwise_left_shift") {
+    } else if (llvm::is_contained(SW_KERNELS_WITH_BROADCAST, kernelEntryName)) {
         // For SW Eltwise Op with multi inputs
         // Only the input which does not need broadcast and output will be tiled
         SmallVector<vpux::NDTypeInterface> tiledTypes;
@@ -2627,6 +2672,16 @@ mlir::SymbolRefAttr createCacheHandlingFunction(mlir::MLIRContext* ctx, OpBuilde
     }
 
     return functionSymbol;
+}
+
+// Propagate uses_dma / uses_dpu UnitAttrs from Shave::ExternalKernelOp / Shave::RepeatedExternalKernelOp
+// such that isIoDmaSwKernel / isSwKernelUseDpu can identify custom kernels after bufferization
+void copyCustomKernelAttributes(mlir::Operation* srcOp, mlir::Operation* dstOp) {
+    for (llvm::StringRef flag : {VPUIP::SW_KERNEL_USES_DMA_ATTR_NAME, VPUIP::SW_KERNEL_USES_DPU_ATTR_NAME}) {
+        if (auto attr = srcOp->getAttr(flag)) {
+            dstOp->setAttr(flag, attr);
+        }
+    }
 }
 
 }  // namespace VPUIP

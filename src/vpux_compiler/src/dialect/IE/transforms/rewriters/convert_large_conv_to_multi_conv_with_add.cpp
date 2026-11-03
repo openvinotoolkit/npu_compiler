@@ -84,9 +84,9 @@ mlir::LogicalResult SplitConvToMultiConvWithAddConverter::matchAndRewrite(IE::Co
             if (outLowConst != nullptr && outHighConst != nullptr) {
                 const auto realElemType = mlir::cast<mlir::FloatType>(operandType.getElementType());
                 const auto operandQuantType = IE::getQuantizedType(
-                        outLowConst.getContentAttr(), outHighConst.getContentAttr(), fakeQuantizeOp.getLevels(),
-                        fakeQuantizeOp.getLowFpType(), realElemType, /*isSigned=*/false, fakeQuantizeOp.getLoc(),
-                        fakeQuantizeOp.getAutoBroadcast(), /*ignoreZPCheck=*/false, _log);
+                        outLowConst.getContentAttr(), outHighConst.getContentAttr(),
+                        fakeQuantizeOp.getLevelsOrLowFpTypeAttr(), realElemType, /*isSigned=*/false,
+                        fakeQuantizeOp.getLoc(), fakeQuantizeOp.getAutoBroadcast(), /*ignoreZPCheck=*/false, _log);
                 if (operandQuantType != nullptr) {
                     return operandType.changeElemType(operandQuantType).getTotalAllocSize().count();
                 }

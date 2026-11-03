@@ -138,7 +138,7 @@ VPUIP::DMADescriptorAttr NNDMARewriter::getDmaDescriptorAttr(VPUMI40XX::NNDMAOp 
     VPUX_THROW_WHEN((numPlanes > 0) && ((planeLen % srcWidth) != 0),
                     "Source width is not a divisor of transaction plane length");
 
-    auto attr = [&ctx](uint64_t val) -> mlir::IntegerAttr {
+    auto attr = [ctx](uint64_t val) -> mlir::IntegerAttr {
         auto i32Type = mlir::IntegerType::get(ctx, sizeof(uint32_t) * CHAR_BIT);
         return mlir::IntegerAttr::get(i32Type, static_cast<int64_t>(val));
     };
@@ -229,6 +229,7 @@ mlir::FailureOr<SymbolizationResult> NNDMARewriter::symbolize(VPUMI40XX::NNDMAOp
 
     auto dmaHwpIdAttr = op.getDmaHwpIdAttr();
     auto addressingModeAttr = op.getAddressingModeAttr();
+    auto listOOBModeAttr = op.getListOOBModeAttr();
 
     auto skipDmaAttr = op.getSkipDmaAttr();
     auto fetchDmaAttr = op.getFetchDmaAttr();
@@ -245,12 +246,12 @@ mlir::FailureOr<SymbolizationResult> NNDMARewriter::symbolize(VPUMI40XX::NNDMAOp
         VPUX_THROW_WHEN(!descriptor, "Failed to lower DMA descriptor parameters");
     }
 
-    auto newOp = VPUASM::NNDMAOp::create(rewriter, op.getLoc(), symName, taskIdx, taskLocation, nextLink, input,
-                                         outputs, waitAttr, updateAttr, startAfter, cleanAfter, accelerationMode,
-                                         op.getDmaEncodingAlgoAttr(), op.getIsOutOfOrder(), op.getIsCritical(),
-                                         op.getEnableMsc(), actCompressionSizeEntryAttr, sparsityMapAttr, transaction,
-                                         descriptor, dmaHwpIdAttr, cmxTiles, indicesAttr, addressingModeAttr,
-                                         skipDmaAttr, fetchDmaAttr, taskDynIdAttr, dynamicSequenceLenBuffAttr);
+    auto newOp = VPUASM::NNDMAOp::create(
+            rewriter, op.getLoc(), symName, taskIdx, taskLocation, nextLink, input, outputs, waitAttr, updateAttr,
+            startAfter, cleanAfter, accelerationMode, op.getDmaEncodingAlgoAttr(), op.getIsOutOfOrder(),
+            op.getIsCritical(), op.getEnableMsc(), actCompressionSizeEntryAttr, sparsityMapAttr, transaction,
+            descriptor, dmaHwpIdAttr, cmxTiles, indicesAttr, addressingModeAttr, listOOBModeAttr, skipDmaAttr,
+            fetchDmaAttr, taskDynIdAttr, dynamicSequenceLenBuffAttr);
 
     if (auto strided = op->getAttr(vpux::stridedInputAttrName)) {
         newOp->setAttr(vpux::stridedInputAttrName, strided);

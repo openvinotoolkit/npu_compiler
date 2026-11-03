@@ -54,11 +54,11 @@ def VPU_ClusteredOpInterface : OpInterface<"ClusteredOpInterface"> {
         InterfaceMethod<
                 "Check layer strategy compatibility",
                 "bool", "checkStrategyCompatibility",
-                (ins "VPU::MultiClusterStrategy":$strategy, "size_t":$numTiles)
+                (ins "::vpux::VPU::MultiClusterStrategy":$strategy, "size_t":$numTiles)
                 >,
         InterfaceMethod<
                 "Get multi-cluster strategy",
-                "std::optional<vpux::VPU::MultiClusterStrategy>", "getMultiClusterStrategy", (ins),
+                "std::optional<::vpux::VPU::MultiClusterStrategy>", "getMultiClusterStrategy", (ins),
                 [{
                     return $_op.getMultiClusterStrategy();
                 }]
@@ -66,10 +66,10 @@ def VPU_ClusteredOpInterface : OpInterface<"ClusteredOpInterface"> {
 
         InterfaceMethod<
                 "Set multi-cluster strategy attribute",
-                "void", "setMultiClusterStrategy", (ins "vpux::VPU::MultiClusterStrategy":$strategy),
+                "void", "setMultiClusterStrategy", (ins "::vpux::VPU::MultiClusterStrategy":$strategy),
                 [{}],
                 [{
-                    return vpux::VPU::setLayerMultiClusterStrategy($_op, strategy);
+                    return ::vpux::VPU::setLayerMultiClusterStrategy($_op, strategy);
                 }]
                 >,
 
@@ -84,10 +84,10 @@ def VPU_ClusteredOpInterface : OpInterface<"ClusteredOpInterface"> {
 
         InterfaceMethod<
                 "Get DistributionInfoAttr with per cluster shapes/offsets defined explicitly, rather than through params such as kernel/pad/stride etc.",
-                "vpux::VPU::DistributionInfo", "getExplicitDistributionInfoAttr",
-                (ins "vpux::ShapeRef":$shape, "vpux::VPU::DistributionMode":$distributionMode,
+                "::vpux::VPU::DistributionInfo", "getExplicitDistributionInfoAttr",
+                (ins "vpux::ShapeRef":$shape, "::vpux::VPU::DistributionMode":$distributionMode,
                 "ArrayRef<int64_t>":$numTiles, "const int64_t":$numClusters, "ArrayRef<int64_t>":$alignment,
-                "const bool":$uniformDistributedSegments, "const vpux::VPU::OverlapDistributionParams&":$overlapParams, "const std::optional<ArrayRef<int64_t>>":$memoryNumTiles)
+                "const bool":$uniformDistributedSegments, "const ::vpux::VPU::OverlapDistributionParams&":$overlapParams, "const std::optional<ArrayRef<int64_t>>":$memoryNumTiles)
                 >,
 
         InterfaceMethod<
@@ -96,7 +96,7 @@ def VPU_ClusteredOpInterface : OpInterface<"ClusteredOpInterface"> {
                 (ins "const vpux::TileInfo&":$outputTile),
                 [{}],
                 [{
-                    return VPU::checkMCRestrictions($_op) && vpux::VPU::isOperationSplitOverHeightCompatible($_op, outputTile);
+                    return ::vpux::VPU::checkMCRestrictions($_op) && ::vpux::VPU::isOperationSplitOverHeightCompatible($_op, outputTile);
                 }]
                 >,
 
@@ -106,7 +106,7 @@ def VPU_ClusteredOpInterface : OpInterface<"ClusteredOpInterface"> {
                 (ins "vpux::ShapeRef":$outputShape, "vpux::ShapeRef":$offset, "vpux::ShapeRef":$axis),
                 [{}],
                 [{
-                    return VPU::checkMCRestrictions($_op) && vpux::VPU::isOperationSplitOverWidthCompatible($_op, outputShape, offset, axis);
+                    return ::vpux::VPU::checkMCRestrictions($_op) && vpux::VPU::isOperationSplitOverWidthCompatible($_op, outputShape, offset, axis);
                 }]
                 >,
 
@@ -116,7 +116,7 @@ def VPU_ClusteredOpInterface : OpInterface<"ClusteredOpInterface"> {
                 (ins "vpux::ShapeRef":$outputShape, "vpux::ShapeRef":$offset, "vpux::ShapeRef":$axis),
                 [{}],
                 [{
-                    return VPU::checkMCRestrictions($_op) && vpux::VPU::isOperationSplitOverKernelCompatible($_op, outputShape, offset, axis);
+                    return ::vpux::VPU::checkMCRestrictions($_op) && ::vpux::VPU::isOperationSplitOverKernelCompatible($_op, outputShape, offset, axis);
                 }]
                 >,
 
@@ -126,34 +126,34 @@ def VPU_ClusteredOpInterface : OpInterface<"ClusteredOpInterface"> {
                 (ins "vpux::ShapeRef":$outputShape),
                 [{}],
                 [{
-                    return VPU::checkMCRestrictions($_op) && vpux::VPU::isOperationSplitOverBatchCompatible($_op, outputShape);
+                    return ::vpux::VPU::checkMCRestrictions($_op) && ::vpux::VPU::isOperationSplitOverBatchCompatible($_op, outputShape);
                 }]
                 >,
 
         InterfaceMethod<
                 "Verifies if the operation is compatible with the SplitOverGroup multi-cluster strategy",
                 "bool", "isOperationSplitOverGroupCompatible",
-                (ins "const vpux::TileInfo&":$outputTile),
+                (ins "const ::vpux::TileInfo&":$outputTile),
                 [{}],
                 [{
-                    return vpux::VPU::isOperationSplitOverGroupCompatible($_op, outputTile);
+                    return ::vpux::VPU::isOperationSplitOverGroupCompatible($_op, outputTile);
                 }]
                 >,
 
         InterfaceMethod<
                 "Verifies if the operation fits into CMX with the given multi-cluster strategy",
                 "bool", "doesLayerFitIntoCMX",
-                (ins "VPU::MultiClusterStrategy":$strategy, "SiblingOpsAnalysis&":$siblingsAnalysis, "vpux::Byte":$reservedMem),
+                (ins "::vpux::VPU::MultiClusterStrategy":$strategy, "::vpux::VPU::SiblingOpsAnalysis&":$siblingsAnalysis, "vpux::Byte":$reservedMem),
                 [{}],
                 [{
-                    return VPU::doesLayerFitIntoCMX($_op, strategy, siblingsAnalysis, reservedMem);
+                    return ::vpux::VPU::doesLayerFitIntoCMX($_op, strategy, siblingsAnalysis, reservedMem);
                 }]
                 >,
 
         InterfaceMethod<
                 "Verifies if the operation fits into CMX with the given multi-cluster strategy and output alignment",
                 "bool", "doesLayerChangeOutputAlignmentFitIntoCMX",
-                (ins "VPU::MultiClusterStrategy":$strategy, "VPU::DistributedTypeInterface":$newDistributedTensorType),
+                (ins "::vpux::VPU::MultiClusterStrategy":$strategy, "::vpux::VPU::DistributedTypeInterface":$newDistributedTensorType),
                 [{}],
                 [{
                     return false;
@@ -162,20 +162,20 @@ def VPU_ClusteredOpInterface : OpInterface<"ClusteredOpInterface"> {
         InterfaceMethod<
                 "Compute distributed type for operand",
                 "vpux::NDTypeInterface", "getDistributedTypeForOpOperand",
-                (ins "mlir::OpOperand&":$operand, "bool":$hasExplicitDistributedAttr, "SiblingOpsAnalysis&":$siblingsAnalysis),
+                (ins "mlir::OpOperand&":$operand, "bool":$hasExplicitDistributedAttr, "::vpux::VPU::SiblingOpsAnalysis&":$siblingsAnalysis),
                 [{}],
                 [{
-                    return vpux::VPU::getDistributedTypeForOpOperand($_op, operand, hasExplicitDistributedAttr, siblingsAnalysis);
+                    return ::vpux::VPU::getDistributedTypeForOpOperand($_op, operand, hasExplicitDistributedAttr, siblingsAnalysis);
                 }]
                 >,
         InterfaceMethod<
                 "Compute distributed type for result",
                 "vpux::NDTypeInterface", "getDistributedTypeForOpResult",
-                (ins "mlir::Value":$result, "VPU::MultiClusterStrategy":$strategy, "SiblingOpsAnalysis&":$siblingsAnalysis,
+                (ins "mlir::Value":$result, "::vpux::VPU::MultiClusterStrategy":$strategy, "::vpux::VPU::SiblingOpsAnalysis&":$siblingsAnalysis,
                 "bool":$hasExplicitDistributedAttr),
                 [{}],
                 [{
-                    return vpux::VPU::getDistributedTypeForOpResult($_op, result, strategy, siblingsAnalysis, hasExplicitDistributedAttr);
+                    return ::vpux::VPU::getDistributedTypeForOpResult($_op, result, strategy, siblingsAnalysis, hasExplicitDistributedAttr);
                 }]
                 >
     ];
@@ -515,6 +515,21 @@ def VPU_TilingBuilderOpInterface : OpInterface<"TilingBuilderOpInterface"> {
         >,
 
         InterfaceMethod<
+            "Forward counterpart of backInferTileInfo: infer the tile of the main output (result 0) from the\n"
+            "tiles of the inputs, in operand order. Returns failure when forward inference is not modelled for\n"
+            "this op, which leaves the caller to fall back to a conservative shape rather than to a wrong one.\n"
+            "The default implementation covers NCE ops (kernel/stride/pad window formula, including any ODU\n"
+            "S2D/D2S transform) and ops carrying the EltwiseOp trait (output tile == input tile). Ops whose\n"
+            "forward mapping differs - notably SW ops that reshape, reduce or broadcast - should override it.",
+            "mlir::FailureOr<vpux::TileInfo>", "fwdInferOutputTile",
+            (ins "llvm::ArrayRef<vpux::TileInfo>":$inputTiles, "vpux::Logger":$log),
+            [{}],
+            [{
+                return vpux::VPU::fwdInferOutputTileDefault($_op, inputTiles, log);
+            }]
+        >,
+
+        InterfaceMethod<
             "Infer output tiles information for all outputs based on the first output tile",
             "vpux::OutputTiling", "getOutputTiling",
             (ins "const vpux::TileInfo&":$outputTile, "vpux::Logger":$log),
@@ -722,6 +737,15 @@ def VPU_TilingInfoOpInterface : OpInterface<"TilingInfoOpInterface"> {
             [{}],
             [{
                 return false;
+            }]
+        >,
+
+        InterfaceMethod<
+            "Check if all operation buffers must fit into CMX for untiled execution",
+            "bool", "requiresAllBuffersInCMX", (ins),
+            [{}],
+            [{
+                return true;
             }]
         >
     ];

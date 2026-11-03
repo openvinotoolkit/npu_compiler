@@ -10,6 +10,7 @@
 #include "vpux/compiler/dialect/VPU/utils/scf/scf_utils.hpp"
 
 #include "vpux/compiler/utils/rewriter.hpp"
+#include "vpux/utils/core/error.hpp"
 #include "vpux/utils/core/range.hpp"
 
 #include <mlir/Dialect/ControlFlow/IR/ControlFlowOps.h>
@@ -253,31 +254,53 @@ void setBuilderPositionToEndOfBlock(mlir::OpBuilder& builder, mlir::Block* block
  * - {MIDDLE, MIDDLE}= {0, 0} - single block in middle
  * - {END, END}      = {1, 1} - single block at end
  */
+bool maskHasPosition(int64_t positionMask, TilePosition pos) {
+    return ((positionMask >> static_cast<int64_t>(pos)) & 1) != 0;
+}
+
 void generateCombinationsRecursively(int64_t currentDimIndex, ArrayRef<int64_t> blockSizes,
-                                     ArrayRef<vpux::Dim> dimensionIdx, int64_t currentChoice,
-                                     SmallVector<int64_t>& results) {
+                                     ArrayRef<int64_t> realPositionMasks, ArrayRef<vpux::Dim> dimensionIdx,
+                                     int64_t currentChoice, SmallVector<int64_t>& results) {
     if (currentDimIndex == static_cast<int64_t>(blockSizes.size())) {
         results.push_back(currentChoice);
         return;
     }
 
     auto blockCount = blockSizes[currentDimIndex];
-    SmallVector<std::pair<TilePosition, TilePosition>> validStartEndCombinations;
+    // realPositionMasks[currentDimIndex] is the set of TilePosition values that actually appear
+    // (for this dim) among the cases of the real source scf.index_switch ops being merged - see
+    // tryMergeSwitchOps, which derives it directly from indexSwitchOps.front().getCases(). This is
+    // the ground truth for which positions can legally occur, independent of blockCount (the
+    // physical merge-group multiplicity at this specific unroll/cascade stage): a dimension can be
+    // merged 2-wide at this stage while its original scf.index_switch still carries a genuine
+    // MIDDLE case (e.g. a mid-cascade stage of a large dimension), and this must still be
+    // enumerated - guessing purely from blockCount misses it.
+    auto positionMask = currentDimIndex < static_cast<int64_t>(realPositionMasks.size())
+                                ? realPositionMasks[currentDimIndex]
+                                : ~int64_t{0};
+    SmallVector<std::pair<TilePosition, TilePosition>> validCombinations;
     if (blockCount > 1) {
-        validStartEndCombinations = {{TilePosition::START, TilePosition::MIDDLE},
-                                     {TilePosition::START, TilePosition::END},
-                                     {TilePosition::MIDDLE, TilePosition::MIDDLE},
-                                     {TilePosition::MIDDLE, TilePosition::END}};
+        for (auto combination :
+             {std::pair{TilePosition::START, TilePosition::MIDDLE}, std::pair{TilePosition::START, TilePosition::END},
+              std::pair{TilePosition::MIDDLE, TilePosition::MIDDLE},
+              std::pair{TilePosition::MIDDLE, TilePosition::END}}) {
+            if (maskHasPosition(positionMask, combination.first) && maskHasPosition(positionMask, combination.second)) {
+                validCombinations.push_back(combination);
+            }
+        }
     } else {
-        validStartEndCombinations = {{TilePosition::START, TilePosition::START},
-                                     {TilePosition::MIDDLE, TilePosition::MIDDLE},
-                                     {TilePosition::END, TilePosition::END}};
+        for (auto pos : {TilePosition::FULLBLK, TilePosition::START, TilePosition::MIDDLE, TilePosition::END}) {
+            if (maskHasPosition(positionMask, pos)) {
+                validCombinations.push_back({pos, pos});
+            }
+        }
     }
 
-    for (auto combination : validStartEndCombinations) {
+    for (auto combination : validCombinations) {
         auto newValue = encodeRangePosition(dimensionIdx[currentDimIndex], currentChoice, combination.first,
                                             combination.second);
-        generateCombinationsRecursively(currentDimIndex + 1, blockSizes, dimensionIdx, newValue, results);
+        generateCombinationsRecursively(currentDimIndex + 1, blockSizes, realPositionMasks, dimensionIdx, newValue,
+                                        results);
     }
 }
 
@@ -340,7 +363,8 @@ void generateCombinationsRecursively(int64_t currentDimIndex, ArrayRef<int64_t> 
  * @param dimensionIdx Vector of dimension indices in NCHW order
  * @return Vector of encoded combination values representing valid block spans
  */
-SmallVector<int64_t> generateUnrollCombinations(ArrayRef<int64_t> blockSizes, ArrayRef<vpux::Dim> dimensionIdx) {
+SmallVector<int64_t> generateUnrollCombinations(ArrayRef<int64_t> blockSizes, ArrayRef<int64_t> realPositionMasks,
+                                                ArrayRef<vpux::Dim> dimensionIdx) {
     SmallVector<int64_t> results;
 
     // Validation
@@ -363,7 +387,7 @@ SmallVector<int64_t> generateUnrollCombinations(ArrayRef<int64_t> blockSizes, Ar
         return results;
     }
 
-    generateCombinationsRecursively(0, blockSizes, dimensionIdx, 0, results);
+    generateCombinationsRecursively(0, blockSizes, realPositionMasks, dimensionIdx, 0, results);
     return results;
 }
 
@@ -559,9 +583,9 @@ void constructIndexSwitchCaseBlock(mlir::OpBuilder& builder, mlir::Block&, Small
         auto currentCaseValue = targetCaseValues[i];
         auto sourceCaseValues = currentSwitchOp.getCases();
         auto sourceCaseIterator = llvm::find(sourceCaseValues, currentCaseValue);
-        if (sourceCaseIterator == sourceCaseValues.end()) {
-            assert(false && "Case value not found in source switch op");
-        }
+        VPUX_THROW_WHEN(sourceCaseIterator == sourceCaseValues.end(),
+                        "Case value {0} not found in source switch op at {1}", currentCaseValue,
+                        currentSwitchOp.getLoc());
 
         size_t caseIdx = std::distance(sourceCaseValues.begin(), sourceCaseIterator);
         auto& region = currentSwitchOp.getCaseRegions()[caseIdx];
@@ -785,6 +809,40 @@ SmallVector<int64_t> calculateVPUSliceOffset(int64_t linearIdx, llvm::ArrayRef<T
     return offset;
 }
 
+SmallVector<int64_t> calculateVPUSliceOffset(int64_t linearIdx, llvm::ArrayRef<mlir::RankedTensorType> operandTypes,
+                                             const UnrollConfig& config) {
+    auto firstType = operandTypes.front();
+    SmallVector<int64_t> offset(firstType.getRank(), 0);
+    SmallVector<SmallVector<int64_t>> sizesPerDimension;
+    sizesPerDimension.reserve(config.outputAccessOrder.size());
+
+    for (auto factor : config.unrollFactors) {
+        sizesPerDimension.emplace_back(factor, 0);
+    }
+
+    for (auto [operandIndex, type] : llvm::enumerate(operandTypes)) {
+        const auto blockIndices = getMultiDimIndices(checked_cast<int64_t>(operandIndex), config.unrollFactors);
+        for (auto dimIndex : llvm::seq<size_t>(0, config.outputAccessOrder.size())) {
+            const auto dim = config.outputAccessOrder[dimIndex].ind();
+            const auto size = type.getShape()[dim];
+            if (size != mlir::ShapedType::kDynamic) {
+                sizesPerDimension[dimIndex][blockIndices[dimIndex]] =
+                        std::max(sizesPerDimension[dimIndex][blockIndices[dimIndex]], size);
+            }
+        }
+    }
+
+    const auto blockIndices = getMultiDimIndices(linearIdx, config.unrollFactors);
+    for (auto dimIndex : llvm::seq<size_t>(0, config.outputAccessOrder.size())) {
+        const auto dim = config.outputAccessOrder[dimIndex].ind();
+        for (auto previousBlock : llvm::seq<int64_t>(0, blockIndices[dimIndex])) {
+            offset[dim] += sizesPerDimension[dimIndex][previousBlock];
+        }
+    }
+
+    return offset;
+}
+
 SmallVector<int64_t> calculateCombinedShape(llvm::ArrayRef<mlir::RankedTensorType> tensorTypes,
                                             const UnrollConfig& config) {
     if (tensorTypes.empty()) {
@@ -850,8 +908,10 @@ SmallVector<int64_t> calculateCombinedShape(llvm::ArrayRef<mlir::RankedTensorTyp
 }
 
 mlir::func::FuncOp mergeFuncOps(mlir::FunctionType newFuncType, mlir::ModuleOp module, mlir::IRMapping& mapper,
-                                SmallVector<mlir::Value>& inputValues, llvm::SetVector<mlir::Operation*>& opsToMerge,
-                                SmallVector<mlir::Value>& newReturnValues, const std::string& funcNameSuffix) {
+                                const mlir::IRMapping& valueMapper, SmallVector<mlir::Value>& inputValues,
+                                llvm::SetVector<mlir::Operation*>& opsToMerge,
+                                SmallVector<mlir::Value>& newReturnValues, ArrayRef<mlir::func::CallOp> callOps,
+                                const UnrollConfig& config, const std::string& funcNameSuffix) {
     static int functionCounter = 0;
     mlir::OpBuilder moduleBuilder(module->getContext());
     auto funcOps = module.getOps<mlir::func::FuncOp>();
@@ -863,6 +923,8 @@ mlir::func::FuncOp mergeFuncOps(mlir::FunctionType newFuncType, mlir::ModuleOp m
         candidateName = std::string("merged_vpu_func") + suffix + "_" + std::to_string(functionCounter++);
     }
     auto newFunc = mlir::func::FuncOp::create(moduleBuilder, module.getLoc(), candidateName, newFuncType);
+    // Keep generated helpers discardable until PackNestedModules promotes reachable entry points to public.
+    newFunc.setPrivate();
 
     // Clone operations into new function
     auto* entryBlock = newFunc.addEntryBlock();
@@ -870,7 +932,21 @@ mlir::func::FuncOp mergeFuncOps(mlir::FunctionType newFuncType, mlir::ModuleOp m
         mapper.map(inputValues[i], entryBlock->getArgument(i));
     }
 
+    // Operations being merged may consume a value that has already been replaced while merging a preceding
+    // operation (for example an scf.index_switch result). The merged signature contains that replacement value,
+    // but the operation still refers to the original SSA value. Map those aliases to the corresponding entry-block
+    // argument before cloning, otherwise the cloned operation would retain a value defined outside this function.
+    for (auto* op : opsToMerge) {
+        for (auto operand : op->getOperands()) {
+            const auto mappedOperand = valueMapper.lookupOrDefault(operand);
+            if (mappedOperand != operand && mapper.contains(mappedOperand)) {
+                mapper.map(operand, mapper.lookup(mappedOperand));
+            }
+        }
+    }
+
     moduleBuilder.setInsertionPointToStart(entryBlock);
+    size_t callIndex = 0;
     for (auto* op : opsToMerge) {
         if (auto callOp = mlir::dyn_cast<mlir::func::CallOp>(op)) {
             // Inline function call body
@@ -878,8 +954,41 @@ mlir::func::FuncOp mergeFuncOps(mlir::FunctionType newFuncType, mlir::ModuleOp m
             assert(oldFuncOp && "Function not found");
 
             mlir::IRMapping localMapper = mapper;
-            for (auto [callOperand, funcArg] : llvm::zip(callOp.getOperands(), oldFuncOp.getArguments())) {
-                localMapper.map(funcArg, mapper.lookupOrDefault(callOperand));
+            const auto currentCallIndex = callIndex++;
+            for (auto [operandIndex, operands] :
+                 llvm::enumerate(llvm::zip(callOp.getOperands(), oldFuncOp.getArguments()))) {
+                const auto [originalOperand, funcArg] = operands;
+                auto mappedOperand = mapper.lookupOrDefault(originalOperand);
+                if (mappedOperand.getType() != originalOperand.getType()) {
+                    SmallVector<mlir::RankedTensorType> operandTypes;
+                    operandTypes.reserve(callOps.size());
+                    for (auto siblingCallOp : callOps) {
+                        auto rankedType =
+                                mlir::cast<mlir::RankedTensorType>(siblingCallOp.getOperand(operandIndex).getType());
+                        operandTypes.push_back(rankedType);
+                    }
+
+                    const auto originalType = mlir::cast<mlir::RankedTensorType>(originalOperand.getType());
+                    // A preceding merge may turn this external input into a concatenated tensor. Recreate the
+                    // original tile view inside the merged function, so every inlined callee keeps its original
+                    // tile-sized ABI and no cloned operation captures a value from the outer region.
+                    // The tile offsets are the accumulated sizes of the preceding tiles, which is the layout of the
+                    // stacked concatenation built by insertConcatOp. Any other layout, for example an input region
+                    // whose tiles overlap, cannot be sliced this way, so it is rejected.
+                    const auto mappedShape = mlir::cast<mlir::RankedTensorType>(mappedOperand.getType()).getShape();
+                    const auto stackedShape = calculateCombinedShape(operandTypes, config);
+                    VPUX_THROW_UNLESS(mappedShape == ArrayRef<int64_t>(stackedShape),
+                                      "Merged operand {0} of the call to '{1}' has shape {2}, but stacking the tiles "
+                                      "of the merged calls gives {3}",
+                                      operandIndex, callOp.getCallee(), mappedShape, stackedShape);
+                    const auto offsets =
+                            calculateVPUSliceOffset(checked_cast<int64_t>(currentCallIndex), operandTypes, config);
+                    auto sliceOp = VPU::SliceOp::create(moduleBuilder, takeOpLoc(callOp, "from_merged"), mappedOperand,
+                                                        moduleBuilder.getI64ArrayAttr(offsets),
+                                                        moduleBuilder.getI64ArrayAttr(originalType.getShape()));
+                    mappedOperand = sliceOp.getResult();
+                }
+                localMapper.map(funcArg, mappedOperand);
             }
 
             for (auto& bodyOp : oldFuncOp.getBody().front().without_terminator()) {
@@ -994,13 +1103,13 @@ mlir::LogicalResult tryMergeCallOps(mlir::OpBuilder& builder, mlir::IRMapping& v
         return mlir::failure();
     }
 
-    // Collect VPU and function dialect operations to merge
-    llvm::SetVector<mlir::Operation*> opsToMerge;
     auto module = callOps.front()->getParentOfType<mlir::ModuleOp>();
+
+    // Collect VPU and function dialect operations to merge.
+    llvm::SetVector<mlir::Operation*> opsToMerge;
 
     std::string suffix = "";
     auto firstCallOp = callOps.front();
-    auto firstFuncOp = module.lookupSymbol<mlir::func::FuncOp>(firstCallOp.getCallee());
     for (auto callOp : callOps) {
         for (auto operand : callOp.getOperands()) {
             if (mlir::isa<VPU::SliceOp>(operand.getDefiningOp())) {
@@ -1076,7 +1185,8 @@ mlir::LogicalResult tryMergeCallOps(mlir::OpBuilder& builder, mlir::IRMapping& v
 
     // Create new function
     auto funcType = builder.getFunctionType(inputTypes, resultTypes);
-    auto newFuncOp = mergeFuncOps(funcType, module, mapper, inputValues, opsToMerge, newReturnValues, suffix);
+    auto newFuncOp = mergeFuncOps(funcType, module, mapper, valueMapper, inputValues, opsToMerge, newReturnValues,
+                                  callOps, config, suffix);
     if (newFuncOp == nullptr) {
         return mlir::failure();
     }
@@ -1086,25 +1196,51 @@ mlir::LogicalResult tryMergeCallOps(mlir::OpBuilder& builder, mlir::IRMapping& v
 
     handleOpResults(builder, valueMapper, callOps, callOpToMergedFunc.getOperation(), config);
 
-    // set dynamic tensor attribute for arguments and results
-    // This attributes are used in AddNetInfoToModule pass
-
-    // This will be replaced with core dialect definition when dynamic strides
-    llvm::StringRef funcArgDynamicStridesAttrName = vpux::HostExec::HOST_EXEC_FUNC_ARG_DYNAMIC_STRIDES_ATTR_NAME;
-
-    for (auto [idx, argType] : llvm::enumerate(newFuncOp.getArgumentTypes())) {
-        auto dynamicTensorAttr =
-                mlir::dyn_cast_or_null<mlir::BoolAttr>(firstFuncOp.getArgAttr(idx, funcArgDynamicStridesAttrName));
-        if (dynamicTensorAttr && dynamicTensorAttr.getValue()) {
-            newFuncOp.setArgAttr(idx, funcArgDynamicStridesAttrName, builder.getBoolAttr(true));
+    // Preserve dynamic-strides ABI metadata by tracing each source argument to the external SSA value in the
+    // deduplicated merged signature. Copying attributes by position from the first callee is invalid.
+    const auto getMergedInputIndex = [&](mlir::Value value) -> std::optional<unsigned> {
+        value = valueMapper.lookupOrDefault(value);
+        while (auto sliceOp = mlir::dyn_cast_or_null<VPU::SliceOp>(value.getDefiningOp())) {
+            if (!opsToMerge.contains(sliceOp.getOperation())) {
+                break;
+            }
+            value = valueMapper.lookupOrDefault(sliceOp.getInput());
         }
-    }
 
-    for (auto [idx, resultType] : llvm::enumerate(newFuncOp.getResultTypes())) {
-        auto dynamicTensorAttr =
-                mlir::dyn_cast_or_null<mlir::BoolAttr>(firstFuncOp.getResultAttr(idx, funcArgDynamicStridesAttrName));
-        if (dynamicTensorAttr && dynamicTensorAttr.getValue()) {
-            newFuncOp.setResultAttr(idx, funcArgDynamicStridesAttrName, builder.getBoolAttr(true));
+        for (auto [index, input] : llvm::enumerate(inputValues)) {
+            if (input == value) {
+                return checked_cast<unsigned>(index);
+            }
+        }
+        return std::nullopt;
+    };
+
+    // This will be replaced with core dialect definition when dynamic strides are removed.
+    const auto dynamicStridesAttrName = vpux::HostExec::HOST_EXEC_FUNC_ARG_DYNAMIC_STRIDES_ATTR_NAME;
+    for (auto callOp : callOps) {
+        auto sourceFunc = module.lookupSymbol<mlir::func::FuncOp>(callOp.getCallee());
+        assert(sourceFunc != nullptr && "Function not found");
+        for (auto [argIndex, operand] : llvm::enumerate(callOp.getOperands())) {
+            const auto attr =
+                    mlir::dyn_cast_or_null<mlir::BoolAttr>(sourceFunc.getArgAttr(argIndex, dynamicStridesAttrName));
+            if (attr == nullptr || !attr.getValue()) {
+                continue;
+            }
+
+            const auto mergedInputIndex = getMergedInputIndex(operand);
+            if (!mergedInputIndex.has_value()) {
+                return errorAt(callOp, "Cannot map dynamic-strides argument {0} of callee '{1}' to a merged input",
+                               argIndex, sourceFunc.getName());
+            }
+            newFuncOp.setArgAttr(mergedInputIndex.value(), dynamicStridesAttrName, builder.getBoolAttr(true));
+        }
+
+        for (auto resultIndex : llvm::seq<unsigned>(0, callOp.getNumResults())) {
+            const auto attr = mlir::dyn_cast_or_null<mlir::BoolAttr>(
+                    sourceFunc.getResultAttr(resultIndex, dynamicStridesAttrName));
+            if (attr != nullptr && attr.getValue()) {
+                newFuncOp.setResultAttr(resultIndex, dynamicStridesAttrName, builder.getBoolAttr(true));
+            }
         }
     }
 
@@ -1225,7 +1361,10 @@ AdjustedOffsetsAndSizes computeSliceOffsetsAndSizes(llvm::ArrayRef<mlir::tensor:
                 mapper[inductionVar] = {high - step};
                 break;
             case TilePosition::FULLBLK:
-                VPUX_THROW("Unexpected FULLBLK position for dimension {0} in extract slice analysis", dim.ind());
+                // A single tile covers the dim, so it can only occur on a dim that is not unrolled
+                VPUX_THROW_WHEN(isUnrolledDim, "Unexpected FULLBLK position for unrolled dimension {0}", dim.ind());
+                mapper[inductionVar] = {low};
+                break;
             default:
                 VPUX_THROW("Unknown TilePosition {0} for dimension {1}", static_cast<int64_t>(startBlk), dim.ind());
             }
@@ -1350,6 +1489,15 @@ mlir::LogicalResult tryMergeUnrolledExtractSliceOps(mlir::OpBuilder& builder, ml
             firstExtractSliceOp.getMixedOffsets(),  // Original offsets (may have runtime values)
             mergedSliceOpSize,                      // Calculated merged sizes
             firstExtractSliceOp.getMixedStrides());
+
+    // Keep the low resolution FULLBLK tag of the slices (the merged slice uses the offsets of the first one). The
+    // blocks of a case share the position of the dims that are not unrolled, so the tags are expected to be equal
+    auto lowResSliceAttr = firstExtractSliceOp->getAttr(LOW_RES_SLICE_ATTR_NAME);
+    if (lowResSliceAttr != nullptr && llvm::all_of(extractSliceOps, [&](mlir::tensor::ExtractSliceOp sliceOp) {
+            return sliceOp->getAttr(LOW_RES_SLICE_ATTR_NAME) == lowResSliceAttr;
+        })) {
+        mergedExtractSliceOp->setAttr(LOW_RES_SLICE_ATTR_NAME, lowResSliceAttr);
+    }
 
     // Create VPU.Slice operations from merged extract using calculated parameters
     for (size_t i = 0; i < extractSliceOps.size(); ++i) {
@@ -1575,8 +1723,21 @@ mlir::LogicalResult tryMergeSwitchOps(mlir::OpBuilder& builder, mlir::IRMapping&
     SmallVector<mlir::Value> boundaryBlocksPosIds = {indexSwitchOps.front().getOperand(),
                                                      indexSwitchOps.back().getOperand()};
 
+    // Derive, per dim, the set of TilePosition values that actually occur among the source
+    // switches' cases. All indexSwitchOps entries are clones of the same original leaf switch (from
+    // AdjustBlockSizeForScfTiling), so any one of them is representative ground truth - this avoids
+    // having to separately recompute/propagate the dimension's real tile-position count.
+    SmallVector<int64_t> realPositionMasks;
+    for (auto dim : config.accessOrder) {
+        int64_t mask = 0;
+        for (auto caseVal : indexSwitchOps.front().getCases()) {
+            mask |= (1LL << static_cast<int64_t>(getDimPosition(caseVal, dim)));
+        }
+        realPositionMasks.push_back(mask);
+    }
+
     // Before merging the switch ops, all possible block positions need to be generated
-    auto blockPosCombinations = generateUnrollCombinations(config.unrollFactors, config.accessOrder);
+    auto blockPosCombinations = generateUnrollCombinations(config.unrollFactors, realPositionMasks, config.accessOrder);
     auto encodedBlockPosition = encodeBlockPositionId(builder, boundaryBlocksPosIds, config.accessOrder);
     auto encodedBlockPositionOp = encodedBlockPosition.getDefiningOp();
     builder.setInsertionPointAfter(encodedBlockPositionOp);
@@ -1788,6 +1949,10 @@ mlir::scf::ForOp fuseSiblingForLoops(mlir::scf::ForOp target, mlir::scf::ForOp s
         fusedLoop = mlir::scf::ForOp::create(rewriter, target.getLoc(), target.getLowerBound(), source.getUpperBound(),
                                              target.getStep(), fusedInitArgs);
     }
+    // Keep the low resolution data of the dim. Other attributes are not copied
+    if (auto lowResAttr = target->getAttr(LOW_RES_ATTR_NAME)) {
+        fusedLoop->setAttr(LOW_RES_ATTR_NAME, lowResAttr);
+    }
 
     // Map original induction variables and operands to those of the fused loop.
     mlir::IRMapping mapping;
@@ -1847,6 +2012,10 @@ void collectLoops(mlir::Operation* rootOp, SmallVector<mlir::scf::ForOp>& loops)
     rootOp->walk([&](mlir::scf::ForOp forOp) {
         // Skip workload-materialization loops (dynamic trip count, inside NCE workload regions).
         if (forOp->hasAttr("vpux.workload_loop")) {
+            return;
+        }
+        // Skip sub-tile fallback loops: they keep a dynamic trip count by design and must stay as loops.
+        if (forOp->hasAttr(SUB_TILE_FALLBACK_ATTR)) {
             return;
         }
         unsigned depth = getNestingDepth(forOp.getOperation());

@@ -260,6 +260,7 @@ private:
     void updateDelayedDpuEnqPositionToNotImpactEnqOfPrevDpu(
             size_t taskInd, VPURT::TaskQueueType queueType, const VPURT::TaskQueueType& enqueueDmaQueueType,
             const DenseMap<VPURT::TaskQueueType, std::optional<size_t>>& previousTaskIndOptPerQueue,
+            size_t shvTasksWithDpuVecInd,
             std::map<VPURT::TaskQueueType, SmallVector<EnqueueDmaData>>& enqDmaDataVecPerQueue);
 
     void updateDpuEnqPositionToAccountForControlBlockSyncTask(

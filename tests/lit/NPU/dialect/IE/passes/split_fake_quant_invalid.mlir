@@ -16,7 +16,7 @@ func.func @BroadcastDiffDims(%arg0: tensor<1x3x30x30xf32>) -> tensor<1x3x30x30xf
     // expected-error@+2 {{Got non broadcastable dimensions pair : '3' and 2'}}
     // expected-error@+1 {{Eltwise inputs cannot be broadcast}}
     %0 = IE.FakeQuantize(%arg0, %input_low, %input_high, %output_low, %output_high)
-        { auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 } :
+        { auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256 } :
         tensor<1x3x30x30xf32>, tensor<1x2x1x1xf32>, tensor<1x3x1x1xf32>, tensor<1x3x1x1xf32>, tensor<1x3x1x1xf32> -> tensor<1x3x30x30xf32>
 
     return %0 : tensor<1x3x30x30xf32>

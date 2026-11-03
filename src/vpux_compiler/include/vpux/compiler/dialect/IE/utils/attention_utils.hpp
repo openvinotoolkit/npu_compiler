@@ -18,7 +18,7 @@ struct AttentionConfig {
     int64_t sSL;
 };
 
-inline constexpr std::array<AttentionConfig, 18> LEGAL_ATTENTION_CONFIGS = {{{192, 225, 225},
+inline constexpr std::array<AttentionConfig, 19> LEGAL_ATTENTION_CONFIGS = {{{192, 225, 225},
                                                                              {12, 3600, 3600},
                                                                              {8, 300, 300},
                                                                              {16, 577, 577},
@@ -35,7 +35,8 @@ inline constexpr std::array<AttentionConfig, 18> LEGAL_ATTENTION_CONFIGS = {{{19
                                                                              {6, 1886, 1886},
                                                                              {20, 1500, 1500},
                                                                              {32, 1200, 1200},
-                                                                             {32, 1200, 160}}};
+                                                                             {32, 1200, 160},
+                                                                             {30, 1536, 1536}}};
 
 }  // namespace IE
 }  // namespace vpux

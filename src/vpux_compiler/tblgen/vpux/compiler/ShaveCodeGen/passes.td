@@ -48,30 +48,6 @@ def OutlineCodeGenCapsules : PassBase<"outline-codegen-capsules", "vpux::ModuleP
 }
 
 //
-// FoldUnitDimReshapes
-//
-
-def FoldUnitDimReshapes : PassBase<"fold-unit-dim-reshapes", "vpux::FunctionPass"> {
-    let summary = "Removes reshape/view chains that only affect unit dimensions";
-
-    let description = [{
-        AI-generated summary
-
-        Eliminates reshape operations that only add or remove unit (size-1) dimensions from
-        tensors. Folds trivial reshapes where input and output have the same number of non-unit
-        elements, simplifying the IR before SHAVE kernel code generation.
-    }];
-
-    let constructor = "vpux::ShaveCodeGen::createFoldUnitDimReshapesPass()";
-
-    let dependentDialects = [
-        "vpux::IE::IEDialect",
-        "mlir::tensor::TensorDialect",
-        "mlir::linalg::LinalgDialect"
-    ];
-}
-
-//
 // LowerMathToShaveIntrinsics
 //
 
@@ -358,6 +334,120 @@ def SplitCodeGenCapsules : PassBase<"split-codegen-capsules", "vpux::FunctionPas
         "vpux::Shave::ShaveDialect",
         "mlir::tensor::TensorDialect",
         "mlir::arith::ArithDialect"
+    ];
+}
+
+//
+// RewriteInDestinationStyle
+//
+
+def RewriteInDestinationStyle : PassBase<"rewrite-in-destination-style", "vpux::ModulePass"> {
+    let summary = "Rewrite ops in destination-passing style inside software kernel functions";
+
+    let description = [{
+        Rewrites ops in the software module as DPS ops. The rewritten ops are tensor.pad,
+        tensor.generate and tensor.from_elements. This allows empty tensor elimination to reason
+        about the resulting ops.
+    }];
+
+    let constructor = "vpux::ShaveCodeGen::createRewriteInDestinationStylePass()";
+
+    let dependentDialects = [
+        "mlir::func::FuncDialect",
+        "mlir::tensor::TensorDialect",
+        "mlir::linalg::LinalgDialect",
+        "mlir::arith::ArithDialect"
+    ];
+}
+
+//
+// ComputeSegmentationAxes
+//
+
+def ComputeSegmentationAxes : PassBase<"compute-segmentation-axes", "vpux::ModulePass"> {
+    let summary = "Compute segmentation axes for ShaveCodeGen kernels";
+
+    let description = [{
+        Computes and annotates, for every tiling axis of a JIT'ed kernel, whether each
+        of its inputs is segmented along one of its own dimensions, broadcasted, or cannot
+        be classified when the kernel is tiled on that axis.
+    }];
+
+    let constructor = "vpux::ShaveCodeGen::createComputeSegmentationAxesPass()";
+
+    let dependentDialects = [
+        "vpux::VPU::VPUDialect",
+        "mlir::func::FuncDialect"
+    ];
+}
+
+//
+// DeduplicateSwKernels
+//
+
+def DeduplicateSwKernels : PassBase<"deduplicate-sw-kernels", "vpux::ModulePass"> {
+    let summary = "Merge identical outlined software kernels";
+
+    let description = [{
+        Identifies non-external functions in the VPU.SW module which are structurally
+        equivalent and keeps only one representative of each equivalence class. All
+        uses of a removed function are updated to point to the representative.
+    }];
+
+    let constructor = "vpux::ShaveCodeGen::createDeduplicateSwKernelsPass()";
+
+    let dependentDialects = [
+        "mlir::func::FuncDialect"
+    ];
+}
+
+//
+// SpecializeSwKernels
+//
+
+def SpecializeSwKernels : PassBase<"specialize-sw-kernels", "vpux::ModulePass"> {
+    let summary = "Specialize SW kernel functions at VPUIP level based on callsite parameters";
+
+    let description = [{
+        Specializes software kernel functions by replacing selected dynamic argument positions
+        with concrete values observed at VPUIP::SW.Kernel.run callsites.
+
+        Two cases are distinguished:
+
+        - Uniform arguments: the argument properties (shape or strides) or value is identical
+          across all callsites. Specializing on these is always free — it produces a single
+          clone which includes information about the properties/value of the specialized
+          argument.
+
+        - Non-uniform arguments: the argument properties (shape, strides) or value differs
+          across callsites. Specializing on these creates one clone per distinct value and is
+          only profitable when the expected performance gain outweighs the code size cost. A
+          cost model internal to the pass decides what to consider for specialization.
+
+        After the signature is updated for a clone, the new information about the argument
+        types and known values is propagated through the kernel body. llvm.intr.assume ops
+        are also added to further constrain the remaining dynamic values when possible.
+        Each callsite is then redirected to the appropriate specialized clone.
+    }];
+
+    let constructor = "vpux::ShaveCodeGen::createSpecializeSwKernelsPass()";
+
+    let dependentDialects = [
+        "mlir::func::FuncDialect",
+        "vpux::VPUIP::VPUIPDialect",
+        "mlir::arith::ArithDialect",
+        "mlir::memref::MemRefDialect",
+        "mlir::LLVM::LLVMDialect"
+    ];
+
+    let options = [
+        Option<
+            "heuristic", "heuristic",
+            "std::string", [{"cost"}],
+            "Partitioning policy: 'cost' (cost model, default), 'never' (single clone, "
+            "no cost-driven duplication) or 'always' (specialize on every peelable "
+            "first-output dim/stride)."
+        >
     ];
 }
 

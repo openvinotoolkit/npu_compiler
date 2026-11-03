@@ -27,6 +27,25 @@ class ReduceLayerTestCommon : public ReduceOpsLayerTest, virtual public VpuOv2La
         VpuOv2LayerTest::inputs.insert({funcInputs[0].get_node_shared_ptr(), tensorData});
     }
 
+    // A rank-0 output is labelled [1] in the blob metadata while the port stays rank-0, so the tensor the
+    // plugin would allocate for it does not match the port. Supply it from the port instead.
+    void infer() override {
+        VpuOv2LayerTest::inferRequest = VpuOv2LayerTest::compiledModel.create_infer_request();
+
+        for (const auto& input : VpuOv2LayerTest::inputs) {
+            VpuOv2LayerTest::inferRequest.set_tensor(input.first, input.second);
+        }
+
+        for (const auto& output : VpuOv2LayerTest::function->outputs()) {
+            if (output.get_partial_shape().is_static() && output.get_shape().empty()) {
+                VpuOv2LayerTest::inferRequest.set_tensor(output,
+                                                         ov::Tensor(output.get_element_type(), output.get_shape()));
+            }
+        }
+
+        VpuOv2LayerTest::inferRequest.infer();
+    }
+
     void SetUp() override {
         std::vector<size_t> inputShape, shapeAxes;
         ov::element::Type modelType;
@@ -347,6 +366,18 @@ const auto channelAxisHWFP16 = testing::Combine(
         testing::Values(std::vector<size_t>{1, 16, 32, 32}, std::vector<size_t>{1, 4, 32, 32}),
         testing::Values(test_utils::TARGET_DEVICE));
 
+// ReduceChannelSplitRewriter (ConvertReduceToPooling): channel-axis reduce with H==1 and W
+// not a multiple of VPU_CHANNEL_ALIGNMENT (16), but greater than it. Exercises the
+// Slice(aligned bulk)+Slice(unaligned remainder)+Concat split that avoids an Expand /
+// PermuteQuantize over the whole tensor when only a small remainder is misaligned.
+//
+// FP16 HW
+const auto channelAxisUnalignedWidthHWFP16 = testing::Combine(
+        testing::ValuesIn(decltype(axes){{1}}), testing::Values(OpType::VECTOR), testing::ValuesIn(keepDims),
+        testing::Values(ReductionType::Mean, ReductionType::Sum), testing::ValuesIn(modelTypes),
+        testing::Values(std::vector<size_t>{1, 16, 1, 19}, std::vector<size_t>{1, 4, 1, 35}),
+        testing::Values(test_utils::TARGET_DEVICE));
+
 //
 // FP16 HW
 const auto batchAxisHWFP16 = testing::Combine(
@@ -416,6 +447,11 @@ INSTANTIATE_TEST_SUITE_P(smoke_Reduce_FP32, ShaveCodeGenReduceLayerTest_FP32, sc
 // ChannelAxis Reduce test for DPU support
 INSTANTIATE_TEST_SUITE_P(smoke_reduce_axis, ReduceLayerTest_ChannelAxis_HW_FP16, channelAxisHWFP16,
                          ReduceLayerTest_ChannelAxis_HW_FP16::getTestCaseName);
+
+// ChannelAxis Reduce test for DPU support with an unaligned trailing width dimension
+// (exercises ReduceChannelSplitRewriter's Slice+Concat split)
+INSTANTIATE_TEST_SUITE_P(smoke_reduce_axis_unaligned_width, ReduceLayerTest_ChannelAxis_HW_FP16,
+                         channelAxisUnalignedWidthHWFP16, ReduceLayerTest_ChannelAxis_HW_FP16::getTestCaseName);
 
 // OuterDim ReduceSum to Conv (non-4D shapes, axis=0)
 INSTANTIATE_TEST_SUITE_P(smoke_precommit_Reduce_outerDim, ReduceLayerTest_HW_FP16, paramsOuterDimAxis0HW,

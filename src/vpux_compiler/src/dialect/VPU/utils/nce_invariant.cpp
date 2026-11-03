@@ -390,6 +390,10 @@ mlir::LogicalResult vpux::VPU::NCEInvariant::isSupported(mlir::Operation* op, Lo
                     .Case<IE::MatMulOp>([&](IE::MatMulOp origOp) {
                         return VPU::NCEMatMulOp::isSupported(origOp, emptyLogCb, checkLayout, checkChannelAlignment);
                     })
+                    .Case<IE::FullyConnectedOp>([&](IE::FullyConnectedOp /*origOp*/) {
+                        // FullyConnectedOp can always become a valid DPU conv
+                        return true;
+                    })
                     .Default([](mlir::Operation*) -> bool {
                         return false;
                     }));

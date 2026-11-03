@@ -590,7 +590,11 @@ static mlir::FailureOr<VPU::GenericSwLayerOp> outlineLoop(IE::CodeGenCapsuleOp c
             ctx,
             /*tilingInfoFunc=*/infoFuncSymRef,
             /*tilingAxes=*/mlir::DenseI64ArrayAttr::get(ctx, tilablePositions),
-            /*numSlicedInputs=*/mlir::IntegerAttr::get(i64Ty, static_cast<int64_t>(ccInfo.slices.size())));
+            /*numSlicedInputs=*/mlir::IntegerAttr::get(i64Ty, static_cast<int64_t>(ccInfo.slices.size())),
+            /*numTensorInputs=*/
+            mlir::IntegerAttr::get(i64Ty, static_cast<int64_t>(ccInfo.slices.size() + ccInfo.tensorOps.size())),
+            /*numAuxBuffers=*/mlir::IntegerAttr::get(i64Ty, 0),
+            /*inputSegmentationAxes=*/mlir::ArrayAttr::get(ctx, {}));
     kernelFunc->setAttr(VPU::KernelInfoAttr::kFuncAttrName, kernelInfoAttr);
 
     // Construct the iteration space from the first result sizes.

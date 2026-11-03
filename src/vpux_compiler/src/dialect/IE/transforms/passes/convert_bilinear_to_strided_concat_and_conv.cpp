@@ -103,8 +103,18 @@ auto createAverageDWConv(mlir::Value input, ShapeRef kernelShape, mlir::Location
 
     // Add fakeQuan after kernel if needed
     if (inputFQ != nullptr) {
-        weights = vpux::IE::createFQScaling(loc, weights, weightsScaleFactor, elemType, inputFQ.getLevels(),
-                                            inputFQ.getLowFpType(), inputFQ.getAutoBroadcastAttr(), rewriter);
+        const auto levelsOrLowFpType = inputFQ.getLevelsOrLowFpTypeAttr();
+        std::optional<int64_t> levels;
+        std::optional<mlir::Type> lowFpType;
+
+        if (auto intAttr = mlir::dyn_cast<mlir::IntegerAttr>(levelsOrLowFpType)) {
+            levels = intAttr.getInt();
+        } else if (auto typeAttr = mlir::dyn_cast<mlir::TypeAttr>(levelsOrLowFpType)) {
+            lowFpType = typeAttr.getValue();
+        }
+
+        weights = vpux::IE::createFQScaling(loc, weights, weightsScaleFactor, elemType, levels, lowFpType,
+                                            inputFQ.getAutoBroadcastAttr(), rewriter);
     }
 
     auto newLoc = appendLoc(loc, "interpolate_GroupConv_{0}_{1}", kernelShape[Dim(0)], kernelShape[Dim(1)]);

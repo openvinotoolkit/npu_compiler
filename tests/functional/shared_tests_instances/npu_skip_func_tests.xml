@@ -35,14 +35,6 @@ Example:
         </filters>
     </skip_config>
 
-    <!-- E#171305 -->
-    <skip_config>
-        <message>Dynamic output issue in sync infer request where keepDims is off</message>
-        <filters>
-            <filter>.*smoke_ReduceAllAxis/ReduceLayerTest_SW_FP16.*KeepDims=0.*</filter>
-        </filters>
-    </skip_config>
-
     <!-- E#109040 -->
     <skip_config>
         <!-- Test is only instantiated for NPU3720 -->
@@ -162,6 +154,40 @@ Example:
             <filter>.*InterpolateSAPDynInputLayerTest\.NPU5010_HC.*</filter>
             <filter>.*DynamicActivationLayerTest_HC_FP16\.NPU4000_HC.*</filter>
             <filter>.*DynamicActivationLayerTest_HC_FP16\.NPU5010_HC.*</filter>
+        </filters>
+    </skip_config>
+
+    <!-- E#235731 -->
+    <skip_config>
+        <message>New HostCompile dynamic DMA functional tests (Interpolate/Atan) fail</message>
+        <filters>
+            <!-- Fails to legalize VPU.MemPermute, which is explicitly marked illegal during ApplyTiling. -->
+            <filter>.*DynamicResizeConvSubgraphTest_Interpreter.*false.*</filter>
+        </filters>
+    </skip_config>
+
+    <!-- E#237001 -->
+    <skip_config>
+        <message>HostCompile with a bounded dynamic f32 input fails CopyOpTiling: the ConvertDMA result copy has no bounds</message>
+        <filters>
+            <filter>.*smoke_DynamicReduceMean_HC_f32/DynamicReduceMeanTest\.NPU5010_HC.*</filter>
+        </filters>
+    </skip_config>
+
+    <!-- E#233416-->
+    <skip_config>
+        <message>HostCompile dynamic tests fail to compile with the tiling of the dynamic dims</message>
+        <filters>
+            <filter>.*smoke_DynamicReduceMean_HC_f32/DynamicReduceMeanTest\..*</filter>
+            <filter>.*smoke_DynamicResizeConvSubgraphTest_Interpreter/DynamicResizeConvSubgraphTest_Interpreter\..*true.*</filter>
+        </filters>
+    </skip_config>
+
+    <!-- E#233416-->
+    <skip_config>
+        <message>HostCompile eltwise Add 1x16x1280x1280 fails at the inference stage on NPU4000</message>
+        <filters>
+            <filter>.*smoke/EltwiseAddLayerTest_HostCompile\.NPU4000_HC/IS=\(\[1\.16\.1280\.1280\]_\)_TS=\(\(1\.16\.1280\.1280\)_\)_eltwise_op_type=Sum_secondary_input_type=PARAMETER_opType=VECTOR_model_type=f16_.*</filter>
         </filters>
     </skip_config>
 

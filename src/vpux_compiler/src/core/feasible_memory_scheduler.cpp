@@ -968,7 +968,7 @@ std::pair<size_t, mlir::DenseSet<mlir::Value>> FeasibleMemoryScheduler::getPrefe
     } else {
         if (_spillBufferMap.find(opIdx) == _spillBufferMap.end()) {
             bool wasScheduledBefore =
-                    std::any_of(_cycleBeginHeap.begin(), _cycleBeginHeap.end(), [=](const HeapElement& elem) {
+                    std::any_of(_cycleBeginHeap.begin(), _cycleBeginHeap.end(), [opIdx](const HeapElement& elem) {
                         return elem.op_ == opIdx;
                     });
             VPUX_THROW_UNLESS(wasScheduledBefore, "Failed to find spill candidate '{0}'", opIdx);
@@ -1487,6 +1487,10 @@ std::optional<vpux::AddressType> FeasibleMemoryScheduler::prepareLoopRegion(cons
             return scheduleResult.sharedExternalBuffers.count(buf) != 0;
         });
         if (feedsSharedBuffer) {
+            // Dependencies feeding sharedExternalBuffers are deferred to step 4.
+            // Their additional non-alive buffers, such as spilled inputs,
+            // must remain in buffersToAllocate to receive an address in step 6.
+            buffersToAllocate.insert(depNonAliveBuffers.begin(), depNonAliveBuffers.end());
             continue;
         }
         mlir::DenseSet<mlir::Value> depBuffersToAllocate(depNonAliveBuffers.begin(), depNonAliveBuffers.end());
@@ -1516,7 +1520,7 @@ std::optional<vpux::AddressType> FeasibleMemoryScheduler::prepareLoopRegion(cons
         return std::nullopt;
     }
 
-    // there may be spilled buffers in heap, need to deallocate them
+    // Deallocate spilled buffers in the heap before scheduling the remaining loop-entry dependencies.
     SmallVector<operationIdxType> readyOps;
     drainAndCollectReadyOps(readyOps);
 
@@ -1584,11 +1588,10 @@ void FeasibleMemoryScheduler::applyLoopSchedule(const ComputeRegion& computeRegi
         _log.nest().trace("Schedule loop iteration {0}", loopIteration);
         const auto& iterationSchedule = explicitSchedule[loopIteration];
 
-        // TODO E#226504: For now disable overlap window for VF to make sure ops and buffers are unscheduled before
-        // next iteration starts as in case of VF MINIMAL strategy next loop first op may use conflicting
-        // resources with previous loop last op. Analyze if other approach could be used that would satisfy
-        // both Tiling and VF loop scheduling
-        const size_t overlapWindow = (computeRegion.getLoopType() == LoopType::VF) ? 0 : 1;
+        // Hoisted VF steps already contain cross-iteration work; unhoisted
+        // pipelining uses the ordinary ping-pong overlap.
+        const size_t overlapWindow =
+                (computeRegion.getLoopType() == LoopType::VF) ? (scheduleResult.enableIterationOverlap ? 1 : 0) : 1;
 
         if (loopIteration > overlapWindow) {
             const auto previousIterationCycleEnd = loopCycleEnd[loopIteration - overlapWindow - 1];

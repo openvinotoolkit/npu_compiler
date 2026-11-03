@@ -16,14 +16,14 @@
 // CHECK:       } outputsInfo : {
 // CHECK:         DataInfo "out_0" : tensor<?x1x16xf16, {bounds = #const.OpaqueI64Elements<[8, 1, 16]> : tensor<3xsi64>, order = #CHW}>
 // CHECK:         DataInfo "vpux_ie_shape_out_0" : tensor<3xsi32>
-module @simple attributes {config.compilationMode = #config.compilation_mode<HostCompile>} {
+module @simple attributes {config.compilationMode = #config.compilation_mode<HostCompile_Interpreter>} {
   net.NetworkInfo entryPoint : @main inputsInfo : {
     DataInfo "Parameter_13" : tensor<?x1x16xf16, {bounds = #const.OpaqueI64Elements<[8, 1, 16]> : tensor<3xsi64>, order = #CHW}>
   } outputsInfo : {
     DataInfo "Softmax_14" : tensor<?x1x16xf16, {bounds = #const.OpaqueI64Elements<[8, 1, 16]> : tensor<3xsi64>, order = #CHW}>
   }
 
-  module @Module0 attributes {config.compilationMode = #config.compilation_mode<HostCompile>} {
+  module @Module0 attributes {config.compilationMode = #config.compilation_mode<HostCompile_Interpreter>} {
     VPURT.SW.Runtime entryPoint : @VPU.SW::@runtime stack_configuration : [4096, 4096, 4096, 4096]
     module @VPU.SW {
       func.func nested @builtin_SoftMax(memref<*xf16, [@CMX_NN, 0]>, memref<*xf16, [@CMX_NN, 0]>, i64, i64) attributes {VPU.kernel_code = "softmax.cpp", VPU.kernel_entry = "softmax", VPU.kernel_name = "softmax", VPU.task_type = @COMPUTE}
@@ -102,14 +102,14 @@ module @simple attributes {config.compilationMode = #config.compilation_mode<Hos
 // CHECK:       } outputsInfo : {
 // CHECK:         DataInfo "out_0" : tensor<1x3x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 3, 50, 50]> : tensor<4xsi64>, order = #NCHW}>
 // CHECK:         DataInfo "vpux_ie_shape_out_0" : tensor<4xsi32>
-module @output_cast_chain attributes {config.compilationMode = #config.compilation_mode<HostCompile>} {
+module @output_cast_chain attributes {config.compilationMode = #config.compilation_mode<HostCompile_Interpreter>} {
   net.NetworkInfo entryPoint : @main inputsInfo : {
     DataInfo "Parameter_0" : tensor<1x3x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 3, 50, 50]> : tensor<4xsi64>, order = #NCHW}>
   } outputsInfo : {
     DataInfo "Result_0" : tensor<1x3x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 3, 50, 50]> : tensor<4xsi64>, order = #NCHW}>
   }
 
-  module @Module0 attributes {config.compilationMode = #config.compilation_mode<HostCompile>} {
+  module @Module0 attributes {config.compilationMode = #config.compilation_mode<HostCompile_Interpreter>} {
     net.NetworkInfo entryPoint : @main_func0 inputsInfo : {
       DataInfo "in_0" : tensor<1x3x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 3, 50, 50]> : tensor<4xsi64>, order = #NCHW}>
     } outputsInfo : {
@@ -168,7 +168,7 @@ module @output_cast_chain attributes {config.compilationMode = #config.compilati
 // kernels are handled correctly by the pass
 
 // CHECK-LABEL: module @multiple_kernels
-module @multiple_kernels attributes {config.compilationMode = #config.compilation_mode<HostCompile>} {
+module @multiple_kernels attributes {config.compilationMode = #config.compilation_mode<HostCompile_Interpreter>} {
 
     // CHECK-LABEL: module @Module0
     module @Module0 {

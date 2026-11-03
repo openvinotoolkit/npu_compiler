@@ -230,9 +230,22 @@ mlir::LogicalResult applyBalancedMulticlusterTilingImpl(mlir::Operation* operati
         auto resultRank = mlir::cast<mlir::RankedTensorType>(operation->getResult(idx).getType()).getRank();
         SmallVector<mlir::OpFoldResult> strides(resultRank, builder.getIndexAttr(1));
 
+        auto tiledValue = tiledResult->tiledValues[idx];
+        // Template off tiledValue's own type, not the destination's: inferCanonicalRankReducedResultType
+        // only recomputes the shape from resultSizes, but copies elemType/encoding verbatim from whatever
+        // type is passed in. Templating off the (whole-accumulator) destination would inherit its bounds
+        // for the tiled dim too, discarding the tile's own tighter bound for no reason -- the destination's
+        // shape only matters here for rank; its bounds are irrelevant to what this specific tile's source
+        // value should claim.
+        const auto expectedSourceType = mlir::tensor::ExtractSliceOp::inferCanonicalRankReducedResultType(
+                resultRank, mlir::cast<mlir::RankedTensorType>(tiledValue.getType()), resultSizes);
+        if (tiledValue.getType() != expectedSourceType) {
+            tiledValue = mlir::tensor::CastOp::create(builder, loc, expectedSourceType, tiledValue).getResult();
+        }
+
         builder.setInsertionPointToStart(inParallelOp.getBody());
-        mlir::tensor::ParallelInsertSliceOp::create(builder, loc, tiledResult->tiledValues[idx], regionOutArgs[idx],
-                                                    resultOffsets, resultSizes, strides);
+        mlir::tensor::ParallelInsertSliceOp::create(builder, loc, tiledValue, regionOutArgs[idx], resultOffsets,
+                                                    resultSizes, strides);
     }
 
     fixForallOutputTypes(forallOp, operation);

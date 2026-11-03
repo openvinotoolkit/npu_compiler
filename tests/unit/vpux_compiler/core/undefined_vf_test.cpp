@@ -13,11 +13,11 @@
 #include <mlir/IR/BuiltinTypes.h>
 #include <mlir/IR/MLIRContext.h>
 
+#include <gtest/gtest.h>
 #include <algorithm>
 #include <functional>
+#include <optional>
 #include <tuple>
-
-#include <gtest/gtest.h>
 
 // Run cmd: npuUnitTests --gtest_filter="MLIR_UndefinedVF.*"
 
@@ -50,8 +50,9 @@ protected:
     }
 
     OpAllocationInfo createComputeOp(size_t opIdx, const SmallVector<mlir::Value>& inBuffers,
-                                     const SmallVector<mlir::Value>& outBuffers) {
-        VPURT::TaskQueueType qt{config::ExecutorKind::DPU, 0};
+                                     const SmallVector<mlir::Value>& outBuffers,
+                                     config::ExecutorKind execKind = config::ExecutorKind::DPU) {
+        VPURT::TaskQueueType qt{execKind, 0};
         return OpAllocationInfo(opIdx, qt, inBuffers, outBuffers, AllocationType::COMPUTE);
     }
 
@@ -148,7 +149,7 @@ TEST_F(MLIR_UndefinedVF, RunStrategySearchWithRealLinearAllocatorForFeasibleSche
     // Real allocator — same recipe → params translation as the production
     //`tryStrategy helper
     UndefinedVF::AllocatorFn allocator = [&](const VfStrategyRecipe& recipe) {
-        VfSchedStrategyDescriptor params{recipe.fetchScp, recipe.lastCompOverlapNextIterIn};
+        VfSchedStrategyDescriptor params{recipe.intraIterFetch, recipe.lastCompOverlapNextIterIn};
         return VfAllocateLinear(region, classifier, memoryLimit, params, Logger::global()).performAllocation();
     };
 
@@ -338,4 +339,181 @@ TEST_F(MLIR_UndefinedVF, UnsupportedRegionReturnsEmptySchedule) {
     EXPECT_TRUE(result.schedule.empty());
     EXPECT_TRUE(result.sharedExternalBuffers.empty());
     EXPECT_EQ(result.reservedSize, 0u);
+}
+
+// Explicit external outputs that are distinct per-iteration are classified as a
+// supported explicit-external group by the classifier but still rejected by the
+// allocator because one persistent slot cannot cover multiple SSA values.
+// TODO: This will be enabled once E#229223 is done.
+TEST_F(MLIR_UndefinedVF, ExplicitExternalDistinctOutputsAreRejectedByGetScheduleStrategy) {
+    UndefinedVF scenario;
+
+    auto weight = createBuffer(256, /*rawAlign=*/64);
+    auto intermediate0 = createBuffer(128, /*rawAlign=*/64);
+    auto externalBuf0 = createBuffer(64, /*rawAlign=*/64);
+    auto intermediate1 = createBuffer(128, /*rawAlign=*/64);
+    auto externalBuf1 = createBuffer(64, /*rawAlign=*/64);
+
+    LoopBody iteration0;
+    iteration0.push_back(createDataInOp(/*opIdx=*/0, {weight}, {intermediate0}));
+    iteration0.push_back(createComputeOp(/*opIdx=*/1, {intermediate0}, {externalBuf0}));
+
+    LoopBody iteration1;
+    iteration1.push_back(createDataInOp(/*opIdx=*/2, {weight}, {intermediate1}));
+    iteration1.push_back(createComputeOp(/*opIdx=*/3, {intermediate1}, {externalBuf1}));
+
+    auto region = makeVfRegion({std::move(iteration0), std::move(iteration1)});
+    region.externalBuffers.insert(externalBuf0);
+    region.externalBuffers.insert(externalBuf1);
+
+    const auto result = scenario.getScheduleStrategy(region, /*memorySize=*/8192);
+
+    EXPECT_TRUE(result.empty());
+    EXPECT_TRUE(result.schedule.empty());
+    EXPECT_TRUE(result.sharedExternalBuffers.empty());
+    EXPECT_EQ(result.reservedSize, 0u);
+}
+
+// When VF_PIPELINING is selected, odd iterations are placed in the upper CMX
+// bank (addr + bankSize), while even iterations keep template addresses.
+TEST_F(MLIR_UndefinedVF, PipeliningAlternatesEvenOddBanks) {
+    UndefinedVF scenario;
+
+    auto sharedIn = createBuffer(1024);
+    auto sharedOut = createBuffer(1024);
+
+    auto mid0 = createBuffer(2048);
+    auto mid1 = createBuffer(2048);
+    auto mid2 = createBuffer(2048);
+
+    LoopBody body0{createComputeOp(0, {sharedIn}, {mid0}, config::ExecutorKind::DPU),
+                   createComputeOp(1, {mid0}, {sharedOut}, config::ExecutorKind::SHAVE_ACT)};
+    LoopBody body1{createComputeOp(2, {sharedIn}, {mid1}, config::ExecutorKind::DPU),
+                   createComputeOp(3, {mid1}, {sharedOut}, config::ExecutorKind::SHAVE_ACT)};
+    LoopBody body2{createComputeOp(4, {sharedIn}, {mid2}, config::ExecutorKind::DPU),
+                   createComputeOp(5, {mid2}, {sharedOut}, config::ExecutorKind::SHAVE_ACT)};
+
+    auto region = makeVfRegion({std::move(body0), std::move(body1), std::move(body2)});
+    const auto result = scenario.getScheduleStrategy(region, /*memorySize=*/65536);
+
+    ASSERT_EQ(result.schedule.size(), 3u);
+    ASSERT_GT(result.reservedSize, 0u);
+    ASSERT_EQ(result.reservedSize % 2, 0u);
+
+    const AddressType bankSize = result.reservedSize / 2;
+
+    auto findAllocAddrForBuffer = [](const auto& schedule, mlir::Value target) -> std::optional<AddressType> {
+        for (const auto& step : schedule) {
+            for (const auto& entry : step) {
+                for (const auto& [buf, addr] : entry.allocations) {
+                    if (buf == target) {
+                        return addr;
+                    }
+                }
+            }
+        }
+        return std::nullopt;
+    };
+
+    const auto evenAddr = findAllocAddrForBuffer(result.schedule, mid0);
+    const auto oddAddr = findAllocAddrForBuffer(result.schedule, mid1);
+    const auto even2Addr = findAllocAddrForBuffer(result.schedule, mid2);
+    ASSERT_TRUE(evenAddr.has_value());
+    ASSERT_TRUE(oddAddr.has_value());
+    ASSERT_TRUE(even2Addr.has_value());
+
+    EXPECT_EQ(oddAddr.value(), evenAddr.value() + bankSize);
+    EXPECT_EQ(even2Addr.value(), evenAddr.value());
+}
+
+// DPU->SHV chain should use banked allocation where lower+upper bank copies of
+// each local buffer fit into reserved CMX simultaneously and do not overlap.
+TEST_F(MLIR_UndefinedVF, DpuShvGraphDoubleBufferedBanksFitAndCoexistInCMX) {
+    UndefinedVF scenario;
+    auto sharedIn = createBuffer(1024);
+    auto sharedOut = createBuffer(1024);
+
+    // Iteration 0
+    auto dpuOut0 = createBuffer(3072);
+
+    // Iteration 1
+    auto dpuOut1 = createBuffer(3072);
+
+    LoopBody body0{createComputeOp(0, {sharedIn}, {dpuOut0}, config::ExecutorKind::DPU),
+                   createComputeOp(1, {dpuOut0}, {sharedOut}, config::ExecutorKind::SHAVE_ACT)};
+    LoopBody body1{createComputeOp(2, {sharedIn}, {dpuOut1}, config::ExecutorKind::DPU),
+                   createComputeOp(3, {dpuOut1}, {sharedOut}, config::ExecutorKind::SHAVE_ACT)};
+
+    auto region = makeVfRegion({std::move(body0), std::move(body1)});
+    constexpr AddressType memorySize = 16384;
+    const auto result = scenario.getScheduleStrategy(region, memorySize);
+
+    ASSERT_EQ(result.schedule.size(), 2u);
+    ASSERT_FALSE(result.empty());
+    ASSERT_EQ(result.reservedSize % 2, 0u);
+    const AddressType bankSize = result.reservedSize / 2;
+    ASSERT_GT(bankSize, 0u);
+    ASSERT_LE(result.reservedSize, memorySize);
+
+    auto findAllocAddrForBuffer = [](const auto& schedule, mlir::Value target) -> std::optional<AddressType> {
+        for (const auto& step : schedule) {
+            for (const auto& entry : step) {
+                for (const auto& [buf, addr] : entry.allocations) {
+                    if (buf == target) {
+                        return addr;
+                    }
+                }
+            }
+        }
+        return std::nullopt;
+    };
+
+    const auto evenAddr = findAllocAddrForBuffer(result.schedule, dpuOut0);
+    const auto oddAddr = findAllocAddrForBuffer(result.schedule, dpuOut1);
+    ASSERT_TRUE(evenAddr.has_value());
+    ASSERT_TRUE(oddAddr.has_value());
+    const auto size = checked_cast<AddressType>(getTotalSize(dpuOut0).count());
+
+    EXPECT_EQ(oddAddr.value(), evenAddr.value() + bankSize);
+    EXPECT_LT(evenAddr.value(), oddAddr.value());
+
+    EXPECT_LE(evenAddr.value() + size, bankSize);
+    EXPECT_GE(oddAddr.value(), bankSize);
+    EXPECT_LE(oddAddr.value() + size, result.reservedSize);
+}
+
+// Pure DPU graph must reject VF_PIPELINING and fall back to another feasible
+// strategy. The resulting local template addresses are replicated identically
+// across all iterations (no odd/even bank alternation).
+TEST_F(MLIR_UndefinedVF, DpuOnlyGraphDoesNotAlternateBanks) {
+    UndefinedVF scenario;
+    auto sharedIn = createBuffer(1024);
+    auto sharedOut = createBuffer(1024);
+
+    auto mid0 = createBuffer(1024);
+    auto mid1 = createBuffer(1024);
+    auto mid2 = createBuffer(1024);
+
+    LoopBody body0{createComputeOp(0, {sharedIn}, {mid0}, config::ExecutorKind::DPU),
+                   createComputeOp(1, {mid0}, {sharedOut}, config::ExecutorKind::DPU)};
+    LoopBody body1{createComputeOp(2, {sharedIn}, {mid1}, config::ExecutorKind::DPU),
+                   createComputeOp(3, {mid1}, {sharedOut}, config::ExecutorKind::DPU)};
+    LoopBody body2{createComputeOp(4, {sharedIn}, {mid2}, config::ExecutorKind::DPU),
+                   createComputeOp(5, {mid2}, {sharedOut}, config::ExecutorKind::DPU)};
+
+    auto region = makeVfRegion({std::move(body0), std::move(body1), std::move(body2)});
+    const auto result = scenario.getScheduleStrategy(region, /*memorySize=*/16384);
+
+    ASSERT_EQ(result.schedule.size(), 3u);
+    for (size_t opPos = 0; opPos < result.schedule[0].size(); ++opPos) {
+        const auto& iter0 = result.schedule[0][opPos].allocations;
+        const auto& iter1 = result.schedule[1][opPos].allocations;
+        const auto& iter2 = result.schedule[2][opPos].allocations;
+        ASSERT_EQ(iter0.size(), iter1.size());
+        ASSERT_EQ(iter0.size(), iter2.size());
+        for (size_t i = 0; i < iter0.size(); ++i) {
+            EXPECT_EQ(iter0[i].second, iter1[i].second);
+            EXPECT_EQ(iter0[i].second, iter2[i].second);
+        }
+    }
 }

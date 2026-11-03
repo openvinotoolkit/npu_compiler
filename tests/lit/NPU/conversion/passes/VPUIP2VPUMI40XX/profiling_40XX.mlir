@@ -62,7 +62,7 @@ module @mainModule {
     // CHECK: [[MI:%.+]] = VPUMI40XX.MappedInference dmas(([[NNDMA0_DDR_0]], [[NNDMA0_CMX_0]]) : (!VPURegMapped.Index<0:0:0>, !VPURegMapped.Index<0:1:0>)) barriers([[BAR0]] : !VPURegMapped.Index<0:0:0>)
     // CHECK: dmaHwpBase([[DMA_HWP_BASE]] : memref<1024xui32, @DDR>) hwpWorkpointCfg([[WORKPOINT_CFG]] : memref<16xui32>)
     // CHECK-SAME{LITERAL}: dmaCount([[2, 1], [0, 0]])
-    // CHECK-SAME{LITERAL}: invariantCount([0, 0, 0, 0, 0, 0]) variantCount([0, 0, 0, 0, 0, 0]) actKernelRangesCount([[0, 0], [0, 0], [0, 0], [0, 0], [0, 0], [0, 0]]) actKernelInvocationsCount([[0, 0], [0, 0], [0, 0], [0, 0], [0, 0], [0, 0]]) mediaCount(0) barrierCount(2) -> !VPURegMapped.Index<0:0:0>
+    // CHECK-SAME{LITERAL}: invariantCount([0, 0, 0, 0, 0, 0]) variantCount([0, 0, 0, 0, 0, 0]) actKernelRangesCount([[0, 0], [0, 0], [0, 0], [0, 0], [0, 0], [0, 0]]) actKernelInvocationsCount([[0, 0], [0, 0], [0, 0], [0, 0], [0, 0], [0, 0]]) barrierCount(2) -> !VPURegMapped.Index<0:0:0>
 
     return %arg1, %arg2, %arg3 : memref<1x16x16x16xf16, {order = #NHWC}, @DDR>, memref<1x16x16x16xf16, {order = #NHWC}, @DDR>, memref<96xui32>
   }

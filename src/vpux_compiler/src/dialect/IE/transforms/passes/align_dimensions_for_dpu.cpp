@@ -129,7 +129,7 @@ mlir::LogicalResult PermuteQuantizeRewriter::matchAndRewrite(IE::PermuteQuantize
         paddedInput = origOp->getOperand(0);
     } else {
         _log.trace("Expand input tensor");
-        paddedInput = rewriter.createOrFold<IE::ExpandOp>(appendLoc(origOp->getLoc(), "expand_input"),
+        paddedInput = rewriter.createOrFold<IE::ExpandOp>(appendLoc(origOp->getLoc(), "expand_in"),
                                                           origOp->getOperand(0), std::nullopt, ShapeRef(inPadsEnd));
     }
 
@@ -150,7 +150,7 @@ mlir::LogicalResult PermuteQuantizeRewriter::matchAndRewrite(IE::PermuteQuantize
         auto newSlice =
                 rewriter.replaceOpWithNewOp<IE::SliceOp>(origOp, origOp->getResult(0).getType(), newOp->getResult(0),
                                                          getIntArrayAttr(ctx, offsets), getIntArrayAttr(ctx, outShape));
-        extendOpLoc(newSlice, "slice_output");
+        extendOpLoc(newSlice, "slice_out");
     }
 
     return mlir::success();
@@ -202,16 +202,16 @@ mlir::LogicalResult LogSoftmaxRewriter::matchAndRewrite(IE::LogSoftmaxOp origOp,
     padsEnd[Dim(axisInd)] = axisPad;
 
     _log.trace("Expand input tensor along axis {0} with padding {1}", axisInd, axisPad);
-    auto expandedInput = rewriter.createOrFold<IE::ExpandOp>(appendLoc(origOp->getLoc(), "_expand_axis"),
-                                                             origOp.getInput(), std::nullopt, ShapeRef(padsEnd));
+    auto expandedInput = rewriter.createOrFold<IE::ExpandOp>(takeOpLoc(origOp, "expand_in"), origOp.getInput(),
+                                                             std::nullopt, ShapeRef(padsEnd));
 
     const Shape outPadBefore(outputType.getRank(), 0);
     Shape outPadAfter(outputType.getRank(), 0);
     outPadAfter[Dim(axisInd)] = axisPad;
     const auto newOutputType = outputType.pad(outPadBefore, outPadAfter);
 
-    auto newOp = IE::LogSoftmaxOp::create(rewriter, appendLoc(origOp->getLoc(), "_expanded"), newOutputType,
-                                          expandedInput, origOp.getAxisIndAttr(), getIntAttr(ctx, axisPad));
+    auto newOp = IE::LogSoftmaxOp::create(rewriter, takeOpLoc(origOp, "log_softmax_out"), newOutputType, expandedInput,
+                                          origOp.getAxisIndAttr(), getIntAttr(ctx, axisPad));
 
     const auto outShape = outputType.getShape();
     SmallVector<int64_t> offsets(outShape.size(), 0);
@@ -220,7 +220,7 @@ mlir::LogicalResult LogSoftmaxRewriter::matchAndRewrite(IE::LogSoftmaxOp origOp,
             rewriter.replaceOpWithNewOp<IE::SliceOp>(origOp, origOp.getOutput().getType(), newOp.getOutput(),
                                                      getIntArrayAttr(ctx, offsets), getIntArrayAttr(ctx, outShape));
 
-    extendOpLoc(sliceOp, "_slice_axis");
+    extendOpLoc(sliceOp, "slice_out");
 
     return mlir::success();
 }

@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
+#include <optional>
 #include <vector>
 
 #include <llvm/ADT/STLExtras.h>
@@ -11,12 +12,14 @@
 #include "vpux/compiler/dialect/IE/IR/ops/activation.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/arithmetic.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/comparison.hpp"
+#include "vpux/compiler/dialect/IE/IR/ops/data_movement.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/data_type.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/normalization.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/reduce.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/shape_manipulation.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/specialized.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
+#include "vpux/compiler/dialect/IE/transforms/rewriters/propagate_transpose_affine_reshape_common.hpp"
 #include "vpux/compiler/dialect/IE/utils/broadcast_utils.hpp"
 #include "vpux/compiler/dialect/IE/utils/power_utils.hpp"
 #include "vpux/compiler/dialect/IE/utils/reshape_utils.hpp"
@@ -111,7 +114,10 @@ mlir::Operation* getPowerOp(mlir::Operation* op) {
     // Check the case of x^2
     auto powerOp = mlir::dyn_cast_or_null<IE::PowerOp>(op);
     if (powerOp != nullptr && powerOp->hasOneUse()) {
-        return powerOp;
+        const auto exponent = IE::getExponentSplatVal(powerOp);
+        if (exponent.has_value() && isFloatEqual(exponent.value(), 2.0f)) {
+            return powerOp;
+        }
     }
 
     auto skipDimExpansionParent = [](mlir::Operation* op) -> mlir::Value {
@@ -312,6 +318,21 @@ IE::EpsMode getEpsModeFromOp(mlir::Operation* op) {
     return IE::EpsMode::ADD;
 }
 
+// Map an ADD/MAX/CONDITIONAL_EPS mode to its "_SUM" counterpart. The RMS kernel skips the
+// divide-by-N for the "_SUM" variants, computing rsqrt(Sum(x^2)+eps) directly instead of
+// rsqrt(Sum(x^2)/N+eps) - which is what the ReduceSum-based fusion pattern here needs, since
+// (unlike the ReduceMean pattern) gamma and eps are used here without being pre-scaled by N.
+IE::EpsMode toSumEpsMode(IE::EpsMode epsMode) {
+    switch (epsMode) {
+    case IE::EpsMode::MAX:
+        return IE::EpsMode::MAX_SUM;
+    case IE::EpsMode::CONDITIONAL_EPS:
+        return IE::EpsMode::CONDITIONAL_EPS_SUM;
+    default:
+        return IE::EpsMode::ADD_SUM;
+    }
+}
+
 // Create gamma from pre-scaled values
 mlir::Value createGamma(mlir::OpBuilder& builder, mlir::Operation* op, int64_t size, ArrayRef<float> values) {
     const auto dataStorageType = mlir::RankedTensorType::get({size}, mlir::Float32Type::get(op->getContext()));
@@ -361,7 +382,7 @@ void isReduceSumPattern(mlir::Operation* maybePowerOp, IE::ReduceSumOp reduceSum
     auto epsilon = std::numeric_limits<type::float16>::smallest_mixed_precision_eps;
     auto epsMode = IE::EpsMode::ADD;
     mlir::Operation* divideOp = nullptr;
-    float multiplyScale = 1.0f;
+    std::optional<float> multiplyScale;
 
     // Find the relevant user of ReduceSum (prefer SelectOp over EqualOp in 2-user case)
     auto findReduceSumUser = [](IE::ReduceSumOp reduceOp) -> mlir::Operation* {
@@ -421,8 +442,11 @@ void isReduceSumPattern(mlir::Operation* maybePowerOp, IE::ReduceSumOp reduceSum
         epsilon = epsilonResult.value();
         epsMode = getEpsModeFromOp(preventDivByZeroOp);
 
-        auto multiplyScaleResult = getMultiplyScale(preventDivByZeroOp);
-        if (mlir::succeeded(multiplyScaleResult)) {
+        if (mlir::isa<IE::MultiplyOp>(preventDivByZeroOp)) {
+            auto multiplyScaleResult = getMultiplyScale(preventDivByZeroOp);
+            if (mlir::failed(multiplyScaleResult)) {
+                return;
+            }
             multiplyScale = multiplyScaleResult.value();
         }
 
@@ -441,7 +465,9 @@ void isReduceSumPattern(mlir::Operation* maybePowerOp, IE::ReduceSumOp reduceSum
         if (!op->hasOneUse()) {
             return nullptr;
         }
-        return *op->getUsers().begin();
+        auto multiplyOp = mlir::dyn_cast_or_null<IE::MultiplyOp>(*op->getUsers().begin());
+        return multiplyOp != nullptr && getMultiplyConstOperand(multiplyOp) != nullptr ? multiplyOp.getOperation()
+                                                                                       : nullptr;
     };
     auto skipReshapeIfPresent = [](mlir::Operation* op) -> mlir::Operation* {
         if (!mlir::isa_and_nonnull<IE::AffineReshapeOp>(op)) {
@@ -461,9 +487,22 @@ void isReduceSumPattern(mlir::Operation* maybePowerOp, IE::ReduceSumOp reduceSum
         return;
     }
     int64_t reduceSize = reduceSizeResult.value();
-    float gammaScale = sqrtf(reduceSize * multiplyScale);
-    const auto epsilonAttr = getFPAttr(&ctx, epsilon / reduceSize);
-    auto epsModeAttr = IE::EpsModeAttr::get(&ctx, epsMode);
+    const bool computesMean =
+            multiplyScale.has_value() && isFloatEqual(*multiplyScale * static_cast<float>(reduceSize), 1.0f);
+    float gammaScale;
+    float epsilonValue;
+    IE::EpsMode epsModeValue;
+    if (computesMean) {
+        gammaScale = 1.0f;
+        epsilonValue = epsilon * *multiplyScale;
+        epsModeValue = epsMode;
+    } else {
+        gammaScale = sqrtf(multiplyScale.value_or(1.0f));
+        epsilonValue = epsilon;
+        epsModeValue = toSumEpsMode(epsMode);
+    }
+    const auto epsilonAttr = getFPAttr(&ctx, epsilonValue);
+    auto epsModeAttr = IE::EpsModeAttr::get(&ctx, epsModeValue);
 
     mlir::Operation* opBeforeScale = divideOp;
     if (auto realDivideOp = mlir::dyn_cast_or_null<IE::DivideOp>(divideOp)) {
@@ -531,10 +570,15 @@ void isReduceSumPattern(mlir::Operation* maybePowerOp, IE::ReduceSumOp reduceSum
         return;
     }
 
+    if (reduceAxes.size() > 1) {
+        return;
+    }
+
     mlir::Operation* replaceOp = opBeforeScale;
     std::vector<float> scaledValues;
+    mlir::Value nonConstGamma;
     if (scaleMultiplyOp != nullptr) {
-        if (Const::DeclareOp constOp = scaleMultiplyOp.getOperand(1).getDefiningOp<Const::DeclareOp>()) {
+        if (Const::DeclareOp constOp = getMultiplyConstOperand(scaleMultiplyOp)) {
             Const::Content constantContent = constOp.getContent();
             const bool matchSplat = constantContent.isSplat() && constantContent.getSplatValue<float>() != 0.0f;
             const bool matchVec = !constantContent.isSplat() && gammaScale != 0.0f &&
@@ -553,11 +597,33 @@ void isReduceSumPattern(mlir::Operation* maybePowerOp, IE::ReduceSumOp reduceSum
                 replaceOp = scaleMultiplyOp;
                 builder = mlir::OpBuilder(replaceOp);
             }
+        } else if (isFloatEqual(gammaScale, 1.0f)) {
+            // Non-constant gamma can be fused when the selected RMS mode needs no gamma correction.
+            // Multiply is commutative, so pick whichever operand isn't the normalized data.
+            auto candidateGamma = scaleMultiplyOp.getOperand(0) == opBeforeScale->getResult(0)
+                                          ? scaleMultiplyOp.getOperand(1)
+                                          : scaleMultiplyOp.getOperand(0);
+            auto gammaShape = getShape(candidateGamma);
+            auto nonOneDims = getNonOneDim(gammaShape);
+            const bool isTrailingVector =
+                    !gammaShape.empty() && gammaShape.size() <= powerInputShape.size() && nonOneDims.size() <= 1 &&
+                    (nonOneDims.empty() || nonOneDims.back().ind() == static_cast<int64_t>(gammaShape.size() - 1));
+            // RMS kernel interprets gamma using the activation type, so reject mismatched non-constant gamma.
+            const auto candidateGammaElemType =
+                    mlir::cast<vpux::NDTypeInterface>(candidateGamma.getType()).getElementType();
+            const auto powerInputElemType = mlir::cast<vpux::NDTypeInterface>(powerInput.getType()).getElementType();
+            if (isTrailingVector && gammaShape[Dim(gammaShape.size() - 1)] == reduceSize &&
+                candidateGammaElemType == powerInputElemType) {
+                nonConstGamma = candidateGamma;
+                replaceOp = scaleMultiplyOp;
+                builder = mlir::OpBuilder(replaceOp);
+            }
         }
     }
 
-    mlir::Value gamma = !scaledValues.empty() ? createGamma(builder, replaceOp, reduceSize, ArrayRef(scaledValues))
-                                              : createGamma(builder, replaceOp, reduceSize, gammaScale);
+    mlir::Value gamma = nonConstGamma           ? nonConstGamma
+                        : !scaledValues.empty() ? createGamma(builder, replaceOp, reduceSize, ArrayRef(scaledValues))
+                                                : createGamma(builder, replaceOp, reduceSize, gammaScale);
 
     // Create RMSOp
     auto rmsOp = IE::RMSOp::create(builder, appendLoc(powerOp->getLoc(), "rms"), powerOp->getOperand(0), gamma,
@@ -572,6 +638,78 @@ mlir::Value createGammaWithShape(mlir::OpBuilder& builder, mlir::Operation* op, 
     const auto constLoc = appendLoc(op->getLoc(), "const");
     return Const::createConst(builder, constLoc, dataStorageType, ArrayRef(weightData));
 };
+
+std::optional<mlir::Value> getMultiplyGammaInput(IE::MultiplyOp multiplyOp, mlir::Value normalizedValue) {
+    if (multiplyOp.getInput1() == normalizedValue) {
+        return multiplyOp.getInput2();
+    }
+    if (multiplyOp.getInput2() == normalizedValue) {
+        return multiplyOp.getInput1();
+    }
+    return std::nullopt;
+}
+
+std::optional<mlir::Value> getValidatedGamma(mlir::OpBuilder& builder, IE::MultiplyOp multiplyOp,
+                                             mlir::Value normalizedValue, int64_t reduceSize, int64_t reduceAxis,
+                                             int64_t inputWidth) {
+    if (multiplyOp.getAutoBroadcast() != IE::AutoBroadcastType::NUMPY ||
+        multiplyOp.getOutput().getType() != normalizedValue.getType()) {
+        return std::nullopt;
+    }
+
+    const auto gamma = getMultiplyGammaInput(multiplyOp, normalizedValue);
+    if (!gamma.has_value()) {
+        return std::nullopt;
+    }
+
+    // RMS kernel interprets gamma using the activation type, so reject mismatched gamma.
+    const auto gammaElemType = mlir::cast<vpux::NDTypeInterface>(gamma->getType()).getElementType();
+    const auto normalizedValueElemType = mlir::cast<vpux::NDTypeInterface>(normalizedValue.getType()).getElementType();
+    if (gammaElemType != normalizedValueElemType) {
+        return std::nullopt;
+    }
+
+    const auto gammaShape = getShape(gamma.value());
+    const auto nonOneDims = getNonOneDim(gammaShape);
+    const auto normalizedValueShape = getShape(normalizedValue);
+    if (gammaShape.empty() || gammaShape.size() > normalizedValueShape.size() || nonOneDims.size() > 1) {
+        return std::nullopt;
+    }
+
+    if (!nonOneDims.empty()) {
+        if (gammaShape[nonOneDims.front()] != reduceSize) {
+            return std::nullopt;
+        }
+
+        const auto gammaAxis = static_cast<int64_t>(nonOneDims.front().ind()) +
+                               static_cast<int64_t>(normalizedValueShape.size() - gammaShape.size());
+        if (gammaAxis != reduceAxis) {
+            return std::nullopt;
+        }
+    }
+
+    const auto gammaWidth = gammaShape.back();
+    if (gammaWidth == inputWidth || gammaShape.totalSize() == reduceSize) {
+        return gamma;
+    }
+    if (gammaWidth != 1 || !isBroadcastable(gammaWidth, inputWidth)) {
+        return std::nullopt;
+    }
+
+    auto gammaConstOp = gamma->getDefiningOp<Const::DeclareOp>();
+    if (gammaConstOp == nullptr) {
+        return std::nullopt;
+    }
+
+    SmallVector<int64_t> newGammaShape(gammaShape.begin(), gammaShape.end());
+    newGammaShape.back() = inputWidth;
+    auto broadcastedContentAttr =
+            gammaConstOp.transformContentAttr().broadcast(Dim(gammaShape.size() - 1), inputWidth).get();
+    auto newGammaType =
+            mlir::RankedTensorType::get(newGammaShape, mlir::cast<mlir::ShapedType>(gamma->getType()).getElementType());
+    return Const::DeclareOp::create(builder, appendLoc(multiplyOp->getLoc(), "gamma_broadcast"), newGammaType,
+                                    broadcastedContentAttr);
+}
 
 // Match the pattern:
 // Input -> IE.Power -> IE.ReduceSum -> IE.Add -> IE.Sqrt -> IE.Divide
@@ -617,6 +755,155 @@ IE::RMSOp createRMSOp(mlir::OpBuilder& builder, mlir::Operation* headOp, mlir::V
                                    epsilonAttr, epsModeAttr);
 
     return rmsOp;
+}
+
+struct GammaInfo final {
+    mlir::Value gamma;
+    mlir::Operation* outputOp;
+};
+
+GammaInfo getGammaInfo(mlir::OpBuilder& builder, mlir::Operation* normalizedOp, int64_t reduceSize,
+                       int64_t reduceAxis) {
+    auto createDefaultGamma = [&]() {
+        const Shape gammaShape({reduceSize});
+        return GammaInfo{createGammaWithShape(builder, normalizedOp, gammaShape), normalizedOp};
+    };
+
+    if (!normalizedOp->hasOneUse() || !mlir::isa<IE::MultiplyOp>(*normalizedOp->getUsers().begin())) {
+        return createDefaultGamma();
+    }
+
+    auto multiplyOp = mlir::cast<IE::MultiplyOp>(*normalizedOp->getUsers().begin());
+    const auto gamma =
+            getValidatedGamma(builder, multiplyOp, normalizedOp->getResult(0), reduceSize, reduceAxis, reduceSize);
+    if (!gamma.has_value()) {
+        return createDefaultGamma();
+    }
+
+    return GammaInfo{gamma.value(), multiplyOp.getOperation()};
+}
+
+// Fuse a pre-normalization Transpose into an RMS expression.
+//
+// The optional AffineReshape is part of the normalization input. Its reduced
+// output axis must map one-to-one to a Transpose output axis. The Transpose
+// must then map that axis to the last input axis, because RMSOp always
+// normalizes the last input dimension. ReduceMean must keep the reduced
+// dimension; keep_dims=false is not supported by this fusion.
+//
+// Supported pattern:
+//
+//   x -> Transpose -> [AffineReshape] -> square op -> ReduceMean -> epsilon op -> Sqrt
+//                              |                                      |
+//                              +------ Divide(numerator, denominator)
+//                                                         |
+//                                                 (optional Multiply(gamma))
+//
+// The existing RMS matcher validates the square operation and the optional
+// gamma. This helper only analyzes the layout ops and the ReduceMean axis.
+// After fusion, the original normalization output is replaced with:
+//
+//   x -> RMS -> Transpose -> [AffineReshape] -> output
+//
+struct TransposeRMSNormInfo final {
+    IE::TransposeOp transposeOp;
+    IE::AffineReshapeOp affineReshapeOp;
+    int64_t reduceSize;
+    int64_t reduceAxis;
+};
+
+std::optional<TransposeRMSNormInfo> getTransposeRMSNormInfo(mlir::Operation* squareOp, mlir::Operation* divideOp,
+                                                            ArrayRef<int64_t> reduceAxes, Logger log) {
+    if (reduceAxes.size() != 1) {
+        return std::nullopt;
+    }
+
+    auto divideNormOp = mlir::dyn_cast_or_null<IE::DivideOp>(divideOp);
+    if (divideNormOp == nullptr) {
+        return std::nullopt;
+    }
+
+    const auto numerator = divideNormOp.getInput1();
+    mlir::Value normalizedInput;
+    IE::AffineReshapeOp affineReshapeOp = nullptr;
+    IE::TransposeOp transposeOp = nullptr;
+    for (auto operand : squareOp->getOperands()) {
+        auto candidateAffineReshapeOp = operand.getDefiningOp<IE::AffineReshapeOp>();
+        auto candidateTransposeOp = candidateAffineReshapeOp != nullptr
+                                            ? candidateAffineReshapeOp.getInput().getDefiningOp<IE::TransposeOp>()
+                                            : operand.getDefiningOp<IE::TransposeOp>();
+        if (candidateTransposeOp != nullptr &&
+            (candidateAffineReshapeOp != nullptr ? candidateAffineReshapeOp.getOutput()
+                                                 : candidateTransposeOp.getOutput()) == numerator) {
+            normalizedInput = operand;
+            affineReshapeOp = candidateAffineReshapeOp;
+            transposeOp = candidateTransposeOp;
+            break;
+        }
+    }
+    if (transposeOp == nullptr || !transposeOp.getOrderValue().has_value()) {
+        return std::nullopt;
+    }
+
+    const auto orderValue = transposeOp.getOrderValue().value();
+    if (!orderValue.isPermutation()) {
+        return std::nullopt;
+    }
+
+    const auto reduceAxis = reduceAxes.front();
+    const auto normalizedInputShape = getShape(normalizedInput);
+    if (reduceAxis < 0 || reduceAxis >= static_cast<int64_t>(normalizedInputShape.size())) {
+        return std::nullopt;
+    }
+
+    int64_t transposeAxis = reduceAxis;
+    if (affineReshapeOp != nullptr) {
+        const auto affineInputShape = getShape(affineReshapeOp.getInput());
+        const auto affineOutputShape = getShape(affineReshapeOp.getOutput());
+        const auto dimMapping = parseIntArrayOfArrayAttr<int64_t>(affineReshapeOp.getDimMapping());
+        if (dimMapping.size() != affineInputShape.size() ||
+            reduceAxis >= static_cast<int64_t>(affineOutputShape.size())) {
+            return std::nullopt;
+        }
+
+        // The reduced output axis must remain one-to-one through AffineReshape.
+        const mlir::DenseSet<int64_t> modifiedAxes{reduceAxis};
+        if (IE::areModifiedAxesSplitOrMerged(dimMapping, affineInputShape, affineOutputShape, modifiedAxes, false,
+                                             log)) {
+            return std::nullopt;
+        }
+        const auto invertedDimMapping =
+                IE::invertDimMappingWithAxesNotSplitOrMerged(dimMapping, affineInputShape, affineOutputShape);
+        if (reduceAxis >= static_cast<int64_t>(invertedDimMapping.size())) {
+            return std::nullopt;
+        }
+        transposeAxis = invertedDimMapping[reduceAxis];
+        if (transposeAxis < 0 || transposeAxis >= static_cast<int64_t>(affineInputShape.size()) ||
+            dimMapping[transposeAxis].size() != 1 || dimMapping[transposeAxis].front() != reduceAxis ||
+            affineInputShape[Dim(transposeAxis)] != affineOutputShape[Dim(reduceAxis)]) {
+            return std::nullopt;
+        }
+    }
+
+    const auto transposeInputShape = getShape(transposeOp.getInput());
+    const auto transposeOutputShape = getShape(transposeOp.getOutput());
+    if (transposeAxis < 0 || transposeAxis >= static_cast<int64_t>(transposeOutputShape.size())) {
+        return std::nullopt;
+    }
+
+    // RMSOp reduces the most inner dimension. Map the ReduceMean axis through
+    // AffineReshape (if present), then through the input Transpose.
+    const auto transposeOrder = DimsOrder::fromAffineMap(orderValue);
+    const auto mappedAxis = transposeOrder.dimAt(transposeAxis).ind();
+    if (mappedAxis != static_cast<int64_t>(transposeInputShape.size() - 1)) {
+        return std::nullopt;
+    }
+
+    const auto reduceSizeResult = getReducedSize({mappedAxis}, transposeInputShape);
+    if (mlir::failed(reduceSizeResult)) {
+        return std::nullopt;
+    }
+    return TransposeRMSNormInfo{transposeOp, affineReshapeOp, reduceSizeResult.value(), reduceAxis};
 }
 
 //
@@ -765,17 +1052,31 @@ void FuseRMSNormPass::safeRunOnFunc() {
         // Get shape size of reduced axes
         const auto reduceAxes = parseIntArrayAttr<int64_t>(reduceMeanOp.getAxesValueAttr());
         auto reduceMeanInputShape = getShape(reduceMeanOp->getOperand(0));
+
+        std::optional<TransposeRMSNormInfo> transposeRMSNormInfo;
         auto reduceSizeResult = getReducedSize(reduceAxes, reduceMeanInputShape);
         if (mlir::failed(reduceSizeResult)) {
+            // The standard matcher only accepts inner reduction axes. At this
+            // point, check only whether the input layout chain can move the
+            // axis to the inner dimension. Keep the remaining pattern checks
+            // below, and rewrite only after the normal Divide endpoint match.
+            transposeRMSNormInfo = getTransposeRMSNormInfo(powerOp, divideOp, reduceAxes, _log);
+            if (!transposeRMSNormInfo.has_value()) {
+                return;
+            }
+            if (!reduceMeanOp.getKeepDims()) {
+                return;
+            }
+        }
+        const auto reduceSize =
+                transposeRMSNormInfo.has_value() ? transposeRMSNormInfo->reduceSize : reduceSizeResult.value();
+        if (!transposeRMSNormInfo.has_value() && layerSize != reduceSize) {
             return;
         }
-        int64_t reduceSize = reduceSizeResult.value();
-        if (layerSize != reduceSize) {
-            return;
-        }
+
         const auto epsilonAttr = getFPAttr(&ctx, epsilon);
 
-        if (matchPatternEndsWithDivideOp(divideOp, headOp)) {
+        if (!transposeRMSNormInfo.has_value() && matchPatternEndsWithDivideOp(divideOp, headOp)) {
             _log.trace("Match the pattern ends with DivideOp");
             auto builder = mlir::OpBuilder(divideOp);
 
@@ -788,13 +1089,38 @@ void FuseRMSNormPass::safeRunOnFunc() {
             return;
         }
 
-        // Not the pattern ends with DivideOp, multi-users is not allowed
-        if (!divideOp->hasOneUse()) {
-            return;
-        }
+        if (transposeRMSNormInfo.has_value()) {
+            auto builder = mlir::OpBuilder(divideOp);
+            auto gammaInfo = getGammaInfo(builder, divideOp, reduceSize, transposeRMSNormInfo->reduceAxis);
+            if (gammaInfo.outputOp != divideOp) {
+                builder.setInsertionPoint(gammaInfo.outputOp);
+            }
 
-        if (!isValidReciprocalDivideOp(divideOp)) {
+            auto rmsOp = createRMSOp(builder, transposeRMSNormInfo->transposeOp.getOperation(), gammaInfo.gamma,
+                                     reduceSize, epsilonAttr, epsMode);
+            auto outputTransposeOp =
+                    IE::TransposeOp::create(builder, appendLoc(powerOp->getLoc(), "transpose"), rmsOp.getOutput(),
+                                            nullptr, transposeRMSNormInfo->transposeOp.getOrderValueAttr());
+            mlir::Value fusedOutput = outputTransposeOp.getOutput();
+            if (transposeRMSNormInfo->affineReshapeOp != nullptr) {
+                auto outputReshapeOp =
+                        IE::AffineReshapeOp::create(builder, appendLoc(powerOp->getLoc(), "reshape"), fusedOutput,
+                                                    transposeRMSNormInfo->affineReshapeOp.getDimMapping(),
+                                                    transposeRMSNormInfo->affineReshapeOp.getShapeValue());
+                fusedOutput = outputReshapeOp.getOutput();
+            }
+            gammaInfo.outputOp->getResult(0).replaceAllUsesWith(fusedOutput);
+            _log.trace("Fused Transpose/RMS normalization after propagating the reduction axis");
             return;
+        } else {
+            // Not the pattern ends with DivideOp, multi-users is not allowed
+            if (!divideOp->hasOneUse()) {
+                return;
+            }
+
+            if (!isValidReciprocalDivideOp(divideOp)) {
+                return;
+            }
         }
 
         auto multiplyOp1 = mlir::dyn_cast_or_null<IE::MultiplyOp>(*divideOp->getUsers().begin());
@@ -842,36 +1168,14 @@ void FuseRMSNormPass::safeRunOnFunc() {
             auto gammaShape = getShape(multiplyOp1->getResult(0));
             gamma = createGammaWithShape(builder, multiplyOp1, gammaShape);
         } else {
-            gamma = multiplyOp2.getInput1().getDefiningOp() == multiplyOp1 ||
-                                    (convertOp2 != nullptr && multiplyOp2.getInput1().getDefiningOp() == convertOp2)
-                            ? multiplyOp2.getInput2()
-                            : multiplyOp2.getInput1();
-            auto gammaDims = getShape(gamma);
-            auto gammaWidth = gammaDims[Dim(gammaDims.size() - 1)];
-
-            auto inputDims = getShape(powerOp->getOperand(0));
-            auto inputWidth = inputDims[Dim(inputDims.size() - 1)];
-
-            if (getNonOneDim(gammaDims).size() > 1 || !isBroadcastable(gammaWidth, inputWidth)) {
+            const auto normalizedValue = convertOp2 != nullptr ? convertOp2.getOutput() : multiplyOp1.getOutput();
+            const auto inputShape = getShape(powerOp->getOperand(0));
+            const auto gammaValue = getValidatedGamma(builder, multiplyOp2, normalizedValue, layerSize,
+                                                      static_cast<int64_t>(inputShape.size() - 1), inputShape.back());
+            if (!gammaValue.has_value()) {
                 return;
             }
-
-            if (gammaWidth != inputWidth) {
-                auto gammaConstOp = gamma.getDefiningOp<Const::DeclareOp>();
-                if (gammaConstOp == nullptr) {
-                    return;
-                }
-
-                SmallVector<int64_t> newGammaShape(gammaDims.begin(), gammaDims.end());
-                newGammaShape[gammaDims.size() - 1] = inputWidth;
-
-                auto broadcastedContentAttr =
-                        gammaConstOp.transformContentAttr().broadcast(Dim(gammaDims.size() - 1), inputWidth).get();
-                auto newGammaType = mlir::RankedTensorType::get(
-                        newGammaShape, mlir::cast<mlir::ShapedType>(gamma.getType()).getElementType());
-                gamma = Const::DeclareOp::create(builder, appendLoc(headOp->getLoc(), "gamma_broadcast"), newGammaType,
-                                                 broadcastedContentAttr);
-            }
+            gamma = gammaValue.value();
         }
 
         _log.trace("RMS pattern matched");

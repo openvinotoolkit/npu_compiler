@@ -6,19 +6,24 @@
 #pragma once
 
 #include "vpux/compiler/core/attributes/shape.hpp"
+#include "vpux/compiler/core/layers.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/data_movement.hpp"
+#include "vpux/compiler/dialect/IE/IR/ops/reduce.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/specialized.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops_interfaces.hpp"
 #include "vpux/compiler/dialect/IE/utils/dynamic_shape_utils.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/reduce.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/factories/gather_dma_constants.hpp"
 #include "vpux/compiler/dialect/config/IR/resources.hpp"
 #include "vpux/compiler/dialect/config/utils/config_option_utils.hpp"
+#include "vpux/compiler/utils/attributes.hpp"
 #include "vpux/compiler/utils/options.hpp"
 #include "vpux/compiler/utils/types.hpp"
 
 #include <mlir/IR/Operation.h>
 
 #include <climits>
+#include <cstdint>
 
 namespace vpux::VPU {
 
@@ -62,6 +67,39 @@ public:
             return true;
         }
         return false;
+    }
+};
+
+//
+// LayerWithDmaInterfaceReduceMean
+//
+
+class LayerWithDmaInterfaceReduceMean final :
+        public IE::LayerWithDmaInterface::ExternalModel<LayerWithDmaInterfaceReduceMean, IE::ReduceMeanOp> {
+public:
+    bool isSupported(mlir::Operation* origOp) const {
+        const auto module = origOp->getParentOfType<mlir::ModuleOp>();
+        if (config::getCompilationMode(origOp) != config::CompilationMode::HostCompile_Interpreter ||
+            config::getWorkloadManagementMode(module) != WorkloadManagementMode::FWLM_V1_PAGES) {
+            return false;
+        }
+        auto meanOp = mlir::cast<IE::ReduceMeanOp>(origOp);
+        const auto inputType = mlir::cast<NDTypeInterface>(meanOp.getInput().getType());
+        if (!VPU::ReduceMeanDMAOp::isSupportedInput(inputType, vpux::emptyLogCb)) {
+            return false;
+        }
+        const auto shape = inputType.getShape();
+        // IE.ReduceMean may produce another precision; ReduceMeanDMA produces FP16 only.
+        const auto outputType = mlir::cast<NDTypeInterface>(meanOp.getOutput().getType());
+        if (!meanOp.getKeepDims() || !inputType.getElementType().isF16() || !outputType.getElementType().isF16() ||
+            (!mlir::ShapedType::isDynamic(shape[Dims4D::Act::H]) &&
+             !mlir::ShapedType::isDynamic(shape[Dims4D::Act::W])) ||
+            meanOp.getInputPaddingAttr() != nullptr || meanOp.getOutputPaddingAttr() != nullptr) {
+            return false;
+        }
+        // IE.ReduceMean axes are already non-negative and sorted.
+        const auto axes = parseIntArrayAttr<int64_t>(meanOp.getAxesValueAttr());
+        return axes == SmallVector<int64_t>{Dims4D::Act::H.ind(), Dims4D::Act::W.ind()};
     }
 };
 

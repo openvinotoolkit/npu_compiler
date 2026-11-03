@@ -1524,6 +1524,68 @@ TEST_F(MLIR_ConstContentAttrTest, PadPerAxisQuant) {
     }
 }
 
+// The quantized dimension is not restricted to the outermost axis. Padding along a non-zero quantized dimension must
+// fill each padded element with the zero point of the channel it belongs to along that axis.
+TEST_F(MLIR_ConstContentAttrTest, PadPerAxisQuantNonZeroDim) {
+    ctx.loadDialect<mlir::quant::QuantDialect>();
+
+    const int64_t OC = 2;
+    const int64_t IC = 1;
+    const int64_t IH = 2;
+    const int64_t IW = 2;
+    const auto baseType = mlir::RankedTensorType::get({OC, IC, IH, IW}, mlir::Float32Type::get(&ctx));
+
+    const auto vals = generateValues<float>(baseType.getNumElements());
+    const auto baseAttr = Const::createConstContent(baseType, ArrayRef(vals));
+
+    Const::ContentSetup baseContentAttrSetup(baseAttr, baseType);
+
+    // Per-axis quantization along axis 2 (H) with distinct zero points per channel.
+    const int64_t quantDim = 2;
+    std::vector<double> scales{0.5, 0.5};
+    std::vector<int64_t> zeroPoints{10, 20};
+    const auto quantType = mlir::quant::UniformQuantizedPerAxisType::get(
+            0, getUInt8Type(&ctx), mlir::Float32Type::get(&ctx), scales, zeroPoints, quantDim, 0, 255);
+
+    auto quantContentAttrSetup = baseContentAttrSetup.castElemType(quantType);
+
+    // Pad only along the quantized axis (H).
+    const int64_t PH = 1;
+    auto contentAttrSetup = quantContentAttrSetup.padWithZero({0, 0, PH, 0}, {0, 0, PH, 0});
+
+    auto contentAttr = Const::ContentAttr::get(baseAttr, std::move(contentAttrSetup));
+    // Folding used to throw "Only per-channel quantization is supported" for a non-zero quantized dimension.
+    const auto content = contentAttr.fold();
+    EXPECT_EQ(content.getType(), contentAttr.getType());
+    EXPECT_FALSE(content.isSplat());
+
+    // Padded axis becomes {zp.front(), <real>, zp.back()}: pad-before uses the first channel zero point,
+    // pad-after uses the last channel zero point.
+    const int64_t newIH = IH + 2 * PH;
+    std::vector<int32_t> expVals;
+    expVals.reserve(OC * IC * newIH * IW);
+    for (int64_t oc = 0; oc < OC; ++oc) {
+        for (int64_t h = 0; h < newIH; ++h) {
+            for (int64_t w = 0; w < IW; ++w) {
+                if (h < PH) {
+                    expVals.push_back(static_cast<int32_t>(zeroPoints.front()));
+                } else if (h >= IH + PH) {
+                    expVals.push_back(static_cast<int32_t>(zeroPoints.back()));
+                } else {
+                    const auto origIndex = oc * IC * IH * IW + (h - PH) * IW + w;
+                    expVals.push_back(static_cast<int32_t>(vals[origIndex]));
+                }
+            }
+        }
+    }
+
+    const auto contentVals = content.getValues<int32_t>();
+    ASSERT_EQ(contentVals.size(), expVals.size());
+    for (size_t i = 0; i < expVals.size(); ++i) {
+        EXPECT_EQ(expVals[i], contentVals[i]) << "mismatch at index " << i;
+    }
+}
+
 TEST_F(MLIR_ConstContentAttrTest, PadUniformQuantileI4) {
     ctx.loadDialect<mlir::quant::QuantDialect>();
 

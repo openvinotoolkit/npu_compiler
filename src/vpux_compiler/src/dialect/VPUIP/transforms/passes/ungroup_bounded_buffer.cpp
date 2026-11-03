@@ -3,10 +3,6 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-#include <mlir/IR/BuiltinAttributes.h>
-#include <mlir/IR/BuiltinTypes.h>
-#include <mlir/Support/LogicalResult.h>
-#include <vpux/utils/core/error.hpp>
 #include "vpux/compiler/core/bounded_buffer.hpp"
 #include "vpux/compiler/dialect/VPUIP/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPUIP/IR/ops.hpp"
@@ -14,9 +10,14 @@
 #include "vpux/compiler/dialect/VPUIP/transforms/passes.hpp"
 #include "vpux/compiler/dialect/VPUIP/utils/sw_utils.hpp"
 #include "vpux/compiler/dialect/VPUIP/utils/utils.hpp"
+#include "vpux/compiler/dialect/net/utils/network_info_utils.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
-#include "vpux/compiler/utils/logging.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
+#include "vpux/utils/core/error.hpp"
+
+#include <mlir/IR/BuiltinAttributes.h>
+#include <mlir/IR/BuiltinTypes.h>
+#include <mlir/Support/LogicalResult.h>
 
 namespace vpux::VPUIP {
 #define GEN_PASS_DECL_UNGROUPBOUNDEDBUFFERS
@@ -28,9 +29,33 @@ using namespace vpux;
 
 namespace {
 
-//
-// RemoveGroupUngroup
-//
+SmallVector<mlir::ModuleOp> findDynamicNpuModules(Logger log, mlir::ModuleOp topModule) {
+    log.trace("Finding all NPU modules that potentially need ungrouping");
+
+    log = log.nest();
+    SmallVector<mlir::ModuleOp> suitableModules;
+    if (!config::isHostCompileMode(topModule)) {
+        // not host compile means we should have a single module which
+        // represents the NPU schedule.
+        suitableModules.push_back(topModule);
+        return suitableModules;
+    }
+
+    log.trace("This IS host compilation, expecting nested modules to be NPU kernels");
+    const auto innerModules = topModule.getOps<mlir::ModuleOp>();
+    for (auto innerModule : innerModules) {
+        const auto networkInfos = innerModule.getOps<net::NetworkInfoOp>();
+        if (networkInfos.empty()) {
+            // not an NPU module
+            log.trace("Module '{0}' is not an NPU kernel", innerModule.getSymName().value_or("UNKNOWN"));
+            continue;
+        }
+        suitableModules.push_back(innerModule);
+    }
+
+    return suitableModules;
+}
+
 class RemoveGroupUngroupRewriter final : public mlir::OpRewritePattern<VPUIP::GroupBoundedBufferOp> {
 public:
     RemoveGroupUngroupRewriter(mlir::MLIRContext* ctx, mlir::PatternBenefit benefit)
@@ -280,6 +305,8 @@ mlir::LogicalResult UngroupSwKernelOp::matchAndRewrite(VPUIP::SwKernelOp origOp,
                                                 swKernelDynamicInputShapes, swKernelDynamicInputShapesMap,
                                                 swKernelDynamicOutputShapes, swKernelDynamicOutputShapesMap,
                                                 origOp.getKernelFunction(), tileIndex);
+    VPUIP::copyCustomKernelAttributes(origOp, swKernelOp);
+
     auto args = kernelArgsRange(origOp);
     auto swKernelRun = *swKernelRuns.begin();
 
@@ -343,10 +370,21 @@ public:
     }
 
 private:
-    void safeRunOnFunc() final;
+    void safeRunOnModule() final;
+    void ungroupBoundedBuffers(mlir::func::FuncOp funcOp);
 };
 
-void UngroupBoundedBuffers::safeRunOnFunc() {
+void UngroupBoundedBuffers::safeRunOnModule() {
+    auto npuModules = findDynamicNpuModules(_log, getOperation());
+
+    for (auto npuModule : npuModules) {
+        npuModule.walk([&](mlir::func::FuncOp funcOp) {
+            ungroupBoundedBuffers(funcOp);
+        });
+    }
+}
+
+void UngroupBoundedBuffers::ungroupBoundedBuffers(mlir::func::FuncOp funcOp) {
     auto& ctx = getContext();
 
     auto isLegalCopyOp = [](VPUIP::CopyOp copyOp) {
@@ -388,7 +426,7 @@ void UngroupBoundedBuffers::safeRunOnFunc() {
     patterns.add<UngroupSwKernelOp>(&ctx, _log);
     patterns.add<UngroupConvertDMAOp>(&ctx, _log);
 
-    if (mlir::failed(mlir::applyPartialConversion(getOperation(), target, std::move(patterns)))) {
+    if (mlir::failed(mlir::applyPartialConversion(funcOp, target, std::move(patterns)))) {
         signalPassFailure();
     }
 
@@ -397,8 +435,8 @@ void UngroupBoundedBuffers::safeRunOnFunc() {
     removalPatterns.add<RemoveGroupUngroupRewriter>(&ctx, vpux::benefitHigh);
     removalPatterns.add<RemoveExtraShapeCopiesRewriter>(&ctx, _log, vpux::benefitLow);
 
-    if (mlir::failed(mlir::applyPatternsGreedily(getOperation(), std::move(removalPatterns),
-                                                 getDefaultGreedyRewriteConfig()))) {
+    if (mlir::failed(
+                mlir::applyPatternsGreedily(funcOp, std::move(removalPatterns), getDefaultGreedyRewriteConfig()))) {
         signalPassFailure();
     }
 }

@@ -476,3 +476,40 @@ func.func @SplitLargeKernelAvgPoolWithPostOpByAdd(%arg0 : tensor<1x512x8x10xf16>
 
     // CHECK: return [[ADD_2]] : tensor<1x512x1x2xf16>
 }
+
+// -----
+
+// CHECK-LABEL: @SpaceToDepthPatchEmbeddingSingleRowOfPatches
+func.func @SpaceToDepthPatchEmbeddingSingleRowOfPatches(%arg0: tensor<1x3x14x14336xf16>, %arg1: tensor<1152x3x14x14xf16>) -> tensor<1x1152x1x1024xf16> {
+    %conv = IE.Convolution(%arg0, %arg1) {
+        dilations = [1, 1],
+        pads_begin = [0, 0],
+        pads_end = [0, 0],
+        strides = [14, 14]
+    } : tensor<1x3x14x14336xf16>, tensor<1152x3x14x14xf16> -> tensor<1x1152x1x1024xf16>
+
+    return %conv : tensor<1x1152x1x1024xf16>
+
+    // CHECK-NOT:   IE.SpaceToDepthOp
+    // CHECK:       IE.Convolution
+    // CHECK-SAME:      strides = [14, 14]
+    // CHECK:       return
+}
+
+// -----
+
+// CHECK-LABEL: @SpaceToDepthPatchEmbeddingMultiRowStillFolded
+// CHECK-SAME:  [[INPUT:%.+]]: tensor<1x3x224x3584xf16>
+func.func @SpaceToDepthPatchEmbeddingMultiRowStillFolded(%arg0: tensor<1x3x224x3584xf16>, %arg1: tensor<1152x3x14x14xf16>) -> tensor<1x1152x16x256xf16> {
+    %conv = IE.Convolution(%arg0, %arg1) {
+        dilations = [1, 1],
+        pads_begin = [0, 0],
+        pads_end = [0, 0],
+        strides = [14, 14]
+    } : tensor<1x3x224x3584xf16>, tensor<1152x3x14x14xf16> -> tensor<1x1152x16x256xf16>
+
+    return %conv : tensor<1x1152x16x256xf16>
+
+    // CHECK:       [[S2D:%.+]] = IE.SpaceToDepthOp([[INPUT]]) {block_size = 14 : i64, mode = #IE.space_to_depth_mode<DEPTH_FIRST>}
+    // CHECK-NOT:   IE.Slice
+}

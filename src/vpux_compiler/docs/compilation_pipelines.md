@@ -386,7 +386,7 @@ flowchart LR
     MemSparse --> CopyOpt
 
     subgraph CopyOpt[Copy Optimization]
-        O1[UngroupBoundedBuffers] --> O2[OptimizeCopiesPipeline]
+        O2[OptimizeCopiesPipeline]
         O2 --> O3[ConvertDynReshapeToInPlace]
         O3 --> O4[InsertCopyForEltwiseInPlace]
         O4 --> O5[OptimizeConvertDMAOp]
@@ -502,3 +502,46 @@ In the `HostCompile` variant, the pipeline flow is wrapped to handle coordinatio
 2. **Inner NPU Pipeline**: Runs the standard IE -> VPU sequence inside the nested `@NPU` module.
 3. **Host Interleaving**: Unpacks the module and runs host-specific utility passes (handling memory copies, scratch buffer generation, and function call wrappings).
 4. **Final Lowering**: Continues the `VPUIP` transition uniformly over the host and accelerator boundaries.
+
+### Weights Extraction
+
+The `weights-extraction` compilation option (default `false`) controls weight deduplication inside the SCF compute-ops outlining pipeline used by `HostCompile`.
+
+When `scf-compute-ops-outlining=true` produces multiple outlined kernels that reference the same weight tensors, setting `weights-extraction=true` enables two extra passes inside `buildScfComputeOpsOutliningPipeline` (`extract_weights`, `concat_host_consts`):
+
+- **ExtractWeights** moves repeated weight `Const::DeclareOp`s out of the outlined compute functions and into the main (host) function, passing them in as additional kernel arguments.
+- **ConcatHostConsts** concatenates the lifted host-side constants so they share a single contiguous memory block.
+
+The resulting host constants are later migrated by `convert_hostcode_to_bytecode` into a single, shared entry in the bytecode constant section, reducing the on-disk weight payload when the same weights are reused across iterations or outlined functions. The option is off by default - enable it for HostCompile flows where weight reuse across outlined kernels is expected.
+
+### SCF compute-ops outlining
+
+`scf-compute-ops-outlining` extracts VPU compute regions from SCF loops into dedicated
+kernel functions.
+
+It runs after SCF tiling and before the later multi-cluster and NCE workload stages.
+
+```mermaid("scf_compute_ops_outlining")
+flowchart TD
+    O1([VPU::buildScfComputeOpsOutliningPipeline]) --> O2[SCFFuseLastViewLikeOp]
+    O2 --> O3[RestorePadAttrAfterSCFTiling]
+    O3 --> O4[Canonicalizer]
+    O4 --> O5[PrepareDynamicKernelAllocationSizes]
+    O5 --> O6[ScfComputeOpsOutlining]
+    O6 --> O7[AdjustBlockSizeForScfTiling]
+    O7 --> O8{WeightsExtraction?}
+    O8 -->|yes| O8a[ExtractWeights]
+    O8a --> O8b[ConcatHostConsts]
+    O8 -->|no| O9
+    O8b --> O9[ConvertDynamicToStaticKernels]
+    O9 --> O10{LoopUnrolling?}
+    O10 -->|yes| O10a[UnrollSCFLoop]
+    O10 -->|no| O11
+    O10a --> O11[LoopInvariantCodeMotion]
+    O11 --> O12[FinalizeComputeFunctionBoundaries]
+    O12 --> O13[Canonicalizer]
+    O13 --> O14[CSE]
+    O14 --> O15[SymbolDCE]
+    O15 --> O16[Core::PackNestedModules]
+    O16 --> O17[AssignTilesForSwIoDmaModules]
+```

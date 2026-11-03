@@ -141,8 +141,8 @@ bool vpux::VPUIP::VPUIPDialect::hasExecutorInstanceMask(mlir::async::ExecuteOp e
 }
 
 bool vpux::VPUIP::VPUIPDialect::isComputeExecutorKind(config::ExecutorKind executorKind) {
-    static const llvm::DenseSet<config::ExecutorKind> computeExecutors = {
-            config::ExecutorKind::DPU, config::ExecutorKind::SHAVE_ACT, config::ExecutorKind::M2I};
+    static const llvm::DenseSet<config::ExecutorKind> computeExecutors = {config::ExecutorKind::DPU,
+                                                                          config::ExecutorKind::SHAVE_ACT};
     return computeExecutors.find(executorKind) != computeExecutors.end();
 }
 

@@ -73,6 +73,16 @@ mlir::Value createZeroPointsConstant(mlir::PatternRewriter& rewriter, mlir::Valu
     const auto zpConstantType = mlir::RankedTensorType::get(newWtShape.raw(), zpElemType);
     return Const::createConst<llvm::APInt>(rewriter, loc, zpConstantType, zpAPInts);
 }
+
+// A constant bias is rescaled per-channel by NCESparsity::getBiasFunc (dividing by the filter's
+// quantized scale, or by the full input/weights rescale factor when the input is also quantized)
+// before being stored in the weight table. createRuntimeBiasForWeightTable does not replicate that
+// rescaling, so a runtime bias can only be used as-is when neither input nor filter is quantized.
+bool requiresBiasRescalingUnsupportedForRuntimeBias(mlir::Value input, mlir::Value filter) {
+    const auto inElemType = mlir::cast<vpux::NDTypeInterface>(input.getType()).getElementType();
+    const auto filterElemType = mlir::cast<vpux::NDTypeInterface>(filter.getType()).getElementType();
+    return mlir::isa<mlir::quant::QuantizedType>(inElemType) || mlir::isa<mlir::quant::QuantizedType>(filterElemType);
+}
 }  // namespace
 
 //
@@ -136,14 +146,46 @@ mlir::LogicalResult ConvToNCE::matchAndRewrite(IE::ConvolutionOp origOp, mlir::P
                     : VPU::alignConvWeightsTensor(rewriter, origOp->getLoc(), weightsConstValue);
 
     // Generate weights table
+    const auto isNewWeightTableFormat =
+            VPU::getVPUStrategyFactory(origOp->getContext())->useNewWeightTableFormat(origOp, isCompressConvSupported);
+
     Const::ContentAttr bias;
+    mlir::Value runtimeBias;
     if (origOp.getBias() != nullptr) {
         auto biasConstOp = origOp.getBias().getDefiningOp<Const::DeclareOp>();
-        if (biasConstOp == nullptr) {
-            _log.trace("Skipping non-constant bias for IE.ConvolutionOp: weight_table_bias is not supported here");
-            return mlir::failure();
+        if (biasConstOp != nullptr) {
+            bias = biasConstOp.getContentAttr();
+        } else {
+            if (!isNewWeightTableFormat) {
+                _log.trace("Skipping non-constant bias for IE.ConvolutionOp: legacy weight table format does "
+                           "not support weight_table_bias");
+                return mlir::failure();
+            }
+            // Bias tensor rank is not constrained by IE.ConvolutionOp; accept any shape as long as it
+            // contains OC elements. Uses the declared (not bounded) shape: a bounded dynamic shape's bounds
+            // are always static, so checking those would miss a genuinely dynamic bias here and crash later
+            // in createRuntimeBiasForWeightTable, which operates on the declared shape.
+            const auto biasShape = getShape(origOp.getBias());
+            if (!biasShape.isStatic()) {
+                _log.trace("Skipping non-constant bias for IE.ConvolutionOp: unable to statically determine "
+                           "bias element count for shape {0}",
+                           biasShape);
+                return mlir::failure();
+            }
+            if (biasShape.totalSize() != OC) {
+                _log.trace("Skipping non-constant bias for IE.ConvolutionOp: bias has {0} elements, expected "
+                           "{1} (OC)",
+                           biasShape.totalSize(), OC);
+                return mlir::failure();
+            }
+            if (requiresBiasRescalingUnsupportedForRuntimeBias(origOp.getInput(), origOp.getFilter())) {
+                _log.trace("Skipping non-constant bias for IE.ConvolutionOp: quantized input/filter requires "
+                           "per-channel bias rescaling not supported for a runtime bias");
+                return mlir::failure();
+            }
+            runtimeBias =
+                    VPU::createRuntimeBiasForWeightTable(rewriter, takeOpLoc(origOp, "bias"), origOp.getBias(), OC);
         }
-        bias = biasConstOp.getContentAttr();
     }
     const auto& ppeConfig = VPU::getPpeConfig(ctx);
     const auto ppeAttr = ppeConfig.retrievePPEAttribute(origOp);
@@ -156,8 +198,6 @@ mlir::LogicalResult ConvToNCE::matchAndRewrite(IE::ConvolutionOp origOp, mlir::P
         mpeEngineAttr = mlir::cast<VPU::MPEEngineAttr>(mpeEngineInterface.getMPEEngineWithZP(weightZp, activationZp));
     }
 
-    const auto isNewWeightTableFormat =
-            VPU::getVPUStrategyFactory(origOp->getContext())->useNewWeightTableFormat(origOp, isCompressConvSupported);
     const auto ppeConverter = VPU::NCESparsity::getPPEConverterCb(_arch, isNewWeightTableFormat);
     const auto biasConverter = VPU::NCESparsity::getBiasConverterCb(_arch, isNewWeightTableFormat);
 
@@ -172,9 +212,12 @@ mlir::LogicalResult ConvToNCE::matchAndRewrite(IE::ConvolutionOp origOp, mlir::P
                                                                               takeOpLoc(origOp, "zp"))
                                                    : nullptr;
 
+    // `bias` is left default-constructed (null) when a non-constant bias is used (see above);
+    // `runtimeBias` is passed so NewWeightsTableTensors wires it directly into biasTensor instead
+    // of materializing a placeholder Const-backed bias table from the null `bias`.
     const auto weightsTableParams =
             VPU::WeightsTableParams(origOp, origOp.getInput(), adaptedOutElemType, maybeAlignedFilter, bias, OC,
-                                    ppeConverter, biasConverter, origOp.getStaticScaleAttr(), zeroPoints);
+                                    ppeConverter, biasConverter, origOp.getStaticScaleAttr(), zeroPoints, runtimeBias);
 
     const auto weightsTableVec = isNewWeightTableFormat
                                          ? std::vector<int32_t>{}
@@ -340,6 +383,13 @@ mlir::Value transposeOutput(mlir::Value output, mlir::PatternRewriter& rewriter)
 mlir::LogicalResult MatMulToNCE::matchAndRewrite(IE::MatMulOp origOp, mlir::PatternRewriter& rewriter) const {
     _log.trace("[{0}] Got '{1}' at '{2}'", getDebugName(), origOp->getName(), origOp->getLoc());
 
+    // Lowering of the scale / zero points / bias operands to NCE is not supported yet, they would be silently dropped
+    // This will be remove in the following PR that focuses on adding the required support for the scale / zero points
+    // operands in NCE
+    if (origOp.getScale() != nullptr || origOp.getZeroPoints() != nullptr || origOp.getBias() != nullptr) {
+        return matchFailed(_log, rewriter, origOp, "MatMul with scale, zero points or bias is not supported");
+    }
+
     // Convert from 4D inputs to 5D.
     auto input1 = transposeInput(origOp.getInput1(), rewriter,
                                  /*memPermOrder=*/DimsOrder::GHNWC);  // TODO: E#129621 Define new alias (GHNWC) and
@@ -483,6 +533,11 @@ mlir::LogicalResult DepthConvToNCE::matchAndRewrite(IE::GroupConvolutionOp origO
                 _log.trace("Skipping non-constant bias for IE.GroupConvolutionOp: bias has {0} elements, expected "
                            "{1} (OC)",
                            biasShape.totalSize(), OC);
+                return mlir::failure();
+            }
+            if (requiresBiasRescalingUnsupportedForRuntimeBias(origOp.getInput(), origOp.getFilter())) {
+                _log.trace("Skipping non-constant bias for IE.GroupConvolutionOp: quantized input/filter requires "
+                           "per-channel bias rescaling not supported for a runtime bias");
                 return mlir::failure();
             }
             runtimeBias =

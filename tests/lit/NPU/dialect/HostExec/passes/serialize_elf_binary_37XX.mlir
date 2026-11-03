@@ -7,7 +7,7 @@
 // REQUIRES: platform-NPU3720
 
 // CHECK-LABEL: @OneInputOneOutput
-module @OneInputOneOutput attributes {config.compilationMode = #config.compilation_mode<HostCompile>, config.platform = #config.platform<NPU3720>, config.revisionID = #config.revision_id<REVISION_NONE>} {
+module @OneInputOneOutput attributes {config.compilationMode = #config.compilation_mode<HostCompile_Interpreter>, config.platform = #config.platform<NPU3720>, config.revisionID = #config.revision_id<REVISION_NONE>} {
   net.NetworkInfo entryPoint : @main inputsInfo : {
     DataInfo "input" : tensor<1x3x60x60xf16>
   } outputsInfo : {

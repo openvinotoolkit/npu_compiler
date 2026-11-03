@@ -16,7 +16,7 @@ func.func @AdjustFakeQuantLow(%arg0: tensor<1x3x30x30xf16>) -> tensor<1x3x30x30x
     %output_high = const.Declare tensor<1x1x1x1xf16> = dense<5.0> : tensor<1x1x1x1xf16>
 
     %0 = IE.FakeQuantize(%arg0, %input_low, %input_high, %output_low, %output_high)
-        { auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 } :
+        { auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256 } :
         tensor<1x3x30x30xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<1x3x30x30xf16>
     %1 = IE.MaxPool(%0) { kernel_size = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], rounding_type = #IE.rounding_type<FLOOR>, strides = [1, 1] } : tensor<1x3x30x30xf16> -> tensor<1x3x30x30xf16>
     return %1 : tensor<1x3x30x30xf16>
@@ -26,7 +26,7 @@ func.func @AdjustFakeQuantLow(%arg0: tensor<1x3x30x30xf16>) -> tensor<1x3x30x30x
     // CHECK-DAG:   [[IN_HIGH:%.+]] = const.Declare tensor<1x1x1x1xf16> = dense<5.000000e+00> : tensor<1x1x1x1xf16>
     // CHECK-DAG:   [[OUT_LOW:%.+]] = const.Declare tensor<1x1x1x1xf16> = dense<0.000000e+00> : tensor<1x1x1x1xf32>, [#const.CastElemType<f16>]
     // CHECK-DAG:   [[OUT_HIGH:%.+]] = const.Declare tensor<1x1x1x1xf16> = dense<5.000000e+00> : tensor<1x1x1x1xf16>
-    // CHECK-DAG:   [[FQ:%.+]] = IE.FakeQuantize([[ARG_0]], [[IN_LOW]], [[IN_HIGH]], [[OUT_LOW]], [[OUT_HIGH]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i64} : tensor<1x3x30x30xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<1x3x30x30xf16>
+    // CHECK-DAG:   [[FQ:%.+]] = IE.FakeQuantize([[ARG_0]], [[IN_LOW]], [[IN_HIGH]], [[OUT_LOW]], [[OUT_HIGH]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256 : i64} : tensor<1x3x30x30xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<1x3x30x30xf16>
     // CHECK:       [[CLAMP:%.+]] = IE.Clamp([[FQ]]) {max = 5.000000e+00 : f64, min = 0.01000213623046875 : f64} : tensor<1x3x30x30xf16> -> tensor<1x3x30x30xf16>
     // CHECK:       [[MAXPOOL:%.+]] = IE.MaxPool([[CLAMP]]) {kernel_size = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], rounding_type = #IE.rounding_type<FLOOR>, strides = [1, 1]} : tensor<1x3x30x30xf16> -> tensor<1x3x30x30xf16>
     // CHECK:       return [[MAXPOOL]]
@@ -43,7 +43,7 @@ func.func @AdjustFakeQuantHigh(%arg0: tensor<1x3x30x30xf16>) -> tensor<1x3x30x30
     %output_high = const.Declare tensor<1x1x1x1xf16> = dense<-0.01> : tensor<1x1x1x1xf16>
 
     %0 = IE.FakeQuantize(%arg0, %input_low, %input_high, %output_low, %output_high)
-        { auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 } :
+        { auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256 } :
         tensor<1x3x30x30xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<1x3x30x30xf16>
     %1 = IE.MaxPool(%0) { kernel_size = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], rounding_type = #IE.rounding_type<FLOOR>, strides = [1, 1] } : tensor<1x3x30x30xf16> -> tensor<1x3x30x30xf16>
     return %1 : tensor<1x3x30x30xf16>
@@ -53,7 +53,7 @@ func.func @AdjustFakeQuantHigh(%arg0: tensor<1x3x30x30xf16>) -> tensor<1x3x30x30
     // CHECK-DAG:       [[IN_LOW:%.+]] = const.Declare tensor<1x1x1x1xf16> = dense<-5.000000e+00> : tensor<1x1x1x1xf16>
     // CHECK-DAG:       [[OUT_HIGH:%.+]] = const.Declare tensor<1x1x1x1xf16> = dense<0.000000e+00> : tensor<1x1x1x1xf32>, [#const.CastElemType<f16>]
     // CHECK-DAG:       [[OUT_LOW:%.+]] = const.Declare tensor<1x1x1x1xf16> = dense<-5.000000e+00> : tensor<1x1x1x1xf16>
-    // CHECK:       [[FQ:%.+]] = IE.FakeQuantize([[ARG_0]], [[IN_LOW]], [[IN_HIGH]], [[OUT_LOW]], [[OUT_HIGH]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i64} : tensor<1x3x30x30xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<1x3x30x30xf16>
+    // CHECK:       [[FQ:%.+]] = IE.FakeQuantize([[ARG_0]], [[IN_LOW]], [[IN_HIGH]], [[OUT_LOW]], [[OUT_HIGH]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256 : i64} : tensor<1x3x30x30xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<1x3x30x30xf16>
     // CHECK:       [[CLAMP:%.+]] = IE.Clamp([[FQ]]) {max = -0.01000213623046875 : f64, min = -5.000000e+00 : f64} : tensor<1x3x30x30xf16> -> tensor<1x3x30x30xf16>
     // CHECK:       [[MAXPOOL:%.+]] = IE.MaxPool([[CLAMP]]) {kernel_size = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], rounding_type = #IE.rounding_type<FLOOR>, strides = [1, 1]} : tensor<1x3x30x30xf16> -> tensor<1x3x30x30xf16>
     // CHECK:       return [[MAXPOOL]]
@@ -69,7 +69,7 @@ func.func @NotAdjustFakeQuantWithBigRange(%arg0: tensor<1x3x30x30xf16>) -> tenso
     %output_high = const.Declare tensor<1x1x1x1xf16> = dense<5.0> : tensor<1x1x1x1xf16>
 
     %0 = IE.FakeQuantize(%arg0, %input_low, %input_high, %output_low, %output_high)
-        { auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 } :
+        { auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256 } :
         tensor<1x3x30x30xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<1x3x30x30xf16>
     %1 = IE.MaxPool(%0) { kernel_size = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], rounding_type = #IE.rounding_type<FLOOR>, strides = [1, 1] } : tensor<1x3x30x30xf16> -> tensor<1x3x30x30xf16>
     return %1 : tensor<1x3x30x30xf16>
@@ -92,7 +92,7 @@ func.func @NotAdjustWithZeroInRange(%arg0: tensor<1x3x30x30xf16>) -> tensor<1x3x
     %output_high = const.Declare tensor<1x1x1x1xf16> = dense<5.0> : tensor<1x1x1x1xf16>
 
     %0 = IE.FakeQuantize(%arg0, %input_low, %input_high, %output_low, %output_high)
-        { auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 } :
+        { auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256 } :
         tensor<1x3x30x30xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<1x3x30x30xf16>
     %1 = IE.MaxPool(%0) { kernel_size = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], rounding_type = #IE.rounding_type<FLOOR>, strides = [1, 1] } : tensor<1x3x30x30xf16> -> tensor<1x3x30x30xf16>
     return %1 : tensor<1x3x30x30xf16>
@@ -115,7 +115,7 @@ func.func @NotAdjustWithDifferentInOutRange(%arg0: tensor<1x3x30x30xf16>) -> ten
     %output_high = const.Declare tensor<1x1x1x1xf16> = dense<6.0> : tensor<1x1x1x1xf16>
 
     %0 = IE.FakeQuantize(%arg0, %input_low, %input_high, %output_low, %output_high)
-        { auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 } :
+        { auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256 } :
         tensor<1x3x30x30xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<1x3x30x30xf16>
     %1 = IE.MaxPool(%0) { kernel_size = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], rounding_type = #IE.rounding_type<FLOOR>, strides = [1, 1] } : tensor<1x3x30x30xf16> -> tensor<1x3x30x30xf16>
     return %1 : tensor<1x3x30x30xf16>
@@ -139,7 +139,7 @@ func.func @NotAdjustWithPerChannelQuantize(%arg0: tensor<1x3x30x30xf16>) -> tens
     %output_high = const.Declare tensor<1x3x1x1xf16> = dense<[[[[5.0]],[[6.0]], [[5.0]]]]> : tensor<1x3x1x1xf16>
 
     %0 = IE.FakeQuantize(%arg0, %input_low, %input_high, %output_low, %output_high)
-        { auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 } :
+        { auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256 } :
         tensor<1x3x30x30xf16>, tensor<1x3x1x1xf16>, tensor<1x3x1x1xf16>, tensor<1x3x1x1xf16>, tensor<1x3x1x1xf16> -> tensor<1x3x30x30xf16>
     %1 = IE.MaxPool(%0) { kernel_size = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], rounding_type = #IE.rounding_type<FLOOR>, strides = [1, 1] } : tensor<1x3x30x30xf16> -> tensor<1x3x30x30xf16>
     return %1 : tensor<1x3x30x30xf16>
@@ -163,7 +163,7 @@ func.func @NotAdjustFQWithNonStaticLowHighValues(%arg0: tensor<1x256x2048x1xf16>
     %output_high = IE.AffineReshape(%arg4) {dim_mapping = [[0], [1], [2, 3]], shape_value = [1, 1, 1, 1]} : tensor<1x1x1xf16> -> tensor<1x1x1x1xf16>
 
     %0 = IE.FakeQuantize(%arg0, %input_low, %input_high, %output_low, %output_high) {
-        auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i64
+        auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256 : i64
     } : tensor<1x256x2048x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<1x256x2048x1xf16>
 
     return %0 : tensor<1x256x2048x1xf16>

@@ -125,7 +125,7 @@ bool vpux::VPU::GroupQuantCorrectionOp::fitIntoCMX(llvm::ArrayRef<vpux::NDTypeIn
 }
 
 bool vpux::VPU::GroupQuantCorrectionOp::supportCycleCostCalculation() {
-    return false;
+    return true;
 }
 
 //

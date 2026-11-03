@@ -1692,7 +1692,7 @@ private:
 
 mlir::LogicalResult FuseDistributedCopyWithMemPermute::matchAndRewrite(VPUIP::SwKernelOp swKernelOp,
                                                                        mlir::PatternRewriter& rewriter) const {
-    if (VPUIP::hasBoundedBuffers(swKernelOp) || VPUIP::hasUngroupedBoundedBuffers(swKernelOp)) {
+    if (VPUIP::hasUngroupedBoundedBuffers(swKernelOp)) {
         return mlir::failure();
     }
 
@@ -1752,7 +1752,7 @@ private:
 
 mlir::LogicalResult FuseDDRCopyWithMemPermute::matchAndRewrite(VPUIP::SwKernelOp swKernelOp,
                                                                mlir::PatternRewriter& rewriter) const {
-    if (VPUIP::hasBoundedBuffers(swKernelOp) || VPUIP::hasUngroupedBoundedBuffers(swKernelOp)) {
+    if (VPUIP::hasUngroupedBoundedBuffers(swKernelOp)) {
         return mlir::failure();
     }
 

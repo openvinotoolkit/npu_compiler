@@ -10,6 +10,7 @@
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
+#include "vpux/compiler/utils/walk_utils.hpp"
 #include "vpux/utils/core/numeric.hpp"
 
 #include <mlir/Dialect/Quant/IR/QuantTypes.h>
@@ -63,84 +64,103 @@ bool isSupportedQuantizeCast(IE::QuantizeCastOp quantizeCastOp) {
     if (isDoubleEqual(outScale, 0.0f)) {
         return false;
     }
+
     return true;
 }
 
-bool parentCanFuseClamp(mlir::Operation* parentOp, IE::ClampOp origOp, Logger log) {
-    if (!parentOp->hasOneUse()) {
-        return false;
+struct MatchResult {
+    mlir::Operation* parentOp = nullptr;
+    mlir::FloatAttr clampMin;
+    mlir::FloatAttr clampMax;
+};
+
+// NOTE: If MatchResult returns parentOp as nullptr then we failed the search
+mlir::FailureOr<MatchResult> findLayerWithPostOp(IE::ClampOp origOp, mlir::PatternRewriter& rewriter, Logger log) {
+    MatchResult result;
+    result.clampMin = origOp.getMinAttr();
+    result.clampMax = origOp.getMaxAttr();
+
+    auto clampInput = origOp.getInput();
+    if (mlir::isa<mlir::BlockArgument>(clampInput)) {
+        return matchFailed(log, rewriter, origOp, "Clamp at loc '{0}' has input BlockArgument", origOp->getLoc());
     }
 
-    if (mlir::isa<IE::SliceOp>(parentOp) || IE::isPureViewOp(parentOp)) {
-        if (auto quantizeCastOp = mlir::dyn_cast<IE::QuantizeCastOp>(parentOp)) {
+    auto currentOp = clampInput.getDefiningOp();
+    while (currentOp->hasOneUse()) {
+        if (!mlir::isa<IE::SliceOp>(currentOp) && !IE::isPureViewOp(currentOp)) {
+            break;
+        }
+
+        if (auto quantizeCastOp = mlir::dyn_cast<IE::QuantizeCastOp>(currentOp)) {
             if (!isSupportedQuantizeCast(quantizeCastOp)) {
-                return false;
+                return matchFailed(log, rewriter, quantizeCastOp, "QuantizeCastOp at loc '{0}' is not supported",
+                                   quantizeCastOp->getLoc());
             }
+
+            auto inType = mlir::dyn_cast<mlir::quant::UniformQuantizedType>(
+                    mlir::cast<vpux::NDTypeInterface>(quantizeCastOp.getInput().getType()).getElementType());
+            auto outType = mlir::dyn_cast<mlir::quant::UniformQuantizedType>(
+                    mlir::cast<vpux::NDTypeInterface>(quantizeCastOp.getOutput().getType()).getElementType());
+
+            auto inScale = inType.getScale();
+            auto outScale = outType.getScale();
+
+            auto newMin = result.clampMin.getValueAsDouble() * inScale / outScale;
+            auto newMax = result.clampMax.getValueAsDouble() * inScale / outScale;
+
+            result.clampMin = getFPAttr(rewriter, newMin);
+            result.clampMax = getFPAttr(rewriter, newMax);
         }
-        if (mlir::isa<mlir::BlockArgument>(parentOp->getOperand(0))) {
-            return false;
+
+        if (mlir::isa<mlir::BlockArgument>(currentOp->getOperand(0))) {
+            return matchFailed(log, rewriter, currentOp, "Op '{0}' has input which is a BlockArgument at loc '{1}'",
+                               currentOp->getName(), currentOp->getLoc());
         }
-        return parentCanFuseClamp(parentOp->getOperand(0).getDefiningOp(), origOp, log);
+
+        currentOp = currentOp->getOperand(0).getDefiningOp();
     }
 
-    auto layerWithPostOp = mlir::dyn_cast<IE::LayerWithPostOpInterface>(parentOp);
-    if (layerWithPostOp != nullptr) {
-        const auto logCb = [&](const formatv_object_base& msg) {
-            log.trace("{0}", msg.str());
-        };
-        if (layerWithPostOp.getClampAttr() == nullptr && layerWithPostOp.isSupportedClampOp(origOp, logCb)) {
-            return true;
-        }
+    if (!currentOp->hasOneUse()) {
+        return matchFailed(log, rewriter, currentOp, "Op '{0}' at loc '{1}' has more than one use",
+                           currentOp->getName(), currentOp->getLoc());
     }
 
-    return false;
-}
-
-bool isBenefitToSwap(IE::ClampOp origOp, Logger log) {
-    if (mlir::isa<mlir::BlockArgument>(origOp.getInput())) {
-        return false;
+    auto layerWithPostOp = mlir::dyn_cast<IE::LayerWithPostOpInterface>(currentOp);
+    if (layerWithPostOp == nullptr) {
+        return matchFailed(log, rewriter, currentOp,
+                           "Op '{0}' at loc '{1}' does not implement LayerWithPostOpInterface", currentOp->getName(),
+                           currentOp->getLoc());
     }
 
-    return parentCanFuseClamp(origOp.getInput().getDefiningOp(), origOp, log);
+    result.parentOp = currentOp;
+
+    return result;
 }
 
 mlir::LogicalResult LayerRewriter::matchAndRewrite(IE::ClampOp origOp, mlir::PatternRewriter& rewriter) const {
     _log.trace("[{0}] Got clamp layer at '{1}' ", origOp->getName(), origOp->getLoc());
 
-    if (!isBenefitToSwap(origOp, _log)) {
-        return mlir::failure();
-    }
-    auto parentOp = origOp.getInput().getDefiningOp();
-    if (!mlir::isa<IE::SliceOp>(parentOp) && !IE::isPureViewOp(parentOp)) {
-        return mlir::failure();
-    }
-
-    auto clampMin = origOp.getMinAttr();
-    auto clampMax = origOp.getMaxAttr();
-    // for quantizeCast, we need to re-calculate the min max for clamp
-    if (auto quantizeCastOp = mlir::dyn_cast<IE::QuantizeCastOp>(parentOp)) {
-        auto inType = mlir::dyn_cast<mlir::quant::UniformQuantizedType>(
-                mlir::cast<vpux::NDTypeInterface>(quantizeCastOp.getInput().getType()).getElementType());
-        auto outType = mlir::dyn_cast<mlir::quant::UniformQuantizedType>(
-                mlir::cast<vpux::NDTypeInterface>(quantizeCastOp.getOutput().getType()).getElementType());
-
-        auto inScale = inType.getScale();
-        auto outScale = outType.getScale();
-
-        auto newMin = clampMin.getValueAsDouble() * inScale / outScale;
-        auto newMax = clampMax.getValueAsDouble() * inScale / outScale;
-        clampMin = getFPAttr(rewriter, newMin);
-        clampMax = getFPAttr(rewriter, newMax);
+    auto foundLayer = findLayerWithPostOp(origOp, rewriter, _log);
+    if (mlir::failed(foundLayer)) {
+        return matchFailed(_log, rewriter, origOp,
+                           "Could not find LayerWithPostOpInterface producer through ViewOps for ClampOp at loc '{0}'",
+                           origOp->getLoc());
     }
 
-    auto newClampOp = IE::ClampOp::create(rewriter, origOp->getLoc(), parentOp->getOperand(0), clampMin, clampMax);
-    mlir::IRMapping mapper;
-    mapper.map(parentOp->getOperand(0), newClampOp.getOutput());
-    auto newOp = rewriter.clone(*parentOp, mapper);
-    vpux::inferReturnTypes(newOp, vpux::InferShapedTypeMode::ALL);
-    rewriter.replaceOp(origOp, newOp->getResult(0));
+    auto matchResult = foundLayer.value();
+    auto* parentOp = matchResult.parentOp;
+    if (parentOp == origOp.getInput().getDefiningOp()) {
+        return matchFailed(_log, rewriter, origOp, "ClampOp at loc '{0}' is already placed right after its producer",
+                           origOp->getLoc());
+    }
 
-    _log.trace("successfully swap clamp with {0}", newOp->getName());
+    rewriter.setInsertionPointAfter(parentOp);
+    auto newClampOp = IE::ClampOp::create(rewriter, origOp->getLoc(), parentOp->getResult(0), matchResult.clampMin,
+                                          matchResult.clampMax);
+    rewriter.replaceAllUsesExcept(parentOp->getResult(0), newClampOp.getOutput(), newClampOp);
+    rewriter.replaceOp(origOp, origOp.getInput());
+
+    _log.trace("Successfully moved Clamp after Op '{0}' at loc '{1}'", parentOp->getName(), parentOp->getLoc());
 
     return mlir::success();
 }
@@ -166,9 +186,7 @@ void SwapViewOpAndClampPass::safeRunOnFunc() {
     patterns.add<LayerRewriter>(&ctx, _log.nest());
 
     auto func = getOperation();
-    if (mlir::failed(applyPatternsGreedily(func, std::move(patterns), getDefaultGreedyRewriteConfig()))) {
-        signalPassFailure();
-    }
+    collectOpsAndApplyPatterns(func, std::move(patterns));
 }
 
 }  // namespace

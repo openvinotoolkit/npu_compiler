@@ -49,6 +49,8 @@ struct Params {
     OpType firstOp;
     OpType secondOp;
     bool quantized;
+    // if true, the first op then has mixed users (the second op and the Add)
+    bool mixedUsers = false;
 };
 
 class AutoPaddingTest : public VpuOv2LayerTest, public testing::WithParamInterface<Params> {
@@ -98,7 +100,12 @@ class AutoPaddingTest : public VpuOv2LayerTest, public testing::WithParamInterfa
                              ->get_default_output();
         }
 
+        const auto firstOpOutput = result;
         result = createOp(result, parameters.secondOp, parameters.quantized);
+
+        if (parameters.mixedUsers) {
+            result = std::make_shared<ov::op::v1::Add>(result, firstOpOutput)->get_default_output();
+        }
 
         if (parameters.quantized) {
             result = utils::makeFakeQuantize(result, ov::element::f16, 256,
@@ -187,6 +194,9 @@ public:
         result << sep << "firstOp=" << obj.param.firstOp;
         result << sep << "secondOp=" << obj.param.secondOp;
         result << sep << "quantized=" << std::boolalpha << obj.param.quantized;
+        if (obj.param.mixedUsers) {
+            result << sep << "mixedUsers=" << std::boolalpha << obj.param.mixedUsers;
+        }
         return result.str();
     };
 };
@@ -223,6 +233,14 @@ INSTANTIATE_TEST_SUITE_P(
 INSTANTIATE_TEST_SUITE_P(IDU_ODU, AutoPaddingTest,
                          testing::ValuesIn({
                                  Params{ov::Shape{1, 3, 16, 16}, OpType::CONV, OpType::CONV, /*quantized=*/false},
+                         }),
+                         AutoPaddingTest::getTestCaseName);
+
+// The output of the first Convolution is consumed by the second Convolution and by an Add
+INSTANTIATE_TEST_SUITE_P(MIXED_USERS, AutoPaddingTest,
+                         testing::ValuesIn({
+                                 Params{ov::Shape{1, 3, 16, 16}, OpType::CONV, OpType::CONV, /*quantized=*/false,
+                                        /*mixedUsers=*/true},
                          }),
                          AutoPaddingTest::getTestCaseName);
 

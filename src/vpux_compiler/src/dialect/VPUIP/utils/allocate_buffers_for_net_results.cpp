@@ -17,6 +17,7 @@
 
 #include <llvm/ADT/STLExtras.h>
 #include <mlir/Dialect/MemRef/IR/MemRef.h>
+#include <mlir/IR/Dominance.h>
 #include <mlir/IR/Operation.h>
 #include <mlir/Interfaces/CallInterfaces.h>
 #include <mlir/Interfaces/SideEffectInterfaces.h>
@@ -132,11 +133,37 @@ mlir::Value getViewRoot(mlir::Value value) {
     return value;
 }
 
-// Returns true when `value` is a block argument, or a view of one (for example memref.subview of an
-// scf.for iter_arg). Such a target denotes memory owned by the caller, so letting the call write into it
-// directly preserves the semantics of the copy being removed.
-bool isRootedAtBlockArg(mlir::Value value) {
-    return mlir::isa<mlir::BlockArgument>(getViewRoot(value));
+// Returns true when `value` is a block argument (for example a function's own appended output argument, or
+// an enclosing loop's iter_arg), or a memref.alloc that dominates `callOp`, or a view of either. Both denote
+// memory whose lifetime is already established before the call runs, so letting the call write into it
+// directly - instead of into a freshly allocated buffer that is later copied from - preserves the semantics
+// of the copy being removed.
+bool isReusableCallTarget(mlir::Value value, mlir::Operation* callOp) {
+    auto root = getViewRoot(value);
+    auto hasAliasingCallOperand = llvm::any_of(callOp->getOperands(), [&](mlir::Value operand) {
+        return getViewRoot(operand) == root;
+    });
+
+    if (hasAliasingCallOperand) {
+        return false;
+    }
+    if (mlir::isa<mlir::BlockArgument>(root)) {
+        return true;
+    }
+    auto* defOp = root.getDefiningOp();
+    if (!mlir::isa_and_nonnull<mlir::memref::AllocOp>(defOp)) {
+        return false;
+    }
+
+    auto funcOp = callOp->getParentOfType<mlir::func::FuncOp>();
+    if (funcOp == nullptr) {
+        return false;
+    }
+
+    // The alloc must already dominate the call so the reused buffer exists
+    // before the callee writes into it
+    mlir::DominanceInfo dominanceInfo(funcOp);
+    return dominanceInfo.dominates(defOp, callOp);
 }
 
 // Collects the view-like ops and their operands that define `target` and are located after `callOp`, in
@@ -193,13 +220,13 @@ bool canMoveWriteToCall(mlir::Value target, mlir::Operation* callOp, ArrayRef<ml
     return true;
 }
 
-// Follows the chain of memref.copy ops from a call result and returns the first target that is owned by the
-// caller, either a block argument (the function's own appended output argument, or an enclosing loop's
-// iter_arg) or a view of one, so it can be reused as the call's output argument directly.
+// Follows the chain of memref.copy ops from a call result and returns the first target that is reusable as
+// the call's output argument directly - see isReusableCallTarget for what qualifies.
 // Copies traversed along  the way are recorded in `copiesToErase`, as they become redundant once the call
 // writes into that target.  memref.dim users are ignored as shape queries. Returns null if the chain branches,
 // has another consumer, or never reaches such a target.
-mlir::Value findCopyChainBlockArgTarget(mlir::Value result, SmallVector<mlir::memref::CopyOp>& copiesToErase) {
+mlir::Value findCopyChainBlockArgTarget(mlir::Value result, mlir::Operation* callOp,
+                                        SmallVector<mlir::memref::CopyOp>& copiesToErase) {
     mlir::Value current = result;
     while (true) {
         mlir::memref::CopyOp onwardCopy = nullptr;
@@ -227,7 +254,7 @@ mlir::Value findCopyChainBlockArgTarget(mlir::Value result, SmallVector<mlir::me
         }
         copiesToErase.push_back(onwardCopy);
         current = onwardCopy.getTarget();
-        if (isRootedAtBlockArg(current)) {
+        if (isReusableCallTarget(current, callOp)) {
             return current;
         }
     }
@@ -240,7 +267,7 @@ mlir::Value findCopyChainBlockArgTarget(mlir::Value result, SmallVector<mlir::me
 mlir::Value tryEliminateResultCopy(mlir::CallOpInterface callOp, mlir::Value result, size_t index,
                                    mlir::OpBuilder& builder) {
     SmallVector<mlir::memref::CopyOp> copiesToErase;
-    auto copyTarget = findCopyChainBlockArgTarget(result, copiesToErase);
+    auto copyTarget = findCopyChainBlockArgTarget(result, callOp.getOperation(), copiesToErase);
     if (copyTarget == nullptr) {
         return nullptr;
     }

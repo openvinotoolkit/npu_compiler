@@ -550,7 +550,7 @@ module @OneInputOneOutputWithMultiplePreprocessOps {
         %fake_quant = IE.FakeQuantize(%convert, %cst_1, %cst_2, %cst_3, %cst_4)
             {
                 auto_broadcast = #IE.auto_broadcast_type<NUMPY>,
-                levels = 256 : i64
+                levels_or_low_fp_type = 256 : i64
             } :
             tensor<1x3x62x62xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32> -> tensor<1x3x62x62xf32>
 
@@ -583,7 +583,7 @@ module @OneInputOneOutputWithMultiplePreprocessOps {
 // CHECK:   [[CST_3:%.+]] = const.Declare tensor<1x1x1x1xf32> = dense<-1.000000e+00> : tensor<1x1x1x1xf32>
 // CHECK:   [[TRANSPOSE:%.+]] = IE.Transpose([[ARG0]]) {order_value = #NCWH} : tensor<1x3x62x62xf16> -> tensor<1x3x62x62xf16>
 // CHECK:   [[CONVERT:%.+]] = IE.Convert([[TRANSPOSE]]) {dstElemType = f32} : tensor<1x3x62x62xf16> -> tensor<1x3x62x62xf32>
-// CHECK:   [[FAKE_QUANT:%.+]] = IE.FakeQuantize([[CONVERT]], [[CST_3]], [[CST_2]], [[CST_1]], [[CST_0]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i64} : tensor<1x3x62x62xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32> -> tensor<1x3x62x62xf32>
+// CHECK:   [[FAKE_QUANT:%.+]] = IE.FakeQuantize([[CONVERT]], [[CST_3]], [[CST_2]], [[CST_1]], [[CST_0]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256 : i64} : tensor<1x3x62x62xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32> -> tensor<1x3x62x62xf32>
 // CHECK:   [[CONV:%.+]] = IE.Convolution([[FAKE_QUANT]], [[CST]]) {dilations = [1, 1], pads_begin = [1, 1], pads_end = [1, 1], strides = [1, 1]} : tensor<1x3x62x62xf32>, tensor<3x3x3x3xf32> -> tensor<1x3x62x62xf32>
 // CHECK:   return [[CONV]] : tensor<1x3x62x62xf32>
 // CHECK: }
@@ -597,7 +597,7 @@ module @OneInputOneOutputWithMultiplePreprocessOps {
 // CHECK:   [[SOFT2:%.+]] = IE.SoftMax([[SOFT1]]) {axisInd = 1 : i64} : tensor<1x3x62x62xf32> -> tensor<1x3x62x62xf32>
 // CHECK:   [[TRANSPOSE:%.+]] = IE.Transpose([[ARG1]]) {order_value = #NCWH} : tensor<1x3x62x62xf16> -> tensor<1x3x62x62xf16>
 // CHECK:   [[CONVERT:%.+]] = IE.Convert([[TRANSPOSE]]) {dstElemType = f32} : tensor<1x3x62x62xf16> -> tensor<1x3x62x62xf32>
-// CHECK:   [[FAKE_QUANT:%.+]] = IE.FakeQuantize([[CONVERT]], [[CST_2]], [[CST_1]], [[CST_0]], [[CST]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i64} : tensor<1x3x62x62xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32> -> tensor<1x3x62x62xf32>
+// CHECK:   [[FAKE_QUANT:%.+]] = IE.FakeQuantize([[CONVERT]], [[CST_2]], [[CST_1]], [[CST_0]], [[CST]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256 : i64} : tensor<1x3x62x62xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32> -> tensor<1x3x62x62xf32>
 // CHECK:   [[ADD:%.+]] = IE.Add([[SOFT2]], [[FAKE_QUANT]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x3x62x62xf32>, tensor<1x3x62x62xf32> -> tensor<1x3x62x62xf32>
 // CHECK:   return [[ADD]] : tensor<1x3x62x62xf32>
 // CHECK: }

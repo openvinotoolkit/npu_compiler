@@ -4,12 +4,11 @@
 //
 
 #include <openvino/core/type/element_type.hpp>
-#include <openvino/op/clamp.hpp>
+#include <openvino/core/type/float16.hpp>
 #include <openvino/op/constant.hpp>
 #include <openvino/op/convert.hpp>
 #include <openvino/op/group_query_attention.hpp>
-#include <openvino/op/multiply.hpp>
-#include <openvino/op/round.hpp>
+#include <openvino/op/transpose.hpp>
 #include <openvino/pass/manager.hpp>
 #include <transformations/op_conversions/group_query_attention_decomposition.hpp>
 
@@ -44,6 +43,7 @@ PRETTY_PARAM(KVCacheType, ov::element::Type);
 // Mistral-style local (sliding-window) attention: -1 disables the window (pure causal), a value
 // >= 1 limits each query to attend to at most that many of the most recent keys.
 PRETTY_PARAM(LocalWindowSize, int64_t);
+PRETTY_PARAM(SlidingWindowCache, bool);
 
 enum class Sink {
     NONE,
@@ -53,8 +53,26 @@ enum class Sink {
 
 PRETTY_PARAM(SinkMode, Sink);
 
-using GroupQueryAttentionParams = std::tuple<NumHeads, KVNumHeads, SeqLen, SeqLenK, HeadSize, MaxSeqLen, DoRotary,
-                                             KVCacheLen, KVCacheType, SinkMode, LocalWindowSize>;
+// Some models store the V cache pre-transposed as [batch, kv_heads, head_size, seq] (matching a
+// kernel-preferred matmul layout); a Transpose to/from [batch, kv_heads, seq, head_size] wraps the
+// GQA op's past_value/present_value in that case.
+PRETTY_PARAM(TransposedVCache, bool);
+
+// attention_bias key width: CACHE_CAPACITY = KV cache length, MAX_CAPACITY = max sequence length.
+// _2D broadcasts over heads [1, 1, seq, keys]; _3D is per head [1, num_heads, seq, keys].
+enum class Bias {
+    NONE,
+    CACHE_CAPACITY_2D,
+    MAX_CAPACITY_2D,
+    CACHE_CAPACITY_3D,
+    MAX_CAPACITY_3D,
+};
+
+PRETTY_PARAM(BiasMode, Bias);
+
+using GroupQueryAttentionParams =
+        std::tuple<NumHeads, KVNumHeads, SeqLen, SeqLenK, HeadSize, MaxSeqLen, DoRotary, KVCacheLen, KVCacheType,
+                   SinkMode, LocalWindowSize, SlidingWindowCache, TransposedVCache, BiasMode>;
 
 class GroupQueryAttentionLayerTest :
         public VpuOv2LayerTest,
@@ -66,7 +84,9 @@ protected:
         inputs.clear();
 
         const auto& [numHeadsParam, kvNumHeadsParam, seqLenParam, seqLenKParam, headSizeParam, maxSeqLenParam,
-                     doRotaryParam, kvCacheLenParam, kvCacheType, sinkModeParam, localWindowSizeParam] = GetParam();
+                     doRotaryParam, kvCacheLenParam, kvCacheType, sinkModeParam, localWindowSizeParam,
+                     slidingWindowCacheParam, transposedVCacheParam, biasModeParam] = GetParam();
+        const auto seqLen = static_cast<size_t>(seqLenParam.value());
         const auto seqLenK = static_cast<size_t>(seqLenKParam.value());
         const auto headSize = static_cast<size_t>(headSizeParam.value());
 
@@ -95,14 +115,31 @@ protected:
                     data[idx] = sinkBase + static_cast<float>(idx) * kSinkPerHeadStep;
                 }
                 inputs.insert({input.get_node_shared_ptr(), tensor});
+            } else if (name == "attention_bias") {
+                // Wide spread so a few keys dominate the softmax; a small bias just averages out over random V.
+                std::normal_distribution<float> biasDist(0.0f, 3.0f);
+                auto tensor = ov::Tensor(elemType, targetInputStaticShapes[i]);
+                for (size_t idx = 0; idx < tensor.get_size(); idx++) {
+                    const float value = biasDist(rng);
+                    if (elemType == ov::element::f16) {
+                        tensor.data<ov::float16>()[idx] = static_cast<ov::float16>(value);
+                    } else {
+                        tensor.data<float>()[idx] = value;
+                    }
+                }
+                inputs.insert({input.get_node_shared_ptr(), tensor});
             } else if (elemType == ov::element::i32) {
                 auto tensor = ov::Tensor(elemType, targetInputStaticShapes[i]);
                 auto data = tensor.data<int32_t>();
                 if (name == "seqlens_k") {
-                    data[0] = static_cast<int32_t>(seqLenK);
+                    // ONNX GQA convention: seqlens_k = (total tokens after this call) - 1, i.e. the zero-based
+                    // index of the last valid token once the current seqLen tokens are appended to the
+                    // seqLenK already-cached ones. Equals seqLenK for decode (seqLen == 1).
+                    data[0] = static_cast<int32_t>(seqLenK + seqLen - 1);
                 } else if (name == "total_sequence_length") {
-                    // Decomposition computes total_len = seqlens_k + 1
-                    data[0] = static_cast<int32_t>(seqLenK + 1);
+                    // Decomposition scatters the new seqLen tokens at [seqlens_k, seqlens_k + seqLen);
+                    // total_sequence_length must cover the whole new range, not just a single new token.
+                    data[0] = static_cast<int32_t>(seqLenK + seqLen);
                 }
                 inputs.insert({input.get_node_shared_ptr(), tensor});
             } else if (elemType == ov::element::i8) {
@@ -112,6 +149,14 @@ protected:
                 std::uniform_int_distribution<int> intDist(-128, 127);
                 for (size_t idx = 0; idx < totalElements; idx++) {
                     data[idx] = static_cast<int8_t>(intDist(rng));
+                }
+                inputs.insert({input.get_node_shared_ptr(), tensor});
+            } else if (elemType == ov::element::f16) {
+                auto tensor = ov::Tensor(elemType, targetInputStaticShapes[i]);
+                auto data = tensor.data<ov::float16>();
+                const auto totalElements = ov::shape_size(targetInputStaticShapes[i]);
+                for (size_t idx = 0; idx < totalElements; idx++) {
+                    data[idx] = static_cast<ov::float16>(uniformDist(rng));
                 }
                 inputs.insert({input.get_node_shared_ptr(), tensor});
             } else {
@@ -139,8 +184,9 @@ protected:
 
         for (size_t i = 0; i < expected.size(); i++) {
             // Output 0 (attention, f32): tight threshold
-            // Outputs 1, 2 (present_key/present_value): relaxed for i8 quantization
-            const double outAbsThreshold = (i > 0 && kvCacheType_ != ov::element::f32) ? 1.0 : abs_threshold;
+            // Outputs 1, 2 (present_key/present_value): relaxed only for an actually quantized (integral, e.g.
+            // i8) cache; a plain reduced-precision float cache (e.g. f16) keeps the tight threshold.
+            const double outAbsThreshold = (i > 0 && !kvCacheType_.is_real()) ? 1.0 : abs_threshold;
 
             auto result = ov::test::utils::compareTensors(expected[i], actual[i], outAbsThreshold, rel_threshold);
 
@@ -157,8 +203,8 @@ protected:
         VpuOv2LayerTest::SetUp();
 
         const auto& [numHeadsParam, kvNumHeadsParam, seqLenParam, seqLenKParam, headSizeParam, maxSeqLenParam,
-                     doRotaryParam, kvCacheLenParam, kvCacheTypeParam, sinkModeParam, localWindowSizeParam] =
-                GetParam();
+                     doRotaryParam, kvCacheLenParam, kvCacheTypeParam, sinkModeParam, localWindowSizeParam,
+                     slidingWindowCacheParam, transposedVCacheParam, biasModeParam] = GetParam();
 
         const size_t batchSize = 1;
         const int64_t numHeads = numHeadsParam.value();
@@ -174,6 +220,18 @@ protected:
         const auto smoothSoftmax = sinkMode == Sink::SMOOTH_SOFTMAX;
         const auto hasSink = sinkMode == Sink::PER_HEAD;
         const auto localWindowSize = localWindowSizeParam.value();
+        const auto slidingWindowCache = slidingWindowCacheParam.value();
+        const auto transposedVCache = transposedVCacheParam.value();
+        const auto biasMode = biasModeParam.value();
+        // A quantized (integral, e.g. i8) cache is handed to the operator as-is: it dequantizes/quantizes it
+        // internally. A plain reduced-precision float cache (e.g. f16) needs no such handling.
+        const auto quantizedKV = !kvCacheType.is_real();
+        // The decomposition's non-quantized path scatter-updates past_key/past_value directly with the freshly
+        // computed K/V, so Q/K/V must share the cache's element type there. The quantized path dequantizes/
+        // quantizes via the operator's native K_SCALE/V_SCALE inputs, so Q/K/V stay f32.
+        const auto computeType = quantizedKV ? ov::element::f32 : kvCacheType;
+
+        using GQAInput = ov::op::internal::GroupQueryAttentionInputs;
 
         kvCacheType_ = kvCacheType;
 
@@ -188,13 +246,25 @@ protected:
         inputShapes.push_back({batchSize, static_cast<size_t>(kvNumHeads), seqLength, headSize});    // K
         inputShapes.push_back({batchSize, static_cast<size_t>(kvNumHeads), seqLength, headSize});    // V
         inputShapes.push_back({batchSize, static_cast<size_t>(kvNumHeads), totalSeqLen, headSize});  // past_key
-        inputShapes.push_back({batchSize, static_cast<size_t>(kvNumHeads), totalSeqLen, headSize});  // past_value
-        inputShapes.push_back({1, 1});                                                               // seqlens_k
-        inputShapes.push_back({1});  // total_sequence_length
+        // Some models store the V cache pre-transposed as [batch, kv_heads, head_size, seq]; a Transpose
+        // wraps past_value/present_value below to feed/consume the op in its expected layout.
+        inputShapes.push_back(
+                transposedVCache
+                        ? ov::Shape{batchSize, static_cast<size_t>(kvNumHeads), headSize, totalSeqLen}
+                        : ov::Shape{batchSize, static_cast<size_t>(kvNumHeads), totalSeqLen, headSize});  // past_value
+        inputShapes.push_back({1, 1});                                                                    // seqlens_k
+        inputShapes.push_back({1});  // total_sequence_length, op allows rank 0 or 1 only
 
         if (rotary) {
             inputShapes.push_back({maxSeqLen, headSize / 2});  // cos_cache
             inputShapes.push_back({maxSeqLen, headSize / 2});  // sin_cache
+        }
+        if (biasMode != Bias::NONE) {
+            const bool cacheCapacity = biasMode == Bias::CACHE_CAPACITY_2D || biasMode == Bias::CACHE_CAPACITY_3D;
+            const bool perHead = biasMode == Bias::CACHE_CAPACITY_3D || biasMode == Bias::MAX_CAPACITY_3D;
+            const size_t biasLen = cacheCapacity ? totalSeqLen : maxSeqLen;
+            const size_t biasHeads = perHead ? static_cast<size_t>(numHeads) : 1;
+            inputShapes.push_back({1, biasHeads, seqLength, biasLen});  // attention_bias
         }
         if (hasSink) {
             inputShapes.push_back({static_cast<size_t>(numHeads)});  // head_sink
@@ -209,102 +279,109 @@ protected:
         };
 
         ov::ParameterVector params;
-        params.push_back(makeParam(ov::element::f32, inputShapes[0], "Q"));
-        params.push_back(makeParam(ov::element::f32, inputShapes[1], "K"));
-        params.push_back(makeParam(ov::element::f32, inputShapes[2], "V"));
+        params.push_back(makeParam(computeType, inputShapes[0], "Q"));
+        params.push_back(makeParam(computeType, inputShapes[1], "K"));
+        params.push_back(makeParam(computeType, inputShapes[2], "V"));
         params.push_back(makeParam(kvCacheType, inputShapes[3], "past_key"));
         params.push_back(makeParam(kvCacheType, inputShapes[4], "past_value"));
         params.push_back(makeParam(ov::element::i32, inputShapes[5], "seqlens_k"));
         params.push_back(makeParam(ov::element::i32, inputShapes[6], "total_sequence_length"));
         if (rotary) {
-            params.push_back(makeParam(ov::element::f32, inputShapes[7], "cos_cache"));
-            params.push_back(makeParam(ov::element::f32, inputShapes[8], "sin_cache"));
+            params.push_back(makeParam(computeType, inputShapes[7], "cos_cache"));
+            params.push_back(makeParam(computeType, inputShapes[8], "sin_cache"));
+        }
+        std::shared_ptr<ov::op::v0::Parameter> biasParam;
+        if (biasMode != Bias::NONE) {
+            biasParam = makeParam(computeType, inputShapes[params.size()], "attention_bias");
+            params.push_back(biasParam);
         }
         if (hasSink) {
-            params.push_back(makeParam(ov::element::f32, inputShapes.back(), "head_sink"));
+            params.push_back(makeParam(computeType, inputShapes.back(), "head_sink"));
         }
 
-        ov::OutputVector gqaInputs;
-        // Q, K, V pass through as f32
-        gqaInputs.emplace_back(params[0]);  // Q
-        gqaInputs.emplace_back(params[1]);  // K
-        gqaInputs.emplace_back(params[2]);  // V
+        const auto vCacheTransposeOrder = ov::op::v0::Constant::create(ov::element::i64, ov::Shape{4}, {0, 1, 3, 2});
 
-        if (kvCacheType != ov::element::f32) {
-            // Dequantize past_key/past_value: Convert(i8→f32) → Multiply(scale)
-            // Per-channel scale, broadcastable over batch/seq_len: [1, kv_num_heads, 1, head_size].
+        // For the plain reduced-precision (non-quantized) cache, the op itself computes in f32 here so the
+        // CPU decomposition reference runs in f32 instead of emulated f16 (much faster); on the NPU path these
+        // Converts are redundant (the whole graph gets lowered back to f16 regardless) and are expected to fold
+        // away. Declared Parameter/Result types stay at kvCacheType, so the model's public interface is unchanged.
+        const auto toComputeType = [&](const ov::Output<ov::Node>& value) -> ov::Output<ov::Node> {
+            if (quantizedKV || value.get_element_type() == ov::element::f32) {
+                return value;
+            }
+            return std::make_shared<ov::op::v0::Convert>(value, ov::element::f32);
+        };
+
+        ov::OutputVector gqaInputs;
+        gqaInputs.emplace_back(toComputeType(params[0]));  // query
+        gqaInputs.emplace_back(toComputeType(params[1]));  // key
+        gqaInputs.emplace_back(toComputeType(params[2]));  // value
+        gqaInputs.emplace_back(toComputeType(params[3]));  // past_key
+
+        // past_value: undo the storage transpose into the op's expected [batch, kv_heads, seq, head_size].
+        const ov::Output<ov::Node> pastValue =
+                transposedVCache
+                        ? ov::Output<ov::Node>(std::make_shared<ov::op::v1::Transpose>(params[4], vCacheTransposeOrder))
+                        : ov::Output<ov::Node>(params[4]);
+        gqaInputs.emplace_back(toComputeType(pastValue));  // past_value
+        gqaInputs.emplace_back(params[5]);                 // seqlens_k
+        gqaInputs.emplace_back(params[6]);                 // total_sequence_length
+
+        // Optional inputs sit at fixed ONNX positions; skipped ones are padded with the empty-constant
+        // placeholder meaning "absent".
+        const auto appendOptional = [&](GQAInput position, const ov::Output<ov::Node>& value) {
+            while (gqaInputs.size() < static_cast<size_t>(position)) {
+                gqaInputs.emplace_back(ov::op::v0::Constant::create(ov::element::f32, ov::Shape{0}, {}));
+            }
+            gqaInputs.emplace_back(value);
+        };
+
+        if (rotary) {
+            appendOptional(GQAInput::COS_CACHE, toComputeType(params[7]));
+            appendOptional(GQAInput::SIN_CACHE, toComputeType(params[8]));
+        }
+        if (biasParam) {
+            appendOptional(GQAInput::ATTENTION_BIAS, toComputeType(biasParam));
+        }
+        if (hasSink) {
+            appendOptional(GQAInput::HEAD_SINK, toComputeType(params.back()));
+        }
+        if (quantizedKV) {
+            // Quantized KV cache: past_key/past_value stay integer, dequantized/requantized with
+            // these scales. Per-channel scale, broadcastable over batch/seq_len: [1, kv_num_heads, 1, head_size].
             const float dqScaleVal = 0.01f;
             const ov::Shape dqScaleShape{1, static_cast<size_t>(kvNumHeads), 1, headSize};
             const std::vector<float> dqScaleData(shape_size(dqScaleShape), dqScaleVal);
             auto dqScale = ov::op::v0::Constant::create(ov::element::f32, dqScaleShape, dqScaleData);
-
-            auto pastKeyCvt = std::make_shared<ov::op::v0::Convert>(params[3], ov::element::f32);
-            auto pastKeyDq =
-                    std::make_shared<ov::op::v1::Multiply>(pastKeyCvt, dqScale, ov::op::AutoBroadcastType::NUMPY);
-
-            auto pastValCvt = std::make_shared<ov::op::v0::Convert>(params[4], ov::element::f32);
-            auto pastValDq =
-                    std::make_shared<ov::op::v1::Multiply>(pastValCvt, dqScale, ov::op::AutoBroadcastType::NUMPY);
-
-            gqaInputs.emplace_back(pastKeyDq);
-            gqaInputs.emplace_back(pastValDq);
-        } else {
-            gqaInputs.emplace_back(params[3]);  // past_key f32
-            gqaInputs.emplace_back(params[4]);  // past_value f32
+            appendOptional(GQAInput::K_SCALE, dqScale);
+            appendOptional(GQAInput::V_SCALE, dqScale);
         }
 
-        // seqlens_k, total_sequence_length, [cos_cache, sin_cache] (head_sink, appended separately below,
-        // is excluded here since it needs padding to reach its fixed ONNX input position).
-        const size_t numTrailingParams = params.size() - (hasSink ? 1 : 0);
-        for (size_t i = 5; i < numTrailingParams; i++) {
-            gqaInputs.emplace_back(params[i]);
-        }
-
-        if (hasSink) {
-            const auto makeEmptyPlaceholder = [] {
-                return ov::op::v0::Constant::create(ov::element::f32, ov::Shape{0}, {});
-            };
-            if (!rotary) {
-                gqaInputs.emplace_back(makeEmptyPlaceholder());  // cos_cache
-                gqaInputs.emplace_back(makeEmptyPlaceholder());  // sin_cache
-            }
-            gqaInputs.emplace_back(makeEmptyPlaceholder());  // position_ids
-            gqaInputs.emplace_back(makeEmptyPlaceholder());  // attention_bias
-            gqaInputs.emplace_back(params.back());           // head_sink
-        }
-
+        const auto quantType = quantizedKV ? ov::op::internal::GroupQueryAttentionQuantType::PER_CHANNEL
+                                           : ov::op::internal::GroupQueryAttentionQuantType::NONE;
         auto gqa = std::make_shared<ov::op::internal::GroupQueryAttention>(
                 gqaInputs, numHeads, kvNumHeads, scale, rotary, /*rotary_interleaved=*/false,
-                /*kv_cache_bit_width=*/0, ov::op::internal::GroupQueryAttentionQuantType::NONE,
-                ov::op::internal::GroupQueryAttentionQuantType::NONE, localWindowSize,
-                /*sliding_window_cache=*/false, smoothSoftmax);
+                /*kv_cache_bit_width=*/quantizedKV ? 8 : 0, quantType, quantType, localWindowSize, slidingWindowCache,
+                smoothSoftmax);
         gqa->set_friendly_name("gqa");
 
+        // Output 0: attention output (f32); outputs 1, 2: present_key/present_value in the cache element type.
+        // present_value is re-transposed to [batch, kv_heads, head_size, seq] to match past_value's storage
+        // layout when the V cache is stored transposed.
+        constexpr size_t presentKeyOutputIndex = 1;
+        constexpr size_t presentValueOutputIndex = 2;
         ov::ResultVector results;
-        // Output 0: attention output (f32)
-        results.push_back(std::make_shared<ov::op::v0::Result>(gqa->output(0)));
-
-        if (kvCacheType != ov::element::f32 && gqa->get_output_size() > 1) {
-            // Quantize present_key/present_value:
-            // Multiply(1/scale) → Round(HALF_TO_EVEN) → Clamp(-128, 127) → Convert(f32→i8)
-            // Per-channel scale, broadcastable over batch/seq_len: [1, kv_num_heads, 1, head_size].
-            const float dqScaleVal = 0.01f;
-            const ov::Shape invScaleShape{1, static_cast<size_t>(kvNumHeads), 1, headSize};
-            const std::vector<float> invScaleData(shape_size(invScaleShape), 1.0f / dqScaleVal);
-            auto invScale = ov::op::v0::Constant::create(ov::element::f32, invScaleShape, invScaleData);
-
-            for (size_t i = 1; i < gqa->get_output_size(); i++) {
-                auto mul = std::make_shared<ov::op::v1::Multiply>(gqa->output(i), invScale,
-                                                                  ov::op::AutoBroadcastType::NUMPY);
-                auto round = std::make_shared<ov::op::v5::Round>(mul, ov::op::v5::Round::RoundMode::HALF_TO_EVEN);
-                auto clamp = std::make_shared<ov::op::v0::Clamp>(round, -128.0, 127.0);
-                auto cvt = std::make_shared<ov::op::v0::Convert>(clamp, kvCacheType);
-                results.push_back(std::make_shared<ov::op::v0::Result>(cvt));
+        for (size_t i = 0; i < gqa->get_output_size(); i++) {
+            ov::Output<ov::Node> output = gqa->output(i);
+            // present_key/present_value came out of the op in f32 (see toComputeType above); convert back
+            // down to kvCacheType so the model's declared output type is unaffected.
+            if (!quantizedKV && (i == presentKeyOutputIndex || i == presentValueOutputIndex)) {
+                output = std::make_shared<ov::op::v0::Convert>(output, kvCacheType);
             }
-        } else {
-            for (size_t i = 1; i < gqa->get_output_size(); i++) {
-                results.push_back(std::make_shared<ov::op::v0::Result>(gqa->output(i)));
+            if (transposedVCache && i == presentValueOutputIndex) {
+                output = std::make_shared<ov::op::v1::Transpose>(output, vCacheTransposeOrder);
             }
+            results.push_back(std::make_shared<ov::op::v0::Result>(output));
         }
 
         function = std::make_shared<ov::Model>(results, params, "GroupQueryAttention");
@@ -330,159 +407,115 @@ TEST_P(GroupQueryAttentionLayerTest, NPU5010_HW) {
 }
 
 // MHA: num_heads == kv_num_heads, with rotary embeddings
-INSTANTIATE_TEST_SUITE_P(smoke_MHA_Rotary, GroupQueryAttentionLayerTest,
-                         ::testing::Combine(::testing::Values(NumHeads{8}), ::testing::Values(KVNumHeads{8}),
-                                            ::testing::Values(SeqLen{12}), ::testing::Values(SeqLenK{76}),
-                                            ::testing::Values(HeadSize{96}), ::testing::Values(MaxSeqLen{4096}),
-                                            ::testing::Values(DoRotary{true}), ::testing::Values(KVCacheLen{4096}),
-                                            ::testing::Values(KVCacheType{ov::element::f32}),
-                                            ::testing::Values(SinkMode{Sink::NONE}),
-                                            ::testing::Values(LocalWindowSize{-1})),
-                         PrintTestCaseName());
+INSTANTIATE_TEST_SUITE_P(
+        smoke_MHA_Rotary, GroupQueryAttentionLayerTest,
+        ::testing::Combine(::testing::Values(NumHeads{8}), ::testing::Values(KVNumHeads{8}),
+                           ::testing::Values(SeqLen{12}), ::testing::Values(SeqLenK{76}),
+                           ::testing::Values(HeadSize{96}), ::testing::Values(MaxSeqLen{4096}),
+                           ::testing::Values(DoRotary{true}), ::testing::Values(KVCacheLen{4096}),
+                           ::testing::Values(KVCacheType{ov::element::f32}), ::testing::Values(SinkMode{Sink::NONE}),
+                           ::testing::Values(LocalWindowSize{-1}), ::testing::Values(SlidingWindowCache{false}),
+                           ::testing::Values(TransposedVCache{false}), ::testing::Values(BiasMode{Bias::NONE})),
+        PrintTestCaseName());
 
 // GQA: num_heads > kv_num_heads, with rotary embeddings
-INSTANTIATE_TEST_SUITE_P(smoke_GQA_Rotary, GroupQueryAttentionLayerTest,
-                         ::testing::Combine(::testing::Values(NumHeads{32}), ::testing::Values(KVNumHeads{8}),
-                                            ::testing::Values(SeqLen{12}), ::testing::Values(SeqLenK{76}),
-                                            ::testing::Values(HeadSize{96}), ::testing::Values(MaxSeqLen{4096}),
-                                            ::testing::Values(DoRotary{true}), ::testing::Values(KVCacheLen{4096}),
-                                            ::testing::Values(KVCacheType{ov::element::f32}),
-                                            ::testing::Values(SinkMode{Sink::NONE}),
-                                            ::testing::Values(LocalWindowSize{-1})),
-                         PrintTestCaseName());
+INSTANTIATE_TEST_SUITE_P(
+        smoke_GQA_Rotary, GroupQueryAttentionLayerTest,
+        ::testing::Combine(::testing::Values(NumHeads{32}), ::testing::Values(KVNumHeads{8}),
+                           ::testing::Values(SeqLen{12}), ::testing::Values(SeqLenK{76}),
+                           ::testing::Values(HeadSize{96}), ::testing::Values(MaxSeqLen{4096}),
+                           ::testing::Values(DoRotary{true}), ::testing::Values(KVCacheLen{4096}),
+                           ::testing::Values(KVCacheType{ov::element::f32}), ::testing::Values(SinkMode{Sink::NONE}),
+                           ::testing::Values(LocalWindowSize{-1}), ::testing::Values(SlidingWindowCache{false}),
+                           ::testing::Values(TransposedVCache{false}), ::testing::Values(BiasMode{Bias::NONE})),
+        PrintTestCaseName());
 
-INSTANTIATE_TEST_SUITE_P(smoke_GQA_Rotary_I8, GroupQueryAttentionLayerTest,
-                         ::testing::Combine(::testing::Values(NumHeads{32}), ::testing::Values(KVNumHeads{8}),
-                                            ::testing::Values(SeqLen{12}), ::testing::Values(SeqLenK{76}),
-                                            ::testing::Values(HeadSize{96}), ::testing::Values(MaxSeqLen{4096}),
-                                            ::testing::Values(DoRotary{true}), ::testing::Values(KVCacheLen{4096}),
-                                            ::testing::Values(KVCacheType{ov::element::i8}),
-                                            ::testing::Values(SinkMode{Sink::NONE}),
-                                            ::testing::Values(LocalWindowSize{-1})),
-                         PrintTestCaseName());
-
-// GQA: without rotary embeddings
-INSTANTIATE_TEST_SUITE_P(smoke_GQA_NoRotary, GroupQueryAttentionLayerTest,
-                         ::testing::Combine(::testing::Values(NumHeads{32}), ::testing::Values(KVNumHeads{8}),
-                                            ::testing::Values(SeqLen{12}), ::testing::Values(SeqLenK{76}),
-                                            ::testing::Values(HeadSize{64}), ::testing::Values(MaxSeqLen{4096}),
-                                            ::testing::Values(DoRotary{false}), ::testing::Values(KVCacheLen{4096}),
-                                            ::testing::Values(KVCacheType{ov::element::f32}),
-                                            ::testing::Values(SinkMode{Sink::NONE}),
-                                            ::testing::Values(LocalWindowSize{-1})),
-                         PrintTestCaseName());
+INSTANTIATE_TEST_SUITE_P(
+        smoke_GQA_Rotary_I8, GroupQueryAttentionLayerTest,
+        ::testing::Combine(::testing::Values(NumHeads{32}), ::testing::Values(KVNumHeads{8}),
+                           ::testing::Values(SeqLen{12}), ::testing::Values(SeqLenK{76}),
+                           ::testing::Values(HeadSize{96}), ::testing::Values(MaxSeqLen{4096}),
+                           ::testing::Values(DoRotary{true}), ::testing::Values(KVCacheLen{4096}),
+                           ::testing::Values(KVCacheType{ov::element::i8}), ::testing::Values(SinkMode{Sink::NONE}),
+                           ::testing::Values(LocalWindowSize{-1}), ::testing::Values(SlidingWindowCache{false}),
+                           ::testing::Values(TransposedVCache{false}), ::testing::Values(BiasMode{Bias::NONE})),
+        PrintTestCaseName());
 
 // GQA: without rotary embeddings
-INSTANTIATE_TEST_SUITE_P(smoke_GQA_NoRotary_I8, GroupQueryAttentionLayerTest,
-                         ::testing::Combine(::testing::Values(NumHeads{32}), ::testing::Values(KVNumHeads{8}),
-                                            ::testing::Values(SeqLen{12}), ::testing::Values(SeqLenK{76}),
-                                            ::testing::Values(HeadSize{64}), ::testing::Values(MaxSeqLen{4096}),
-                                            ::testing::Values(DoRotary{false}), ::testing::Values(KVCacheLen{4096}),
-                                            ::testing::Values(KVCacheType{ov::element::i8}),
-                                            ::testing::Values(SinkMode{Sink::NONE}),
-                                            ::testing::Values(LocalWindowSize{-1})),
-                         PrintTestCaseName());
+INSTANTIATE_TEST_SUITE_P(
+        smoke_GQA_NoRotary, GroupQueryAttentionLayerTest,
+        ::testing::Combine(::testing::Values(NumHeads{32}), ::testing::Values(KVNumHeads{8}),
+                           ::testing::Values(SeqLen{12}), ::testing::Values(SeqLenK{76}),
+                           ::testing::Values(HeadSize{64}), ::testing::Values(MaxSeqLen{4096}),
+                           ::testing::Values(DoRotary{false}), ::testing::Values(KVCacheLen{4096}),
+                           ::testing::Values(KVCacheType{ov::element::f32}), ::testing::Values(SinkMode{Sink::NONE}),
+                           ::testing::Values(LocalWindowSize{-1}), ::testing::Values(SlidingWindowCache{false}),
+                           ::testing::Values(TransposedVCache{false}), ::testing::Values(BiasMode{Bias::NONE})),
+        PrintTestCaseName());
+
+// GQA: without rotary embeddings
+INSTANTIATE_TEST_SUITE_P(
+        smoke_GQA_NoRotary_I8, GroupQueryAttentionLayerTest,
+        ::testing::Combine(::testing::Values(NumHeads{32}), ::testing::Values(KVNumHeads{8}),
+                           ::testing::Values(SeqLen{12}), ::testing::Values(SeqLenK{76}),
+                           ::testing::Values(HeadSize{64}), ::testing::Values(MaxSeqLen{4096}),
+                           ::testing::Values(DoRotary{false}), ::testing::Values(KVCacheLen{4096}),
+                           ::testing::Values(KVCacheType{ov::element::i8}), ::testing::Values(SinkMode{Sink::NONE}),
+                           ::testing::Values(LocalWindowSize{-1}), ::testing::Values(SlidingWindowCache{false}),
+                           ::testing::Values(TransposedVCache{false}), ::testing::Values(BiasMode{Bias::NONE})),
+        PrintTestCaseName());
 
 // MQA: kv_num_heads == 1, with rotary embeddings
-INSTANTIATE_TEST_SUITE_P(smoke_MQA_Rotary, GroupQueryAttentionLayerTest,
-                         ::testing::Combine(::testing::Values(NumHeads{8}), ::testing::Values(KVNumHeads{1}),
-                                            ::testing::Values(SeqLen{4}), ::testing::Values(SeqLenK{36}),
-                                            ::testing::Values(HeadSize{64}), ::testing::Values(MaxSeqLen{4096}),
-                                            ::testing::Values(DoRotary{true}), ::testing::Values(KVCacheLen{4096}),
-                                            ::testing::Values(KVCacheType{ov::element::f32}),
-                                            ::testing::Values(SinkMode{Sink::NONE}),
-                                            ::testing::Values(LocalWindowSize{-1})),
-                         PrintTestCaseName());
-
-// FlashAttentionDMA prefill test
-// E-234274 the test suite needs to be reviewed again as the tests increased the running of IE-MDK
 INSTANTIATE_TEST_SUITE_P(
-        DISABLED_TMP_smoke_FADMA_Prefill, GroupQueryAttentionLayerTest,
-        ::testing::Combine(::testing::Values(NumHeads{40}), ::testing::Values(KVNumHeads{10}),
-                           ::testing::Values(SeqLen{512}),
-                           ::testing::Values(SeqLenK{512}, SeqLenK{1535}, SeqLenK{4095}, SeqLenK{8191}),
-                           ::testing::Values(HeadSize{128}), ::testing::Values(MaxSeqLen{8192}),
-                           ::testing::Values(DoRotary{false}), ::testing::Values(KVCacheLen{8192}),
-                           ::testing::Values(KVCacheType{ov::element::i8}, KVCacheType{ov::element::f32}),
-                           ::testing::Values(SinkMode{Sink::SMOOTH_SOFTMAX}, SinkMode{Sink::PER_HEAD},
-                                             SinkMode{Sink::NONE}),
-                           ::testing::Values(LocalWindowSize{-1}, LocalWindowSize{125}, LocalWindowSize{256},
-                                             LocalWindowSize{60})),
+        smoke_MQA_Rotary, GroupQueryAttentionLayerTest,
+        ::testing::Combine(::testing::Values(NumHeads{8}), ::testing::Values(KVNumHeads{1}),
+                           ::testing::Values(SeqLen{4}), ::testing::Values(SeqLenK{36}),
+                           ::testing::Values(HeadSize{64}), ::testing::Values(MaxSeqLen{4096}),
+                           ::testing::Values(DoRotary{true}), ::testing::Values(KVCacheLen{4096}),
+                           ::testing::Values(KVCacheType{ov::element::f32}), ::testing::Values(SinkMode{Sink::NONE}),
+                           ::testing::Values(LocalWindowSize{-1}), ::testing::Values(SlidingWindowCache{false}),
+                           ::testing::Values(TransposedVCache{false}), ::testing::Values(BiasMode{Bias::NONE})),
         PrintTestCaseName());
 
 // FlashAttentionDMA kvcache test
-// Only this suite exercises Mistral-style local (sliding-window) attention: local_window_size
-// caps each query to its most recent 256 keys instead of full causal attention over the cache.
 INSTANTIATE_TEST_SUITE_P(
-        smoke_FADMA_KVCache, GroupQueryAttentionLayerTest,
-        ::testing::Combine(::testing::Values(NumHeads{40}), ::testing::Values(KVNumHeads{10}),
-                           ::testing::Values(SeqLen{1}),
-                           ::testing::Values(SeqLenK{511}, SeqLenK{1535}, SeqLenK{7800}, SeqLenK{8191}),
-                           ::testing::Values(HeadSize{128}), ::testing::Values(MaxSeqLen{8192}),
-                           ::testing::Values(DoRotary{false}), ::testing::Values(KVCacheLen{8192}),
-                           ::testing::Values(KVCacheType{ov::element::i8}, KVCacheType{ov::element::f32}),
-                           ::testing::Values(SinkMode{Sink::SMOOTH_SOFTMAX}, SinkMode{Sink::PER_HEAD},
-                                             SinkMode{Sink::NONE}),
-                           ::testing::Values(LocalWindowSize{-1}, LocalWindowSize{125}, LocalWindowSize{256},
-                                             LocalWindowSize{60})),
+        smoke_attentionDmaFlashSmallSeqLength, GroupQueryAttentionLayerTest,
+        ::testing::Combine(::testing::Values(NumHeads{24}),      // Q heads
+                           ::testing::Values(KVNumHeads{8}),     // KV heads
+                           ::testing::Values(SeqLen{2}),         // tsl
+                           ::testing::Values(SeqLenK{11}),       // K/V sequence length
+                           ::testing::Values(HeadSize{128}),     // e, eV
+                           ::testing::Values(MaxSeqLen{8192}),   // max sequence length for rottary
+                           ::testing::Values(DoRotary{false}),   // rotary embeddings
+                           ::testing::Values(KVCacheLen{8192}),  // real SSL size
+                           ::testing::Values(KVCacheType{ov::element::f32}), ::testing::Values(SinkMode{Sink::NONE}),
+                           ::testing::Values(LocalWindowSize{-1}), ::testing::Values(SlidingWindowCache{false}),
+                           ::testing::Values(TransposedVCache{false}), ::testing::Values(BiasMode{Bias::NONE})),
         PrintTestCaseName());
 
-// FlashAttentionDMA kvcache test
-INSTANTIATE_TEST_SUITE_P(smoke_attentionDmaFlashSmallSeqLength, GroupQueryAttentionLayerTest,
-                         ::testing::Combine(::testing::Values(NumHeads{24}),      // Q heads
-                                            ::testing::Values(KVNumHeads{8}),     // KV heads
-                                            ::testing::Values(SeqLen{2}),         // tsl
-                                            ::testing::Values(SeqLenK{11}),       // K/V sequence length
-                                            ::testing::Values(HeadSize{128}),     // e, eV
-                                            ::testing::Values(MaxSeqLen{8192}),   // max sequence length for rottary
-                                            ::testing::Values(DoRotary{false}),   // rotary embeddings
-                                            ::testing::Values(KVCacheLen{8192}),  // real SSL size
-                                            ::testing::Values(KVCacheType{ov::element::f32}),
-                                            ::testing::Values(SinkMode{Sink::NONE}),
-                                            ::testing::Values(LocalWindowSize{-1})),
-                         PrintTestCaseName());
+INSTANTIATE_TEST_SUITE_P(
+        smoke_attentionDmaFlash_24_8, GroupQueryAttentionLayerTest,
+        ::testing::Combine(::testing::Values(NumHeads{24}), ::testing::Values(KVNumHeads{8}),
+                           ::testing::Values(SeqLen{1}, SeqLen{8}, SeqLen{128}),
+                           ::testing::Values(SeqLenK{7167}, SeqLenK{8191}), ::testing::Values(HeadSize{128}),
+                           ::testing::Values(MaxSeqLen{32768}), ::testing::Values(DoRotary{false}),
+                           ::testing::Values(KVCacheLen{8192}), ::testing::Values(KVCacheType{ov::element::f16}),
+                           ::testing::Values(SinkMode{Sink::NONE}), ::testing::Values(LocalWindowSize{2047}),
+                           ::testing::Values(SlidingWindowCache{true}), ::testing::Values(TransposedVCache{true}),
+                           ::testing::Values(BiasMode{Bias::CACHE_CAPACITY_2D}, BiasMode{Bias::MAX_CAPACITY_2D})),
+        PrintTestCaseName());
 
-INSTANTIATE_TEST_SUITE_P(smoke_MF, GroupQueryAttentionLayerTest,
-                         ::testing::Combine(::testing::Values(NumHeads{24}), ::testing::Values(KVNumHeads{8}),
-                                            ::testing::Values(SeqLen{1}, SeqLen{512}), ::testing::Values(SeqLenK{7800}),
-                                            ::testing::Values(HeadSize{128}), ::testing::Values(MaxSeqLen{8192}),
-                                            ::testing::Values(DoRotary{false}), ::testing::Values(KVCacheLen{8192}),
-                                            ::testing::Values(KVCacheType{ov::element::f32}),
-                                            ::testing::Values(SinkMode{Sink::SMOOTH_SOFTMAX}),
-                                            ::testing::Values(LocalWindowSize{2048})),
-                         PrintTestCaseName());
-
-// Invariant: SeqLen (query block) must be <= SeqLenK + 1 (valid KV positions). Query tokens are
-// the trailing SeqLen entries of a sequence whose total valid KV length is SeqLenK + 1.
-INSTANTIATE_TEST_SUITE_P(smoke_MF2, GroupQueryAttentionLayerTest,
-                         ::testing::Combine(::testing::Values(NumHeads{24}), ::testing::Values(KVNumHeads{8}),
-                                            ::testing::Values(SeqLen{1}, SeqLen{16}),
-                                            ::testing::Values(SeqLenK{32}, SeqLenK{2047}),
-                                            ::testing::Values(HeadSize{128}), ::testing::Values(MaxSeqLen{2048}),
-                                            ::testing::Values(DoRotary{true}), ::testing::Values(KVCacheLen{2048}),
-                                            ::testing::Values(KVCacheType{ov::element::f32}),
-                                            ::testing::Values(SinkMode{Sink::NONE}, SinkMode{Sink::SMOOTH_SOFTMAX}),
-                                            ::testing::Values(LocalWindowSize{2048})),
-                         PrintTestCaseName());
-
-INSTANTIATE_TEST_SUITE_P(smoke_ORCA, GroupQueryAttentionLayerTest,
-                         ::testing::Combine(::testing::Values(NumHeads{40}), ::testing::Values(KVNumHeads{10}),
-                                            ::testing::Values(SeqLen{1}, SeqLen{512}), ::testing::Values(SeqLenK{7800}),
-                                            ::testing::Values(HeadSize{128}), ::testing::Values(MaxSeqLen{8192}),
-                                            ::testing::Values(DoRotary{false}), ::testing::Values(KVCacheLen{8192}),
-                                            ::testing::Values(KVCacheType{ov::element::i8}),
-                                            ::testing::Values(SinkMode{Sink::SMOOTH_SOFTMAX}),
-                                            ::testing::Values(LocalWindowSize{4096})),
-                         PrintTestCaseName());
-INSTANTIATE_TEST_SUITE_P(smoke_ORCA_32k, GroupQueryAttentionLayerTest,
-                         ::testing::Combine(::testing::Values(NumHeads{40}), ::testing::Values(KVNumHeads{10}),
-                                            ::testing::Values(SeqLen{1}, SeqLen{512}), ::testing::Values(SeqLenK{7800}),
-                                            ::testing::Values(HeadSize{128}), ::testing::Values(MaxSeqLen{32768}),
-                                            ::testing::Values(DoRotary{false}), ::testing::Values(KVCacheLen{32768}),
-                                            ::testing::Values(KVCacheType{ov::element::i8}),
-                                            ::testing::Values(SinkMode{Sink::SMOOTH_SOFTMAX}),
-                                            ::testing::Values(LocalWindowSize{4096})),
-                         PrintTestCaseName());
+INSTANTIATE_TEST_SUITE_P(
+        smoke_attentionDmaFlash_40_10, GroupQueryAttentionLayerTest,
+        ::testing::Combine(::testing::Values(NumHeads{40}), ::testing::Values(KVNumHeads{10}),
+                           ::testing::Values(SeqLen{1}, SeqLen{512}), ::testing::Values(SeqLenK{7167}, SeqLenK{8191}),
+                           ::testing::Values(HeadSize{128}), ::testing::Values(MaxSeqLen{32768}),
+                           ::testing::Values(DoRotary{false}), ::testing::Values(KVCacheLen{8192}),
+                           ::testing::Values(KVCacheType{ov::element::f16}),
+                           ::testing::Values(SinkMode{Sink::SMOOTH_SOFTMAX}), ::testing::Values(LocalWindowSize{4095}),
+                           ::testing::Values(SlidingWindowCache{true}), ::testing::Values(TransposedVCache{true}),
+                           ::testing::Values(BiasMode{Bias::NONE})),
+        PrintTestCaseName());
 }  // namespace
 
 }  // namespace ov::test

@@ -549,7 +549,7 @@ func.func @FuseMultiplyWithFQScaleToConvolution(%arg0: tensor<512x96x1x1xf16>, %
     %scale = const.Declare tensor<1x1x1x1xf16> = dense<0.135327876> : tensor<1x1x1x1xf32>, [#const.CastElemType<f16>]
     %low = const.Declare tensor<1x1x1x1xf16> = dense<0.000000e+00> : tensor<1x1x1x1xf32>, [#const.CastElemType<f16>]
     %high = const.Declare tensor<1x1x1x1xf16> = dense<57.1374702> : tensor<1x1x1x1xf32>, [#const.CastElemType<f16>]
-    %fq = IE.FakeQuantize(%scale, %low, %high, %low, %high) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 65536 : i64} : tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<1x1x1x1xf16>
+    %fq = IE.FakeQuantize(%scale, %low, %high, %low, %high) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 65536 : i64} : tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<1x1x1x1xf16>
 
     %conv = IE.Convolution(%arg0, %arg1) {dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]}
         : tensor<512x96x1x1xf16>, tensor<512x96x1x1xf16> -> tensor<512x512x1x1xf16>
@@ -575,7 +575,7 @@ func.func @DoNotFuseMultiplyWithFQ_NonConstScale(%arg0: tensor<512x96x1x1xf16>, 
         -> tensor<512x512x1x1xf16> {
     %low = const.Declare tensor<1x1x1x1xf16> = dense<0.000000e+00> : tensor<1x1x1x1xf32>, [#const.CastElemType<f16>]
     %high = const.Declare tensor<1x1x1x1xf16> = dense<57.1374702> : tensor<1x1x1x1xf32>, [#const.CastElemType<f16>]
-    %fq = IE.FakeQuantize(%scale, %low, %high, %low, %high) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 65536 : i64} : tensor<512x512x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<512x512x1x1xf16>
+    %fq = IE.FakeQuantize(%scale, %low, %high, %low, %high) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 65536 : i64} : tensor<512x512x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<512x512x1x1xf16>
 
     %conv = IE.Convolution(%arg0, %arg1) {dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]}
         : tensor<512x96x1x1xf16>, tensor<512x96x1x1xf16> -> tensor<512x512x1x1xf16>
@@ -603,7 +603,7 @@ func.func @FuseMultiplyWithFQScaleToConvolutionAcrossConcat(
     %scale = const.Declare tensor<1x1x1x1xf16> = dense<0.135375977> : tensor<1x1x1x1xf16>
     %low = const.Declare tensor<1x1x1x1xf16> = dense<0.000000e+00> : tensor<1x1x1x1xf32>, [#const.CastElemType<f16>]
     %high = const.Declare tensor<1x1x1x1xf16> = dense<57.1374702> : tensor<1x1x1x1xf32>, [#const.CastElemType<f16>]
-    %fq = IE.FakeQuantize(%scale, %low, %high, %low, %high) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 65536 : i64} : tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<1x1x1x1xf16>
+    %fq = IE.FakeQuantize(%scale, %low, %high, %low, %high) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 65536 : i64} : tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<1x1x1x1xf16>
 
     %conv0 = IE.Convolution(%arg00, %arg01)
         {dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]}
@@ -654,7 +654,7 @@ func.func @DoNotFuseMultiplyWithFQScale_NonSplatFQParams(
     %input_high = const.Declare tensor<1x2x1x1xf16> = dense<[[[[2.0]],[[1.0]]]]> : tensor<1x2x1x1xf32>, [#const.CastElemType<f16>]
     %output_low = const.Declare tensor<1x2x1x1xf16> = dense<[[[[-1.0]],[[-0.5]]]]> : tensor<1x2x1x1xf32>, [#const.CastElemType<f16>]
     %output_high = const.Declare tensor<1x2x1x1xf16> = dense<[[[[1.0]],[[0.5]]]]> : tensor<1x2x1x1xf32>, [#const.CastElemType<f16>]
-    %fq = IE.FakeQuantize(%scale, %input_low, %input_high, %output_low, %output_high) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 65536 : i64} : tensor<1x2x1x1xf16>, tensor<1x2x1x1xf16>, tensor<1x2x1x1xf16>, tensor<1x2x1x1xf16>, tensor<1x2x1x1xf16> -> tensor<1x2x1x1xf16>
+    %fq = IE.FakeQuantize(%scale, %input_low, %input_high, %output_low, %output_high) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 65536 : i64} : tensor<1x2x1x1xf16>, tensor<1x2x1x1xf16>, tensor<1x2x1x1xf16>, tensor<1x2x1x1xf16>, tensor<1x2x1x1xf16> -> tensor<1x2x1x1xf16>
 
     %conv0 = IE.Convolution(%arg00, %arg01)
         {dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]}
@@ -767,7 +767,7 @@ func.func @FusePreviousMultiplyToConvolutionWithFakeQuantizedWeights(%arg0: tens
     %output_high = const.Declare tensor<1x1x1x1xf16> = dense<2.0> : tensor<1x1x1x1xf16>
     %fq_weights = IE.FakeQuantize(%weights, %input_low, %input_high, %output_low, %output_high) {
         auto_broadcast = #IE.auto_broadcast_type<NUMPY>,
-        levels = 256 : i64
+        levels_or_low_fp_type = 256 : i64
     } : tensor<512x96x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<512x96x1x1xf16>
 
     %0 = IE.Multiply(%arg0, %scale) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>}
@@ -923,7 +923,7 @@ func.func @FuseMultiplyToSharedFakeQuantizedWeightsConvolution(%arg0: tensor<512
     %output_high = const.Declare tensor<1x1x1x1xf16> = dense<2.0> : tensor<1x1x1x1xf16>
     %fq_weights = IE.FakeQuantize(%weights, %input_low, %input_high, %output_low, %output_high) {
         auto_broadcast = #IE.auto_broadcast_type<NUMPY>,
-        levels = 256 : i64
+        levels_or_low_fp_type = 256 : i64
     } : tensor<512x96x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<512x96x1x1xf16>
 
     %0 = IE.Multiply(%arg0, %scale) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>}

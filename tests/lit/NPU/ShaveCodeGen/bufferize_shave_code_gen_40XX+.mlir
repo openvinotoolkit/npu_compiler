@@ -76,8 +76,10 @@ module @BufferizeSizesAndOffsets {
     kernelInfo = #VPU.KernelInfo<
       tilingInfoFunc = @generated_info_0,
       tilingAxes = [1, 2, 3],
-      numSlicedInputs = 1 : i64
-    >
+      numSlicedInputs = 1 : i64,
+      numTensorInputs = 1 : i64,
+      numAuxBuffers = 0 : i64,
+      inputSegmentationAxes = []>
   }
 
   // CHECK: func.func @main([[ARG0:%.+]]: memref<1x3x8x32xf16>) -> memref<1x3x8x32xf16>
@@ -148,8 +150,11 @@ module @BufferizeScratchBufferWithTiling {
      kernelInfo = #VPU.KernelInfo<
        tilingInfoFunc = @generated_info_0,
        tilingAxes = [3],
-       numSlicedInputs = 1 : i64
-     >}
+       numSlicedInputs = 1 : i64,
+       numTensorInputs = 1 : i64,
+       numAuxBuffers = 1 : i64,
+       inputSegmentationAxes = []>
+    }
     {
       %c16 = arith.constant 16 : index
       %c1 = arith.constant 1 : index

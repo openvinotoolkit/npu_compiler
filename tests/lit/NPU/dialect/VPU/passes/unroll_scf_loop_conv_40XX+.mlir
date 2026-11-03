@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-// RUN: vpux-opt --split-input-file --init-compiler="platform=%platform% compilation-mode=HostCompile allow-custom-values=true" --unroll-scf-loop="loop-unroll-factor=1,1,2,1 enable-cascaded-unrolling=false" --canonicalize  %s | FileCheck %s
+// RUN: vpux-opt --split-input-file --init-compiler="platform=%platform% compilation-mode=HostCompile_Interpreter allow-custom-values=true" --unroll-scf-loop="loop-unroll-factor=1,1,2,1 enable-cascaded-unrolling=false" --canonicalize  %s | FileCheck %s
 
 // REQUIRES: platform-NPU4000 || platform-NPU5010
 
@@ -43,7 +43,7 @@ module @NPUModule {
     return %1 : tensor<1x16x48x1280xf16>
   }
 
-  // CHECK:   func.func @merged_vpu_func_0_1([[VAL_0:%.+]]: tensor<1x16x97x1280xf16
+  // CHECK:   func.func private @merged_vpu_func_0_1([[VAL_0:%.+]]: tensor<1x16x97x1280xf16
   // CHECK:           [[VAL_1:%.+]] = VPU.Slice [[VAL_0]] [0, 0, 0, 0] [1, 16, 50, 1280]
   // CHECK:           [[VAL_2:%.+]] = VPU.NCE.Convolution([[VAL_1]]
   // CHECK-SAME:        pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 0 : i64, bottom = 0 : i64>
@@ -54,9 +54,9 @@ module @NPUModule {
   // CHECK:           return [[VAL_5]] : tensor<1x16x96x1280xf16>
   // CHECK:         }
 
-  // CHECK-DAG:   func.func @merged_vpu_func_0_0
-  // CHECK-DAG:   func.func @merged_vpu_func_2_1
-  // CHECK-DAG:   func.func @merged_vpu_func_2_0
+  // CHECK-DAG:   func.func private @merged_vpu_func_0_0
+  // CHECK-DAG:   func.func private @merged_vpu_func_2_1
+  // CHECK-DAG:   func.func private @merged_vpu_func_2_0
   // CHECK-DAG:   func.func @main_func1_dims_H_cases_2_static
   // CHECK-DAG:   func.func @main_func1_dims_H_cases_1_static
   // CHECK-DAG:   func.func @main_func1_dims_H_cases_0_static

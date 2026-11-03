@@ -3,11 +3,13 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
+#include <cstdio>
 #include "vpux/compiler/core/attributes/shape.hpp"
 #include "vpux/compiler/core/attributes/stride_reqs.hpp"
 #include "vpux/compiler/core/bounded_buffer.hpp"
 #include "vpux/compiler/core/cost_model_utils.hpp"
 #include "vpux/compiler/dialect/IE/utils/dynamic_shape_utils.hpp"
+#include "vpux/compiler/dialect/IE/utils/slice_utils.hpp"
 #include "vpux/compiler/dialect/Shave/IR/ops/meta-ops.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/activation.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/arithmetic.hpp"
@@ -47,6 +49,7 @@
 #include <mlir/IR/BuiltinAttributes.h>
 
 #include <algorithm>
+#include <cstdint>
 #include <cstring>
 
 #define REGION_YOLO_MAX_MASK_SIZE 9   // max mask size for region yolo op
@@ -202,15 +205,19 @@ mlir::ArrayAttr optionalIoAttr(mlir::Operation* op) {
                 mask |= 1 << 0;                                    // InputQ
                 mask |= 1 << 1;                                    // InputK
                 mask |= 1 << 2;                                    // InputV
-                mask |= (attention.getInputMask() ? 1 : 0) << 3;   // InputMask
-                mask |= (attention.getInputScale() ? 1 : 0) << 4;  // InputScale
-                mask |= (attention.getInputSink() ? 1 : 0) << 5;   // InputSink
-                mask |= (attention.getInputBias() ? 1 : 0) << 6;   // InputBias
-                mask |= 1 << 7;                                    // AuxBuffer
-                mask |= (attention.getSeqLenK() ? 1 : 0) << 8;     // seqLenK
-                mask |= (attention.getKScale() ? 1 : 0) << 9;      // KScale
-                mask |= (attention.getVScale() ? 1 : 0) << 10;     // VScale
-                mask |= 1 << 11;                                   // output
+                mask |= (attention.getPastK() ? 1 : 0) << 3;       // pastK
+                mask |= (attention.getPastV() ? 1 : 0) << 4;       // pastV
+                mask |= (attention.getInputMask() ? 1 : 0) << 5;   // InputMask
+                mask |= (attention.getInputScale() ? 1 : 0) << 6;  // InputScale
+                mask |= (attention.getInputSink() ? 1 : 0) << 7;   // InputSink
+                mask |= (attention.getInputBias() ? 1 : 0) << 8;   // InputBias
+                mask |= 1 << 9;                                    // AuxBuffer
+                mask |= (attention.getSeqLenK() ? 1 : 0) << 10;    // seqLenK
+                mask |= (attention.getKScale() ? 1 : 0) << 11;     // KScale
+                mask |= (attention.getVScale() ? 1 : 0) << 12;     // VScale
+                mask |= 1 << 13;                                   // output
+                mask |= (attention.getPresentK() ? 1 : 0) << 14;   // presentK
+                mask |= (attention.getPresentV() ? 1 : 0) << 15;   // presentV
             })
             .Case<VPU::PadOp>([&](VPU::PadOp pad) {
                 mask |= 1 << 0;                             // main input
@@ -559,10 +566,13 @@ void SwKernelOp::build(mlir::OpBuilder& builder, mlir::OperationState& opState, 
                        llvm::ArrayRef<int32_t> dynamicInputShapesMap, mlir::ValueRange dynamicOutputShapes,
                        llvm::ArrayRef<int32_t> dynamicOutputShapesMap, mlir::SymbolRefAttr kernelFunction,
                        mlir::IntegerAttr tileIndex) {
+    const bool hasDynamism = !dynamicInputShapes.empty() || !dynamicOutputShapes.empty();
     build(builder, opState, results.getTypes(), dynamicOutputShapes.getTypes(), /*profilingOutputType*/ nullptr,
           kernelFunction, inputs, dynamicInputShapes,
-          DenseI32ArrayAttr::get(builder.getContext(), dynamicInputShapesMap), results, dynamicOutputShapes,
-          DenseI32ArrayAttr::get(builder.getContext(), dynamicOutputShapesMap), /*profilingOutput*/ nullptr, tileIndex,
+          (hasDynamism ? DenseI32ArrayAttr::get(builder.getContext(), dynamicInputShapesMap) : nullptr), results,
+          dynamicOutputShapes,
+          (hasDynamism ? DenseI32ArrayAttr::get(builder.getContext(), dynamicOutputShapesMap) : nullptr),
+          /*profilingOutput*/ nullptr, tileIndex,
           /* listIndex */ nullptr, /* inputStrides */ nullptr, /*outputStrides*/ nullptr,
           /*profilingMetadata*/ nullptr, /*skipDescIds*/ nullptr);
 }
@@ -572,10 +582,13 @@ void SwKernelOp::build(mlir::OpBuilder& builder, mlir::OperationState& opState, 
                        llvm::ArrayRef<int32_t> dynamicInputShapesMap, mlir::ValueRange dynamicOutputShapes,
                        llvm::ArrayRef<int32_t> dynamicOutputShapesMap, mlir::SymbolRefAttr kernelFunction,
                        mlir::IntegerAttr tileIndex, mlir::ArrayAttr outputStrides) {
+    const bool hasDynamism = !dynamicInputShapes.empty() || !dynamicOutputShapes.empty();
     build(builder, opState, results.getTypes(), dynamicOutputShapes.getTypes(), /*profilingOutputType*/ nullptr,
           kernelFunction, inputs, dynamicInputShapes,
-          DenseI32ArrayAttr::get(builder.getContext(), dynamicInputShapesMap), results, dynamicOutputShapes,
-          DenseI32ArrayAttr::get(builder.getContext(), dynamicOutputShapesMap), /*profilingOutput*/ nullptr, tileIndex,
+          (hasDynamism ? DenseI32ArrayAttr::get(builder.getContext(), dynamicInputShapesMap) : nullptr), results,
+          dynamicOutputShapes,
+          (hasDynamism ? DenseI32ArrayAttr::get(builder.getContext(), dynamicOutputShapesMap) : nullptr),
+          /*profilingOutput*/ nullptr, tileIndex,
           /* listIndex */ nullptr, /* inputStrides */ nullptr, outputStrides, /*profilingMetadata*/ nullptr,
           /*skipDescIds*/ nullptr);
 }
@@ -585,10 +598,13 @@ void SwKernelOp::build(mlir::OpBuilder& builder, mlir::OperationState& opState, 
                        llvm::ArrayRef<int32_t> dynamicInputShapesMap, mlir::ValueRange dynamicOutputShapes,
                        llvm::ArrayRef<int32_t> dynamicOutputShapesMap, mlir::Value profilingOutput,
                        mlir::SymbolRefAttr kernelFunction, mlir::IntegerAttr tileIndex) {
+    const bool hasDynamism = !dynamicInputShapes.empty() || !dynamicOutputShapes.empty();
     build(builder, opState, results.getTypes(), dynamicOutputShapes.getTypes(),
           (profilingOutput ? profilingOutput.getType() : nullptr), kernelFunction, inputs, dynamicInputShapes,
-          DenseI32ArrayAttr::get(builder.getContext(), dynamicInputShapesMap), results, dynamicOutputShapes,
-          DenseI32ArrayAttr::get(builder.getContext(), dynamicOutputShapesMap), profilingOutput, tileIndex,
+          (hasDynamism ? DenseI32ArrayAttr::get(builder.getContext(), dynamicInputShapesMap) : nullptr), results,
+          dynamicOutputShapes,
+          (hasDynamism ? DenseI32ArrayAttr::get(builder.getContext(), dynamicOutputShapesMap) : nullptr),
+          profilingOutput, tileIndex,
           /* listIndex */ nullptr, /* inputStrides */ nullptr, /*outputStrides*/ nullptr,
           /*profilingMetadata*/ nullptr, /*skipDescIds*/ nullptr);
 }
@@ -623,10 +639,13 @@ void SwKernelOp::build(mlir::OpBuilder& builder, mlir::OperationState& opState, 
                        llvm::ArrayRef<int32_t> dynamicInputShapesMap, mlir::ValueRange dynamicOutputShapes,
                        llvm::ArrayRef<int32_t> dynamicOutputShapesMap, mlir::Value profilingOutput,
                        mlir::SymbolRefAttr kernelFunction, mlir::IntegerAttr tileIndex, mlir::ArrayAttr outputStrides) {
+    const bool hasDynamism = !dynamicInputShapes.empty() || !dynamicOutputShapes.empty();
     build(builder, opState, results.getTypes(), dynamicOutputShapes.getTypes(),
           (profilingOutput ? profilingOutput.getType() : nullptr), kernelFunction, inputs, dynamicInputShapes,
-          DenseI32ArrayAttr::get(builder.getContext(), dynamicInputShapesMap), results, dynamicOutputShapes,
-          DenseI32ArrayAttr::get(builder.getContext(), dynamicOutputShapesMap), profilingOutput, tileIndex,
+          (hasDynamism ? DenseI32ArrayAttr::get(builder.getContext(), dynamicInputShapesMap) : nullptr), results,
+          dynamicOutputShapes,
+          (hasDynamism ? DenseI32ArrayAttr::get(builder.getContext(), dynamicOutputShapesMap) : nullptr),
+          profilingOutput, tileIndex,
           /* listIndex */ nullptr, /* inputStrides */ nullptr, outputStrides, /*profilingMetadata*/ nullptr,
           /*skipDescIds*/ nullptr);
 }
@@ -637,10 +656,13 @@ void SwKernelOp::build(mlir::OpBuilder& builder, mlir::OperationState& opState, 
                        llvm::ArrayRef<int32_t> dynamicOutputShapesMap, mlir::Value profilingOutput,
                        mlir::SymbolRefAttr kernelFunction, mlir::IntegerAttr tileIndex, mlir::ArrayAttr inputStrides,
                        mlir::ArrayAttr outputStrides) {
+    const bool hasDynamism = !dynamicInputShapes.empty() || !dynamicOutputShapes.empty();
     build(builder, opState, results.getTypes(), dynamicOutputShapes.getTypes(),
           (profilingOutput ? profilingOutput.getType() : nullptr), kernelFunction, inputs, dynamicInputShapes,
-          DenseI32ArrayAttr::get(builder.getContext(), dynamicInputShapesMap), results, dynamicOutputShapes,
-          DenseI32ArrayAttr::get(builder.getContext(), dynamicOutputShapesMap), profilingOutput, tileIndex,
+          (hasDynamism ? DenseI32ArrayAttr::get(builder.getContext(), dynamicInputShapesMap) : nullptr), results,
+          dynamicOutputShapes,
+          (hasDynamism ? DenseI32ArrayAttr::get(builder.getContext(), dynamicOutputShapesMap) : nullptr),
+          profilingOutput, tileIndex,
           /* listIndex */ nullptr, inputStrides, outputStrides, /*profilingMetadata*/ nullptr, /*skipDescIds*/ nullptr);
 }
 
@@ -791,24 +813,65 @@ bool isConfigSupported(VPU::ConvertOp op) {
 
     static constexpr uint64_t supportedModes[] = {
             mode(DT::NN_FP16, DT::NN_FP32),  // frequent modes
-            mode(DT::NN_FP32, DT::NN_FP16), mode(DT::NN_I4, DT::NN_FP16),   mode(DT::NN_I32, DT::NN_I64),
-            mode(DT::NN_I64, DT::NN_FP16),  mode(DT::NN_I64, DT::NN_I32),   mode(DT::NN_FP16, DT::NN_I32),
-            mode(DT::NN_I32, DT::NN_FP16),  mode(DT::NN_U8, DT::NN_FP16),   mode(DT::NN_I8, DT::NN_FP16),
-            mode(DT::NN_I32, DT::NN_FP32),  mode(DT::NN_I8, DT::NN_I32),    mode(DT::NN_U8, DT::NN_I32),
+            mode(DT::NN_FP32, DT::NN_FP16),
+            mode(DT::NN_I4, DT::NN_FP16),
+            mode(DT::NN_FP16, DT::NN_I32),
+            mode(DT::NN_I32, DT::NN_FP16),
+            mode(DT::NN_U8, DT::NN_FP16),
+            mode(DT::NN_I8, DT::NN_FP16),
+            mode(DT::NN_I32, DT::NN_FP32),
+            mode(DT::NN_I8, DT::NN_I32),
+            mode(DT::NN_U8, DT::NN_I32),
+            mode(DT::NN_U8, DT::NN_U32),
+            mode(DT::NN_I8, DT::NN_U32),
             mode(DT::NN_FP16, DT::NN_U8),
 
-            mode(DT::NN_U8, DT::NN_FP32),  // less frequent modes
-            mode(DT::NN_I8, DT::NN_FP32),   mode(DT::NN_I32, DT::NN_U8),    mode(DT::NN_I32, DT::NN_I8),
-            mode(DT::NN_I32, DT::NN_U64),   mode(DT::NN_FP16, DT::NN_I8),   mode(DT::NN_FP32, DT::NN_U8),
-            mode(DT::NN_FP32, DT::NN_I8),   mode(DT::NN_FP32, DT::NN_I32),  mode(DT::NN_U16, DT::NN_FP16),
-            mode(DT::NN_FP16, DT::NN_U16),  mode(DT::NN_I8, DT::NN_I64),    mode(DT::NN_FP16, DT::NN_I64),
-            mode(DT::NN_FP32, DT::NN_I64),  mode(DT::NN_U8, DT::NN_I64),    mode(DT::NN_I64, DT::NN_I8),
-            mode(DT::NN_I64, DT::NN_FP32),  mode(DT::NN_I64, DT::NN_U8),    mode(DT::NN_U64, DT::NN_U32),
-            mode(DT::NN_U32, DT::NN_U64),   mode(DT::NN_U4, DT::NN_U8),     mode(DT::NN_U4, DT::NN_I8),
-            mode(DT::NN_U4, DT::NN_FP16),   mode(DT::NN_I4, DT::NN_I8),     mode(DT::NN_BF16, DT::NN_FP16),
-            mode(DT::NN_I64, DT::NN_FP64),  mode(DT::NN_FP64, DT::NN_I64),  mode(DT::NN_I8, DT::NN_U8),
-            mode(DT::NN_U8, DT::NN_I8),     mode(DT::NN_FP64, DT::NN_FP16), mode(DT::NN_FP16, DT::NN_FP64),
-            mode(DT::NN_I16, DT::NN_FP16),  mode(DT::NN_FP16, DT::NN_I16),
+            // less frequent modes
+            mode(DT::NN_U8, DT::NN_FP32),
+            mode(DT::NN_FP32, DT::NN_U32),
+            mode(DT::NN_FP16, DT::NN_U32),
+            mode(DT::NN_U32, DT::NN_U8),
+            mode(DT::NN_U32, DT::NN_I8),
+            mode(DT::NN_U32, DT::NN_I32),
+            mode(DT::NN_U32, DT::NN_FP16),
+            mode(DT::NN_U32, DT::NN_FP32),
+            mode(DT::NN_U32, DT::NN_I64),
+            mode(DT::NN_I8, DT::NN_FP32),
+            mode(DT::NN_I32, DT::NN_U8),
+            mode(DT::NN_I32, DT::NN_I8),
+            mode(DT::NN_I32, DT::NN_U64),
+            mode(DT::NN_I32, DT::NN_I64),
+            mode(DT::NN_FP16, DT::NN_I8),
+            mode(DT::NN_FP32, DT::NN_U8),
+            mode(DT::NN_FP32, DT::NN_I8),
+            mode(DT::NN_FP32, DT::NN_I32),
+            mode(DT::NN_U16, DT::NN_FP16),
+            mode(DT::NN_FP16, DT::NN_U16),
+            mode(DT::NN_I8, DT::NN_I64),
+            mode(DT::NN_FP16, DT::NN_I64),
+            mode(DT::NN_FP32, DT::NN_I64),
+            mode(DT::NN_U8, DT::NN_I64),
+            mode(DT::NN_I64, DT::NN_I8),
+            mode(DT::NN_I64, DT::NN_FP32),
+            mode(DT::NN_I64, DT::NN_U8),
+            mode(DT::NN_I64, DT::NN_U32),
+            mode(DT::NN_I64, DT::NN_FP16),
+            mode(DT::NN_I64, DT::NN_I32),
+            mode(DT::NN_U64, DT::NN_U32),
+            mode(DT::NN_U32, DT::NN_U64),
+            mode(DT::NN_U4, DT::NN_U8),
+            mode(DT::NN_U4, DT::NN_I8),
+            mode(DT::NN_U4, DT::NN_FP16),
+            mode(DT::NN_I4, DT::NN_I8),
+            mode(DT::NN_BF16, DT::NN_FP16),
+            mode(DT::NN_I64, DT::NN_FP64),
+            mode(DT::NN_FP64, DT::NN_I64),
+            mode(DT::NN_I8, DT::NN_U8),
+            mode(DT::NN_U8, DT::NN_I8),
+            mode(DT::NN_FP64, DT::NN_FP16),
+            mode(DT::NN_FP16, DT::NN_FP64),
+            mode(DT::NN_I16, DT::NN_FP16),
+            mode(DT::NN_FP16, DT::NN_I16),
     };
 
     return llvm::is_contained(supportedModes, curMode);
@@ -912,8 +975,9 @@ std::pair<SmallString, SmallString> getKernelImpl(VPU::ConvertOp op) {
         }
     }
 
-    VPUX_THROW_UNLESS(isConfigSupported(op), "Unsupported ConvertOp configuration: {0} -> {1} on arch {2}", iType,
-                      oType, config::stringifyArchKind(arch));
+    VPUX_THROW_UNLESS(isConvertConfigSupported(iType, oType, arch),
+                      "Unsupported ConvertOp configuration: {0} -> {1} on arch {2}", iType, oType,
+                      config::stringifyArchKind(arch));
     return std::pair<SmallString, SmallString>{"convert", "convert.cpp"};
 }
 
@@ -959,36 +1023,24 @@ std::tuple<SmallString, SmallString> getKernelImpl(VPU::AttentionOp op) {
 }
 
 std::tuple<SmallString, SmallString, SmallString> getKernelImpl(VPU::AttentionDMAOp op) {
-    const auto kElemType = mlir::cast<NDTypeInterface>(op.getInputK().getType()).getElementType();
-    const auto vElemType = mlir::cast<NDTypeInterface>(op.getInputV().getType()).getElementType();
-    const bool hasQuantizedKV = kElemType.isSignedInteger(8) || vElemType.isSignedInteger(8) ||
-                                (op.getKScale() != nullptr) || (op.getVScale() != nullptr);
-    // Sliding window, smooth-softmax and sink input are only implemented by the flash kernels.
-    const bool hasLocalWindow = op.getLocalWindowSize().has_value() && op.getLocalWindowSize().value() != -1;
-    const bool hasSmoothSoftmax = op.getSmoothSoftmaxAttr() != nullptr;
-    const bool hasSink = op.getInputSink() != nullptr;
-
-    // The non-flash attention_dma kernel cannot consume a runtime seqLenK and only supports inner
-    // dims (eDim/eVDim/sSL) that are multiples of 16; anything else must go to the flash kernels.
-    const auto kShape = getBoundedShape(op.getInputK()).raw();
-    const auto vShape = getBoundedShape(op.getInputV()).raw();
-    const auto sSL = kShape[kShape.size() - 2];
-    const auto eDim = kShape[kShape.size() - 1];
-    const bool isTransposedV = kShape[kShape.size() - 2] != vShape[vShape.size() - 2];
-    const auto eVDim = isTransposedV ? vShape[vShape.size() - 2] : vShape[vShape.size() - 1];
-    const bool hasSeqLenK = op.getSeqLenK() != nullptr;
-    const bool nonFlashDimsAligned = (eDim % 16 == 0) && (eVDim % 16 == 0) && (sSL % 16 == 0);
-
-    if (!hasQuantizedKV && !hasLocalWindow && !hasSmoothSoftmax && !hasSink && !hasSeqLenK && nonFlashDimsAligned &&
-        VPU::AttentionDMAOp::fitsForNonFlashKernel(op)) {
+    if (VPU::AttentionDMAOp::fitsAndLegalForNonFlashKernel(op)) {
         return std::tuple<SmallString, SmallString, SmallString>{"attention_dma", "attention_dma.cpp", "attention_dma"};
     }
     // tSL is the query sequence-length dim, Q shape is [..., tSL, e]
     const auto qShape = getBoundedShape(op.getInputQ()).raw();
     const auto tSL = qShape[qShape.size() - 2];
-    if (tSL == 1 && op.getSeqLenK() != nullptr && op.getInputMask() == nullptr && op.getInputBias() == nullptr) {
-        return std::tuple<SmallString, SmallString, SmallString>{"attention_dma_flash_quant_tsl1",
-                                                                 "attention_dma_flash_quant_tsl1.cpp", "attention_dma"};
+    if (tSL == 1 && op.getSeqLenK() != nullptr && op.getInputMask() == nullptr) {
+        return std::tuple<SmallString, SmallString, SmallString>{"attention_dma_flash_tsl1",
+                                                                 "attention_dma_flash_tsl1.cpp", "attention_dma"};
+    }
+    // TSL8 appends its 8 new rows inside the window it attends: a sliding-window cache keeps at least
+    // localWindowSize rows after an eviction, so windows below 8 rows go to the general flash kernel.
+    const bool tsl8WindowFits = op.getSlidingWindowCacheAttr() == nullptr || op.getLocalWindowSizeAttr() == nullptr ||
+                                !op.getLocalWindowSize().has_value() || op.getLocalWindowSize().value() < 1 ||
+                                op.getLocalWindowSize().value() >= 8;
+    if (tSL == 8 && op.getSeqLenK() != nullptr && op.getInputMask() == nullptr && tsl8WindowFits) {
+        return std::tuple<SmallString, SmallString, SmallString>{"attention_dma_flash_tsl8",
+                                                                 "attention_dma_flash_tsl8.cpp", "attention_dma"};
     }
     return std::tuple<SmallString, SmallString, SmallString>{"attention_dma_flash", "attention_dma_flash.cpp",
                                                              "attention_dma"};
@@ -1057,6 +1109,65 @@ std::pair<SmallString, SmallString> getKernelImpl(VPU::SelectOp op) {
     return std::pair<SmallString, SmallString>{"eltwise_select_p00", "eltwise_select_p00.cpp"};
 }
 
+template <typename BitwiseOp>
+struct BitwiseKernelNames;
+
+template <>
+struct BitwiseKernelNames<VPU::BitwiseAndOp> {
+    static constexpr const char* entry = "eltwise_bitwise_and";
+    static constexpr const char* src = "eltwise_bitwise_and.cpp";
+    static constexpr const char* p00Entry = "eltwise_bitwise_and_p00";
+    static constexpr const char* p00Src = "eltwise_bitwise_and_p00.cpp";
+};
+
+template <>
+struct BitwiseKernelNames<VPU::BitwiseOrOp> {
+    static constexpr const char* entry = "eltwise_bitwise_or";
+    static constexpr const char* src = "eltwise_bitwise_or.cpp";
+    static constexpr const char* p00Entry = "eltwise_bitwise_or_p00";
+    static constexpr const char* p00Src = "eltwise_bitwise_or_p00.cpp";
+};
+
+template <>
+struct BitwiseKernelNames<VPU::BitwiseXorOp> {
+    static constexpr const char* entry = "eltwise_bitwise_xor";
+    static constexpr const char* src = "eltwise_bitwise_xor.cpp";
+    static constexpr const char* p00Entry = "eltwise_bitwise_xor_p00";
+    static constexpr const char* p00Src = "eltwise_bitwise_xor_p00.cpp";
+};
+
+template <typename BitwiseOp>
+std::pair<SmallString, SmallString> getBitwiseKernelImpl(BitwiseOp op) {
+    using Names = BitwiseKernelNames<BitwiseOp>;
+    const auto input1Shape = mlir::cast<vpux::NDTypeInterface>(op.getInput1().getType()).getShape();
+    const auto input2Shape = mlir::cast<vpux::NDTypeInterface>(op.getInput2().getType()).getShape();
+    if (input1Shape != input2Shape) {
+        const auto diffDims = IE::getDiffInOutSizeDims(input1Shape, input2Shape);
+        const auto hasNonInnerBroadcast = llvm::any_of(diffDims, [&](Dim dim) {
+            const auto input1Size = input1Shape[dim];
+            const auto input2Size = input2Shape[dim];
+            const auto isBroadcastDim = (input1Size == 1 && input2Size > 1) || (input2Size == 1 && input1Size > 1);
+            return isBroadcastDim && computeReverseMemDim(op.getOutput(), dim.ind()) != 0;
+        });
+        if (hasNonInnerBroadcast) {
+            return std::pair<SmallString, SmallString>{Names::p00Entry, Names::p00Src};
+        }
+    }
+    return std::pair<SmallString, SmallString>{Names::entry, Names::src};
+}
+
+std::pair<SmallString, SmallString> getKernelImpl(VPU::BitwiseAndOp op) {
+    return getBitwiseKernelImpl(op);
+}
+
+std::pair<SmallString, SmallString> getKernelImpl(VPU::BitwiseOrOp op) {
+    return getBitwiseKernelImpl(op);
+}
+
+std::pair<SmallString, SmallString> getKernelImpl(VPU::BitwiseXorOp op) {
+    return getBitwiseKernelImpl(op);
+}
+
 #define CASE_REDUCE(_OP_, _STR1_, _CTX_)                                                                       \
     .Case<_OP_>([&](_OP_ reduce) {                                                                             \
         const auto keepDims = static_cast<int64_t>(reduce.getKeepDimsAttr() != nullptr);                       \
@@ -1112,12 +1223,29 @@ VPUIP::KernelInfo SwKernelOp::getKernelInfo(mlir::Operation* origOp) {
                                          {"jit_generated"}};
             })
             .Case<Shave::ExternalKernelOp>([&](Shave::ExternalKernelOp externalKernelOp) {
-                auto attrDict = externalKernelOp.getAttrDict();
+                auto attrDict = externalKernelOp.getKernelAttributes();
                 auto attrVec = SmallVector<mlir::Attribute>{};
                 for (auto namedAttr : attrDict) {
                     attrVec.push_back(namedAttr.getValue());
                 }
                 return VPUIP::KernelInfo{attrVec, {externalKernelOp.getUniqueId().str()}};
+            })
+            .Case<Shave::RepeatedExternalKernelOp>([&](Shave::RepeatedExternalKernelOp op) {
+                // Kernel Parameter layout:
+                // MemrefData for I/O -> user_attrs -> int32_t num_shaves, int32_t num_tiles -> [ReleaseDesc | for NPU5]
+                auto attrVec = SmallVector<mlir::Attribute>{};
+                for (auto namedAttr : op.getKernelAttributes()) {
+                    attrVec.push_back(namedAttr.getValue());
+                }
+
+                auto kernelDistribution = op.getKernelDistribution();
+                const auto numShaves = kernelDistribution.getNumShaves().getInt();
+                const auto numTiles = kernelDistribution.getNumTiles().getInt();
+
+                auto runInfoAttr = getIntAttr(ctx, (numShaves << 32) | numTiles);
+                attrVec.push_back(runInfoAttr);
+
+                return VPUIP::KernelInfo{attrVec, {op.getUniqueId().str()}};
             })
             .Case<VPU::ExpOp>([&](VPU::ExpOp) {
                 return VPUIP::KernelInfo{SmallVector<mlir::Attribute>{}, {"activation_exp"}};
@@ -1524,11 +1652,13 @@ VPUIP::KernelInfo SwKernelOp::getKernelInfo(mlir::Operation* origOp) {
                 return VPUIP::KernelInfo{SmallVector<mlir::Attribute>{}, {"eltwise_div"}};
             })
             .Case<VPU::MultiplyOp>([&](VPU::MultiplyOp op) {
+                const auto in1Type = mlir::cast<vpux::NDTypeInterface>(op.getInput1().getType());
+                const auto in2Type = mlir::cast<vpux::NDTypeInterface>(op.getInput2().getType());
                 const auto oType = mlir::cast<vpux::NDTypeInterface>(op.getOutput().getType());
                 const auto outElemType = oType.getElementType();
-                VPUX_THROW_WHEN(mlir::isa<mlir::quant::UniformQuantizedPerAxisType>(outElemType),
-                                "Multiply layer op does not support per-axis quantized output on shv at '{0}'",
-                                op->getLoc());
+                VPUX_THROW_UNLESS(!mlir::isa<mlir::quant::UniformQuantizedPerAxisType>(outElemType),
+                                  "Multiply layer op does not support per-axis quantized output on shv at '{0}'",
+                                  op->getLoc());
 
                 const auto quantParams = mlir::dyn_cast<mlir::quant::UniformQuantizedType>(outElemType);
                 if (quantParams != nullptr) {
@@ -1538,8 +1668,8 @@ VPUIP::KernelInfo SwKernelOp::getKernelInfo(mlir::Operation* origOp) {
                             "Multiply layer op supports only i8/u8 per-tensor quantized output on shv at '{0}'",
                             op->getLoc());
 
-                    const auto in1Shape = mlir::cast<vpux::NDTypeInterface>(op.getInput1().getType()).getShape();
-                    const auto in2Shape = mlir::cast<vpux::NDTypeInterface>(op.getInput2().getType()).getShape();
+                    const auto in1Shape = in1Type.getShape();
+                    const auto in2Shape = in2Type.getShape();
                     VPUX_THROW_UNLESS(in1Shape == in2Shape,
                                       "Multiply layer op with quantized output supports only non-broadcasted inputs "
                                       "on shv at '{0}'",
@@ -1551,6 +1681,69 @@ VPUIP::KernelInfo SwKernelOp::getKernelInfo(mlir::Operation* origOp) {
                             SmallVector<mlir::Attribute>{getFPAttr(ctx, outScale), getIntAttr(ctx, outZP)},
                             {"eltwise_mul_quantized_output"}};
                 }
+
+                const auto isInnerBcst3Pattern = [&]() {
+                    // No NPU37XX binary is built for this kernel: its vectorized guard uses half16
+                    // (256-bit) loads/stores, matching this repo's 16-lane-on-NPU4+/8-lane-on-NPU3720
+                    // FP16 SIMD convention (see convert.cpp, dynamic_dequantize.cpp), and NPU37XX
+                    // tiling only guarantees 1-byte sub-buffer alignment.
+                    if (config::getArch(op.getOperation()) == config::ArchKind::NPU37XX) {
+                        return false;
+                    }
+                    if (!in1Type.getElementType().isF16() || !in2Type.getElementType().isF16() ||
+                        !outElemType.isF16() || in1Type.getRank() != 4 || in2Type.getRank() != 4 ||
+                        oType.getRank() != 4) {
+                        return false;
+                    }
+
+                    const auto memShape1 = in1Type.getMemShape();
+                    const auto memShape2 = in2Type.getMemShape();
+                    const auto memShapeOut = oType.getMemShape();
+                    if (memShape1.isDynamic() || memShape2.isDynamic() || memShapeOut.isDynamic()) {
+                        return false;
+                    }
+
+                    const auto hasCompactStridesIgnoringUnitDims = [](NDTypeInterface type) {
+                        const auto memShape = type.getMemShape();
+                        const auto memStrides = type.getMemStrides();
+                        auto expectedStride = type.getElemTypeSize();
+                        for (const auto index : irange(memShape.size()) | reversed) {
+                            const auto dim = MemDim(index);
+                            if (memShape[dim] != 1 && memStrides[dim] != expectedStride) {
+                                return false;
+                            }
+                            expectedStride *= memShape[dim];
+                        }
+                        return true;
+                    };
+                    if (!hasCompactStridesIgnoringUnitDims(in1Type) || !hasCompactStridesIgnoringUnitDims(in2Type) ||
+                        !hasCompactStridesIgnoringUnitDims(oType)) {
+                        return false;
+                    }
+
+                    const auto innerDim = MemDim(memShapeOut.size() - 1);
+                    const bool in1Vector = memShape1[innerDim] == 3 && memShape2[innerDim] == 1;
+                    const bool in2Vector = memShape1[innerDim] == 1 && memShape2[innerDim] == 3;
+                    if ((!in1Vector && !in2Vector) || memShapeOut[innerDim] != 3) {
+                        return false;
+                    }
+
+                    for (size_t i = 0; i < memShapeOut.size(); ++i) {
+                        const auto dim = MemDim(i);
+                        if (dim == innerDim) {
+                            continue;
+                        }
+                        if (memShape1[dim] != memShape2[dim] || memShape1[dim] != memShapeOut[dim]) {
+                            return false;
+                        }
+                    }
+                    return true;
+                }();
+
+                if (isInnerBcst3Pattern) {
+                    return VPUIP::KernelInfo{SmallVector<mlir::Attribute>{}, {"eltwise_mul_inner_bcst3"}};
+                }
+
                 return VPUIP::KernelInfo{SmallVector<mlir::Attribute>{}, {"eltwise_mul"}};
             })
             .Case<VPU::AddOp>([&](VPU::AddOp) {
@@ -1607,14 +1800,26 @@ VPUIP::KernelInfo SwKernelOp::getKernelInfo(mlir::Operation* origOp) {
             .Case<VPU::AndOp>([&](VPU::AndOp) {
                 return VPUIP::KernelInfo{SmallVector<mlir::Attribute>{}, {"eltwise_and"}};
             })
-            .Case<VPU::BitwiseAndOp>([&](VPU::BitwiseAndOp) {
-                return VPUIP::KernelInfo{SmallVector<mlir::Attribute>{}, {"eltwise_bitwise_and"}};
+            .Case<VPU::BitwiseAndOp>([&](VPU::BitwiseAndOp op) {
+                auto [kernelEntry, kernelSrc] = getKernelImpl(op);
+                return VPUIP::KernelInfo{SmallVector<mlir::Attribute>{},
+                                         kernelEntry,
+                                         kernelSrc,
+                                         {"eltwise_bitwise_and"}};
             })
-            .Case<VPU::BitwiseOrOp>([&](VPU::BitwiseOrOp) {
-                return VPUIP::KernelInfo{SmallVector<mlir::Attribute>{}, {"eltwise_bitwise_or"}};
+            .Case<VPU::BitwiseOrOp>([&](VPU::BitwiseOrOp op) {
+                auto [kernelEntry, kernelSrc] = getKernelImpl(op);
+                return VPUIP::KernelInfo{SmallVector<mlir::Attribute>{},
+                                         kernelEntry,
+                                         kernelSrc,
+                                         {"eltwise_bitwise_or"}};
             })
-            .Case<VPU::BitwiseXorOp>([&](VPU::BitwiseXorOp) {
-                return VPUIP::KernelInfo{SmallVector<mlir::Attribute>{}, {"eltwise_bitwise_xor"}};
+            .Case<VPU::BitwiseXorOp>([&](VPU::BitwiseXorOp op) {
+                auto [kernelEntry, kernelSrc] = getKernelImpl(op);
+                return VPUIP::KernelInfo{SmallVector<mlir::Attribute>{},
+                                         kernelEntry,
+                                         kernelSrc,
+                                         {"eltwise_bitwise_xor"}};
             })
             .Case<VPU::BitwiseNotOp>([&](VPU::BitwiseNotOp) {
                 return VPUIP::KernelInfo{SmallVector<mlir::Attribute>{}, {"eltwise_bitwise_not"}};
@@ -1960,20 +2165,35 @@ VPUIP::KernelInfo SwKernelOp::getKernelInfo(mlir::Operation* origOp) {
                 return VPUIP::KernelInfo{SmallVector<mlir::Attribute>{delimiterAttr, dstTypeAttr}, {"fake_convert"}};
             })
             .Case<VPU::QuantizeOp>([&](VPU::QuantizeOp op) {
+                const auto arch = config::getArch(op.getOperation());
                 const auto iType = mlir::cast<vpux::NDTypeInterface>(op.getInput().getType());
+                const auto oType = mlir::cast<vpux::NDTypeInterface>(op.getOutput().getType());
+                const auto inElemType = iType.getElementType();
+                const auto outElemType = oType.getElementType();
+                std::optional<int64_t> quantDim;
+                if (auto perAxisType = mlir::dyn_cast<mlir::quant::UniformQuantizedPerAxisType>(outElemType)) {
+                    quantDim = computeReverseMemDim(op.getOutput(), perAxisType.getQuantizedDimension());
+                }
+                VPUX_THROW_UNLESS(
+                        isQuantizeConfigSupported(inElemType, outElemType, arch, quantDim),
+                        "Unsupported QuantizeOp configuration: inElemType={0}, outElemType={1}, quantDim={2}, "
+                        "arch={3}",
+                        inElemType, outElemType, quantDim.value_or(-1), config::stringifyArchKind(arch));
                 mlir::ArrayAttr paramsAttr;
-                getQuantParamsAttr(op.getOutput(), iType.getElementType(), paramsAttr);
+                getQuantParamsAttr(op.getOutput(), inElemType, paramsAttr);
                 return VPUIP::KernelInfo{SmallVector<mlir::Attribute>{paramsAttr}, {"quantize"}};
             })
             .Case<VPU::DequantizeOp>([&](VPU::DequantizeOp op) {
                 const auto arch = config::getArch(op.getOperation());
                 const auto iType = mlir::cast<vpux::NDTypeInterface>(op.getInput().getType());
                 const auto oType = mlir::cast<vpux::NDTypeInterface>(op.getOutput().getType());
-                VPUX_THROW_UNLESS(isConfigSupported(op),
-                                  "Unsupported DequantizeOp configuration: {0} -> {1} on arch {2}", iType, oType,
-                                  config::stringifyArchKind(arch));
+                const auto inElemType = iType.getElementType();
+                const auto outElemType = oType.getElementType();
+                VPUX_THROW_UNLESS(isDequantizeConfigSupported(inElemType, outElemType, arch),
+                                  "Unsupported DequantizeOp configuration: inElemType={0}, outElemType={1}, arch={2}",
+                                  inElemType, outElemType, config::stringifyArchKind(arch));
                 mlir::ArrayAttr paramsAttr;
-                getQuantParamsAttr(op.getInput(), oType.getElementType(), paramsAttr);
+                getQuantParamsAttr(op.getInput(), outElemType, paramsAttr);
                 return VPUIP::KernelInfo{SmallVector<mlir::Attribute>{paramsAttr}, {"dequantize"}};
             })
             .Case<VPU::DynamicQuantizeOp>([&](VPU::DynamicQuantizeOp op) {
@@ -1981,7 +2201,19 @@ VPUIP::KernelInfo SwKernelOp::getKernelInfo(mlir::Operation* origOp) {
                 // from internal-reduction mode (min/max absent).
                 return VPUIP::KernelInfo{SmallVector<mlir::Attribute>{optionalIoAttr(op)}, {"dynamic_quantize"}};
             })
-            .Case<VPU::DynamicDequantizeOp>([&](VPU::DynamicDequantizeOp) {
+            .Case<VPU::DynamicDequantizeOp>([&](VPU::DynamicDequantizeOp op) {
+                const auto arch = config::getArch(op.getOperation());
+                const auto iType = mlir::cast<vpux::NDTypeInterface>(op.getInput().getType());
+                const auto oType = mlir::cast<vpux::NDTypeInterface>(op.getOutput().getType());
+                const auto inElemType = iType.getElementType();
+                const auto outElemType = oType.getElementType();
+                const auto zp = op.getZp();
+                const auto zpElemType =
+                        zp != nullptr ? mlir::cast<vpux::NDTypeInterface>(zp.getType()).getElementType() : mlir::Type{};
+                VPUX_THROW_UNLESS(isDynamicDequantizeConfigSupported(inElemType, outElemType, arch, zpElemType),
+                                  "Unsupported DynamicDequantizeOp configuration: inElemType={0}, outElemType={1}, "
+                                  "zpElemType={2}, arch={3}",
+                                  inElemType, outElemType, zpElemType, config::stringifyArchKind(arch));
                 const auto delimiterAttr = getIntAttr(ctx, INT64_MAX);
                 return VPUIP::KernelInfo{SmallVector<mlir::Attribute>{delimiterAttr}, {"dynamic_dequantize"}};
             })
@@ -2386,6 +2618,12 @@ VPUIP::KernelInfo SwKernelOp::getKernelInfo(mlir::Operation* origOp) {
             .Case<VPU::AtanOp>([&](VPU::AtanOp) {
                 return VPUIP::KernelInfo{SmallVector<mlir::Attribute>{}, {"activation_atan"}};
             })
+            .Case<VPU::ReduceMeanDMAOp>([&](VPU::ReduceMeanDMAOp op) {
+                const auto numTiles = getNumTiles(op.getAuxBuffer());
+                const auto numShaves = mlir::cast<VPU::SwIoDmaOpInterface>(op.getOperation()).getDuplicatedNumShaves();
+                const auto runInfoAttr = getIntAttr(ctx, (numShaves << 32) | numTiles);
+                return VPUIP::KernelInfo{SmallVector<mlir::Attribute>{runInfoAttr}, {"reduce_mean_dma"}};
+            })
             .Case<VPU::AtanDmaOp>([&](VPU::AtanDmaOp op) {
                 int64_t numTiles = getNumTiles(op.getAuxBuffer());
                 int64_t numShaves = (static_cast<VPU::SwIoDmaOpInterface>(op)).getDuplicatedNumShaves();
@@ -2395,6 +2633,10 @@ VPUIP::KernelInfo SwKernelOp::getKernelInfo(mlir::Operation* origOp) {
             .Case<VPU::AttentionDMAOp>([&](VPU::AttentionDMAOp op) {
                 int64_t numTiles = getNumTiles(op.getAuxBuffer());
                 int64_t numShaves = (static_cast<VPU::SwIoDmaOpInterface>(op)).getDuplicatedNumShaves();
+                auto [kernelEntry, kernelSrc, kernelName] = getKernelImpl(op);
+                const bool isFlashKernel = kernelEntry == SmallString("attention_dma_flash") ||
+                                           kernelEntry == SmallString("attention_dma_flash_tsl1") ||
+                                           kernelEntry == SmallString("attention_dma_flash_tsl8");
 
                 // Pack AttentionDMAAttrs: {int32_t spad_size, float mask_threshold, uint32_t numTiles, uint32_t
                 // numShaves}
@@ -2411,34 +2653,43 @@ VPUIP::KernelInfo SwKernelOp::getKernelInfo(mlir::Operation* origOp) {
                 int64_t packedAttrs = static_cast<int64_t>(static_cast<uint64_t>(static_cast<uint32_t>(padSize)) |
                                                            (static_cast<uint64_t>(thresholdBits) << 32));
                 const auto packedAttr = getIntAttr(ctx, packedAttrs);
-                // Third i64 (pushed before runInfoAttr below): {numTiles(low32), numShaves(high32)}
+                // Last i64 (always present, non-flash and flash alike): {numTiles(low32), numShaves(high32)}
                 const auto runInfoAttr = getIntAttr(op.getContext(), (numShaves << 32) | numTiles);
 
-                // Second i64 (pushed right after packedAttr / optional flashInfoAttr):
-                // {local_window_size(low32), smooth_softmax(high32)}. Mistral-style sliding-window
-                // size is a compile-time constant attribute on the op; -1 (default/absent) disables
-                // it, matching the convention used by the mask-construction pattern this attribute is
-                // extracted from. smooth_softmax (1/0) mirrors AttentionDmaAttrs::smoothSoftmax --
-                // set by fuseAttention when the real sink was a compile-time all-zero constant.
+                // Flash-only i64 (pushed right after packedAttr / flashInfoAttr):
+                // {local_window_size(low32), sliding_window_cache(high32)}. Mistral-style sliding-
+                // window size is a compile-time constant attribute on the op; -1 (default/absent)
+                // disables it, matching the convention used by the mask-construction pattern this
+                // attribute is extracted from. sliding_window_cache (1/0) is set by fuseAttention
+                // and grouped here since both describe the KV-cache window.
                 int32_t localWindowSize = -1;
                 if (op.getLocalWindowSizeAttr() != nullptr) {
                     if (op.getLocalWindowSize().has_value()) {
                         localWindowSize = static_cast<int32_t>(op.getLocalWindowSize().value());
                     }
                 }
-                const int32_t smoothSoftmax = (op.getSmoothSoftmaxAttr() != nullptr) ? 1 : 0;
+                const int32_t slidingWindowCache = (op.getSlidingWindowCacheAttr() != nullptr) ? 1 : 0;
                 int64_t windowAttrs =
                         static_cast<int64_t>(static_cast<uint64_t>(static_cast<uint32_t>(localWindowSize)) |
-                                             (static_cast<uint64_t>(static_cast<uint32_t>(smoothSoftmax)) << 32));
+                                             (static_cast<uint64_t>(static_cast<uint32_t>(slidingWindowCache)) << 32));
                 const auto windowAttr = getIntAttr(ctx, windowAttrs);
 
-                auto [kernelEntry, kernelSrc, kernelName] = getKernelImpl(op);
+                // Flash-only i64: {smooth_softmax(low32), v_transposed(high32)}. smooth_softmax mirrors
+                // AttentionDmaAttrs::smoothSoftmax -- set by fuseAttention when the real sink was a
+                // compile-time all-zero constant. v_transposed is set by IE::PropagateTranspose when
+                // it folds a V-cache Transpose into AttentionDMA.
+                const int32_t smoothSoftmax = (op.getSmoothSoftmaxAttr() != nullptr) ? 1 : 0;
+                const int32_t vTransposed = (op.getVTransposedAttr() != nullptr) ? 1 : 0;
+                const int64_t smoothSoftmaxAttrs =
+                        static_cast<int64_t>(static_cast<uint64_t>(static_cast<uint32_t>(smoothSoftmax)) |
+                                             (static_cast<uint64_t>(static_cast<uint32_t>(vTransposed)) << 32));
+                const auto smoothSoftmaxAttr = getIntAttr(ctx, smoothSoftmaxAttrs);
 
                 SmallVector<mlir::Attribute> params{optionalIoAttr(op), packedAttr};
-                if (kernelEntry == SmallString("attention_dma_flash") ||
-                    kernelEntry == SmallString("attention_dma_flash_quant_tsl1")) {
+                if (isFlashKernel) {
                     params.push_back(getIntAttr(ctx, static_cast<int64_t>(0)));  // flashInfoAttr
                     params.push_back(windowAttr);
+                    params.push_back(smoothSoftmaxAttr);
                 }
                 params.push_back(runInfoAttr);
 

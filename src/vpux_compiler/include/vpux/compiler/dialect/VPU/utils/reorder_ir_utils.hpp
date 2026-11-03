@@ -5,13 +5,15 @@
 
 #pragma once
 
+#include "vpux/utils/logger/logger.hpp"
+
 #include <llvm/ADT/ArrayRef.h>
 #include <mlir/IR/Operation.h>
 
 namespace vpux {
 namespace VPU {
 
-void reorderOperations(mlir::ArrayRef<mlir::Operation*> operations);
+void reorderOperations(mlir::ArrayRef<mlir::Operation*> operations, Logger log = Logger::global());
 
 }  // namespace VPU
 }  // namespace vpux

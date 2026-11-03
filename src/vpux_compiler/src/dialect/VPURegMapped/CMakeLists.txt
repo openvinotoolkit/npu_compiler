@@ -22,3 +22,5 @@ add_npu_library(npu_compiler_dialect_vpureg
         npu_compiler_dialect_net
         npu_compiler_dialect_vpu_utils
 )
+enable_lto_if_possible(npu_compiler_dialect_vpureg)
+

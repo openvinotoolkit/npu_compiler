@@ -8,9 +8,123 @@
 #include "vpux/compiler/dialect/VPU/utils/distributed_tensor_utils.hpp"
 #include "vpux/compiler/utils/permute_utils.hpp"
 
+#include "mlir/Dialect/Arith/IR/Arith.h"
+
 #include <mlir/Support/LLVM.h>
 
 using namespace vpux;
+
+namespace {
+
+bool isTensorArg(mlir::BlockArgument arg) {
+    return mlir::isa<vpux::NDTypeInterface>(arg.getType()) || mlir::isa<mlir::RankedTensorType>(arg.getType());
+};
+
+bool isConstantBackedArg(mlir::func::CallOp callOp, mlir::BlockArgument arg) {
+    if (callOp == nullptr) {
+        return false;
+    }
+
+    auto operand = callOp.getOperand(arg.getArgNumber());
+    return operand.getDefiningOp<mlir::arith::ConstantOp>() != nullptr;
+}
+
+bool validateInputsPermutation(mlir::func::FuncOp op, mlir::func::CallOp callOp) {
+    struct PermuteParams {
+        DimsOrder inputDimsOrder;
+        mlir::AffineMap memPerm;
+        mlir::AffineMap dstOrder;
+
+        bool operator!=(const PermuteParams& other) const {
+            return inputDimsOrder != other.inputDimsOrder || memPerm != other.memPerm || dstOrder != other.dstOrder;
+        }
+    };
+
+    // The tensor arguments can be in one of three valid states:
+    //   1) none of them are consumed by PermuteCast ops
+    //   2) all of them are consumed by compatible PermuteCast ops with the same parameters
+    //   3) all tensor inputs except one are consumed by compatible PermuteCast ops with the
+    //      same parameters, and the remaining tensor input is the shared-weights input
+    // Any mixed pattern (permute + non-permute user on the same argument, different permute
+    // parameters across equivalent users, or more than one non-permuted tensor input when the
+    // permute chain is in use) is invalid
+    SmallVector<mlir::BlockArgument> tensorArgs;
+    tensorArgs.reserve(op.getNumArguments());
+
+    for (auto arg : op.getArguments()) {
+        if (isTensorArg(arg)) {
+            tensorArgs.push_back(arg);
+        }
+    }
+
+    std::optional<PermuteParams> expectedPermuteParams;
+    SmallVector<bool> hasPermuteUsers;
+    hasPermuteUsers.reserve(tensorArgs.size());
+
+    for (auto arg : tensorArgs) {
+        SmallVector<VPU::PermuteCastOp> permuteCastUsers;
+        int64_t nonPermuteUsers = 0;
+
+        for (auto userOp : arg.getUsers()) {
+            if (auto permuteCast = mlir::dyn_cast<VPU::PermuteCastOp>(userOp)) {
+                permuteCastUsers.push_back(permuteCast);
+                continue;
+            }
+
+            ++nonPermuteUsers;
+        }
+
+        if (nonPermuteUsers > 0 && !permuteCastUsers.empty()) {
+            return false;
+        }
+
+        hasPermuteUsers.push_back(!permuteCastUsers.empty());
+
+        for (auto permuteCast : permuteCastUsers) {
+            auto params = PermuteParams{DimsOrder::fromValue(permuteCast.getInput()), permuteCast.getMemPerm(),
+                                        permuteCast.getDstOrder()};
+
+            if (expectedPermuteParams.has_value()) {
+                if (expectedPermuteParams.value() != params) {
+                    return false;
+                }
+            } else {
+                expectedPermuteParams = params;
+            }
+        }
+    }
+
+    const auto hasNoPermuteUsers = llvm::none_of(hasPermuteUsers, [](bool hasPermute) {
+        return hasPermute;
+    });
+    if (hasNoPermuteUsers) {
+        return true;
+    }
+
+    const auto hasOnlyPermuteUsers = llvm::all_of(hasPermuteUsers, [](bool hasPermute) {
+        return hasPermute;
+    });
+    if (hasOnlyPermuteUsers) {
+        return true;
+    }
+
+    const auto numUnpermutedTensorArgs = llvm::count(hasPermuteUsers, false);
+    if (numUnpermutedTensorArgs != 1) {
+        return false;
+    }
+
+    const auto unpermutedArgIt = llvm::find(hasPermuteUsers, false);
+    VPUX_THROW_UNLESS(unpermutedArgIt != hasPermuteUsers.end(), "Unexpected missing unpermuted tensor argument");
+
+    const auto unpermutedArgIdx = static_cast<size_t>(std::distance(hasPermuteUsers.begin(), unpermutedArgIt));
+    const auto sharedWeightsArg = tensorArgs[unpermutedArgIdx];
+
+    // This is the weights extraction case: the single unpermuted tensor input is expected to be the shared weights
+    // blob and must come directly from arith.constant
+    return isConstantBackedArg(callOp, sharedWeightsArg);
+};
+
+}  // namespace
 
 Shape VPU::inferShapeThroughPermute(ShapeRef origShape, NDTypeInterface srcType, NDTypeInterface dstType,
                                     mlir::AffineMap memPerm) {
@@ -90,43 +204,33 @@ mlir::FailureOr<VPU::DistributionInfo> VPU::applyPermutationOnDistributionInfo(
 }
 
 mlir::FailureOr<SmallVector<Dim>> VPU::remapDimsThroughInputPermuteCast(mlir::func::FuncOp funcOp,
-                                                                        ArrayRef<Dim> inputDims) {
+                                                                        ArrayRef<Dim> inputDims,
+                                                                        mlir::func::CallOp callOp) {
     auto remappedDims = SmallVector<Dim>(inputDims.begin(), inputDims.end());
-
-    auto isTensorArg = [](mlir::BlockArgument arg) {
-        return mlir::isa<vpux::NDTypeInterface>(arg.getType()) || mlir::isa<mlir::RankedTensorType>(arg.getType());
-    };
-
-    auto hasTensorInputPermuteCast = [&](mlir::func::FuncOp op) {
-        return llvm::any_of(op.getArguments(), [&](mlir::BlockArgument arg) {
-            if (!isTensorArg(arg)) {
-                return false;
-            }
-            return llvm::any_of(arg.getUsers(), [](mlir::Operation* userOp) {
-                return mlir::isa<VPU::PermuteCastOp>(userOp);
-            });
+    auto permutedTensorArg = llvm::find_if(funcOp.getArguments(), [&](mlir::BlockArgument arg) {
+        if (!isTensorArg(arg)) {
+            return false;
+        }
+        return llvm::any_of(arg.getUsers(), [](mlir::Operation* userOp) {
+            return mlir::isa<VPU::PermuteCastOp>(userOp);
         });
-    };
-
-    const auto tensorArgCount = llvm::count_if(funcOp.getArguments(), [&](mlir::BlockArgument arg) {
-        return isTensorArg(arg);
     });
 
-    if (tensorArgCount > 1 && hasTensorInputPermuteCast(funcOp)) {
-        funcOp.emitError("VPU::remapDimsThroughInputPermuteCast: unsupported multi-input function with input "
-                         "VPU.PermuteCast. Supported cases are: (1) any number of inputs without input "
-                         "VPU.PermuteCast, or (2) single-input function with input VPU.PermuteCast");
-        return mlir::failure();
+    if (!validateInputsPermutation(funcOp, callOp)) {
+        return funcOp.emitError("VPU::remapDimsThroughInputPermuteCast: unsupported function with a mix of tensor "
+                                "inputs with and without input VPU.PermuteCast. Supported cases are: (1) any number of "
+                                "inputs without input VPU.PermuteCast, (2) any number of inputs with input "
+                                "VPU.PermuteCast, provided all of them perform the same permutation, or (3) any number "
+                                "of inputs where all tensor inputs except one use the same input VPU.PermuteCast and "
+                                "the remaining tensor input is backed by a constant-like call operand without "
+                                "VPU.PermuteCast users");
     }
 
-    auto inputTensorArgIt = llvm::find_if(funcOp.getArguments(), [&](mlir::BlockArgument arg) {
-        return isTensorArg(arg);
-    });
-    if (inputTensorArgIt == funcOp.getArguments().end()) {
+    if (permutedTensorArg == funcOp.getArguments().end()) {
         return remappedDims;
     }
 
-    auto inputArg = *inputTensorArgIt;
+    auto inputArg = *permutedTensorArg;
     for (auto* userOp : inputArg.getUsers()) {
         auto permuteCastOp = mlir::dyn_cast<VPU::PermuteCastOp>(userOp);
         if (permuteCastOp == nullptr) {

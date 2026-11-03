@@ -327,8 +327,9 @@ bool VPU::NCEAveragePoolOp::doesLayerFitIntoCMX(VPU::MultiClusterStrategy strate
 
     SmallVector<Byte> buffers = {
             VPU::getTotalAllocSizeWithDistribution(
-                    getInput().getType(), getActivationDistributionAttrFromOp(nceOp, getInput(), getInput().getType(),
-                                                                              numClusters, strategy, siblingsAnalysis)),
+                    getInput().getType(),
+                    getActivationDistributionAttrFromOp(nceOp, getInputMutable(), getInput().getType(), numClusters,
+                                                        strategy, siblingsAnalysis)),
             VPU::getTotalAllocSizeWithDistribution(
                     getOutput().getType(), getOutputDistributionAttrFromOp(nceOp, getOutput().getType(), numClusters,
                                                                            strategy, siblingsAnalysis))};
@@ -352,8 +353,8 @@ bool VPU::NCEAveragePoolOp::doesLayerChangeOutputAlignmentFitIntoCMX(
     auto nceOp = mlir::cast<NCEAveragePoolOp>(getOperation());
     auto numClusters = VPU::getOptimalNumClusters(
             nceOp, mlir::cast<vpux::NDTypeInterface>(nceOp.getOutput().getType()).getShape(), strategy);
-    auto distributedInputType = getDistributedActivationTypeFromOp(nceOp, nceOp.getInput(), nceOp.getInput().getType(),
-                                                                   numClusters, strategy);
+    auto distributedInputType = getDistributedActivationTypeFromOp(nceOp, nceOp.getInputMutable(),
+                                                                   nceOp.getInput().getType(), numClusters, strategy);
     return fitIntoCMX(distributedInputType, newDistributedTensorType);
 }
 
@@ -363,8 +364,8 @@ vpux::NDTypeInterface vpux::VPU::NCEAveragePoolOp::getDistributedTypeForOpOperan
     const auto strategy = clusteredOp.getMultiClusterStrategy().value();
 
     if (operand.get() == getInput()) {
-        return VPU::getDistributedActivationTypeForOpOperand(clusteredOp, getInput(), strategy,
-                                                             hasExplicitDistributedAttr, siblingsAnalysis);
+        return VPU::getDistributedActivationTypeForOpOperand(clusteredOp, operand, strategy, hasExplicitDistributedAttr,
+                                                             siblingsAnalysis);
     } else if (operand.get() == getWeightTableScale()) {
         return VPU::getDistributedWeightsTypeForOpOperand(clusteredOp, operand.get(), strategy,
                                                           hasExplicitDistributedAttr, siblingsAnalysis);

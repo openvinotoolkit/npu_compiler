@@ -76,7 +76,7 @@ private:
 //  +------------------------+
 //  | SAV Invo Descriptors   |
 //  +------------------------+
-//  |    M2I Descriptors     |
+//  | Shave DPU Descriptors  |
 //  +------------------------+
 //  | DMA Descriptors        |
 //  +------------------------+
@@ -109,9 +109,9 @@ private:
 //  0xDE00    +-----------------------------+
 //            | SHV Invocation, list 1      |
 //            | 32 * 96 = 3072 bytes        |
-//  0xEA00    +-----------------------------+
-//            | M2I Descriptors             |
-//            | 4 * 240 = 960 bytes         |
+//  0xEA00    +-----------------------------+  <-- Shave DPU descriptors (AddShaveDpuDescriptors)
+//            | Shave DPU Descriptors       |
+//            | 960 bytes                   |
 //  0xEDC0    +-----------------------------+  <-- DMA metadata start (dmaMetadataOffset)
 //            | DMA Descriptor 0            |
 //            +-----------------------------+
@@ -133,6 +133,8 @@ private:
 //   - Deterministic layout across tiles and logical tasks
 // Note: We don't use all of available DMA space, only SHV tasks running in parallel have their associated Skips fetched
 // at a time and then replaced by other skips as we move through logical tasks
+// Note: AddShaveDpuDescriptors and the SHAVE DMA driver address their regions by absolute CMX address, so neither
+// offset may move on NPU4/NPU5 without rebuilding the prebuilt SHAVE kernels
 //
 
 //
@@ -195,19 +197,23 @@ uint64_t UpdateFetchDMAForSkipDMAs::getRegionOffset(VPURegMapped::TaskType targe
     auto rangeCount = config::getConstraint<size_t>(netFunc, config::METADATA_MAX_KERNEL_RANGE_COUNT);
     auto invoCount = config::getConstraint<size_t>(netFunc, config::METADATA_MAX_KERNEL_INVOCATION_COUNT);
     auto dmaCount = config::getConstraint<size_t>(netFunc, config::METADATA_MAX_DMA_COUNT);
-    auto m2iCount = config::getConstraint<size_t>(netFunc, config::METADATA_MAX_MEDIA_COUNT);
+
+    // Window reserved for the Shave DPU descriptor block preloaded by AddShaveDpuDescriptors
+    constexpr uint64_t SHAVE_DPU_DESCRIPTORS_REGION_SIZE = 960;
 
     Entry layout[] = {
             {VPURegMapped::TaskType::DPUInvariant, invCount},
             {VPURegMapped::TaskType::DPUVariant, varCount},
             {VPURegMapped::TaskType::ActKernelRange, rangeCount * shaveCountPerTile},
             {VPURegMapped::TaskType::ActKernelInvocation, invoCount * shaveCountPerTile},
-            {VPURegMapped::TaskType::M2I, m2iCount},
             {VPURegMapped::TaskType::DMA, dmaCount},
     };
 
     uint64_t offset = 0;
     for (const auto& entry : layout) {
+        if (entry.type == VPURegMapped::TaskType::DMA) {
+            offset += SHAVE_DPU_DESCRIPTORS_REGION_SIZE;
+        }
         if (entry.type == target) {
             return offset;
         }

@@ -20,12 +20,12 @@ func.func @PerAxisFqConcat(%arg0: tensor<1x256x128x128xf16>, %arg1: tensor<1x48x
 
     %LEFT_FQ = IE.FakeQuantize(%arg0, %CST_LEFT_FQ_LO, %CST_LEFT_FQ_HI, %CST_LEFT_FQ_LO, %CST_LEFT_FQ_HI) {
         auto_broadcast = #IE.auto_broadcast_type<NUMPY>,
-        levels = 256 : i64
+        levels_or_low_fp_type = 256 : i64
     } : tensor<1x256x128x128xf16>, tensor<1x256x1x1xf16>, tensor<1x256x1x1xf16>, tensor<1x256x1x1xf16>, tensor<1x256x1x1xf16> -> tensor<1x256x128x128xf16>
 
     %RIGHT_FQ = IE.FakeQuantize(%arg1, %CST_RIGHT_FQ_LO, %CST_RIGHT_FQ_HI, %CST_RIGHT_FQ_LO, %CST_RIGHT_FQ_HI) {
         auto_broadcast = #IE.auto_broadcast_type<NUMPY>,
-        levels = 256 : i64
+        levels_or_low_fp_type = 256 : i64
     } : tensor<1x48x128x128xf16>, tensor<1x48x1x1xf16>, tensor<1x48x1x1xf16>, tensor<1x48x1x1xf16>, tensor<1x48x1x1xf16> -> tensor<1x48x128x128xf16>
 
     %CONCAT = IE.Concat(%LEFT_FQ, %RIGHT_FQ) {
@@ -34,7 +34,7 @@ func.func @PerAxisFqConcat(%arg0: tensor<1x256x128x128xf16>, %arg1: tensor<1x48x
 
     %WEIGHTS_FQ = IE.FakeQuantize(%CST_WEIGHTS, %CST_WEIGHTS_FQ_LO, %CST_WEIGHTS_FQ_HI, %CST_WEIGHTS_FQ_LO, %CST_WEIGHTS_FQ_HI) {
         auto_broadcast = #IE.auto_broadcast_type<NUMPY>,
-        levels = 255 : i64
+        levels_or_low_fp_type = 255 : i64
     } : tensor<304x1x3x3xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<304x1x3x3xf16>
 
     %GROUP_CONV = IE.GroupConvolution(%CONCAT, %WEIGHTS_FQ) {
@@ -59,12 +59,12 @@ func.func @PerAxisFqConcat(%arg0: tensor<1x256x128x128xf16>, %arg1: tensor<1x48x
 
     // CHECK:   [[LEFT_FQ:%.+]] = IE.FakeQuantize([[ARG_0]], [[CST_LEFT_FQ_LO]], [[CST_LEFT_FQ_HI]], [[CST_LEFT_FQ_LO]], [[CST_LEFT_FQ_HI]]) {
     // CHECK-SAME:      auto_broadcast = #IE.auto_broadcast_type<NUMPY>,
-    // CHECK-SAME:      levels = 256 : i64
+    // CHECK-SAME:      levels_or_low_fp_type = 256 : i64
     // CHECK-SAME:  } : tensor<1x256x128x128xf16>, tensor<1x256x1x1xf16>, tensor<1x256x1x1xf16>, tensor<1x256x1x1xf16>, tensor<1x256x1x1xf16> -> tensor<1x256x128x128xf16>
 
     // CHECK:   [[RIGHT_FQ:%.+]] = IE.FakeQuantize([[ARG_1]], [[CST_RIGHT_FQ_LO]], [[CST_RIGHT_FQ_HI]], [[CST_RIGHT_FQ_LO]], [[CST_RIGHT_FQ_HI]]) {
     // CHECK-SAME:      auto_broadcast = #IE.auto_broadcast_type<NUMPY>,
-    // CHECK-SAME:      levels = 256 : i64
+    // CHECK-SAME:      levels_or_low_fp_type = 256 : i64
     // CHECK-SAME:  } : tensor<1x48x128x128xf16>, tensor<1x48x1x1xf16>, tensor<1x48x1x1xf16>, tensor<1x48x1x1xf16>, tensor<1x48x1x1xf16> -> tensor<1x48x128x128xf16>
 
     // CHECK:               [[CONCAT:%.+]] = IE.Concat([[LEFT_FQ]], [[RIGHT_FQ]]) {
@@ -73,12 +73,12 @@ func.func @PerAxisFqConcat(%arg0: tensor<1x256x128x128xf16>, %arg1: tensor<1x48x
 
     // CHECK:   [[CST_FQ_OUT:%.+]] = IE.FakeQuantize([[CONCAT]], [[CST_FQ_OUT_LO]], [[CST_FQ_OUT_HI]], [[CST_FQ_OUT_LO]], [[CST_FQ_OUT_HI]]) {
     // CHECK-SAME:      auto_broadcast = #IE.auto_broadcast_type<NUMPY>,
-    // CHECK-SAME:      levels = 256 : i64
+    // CHECK-SAME:      levels_or_low_fp_type = 256 : i64
     // CHECK-SAME:  } : tensor<1x304x128x128xf16>, tensor<1x304x1x1xf32>, tensor<1x304x1x1xf32>, tensor<1x304x1x1xf32>, tensor<1x304x1x1xf32> -> tensor<1x304x128x128xf16>
 
     // CHECK:   [[WEIGHTS_FQ:%.+]] = IE.FakeQuantize([[CST_WEIGHTS]], [[CST_WEIGHTS_FQ_LO]], [[CST_WEIGHTS_FQ_HI]], [[CST_WEIGHTS_FQ_LO]], [[CST_WEIGHTS_FQ_HI]]) {
     // CHECK-SAME:      auto_broadcast = #IE.auto_broadcast_type<NUMPY>,
-    // CHECK-SAME:      levels = 255 : i64
+    // CHECK-SAME:      levels_or_low_fp_type = 255 : i64
     // CHECK-SAME:  } : tensor<304x1x3x3xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<304x1x3x3xf16>
 
     // CHECK:   [[GROUP_CONV:%.+]] = IE.GroupConvolution([[CST_FQ_OUT]], [[WEIGHTS_FQ]]) {
@@ -104,12 +104,12 @@ func.func @NotPerAxisFqConcat(%arg0: tensor<1x64x128x128xf16>, %arg1: tensor<1x6
 
     %LEFT_FQ = IE.FakeQuantize(%arg0, %INPUT_FQ_LO, %INPUT_FQ_HI, %OUTPUT_FQ_LO, %OUTPUT_FQ_HI) {
         auto_broadcast = #IE.auto_broadcast_type<NUMPY>,
-        levels = 256 : i64
+        levels_or_low_fp_type = 256 : i64
     } : tensor<1x64x128x128xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x64x1x1xf16>, tensor<1x64x1x1xf16> -> tensor<1x64x128x128xf16>
 
     %RIGHT_FQ = IE.FakeQuantize(%arg1, %INPUT_FQ_LO, %INPUT_FQ_HI, %OUTPUT_FQ_LO, %OUTPUT_FQ_HI) {
         auto_broadcast = #IE.auto_broadcast_type<NUMPY>,
-        levels = 256 : i64
+        levels_or_low_fp_type = 256 : i64
     } : tensor<1x64x128x128xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x64x1x1xf16>, tensor<1x64x1x1xf16> -> tensor<1x64x128x128xf16>
 
     %CONCAT = IE.Concat(%LEFT_FQ, %RIGHT_FQ) {
@@ -125,12 +125,12 @@ func.func @NotPerAxisFqConcat(%arg0: tensor<1x64x128x128xf16>, %arg1: tensor<1x6
 
     // CHECK:   [[LEFT_FQ:%.+]] = IE.FakeQuantize([[INPUT_0]], [[INPUT_FQ_LO]], [[INPUT_FQ_HI]], [[OUTPUT_FQ_LO]], [[OUTPUT_FQ_HI]]) {
     // CHECK-SAME:      auto_broadcast = #IE.auto_broadcast_type<NUMPY>,
-    // CHECK-SAME:      levels = 256 : i64
+    // CHECK-SAME:      levels_or_low_fp_type = 256 : i64
     // CHECK-SAME:  } : tensor<1x64x128x128xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x64x1x1xf16>, tensor<1x64x1x1xf16> -> tensor<1x64x128x128xf16>
 
     // CHECK:   [[RIGHT_FQ:%.+]] = IE.FakeQuantize([[INPUT_1]], [[INPUT_FQ_LO]], [[INPUT_FQ_HI]], [[OUTPUT_FQ_LO]], [[OUTPUT_FQ_HI]]) {
     // CHECK-SAME:      auto_broadcast = #IE.auto_broadcast_type<NUMPY>,
-    // CHECK-SAME:      levels = 256 : i64
+    // CHECK-SAME:      levels_or_low_fp_type = 256 : i64
     // CHECK-SAME:  } : tensor<1x64x128x128xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x64x1x1xf16>, tensor<1x64x1x1xf16> -> tensor<1x64x128x128xf16>
 
     // CHECK:               [[CONCAT:%.+]] = IE.Concat([[LEFT_FQ]], [[RIGHT_FQ]]) {
@@ -152,12 +152,12 @@ func.func @NotPerAxisFqConcatWhenDifferentAxis(%arg0: tensor<1x256x128x128xf16>,
 
     %LEFT_FQ = IE.FakeQuantize(%arg0, %CST_LEFT_FQ_LO, %CST_LEFT_FQ_HI, %CST_LEFT_FQ_LO, %CST_LEFT_FQ_HI) {
         auto_broadcast = #IE.auto_broadcast_type<NUMPY>,
-        levels = 256 : i64
+        levels_or_low_fp_type = 256 : i64
     } : tensor<1x256x128x128xf16>, tensor<1x256x1x1xf16>, tensor<1x256x1x1xf16>, tensor<1x256x1x1xf16>, tensor<1x256x1x1xf16> -> tensor<1x256x128x128xf16>
 
     %RIGHT_FQ = IE.FakeQuantize(%arg1, %CST_RIGHT_FQ_LO, %CST_RIGHT_FQ_HI, %CST_RIGHT_FQ_LO, %CST_RIGHT_FQ_HI) {
         auto_broadcast = #IE.auto_broadcast_type<NUMPY>,
-        levels = 256 : i64
+        levels_or_low_fp_type = 256 : i64
     } : tensor<1x48x128x128xf16>, tensor<1x1x128x1xf16>, tensor<1x1x128x1xf16>, tensor<1x1x128x1xf16>, tensor<1x1x128x1xf16> -> tensor<1x48x128x128xf16>
 
     %CONCAT = IE.Concat(%LEFT_FQ, %RIGHT_FQ) {
@@ -173,12 +173,12 @@ func.func @NotPerAxisFqConcatWhenDifferentAxis(%arg0: tensor<1x256x128x128xf16>,
 
     // CHECK:   [[LEFT_FQ:%.+]] = IE.FakeQuantize([[INPUT_0]], [[CST_LEFT_FQ_LO]], [[CST_LEFT_FQ_HI]], [[CST_LEFT_FQ_LO]], [[CST_LEFT_FQ_HI]]) {
     // CHECK-SAME:      auto_broadcast = #IE.auto_broadcast_type<NUMPY>,
-    // CHECK-SAME:      levels = 256 : i64
+    // CHECK-SAME:      levels_or_low_fp_type = 256 : i64
     // CHECK-SAME:  } : tensor<1x256x128x128xf16>, tensor<1x256x1x1xf16>, tensor<1x256x1x1xf16>, tensor<1x256x1x1xf16>, tensor<1x256x1x1xf16> -> tensor<1x256x128x128xf16>
 
     // CHECK:   [[RIGHT_FQ:%.+]] = IE.FakeQuantize([[INPUT_1]], [[CST_RIGHT_FQ_LO]], [[CST_RIGHT_FQ_HI]], [[CST_RIGHT_FQ_LO]], [[CST_RIGHT_FQ_HI]]) {
     // CHECK-SAME:      auto_broadcast = #IE.auto_broadcast_type<NUMPY>,
-    // CHECK-SAME:      levels = 256 : i64
+    // CHECK-SAME:      levels_or_low_fp_type = 256 : i64
     // CHECK-SAME:  } : tensor<1x48x128x128xf16>, tensor<1x1x128x1xf16>, tensor<1x1x128x1xf16>, tensor<1x1x128x1xf16>, tensor<1x1x128x1xf16> -> tensor<1x48x128x128xf16>
 
     // CHECK:               [[CONCAT:%.+]] = IE.Concat([[LEFT_FQ]], [[RIGHT_FQ]]) {

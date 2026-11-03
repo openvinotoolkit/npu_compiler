@@ -1931,6 +1931,25 @@ bool vpux::VPUIP::isOnlyPadOverIC(const Const::ContentAttr& content) {
     return transformsOnlyPadOverIC;
 }
 
+int64_t vpux::VPUIP::getPreODUOutputChannels(VPUIP::NCEClusterTaskOp nceOp) {
+    const auto outputType = mlir::cast<vpux::NDTypeInterface>(nceOp.getOutput().getType());
+    const auto channels = outputType.getShape()[Dims4D::Act::C];
+
+    const auto s2dd2sCfg = nceOp.getS2dd2sConfigAttr();
+    if (s2dd2sCfg == nullptr) {
+        return channels;
+    }
+    const auto transformInfo = VPU::getODUS2DD2STransformInfo(s2dd2sCfg, outputType.getRank());
+    if (!transformInfo.has_value()) {
+        return channels;
+    }
+
+    const auto scales = VPU::getODUS2DD2SScaling(*transformInfo, outputType.getRank());
+    const auto preODUShapeInfoResult = VPU::invertODUScaling(scales, ShapeInfo::fromNDType(outputType));
+    VPUX_THROW_UNLESS(mlir::succeeded(preODUShapeInfoResult), "Failed to invert ODU scaling for '{0}'", nceOp);
+    return preODUShapeInfoResult->shape[Dims4D::Act::C.ind()];
+}
+
 bool vpux::VPUIP::canWeightsBeCompressed(VPUIP::NCEClusterTaskOp op) {
     if (op.getTaskType() != VPUIP::NCETaskType::CONV) {
         return false;
@@ -2663,28 +2682,76 @@ int64_t vpux::VPUIP::getMaximalSWKernelPrefetchDataSize(mlir::ModuleOp module) {
 // NNDMA split utils
 //
 
-std::pair<int64_t, int64_t> vpux::VPUIP::getSplitPartSizes(NDTypeInterface bufferType, vpux::Dim tileDim) {
-    const int64_t tileDimSize = bufferType.getShape()[tileDim];
-    int64_t firstPartSize = tileDimSize / 2;
+namespace {
 
-    // For sub-byte types (including quantized), ensure the split size is byte-aligned.
-    // Use getElemTypeSize() rather than isIntOrFloat()+getIntOrFloatBitWidth() so that
-    // quantized types (e.g. !quant.uniform<i4:f32>) are handled correctly.
-    const auto elemBitWidth = static_cast<int64_t>(bufferType.getElemTypeSize().count());
-    if (elemBitWidth % CHAR_BIT != 0) {
-        // Minimum element-count alignment so that (count * elemBitWidth) is divisible by CHAR_BIT.
-        const auto elemCountAlignment = CHAR_BIT / std::gcd<int64_t>(CHAR_BIT, elemBitWidth);
-        // If tileDimSize itself is not a multiple of elemCountAlignment, any 2-way split leaves a
-        // non-byte-aligned remainder on the second part and downstream Byte() conversion would throw.
-        // Signal "don't split" via {tileDimSize, 0}; caller's `secondPartSize <= 0` guard trips.
-        if (tileDimSize % elemCountAlignment != 0) {
-            return {tileDimSize, 0};
-        }
-        firstPartSize = (firstPartSize / elemCountAlignment) * elemCountAlignment;
+int64_t getByteAlignedPartSizeAlignment(NDTypeInterface bufferType, Dim tileDim) {
+    const auto strideBits = bufferType.getStrides()[tileDim].count();
+    if (strideBits % CHAR_BIT == 0) {
+        return 1;
     }
 
-    const int64_t secondPartSize = tileDimSize - firstPartSize;
-    return {firstPartSize, secondPartSize};
+    return CHAR_BIT / std::gcd(strideBits, static_cast<int64_t>(CHAR_BIT));
+}
+
+}  // namespace
+
+bool VPUIP::isByteAlignedSplit(NDTypeInterface bufferType, Dim tileDim, ArrayRef<int64_t> partSizes) {
+    const auto strideBits = bufferType.getStrides()[tileDim].count();
+    return llvm::all_of(partSizes, [&](int64_t partSize) {
+        return (partSize * strideBits) % CHAR_BIT == 0;
+    });
+}
+
+llvm::SmallVector<int64_t> VPUIP::getSplitPartSizes(NDTypeInterface inputType, NDTypeInterface outputType,
+                                                    vpux::Dim tileDim, int64_t partsNumber) {
+    VPUX_THROW_UNLESS(partsNumber > 0, "Number of parts must be greater than zero");
+    const auto shape = outputType.getShape();
+    const int64_t tileDimSize = shape[tileDim];
+
+    const auto inputAlignment = getByteAlignedPartSizeAlignment(inputType, tileDim);
+    const auto outputAlignment = getByteAlignedPartSizeAlignment(outputType, tileDim);
+    const auto alignment = std::lcm(inputAlignment, outputAlignment);
+
+    VPUX_THROW_WHEN(alignment <= 0, "Invalid alignment {0} for inputType={1}, outputType={2}, tileDim={3}", alignment,
+                    inputType, outputType, tileDim);
+
+    if (tileDimSize % alignment != 0 || tileDimSize < partsNumber * alignment) {
+        return {tileDimSize};
+    }
+
+    int64_t partSize = tileDimSize / partsNumber;
+    partSize = alignValDown(partSize, alignment);
+    if (partSize == 0) {
+        return {tileDimSize};
+    }
+
+    llvm::SmallVector<int64_t> partSizes;
+    partSizes.reserve(partsNumber);
+
+    // First parts get the uniform size, the last part gets the remainder.
+    int64_t remainingSize = tileDimSize;
+    for (int64_t i = 0; i < partsNumber - 1; ++i) {
+        partSizes.push_back(partSize);
+        remainingSize -= partSize;
+    }
+    if (remainingSize > 0) {
+        partSizes.push_back(remainingSize);
+    }
+
+    VPUX_THROW_WHEN(static_cast<int64_t>(partSizes.size()) != partsNumber,
+                    "partSizes={0} is different than requested partsNumber={1}", partSizes, partsNumber);
+    return partSizes;
+}
+
+// 2-way split wrapper. Returns {first, second} on success, or {0, tileDimSize} when no aligned split is possible. A
+// first part of 0 signals "do not split".
+std::pair<int64_t, int64_t> vpux::VPUIP::getSplitPartSizes(NDTypeInterface inputType, NDTypeInterface outputType,
+                                                           vpux::Dim dim) {
+    const auto partSizes = getSplitPartSizes(inputType, outputType, dim, 2);
+    if (partSizes.size() == 2) {
+        return {partSizes[0], partSizes[1]};
+    }
+    return {0, partSizes[0]};
 }
 
 std::unordered_set<Dim> VPUIP::getConcatAxes(VPUIP::ConcatViewOp concatViewOp) {

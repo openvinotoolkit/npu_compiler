@@ -11,6 +11,11 @@ module @VPU.SW {
                     attributes {VPU.kernel_code = "activation_atan_dma.cpp",
                                 VPU.kernel_entry = "activation_atan_dma",
                                 VPU.task_type = @COMPUTE}
+  func.func nested @builtin_ReduceMeanDMA(memref<*xf16, [@CMX_NN, 0]>, memref<*xui8, [@CMX_NN, 0]>, memref<*xf16, [@CMX_NN, 0]>, memref<*xui8, [@CMX_NN, 0]>, i64)
+                    attributes {VPU.kernel_code = "reduce_mean_dma.cpp",
+                                VPU.kernel_entry = "reduce_mean_dma",
+                                VPU.kernel_name = "reduce_mean_dma",
+                                VPU.task_type = @COMPUTE}
   func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"}
 }
 
@@ -50,4 +55,24 @@ func.func @OutlinedFunc1() -> memref<1x1x1x256xf16, [@CMX_NN, 0]> {
 
     // CHECK-LABEL: @OutlinedFunc1
     // CHECK:   VPUIP.SW.Kernel {logical_task = 1 : i64
+}
+
+func.func @OutlinedFunc2() -> memref<1x7x1x1xf16, [@CMX_NN, 0]> {
+    %bar = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
+    %in  = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x7x13x19xf16, [@CMX_NN, 0]>
+    %aux = VPURT.DeclareBuffer <CMX_NN> [0] <4096> -> memref<65536xui8, [@CMX_NN, 0]>
+    %out = VPURT.DeclareBuffer <CMX_NN> [0] <70000> -> memref<1x7x1x1xf16, [@CMX_NN, 0]>
+
+    VPURT.Task updates(%bar : !VPURT.Barrier) attributes {isTrailingSWLayer = false} {
+        %r:2 = VPUIP.SW.Kernel {resultSegmentSizes = array<i32: 2, 0, 0>} @VPU.SW::@builtin_ReduceMeanDMA
+             inputs(%in as %arg0: memref<1x7x13x19xf16, [@CMX_NN, 0]>, %aux as %arg1: memref<65536xui8, [@CMX_NN, 0]>)
+             outputs(%out as %arg2: memref<1x7x1x1xf16, [@CMX_NN, 0]>, %aux as %arg3: memref<65536xui8, [@CMX_NN, 0]>)
+             on tile 0 -> (memref<1x7x1x1xf16, [@CMX_NN, 0]>, memref<65536xui8, [@CMX_NN, 0]>){
+          VPUIP.SW.Kernel.run {attrs = [8589934593]}(%arg0, %arg1, %arg2, %arg3) : memref<1x7x13x19xf16, [@CMX_NN, 0]>, memref<65536xui8, [@CMX_NN, 0]>, memref<1x7x1x1xf16, [@CMX_NN, 0]>, memref<65536xui8, [@CMX_NN, 0]>
+        }
+    }
+    return %out : memref<1x7x1x1xf16, [@CMX_NN, 0]>
+
+    // CHECK-LABEL: @OutlinedFunc2
+    // CHECK:   VPUIP.SW.Kernel {logical_task = 2 : i64
 }

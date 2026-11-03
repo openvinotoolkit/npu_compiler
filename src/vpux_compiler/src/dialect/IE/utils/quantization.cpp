@@ -20,8 +20,10 @@
 #include "vpux/compiler/dialect/IE/IR/ops/pooling.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops_interfaces.hpp"
 #include "vpux/compiler/dialect/IE/interfaces/strategies.hpp"
+#include "vpux/compiler/dialect/IE/utils/elem_type_info_utils.hpp"
 #include "vpux/compiler/dialect/IE/utils/shape_infer.hpp"
 #include "vpux/compiler/dialect/VPU/utils/ppe_utils.hpp"
+#include "vpux/compiler/dialect/config/constraints.hpp"
 #include "vpux/compiler/dialect/config/utils/config_option_utils.hpp"
 #include "vpux/compiler/dialect/const/utils/utils.hpp"
 #include "vpux/compiler/dialect/core/interfaces/type_interfaces.hpp"
@@ -105,19 +107,23 @@ void IE::getFakeQuantParams(vpux::NDTypeInterface qType, int64_t& levels, mlir::
 }
 
 mlir::quant::QuantizedType IE::getQuantizedType(const Const::ContentAttr& lowConst, const Const::ContentAttr& highConst,
-                                                std::optional<int64_t> levels, std::optional<mlir::Type> lowFpType,
-                                                mlir::FloatType expressedType, bool isSigned, mlir::Location loc,
-                                                IE::AutoBroadcastType broadcast, bool ignoreZPCheck,
-                                                const Logger& log) {
+                                                mlir::Attribute levelsOrLowFpType, mlir::FloatType expressedType,
+                                                bool isSigned, mlir::Location loc, IE::AutoBroadcastType broadcast,
+                                                bool ignoreZPCheck, const Logger& log) {
     const auto innerLog = log.nest("getQuantizedType");
 
-    if (levels.has_value() == lowFpType.has_value()) {
-        innerLog.warning("Exactly one of 'levels' or 'lowFpType' must have a value");
-        return nullptr;
+    // Extract optional levels and lowFpType from merged attribute for getScalesAndZeroPointsFromContentAttr
+    std::optional<int64_t> levels;
+    std::optional<mlir::Type> lowFpType;
+
+    if (auto intAttr = mlir::dyn_cast<mlir::IntegerAttr>(levelsOrLowFpType)) {
+        levels = intAttr.getInt();
+    } else if (auto typeAttr = mlir::dyn_cast<mlir::TypeAttr>(levelsOrLowFpType)) {
+        lowFpType = typeAttr.getValue();
     }
 
     auto scalesAndZeroPoints =
-            getScalesAndZeroPointsFromContentAttr(lowConst, highConst, broadcast, levels, lowFpType, isSigned, log);
+            getScalesAndZeroPointsFromContentAttr(lowConst, highConst, broadcast, levelsOrLowFpType, isSigned, log);
     if (mlir::failed(scalesAndZeroPoints)) {
         innerLog.warning("Unable to retrieve zero points and scales");
         return nullptr;
@@ -148,7 +154,7 @@ mlir::quant::QuantizedType IE::getQuantizedType(const Const::ContentAttr& lowCon
 
     if (levels.has_value()) {
         const auto storageParams = getStorageParams(ctx, *levels, isSigned);
-        VPUX_THROW_WHEN(mlir::failed(storageParams), "Unsupported quantization levels '{0}'", levels);
+        VPUX_THROW_WHEN(mlir::failed(storageParams), "Unsupported quantization levels '{0}'", *levels);
         const auto [storageMin, storageMax, storageType] = *storageParams;
 
         if (isPerAxisQuant) {
@@ -204,9 +210,9 @@ mlir::quant::QuantizedType IE::getQuantizedType(const Const::ContentAttr& lowCon
 
 bool IE::canConvertToSignedQuantizedType(const Const::ContentAttr& inLowConst, const Const::ContentAttr& inHighConst,
                                          const Const::ContentAttr& outLowConst, const Const::ContentAttr& outHighConst,
-                                         std::optional<int64_t> levels, std::optional<mlir::Type> lowFpType,
-                                         IE::AutoBroadcastType broadcast, const Logger& log) {
-    if (levels.has_value() == lowFpType.has_value()) {
+                                         mlir::Attribute levelsOrLowFpType, IE::AutoBroadcastType broadcast,
+                                         const Logger& log) {
+    if (!mlir::isa<mlir::IntegerAttr, mlir::TypeAttr>(levelsOrLowFpType)) {
         return false;
     }
 
@@ -217,7 +223,7 @@ bool IE::canConvertToSignedQuantizedType(const Const::ContentAttr& inLowConst, c
     };
 
     auto inScalesAndZeroPoints =
-            getScalesAndZeroPointsFromContentAttr(inLowConst, inHighConst, broadcast, levels, lowFpType, true, log);
+            getScalesAndZeroPointsFromContentAttr(inLowConst, inHighConst, broadcast, levelsOrLowFpType, true, log);
     if (mlir::failed(inScalesAndZeroPoints)) {
         return false;
     }
@@ -226,7 +232,7 @@ bool IE::canConvertToSignedQuantizedType(const Const::ContentAttr& inLowConst, c
     }
 
     auto outScalesAndZeroPoints =
-            getScalesAndZeroPointsFromContentAttr(outLowConst, outHighConst, broadcast, levels, lowFpType, true, log);
+            getScalesAndZeroPointsFromContentAttr(outLowConst, outHighConst, broadcast, levelsOrLowFpType, true, log);
     if (mlir::failed(outScalesAndZeroPoints)) {
         return false;
     }
@@ -260,10 +266,73 @@ mlir::FailureOr<int32_t> IE::getQuantizedDimension(ShapeRef lowShape, ShapeRef h
     return std::distance(broadcastShape.begin(), axisIt);
 }
 
+bool IE::isValidToPropagateQuantize(mlir::Operation* op, bool seOpsEnabled, mlir::Type& quantizedElemType, Logger log) {
+    const auto isSameQuantize = [&](mlir::Operation* user) {
+        if (auto currentQuantize = mlir::dyn_cast_if_present<IE::QuantizeOp>(user)) {
+            return currentQuantize.getDstElemType() == quantizedElemType;
+        }
+
+        return false;
+    };
+    const auto logCb = [&](const formatv_object_base& msg) {
+        log.trace("{0}", msg.str());
+    };
+    // 1. Check the prevOp is ElemTypeInfoOp
+    auto elemTypeInfoOp = mlir::dyn_cast_if_present<IE::ElemTypeInfoOpInterface>(op);
+    if (!elemTypeInfoOp) {
+        log.trace("Operation '{0}' does not support ElemTypeInfo-based quantize propagation", op->getName());
+        return false;
+    }
+    // 2. Check that every user is Quantize op and they are the same.
+    // Direct case like op1 -> op2 passed.
+    auto layer = mlir::cast<IE::LayerOpInterface>(op);
+    if (!layer->hasOneUse() && !llvm::all_of(layer->getUsers(), isSameQuantize)) {
+        log.trace("The users of Operation {0} should all be the same quantizeOp when users number > 1", elemTypeInfoOp);
+        return false;
+    }
+    // 3. Check that operation supports quantization params propagation.
+    if (auto layerWithPostOp = mlir::dyn_cast<IE::LayerWithPostOpInterface>(elemTypeInfoOp.getOperation());
+        layerWithPostOp != nullptr && layerWithPostOp.hasPPE()) {
+        // A quantization-agnostic operation is no longer quantization-agnostic after it is fused with a post-op
+        // (because post-op's are not quantization-agnostic). Since most post-op's will be fused by this time, this
+        // check is here to prevent the propagation of output quantization through both the ElemTypeInfoOp and its
+        // post-op. (At this time MaxPool seems to be the only operation which is both a IE::ElemTypeInfoOpInterface
+        // and a IE::LayerWithPostOpInterface)
+        log.trace("Operation {0} does not support quantization params propagation: layer has post op", elemTypeInfoOp);
+        return false;
+    }
+
+    // 4. Particular check for SE pointers
+    if (!vpux::IE::isSupportedElemTypeInfoCase(elemTypeInfoOp.getOperation(), seOpsEnabled, logCb)) {
+        log.trace("Operation {0} does not support SE pointers", elemTypeInfoOp);
+        return false;
+    }
+
+    // 5. Check quantization params propagation
+    auto elemTypeInfo = elemTypeInfoOp.getElemTypeInfo();
+    for (size_t outputInd = 0; outputInd < layer->getNumResults(); outputInd++) {
+        elemTypeInfo.setOutput(outputInd, quantizedElemType);
+    }
+    elemTypeInfoOp.inferElemTypeInfoUp(elemTypeInfo);
+
+    if (!mlir::isa<mlir::quant::QuantizedType>(elemTypeInfo.getInput(0))) {
+        log.trace("Operation {0} does not support quantization params propagation: input cannot be quantized",
+                  elemTypeInfoOp);
+        return false;
+    }
+    for (size_t outputInd = 0; outputInd < layer->getNumResults(); outputInd++) {
+        if (elemTypeInfo.getOutput(outputInd) != quantizedElemType) {
+            log.trace("Operation {0} does not support quantization params propagation", elemTypeInfoOp);
+            return false;
+        }
+    }
+    quantizedElemType = elemTypeInfo.getInput(0);
+    return true;
+}
+
 mlir::FailureOr<std::tuple<SmallVector<double>, SmallVector<int64_t>>> IE::getScalesAndZeroPointsFromContentAttr(
         const Const::ContentAttr& lowContentAttr, const Const::ContentAttr& highContentAttr,
-        IE::AutoBroadcastType broadcast, const std::optional<int64_t> levels, const std::optional<mlir::Type> lowFpType,
-        bool isSigned, const Logger& log) {
+        IE::AutoBroadcastType broadcast, const mlir::Attribute levelsOrLowFpType, bool isSigned, const Logger& log) {
     const auto innerLog = log.nest("getScalesAndZeroPointsFromContentAttr");
 
     if (lowContentAttr == nullptr || highContentAttr == nullptr) {
@@ -286,14 +355,15 @@ mlir::FailureOr<std::tuple<SmallVector<double>, SmallVector<int64_t>>> IE::getSc
 
     double qMin = 0.;
     double qMax = 0.;
-    if (levels.has_value()) {
-        const auto storageParams = getStorageParams(ctx, *levels, isSigned);
+    if (auto intAttr = mlir::dyn_cast<mlir::IntegerAttr>(levelsOrLowFpType)) {
+        const auto storageParams = getStorageParams(ctx, intAttr.getInt(), isSigned);
         if (mlir::failed(storageParams)) {
             return mlir::failure();
         }
         std::tie(qMin, qMax, std::ignore) = *storageParams;
-    } else if (lowFpType.has_value()) {
-        const auto representableRange = getRepresentableRange(*lowFpType);
+    } else if (auto typeAttr = mlir::dyn_cast<mlir::TypeAttr>(levelsOrLowFpType)) {
+        const auto type = typeAttr.getValue();
+        const auto representableRange = getRepresentableRange(type);
         if (mlir::failed(representableRange)) {
             return mlir::failure();
         }
@@ -332,6 +402,29 @@ mlir::FailureOr<std::tuple<SmallVector<double>, SmallVector<int64_t>>> IE::getSc
     }
 
     return std::make_tuple(std::move(scales), std::move(zeroPoints));
+}
+
+bool vpux::IE::canActivationMatchSignedWaiWeight(IE::FakeQuantizeOp fqOp, const Logger& log) {
+    if (fqOp == nullptr) {
+        return false;
+    }
+    auto inLowConst = fqOp.getInputLow().getDefiningOp<Const::DeclareOp>();
+    auto inHighConst = fqOp.getInputHigh().getDefiningOp<Const::DeclareOp>();
+    if (inLowConst == nullptr || inHighConst == nullptr) {
+        return false;
+    }
+
+    auto scaleAndZeroPoints = getScalesAndZeroPointsFromContentAttr(
+            inLowConst.getContentAttr(), inHighConst.getContentAttr(), fqOp.getAutoBroadcast(),
+            fqOp.getLevelsOrLowFpTypeAttr(), /*isSigned=*/true, log);
+    if (mlir::failed(scaleAndZeroPoints)) {
+        return false;
+    }
+
+    const auto& zeroPoints = std::get<1>(scaleAndZeroPoints.value());
+    return llvm::none_of(zeroPoints, [](int64_t zeroPoint) {
+        return zeroPoint < 0;
+    });
 }
 
 void IE::setPreciseScalesZeroPoints(IE::FakeQuantizeOp fqOp, ArrayRef<float> scales, ArrayRef<int32_t> zeroPoints) {
@@ -706,9 +799,9 @@ mlir::quant::UniformQuantizedType IE::getQuantizedTypeFromFakeQuantize(IE::FakeQ
     }
     const auto realType = mlir::cast<vpux::NDTypeInterface>(fqOp.getInput().getType());
     const auto realElemType = mlir::dyn_cast<mlir::FloatType>(realType.getElementType());
-    const auto outQuantizeElemType =
-            getQuantizedType(outLowConst.getContentAttr(), outHighConst.getContentAttr(), fqOp.getLevels(),
-                             fqOp.getLowFpType(), realElemType, false, fqOp.getLoc(), fqOp.getAutoBroadcast());
+    const auto outQuantizeElemType = getQuantizedType(outLowConst.getContentAttr(), outHighConst.getContentAttr(),
+                                                      fqOp.getLevelsOrLowFpTypeAttr(), realElemType, false,
+                                                      fqOp.getLoc(), fqOp.getAutoBroadcast());
     if (outQuantizeElemType == nullptr) {
         return nullptr;
     }
@@ -763,7 +856,7 @@ IE::FakeQuantizeOp vpux::IE::createFQ(mlir::PatternRewriter& rewriter, mlir::Val
     const auto outputType = mlir::cast<vpux::NDTypeInterface>(fq.getOutput().getType());
     const auto newOutputType = outputType.changeShape(getShape(input));
     return IE::FakeQuantizeOp::create(rewriter, loc, newOutputType, input, fq.getInputLow(), fq.getInputHigh(),
-                                      fq.getOutputLow(), fq.getOutputHigh(), fq.getLevelsAttr(), fq.getLowFpTypeAttr(),
+                                      fq.getOutputLow(), fq.getOutputHigh(), fq.getLevelsOrLowFpTypeAttr(),
                                       fq.getAutoBroadcastAttr());
 }
 
@@ -797,8 +890,7 @@ mlir::Value vpux::IE::createFQScaling(mlir::Location loc, mlir::Value input, flo
         auto fqOutHighVal = Const::createFloatConst(rewriter, loc, fqArgType, (levels_value - 1) * scaleFactor);
 
         auto fq = IE::FakeQuantizeOp::create(rewriter, loc, input.getType(), input, fqLowVal, fqInHighVal, fqLowVal,
-                                             fqOutHighVal, fqLevelsVal,
-                                             /*lowFpType=*/nullptr, autoBroadcast);
+                                             fqOutHighVal, fqLevelsVal, autoBroadcast);
         return fq.getOutput();
     }
 
@@ -814,8 +906,7 @@ mlir::Value vpux::IE::createFQScaling(mlir::Location loc, mlir::Value input, flo
         auto fqOutHighVal = Const::createFloatConst(rewriter, loc, fqArgType, highVal * scaleFactor);
 
         auto fq = IE::FakeQuantizeOp::create(rewriter, loc, input.getType(), input, fqInLowVal, fqInHighVal,
-                                             fqOutLowVal, fqOutHighVal,
-                                             /*levels=*/nullptr, mlir::TypeAttr::get(*lowFpType), autoBroadcast);
+                                             fqOutLowVal, fqOutHighVal, mlir::TypeAttr::get(*lowFpType), autoBroadcast);
         return fq.getOutput();
     }
 
@@ -874,9 +965,11 @@ bool vpux::IE::hasFQSameZeroPoint(IE::FakeQuantizeOp fqOp) {
         });
     };
 
-    auto inputScalesAndZeroPoints = getScalesAndZeroPointsFromContentAttr(
-            inLowConstantOp.getContentAttr(), inHighConstantOp.getContentAttr(), fqOp.getAutoBroadcast(),
-            fqOp.getLevels(), fqOp.getLowFpType(), /*isSigned=*/false);
+    const auto levelsOrLowFpTypeAttr = fqOp.getLevelsOrLowFpTypeAttr();
+
+    auto inputScalesAndZeroPoints =
+            getScalesAndZeroPointsFromContentAttr(inLowConstantOp.getContentAttr(), inHighConstantOp.getContentAttr(),
+                                                  fqOp.getAutoBroadcast(), levelsOrLowFpTypeAttr, /*isSigned=*/false);
     if (mlir::failed(inputScalesAndZeroPoints)) {
         return false;
     }
@@ -886,9 +979,9 @@ bool vpux::IE::hasFQSameZeroPoint(IE::FakeQuantizeOp fqOp) {
         return false;
     }
 
-    auto outputScalesAndZeroPoints = getScalesAndZeroPointsFromContentAttr(
-            outLowConstantOp.getContentAttr(), outHighConstantOp.getContentAttr(), fqOp.getAutoBroadcast(),
-            fqOp.getLevels(), fqOp.getLowFpType(), /*isSigned=*/false);
+    auto outputScalesAndZeroPoints =
+            getScalesAndZeroPointsFromContentAttr(outLowConstantOp.getContentAttr(), outHighConstantOp.getContentAttr(),
+                                                  fqOp.getAutoBroadcast(), levelsOrLowFpTypeAttr, /*isSigned=*/false);
     if (mlir::failed(outputScalesAndZeroPoints)) {
         return false;
     }
@@ -967,10 +1060,14 @@ mlir::FailureOr<double> IE::getQuantizedSplatConstant(mlir::Value input) {
                 const auto outLowConstContentVal = outLowConst.getContent().template getSplatValue<double>();
                 const auto outHighConstContentVal = outHighConst.getContent().template getSplatValue<double>();
 
-                if (const auto levels = fqOp.getLevels()) {
+                // Extract levels from merged attribute (fakeQuantize only supports levels, not lowFpType)
+                const auto mergedAttr = fqOp.getLevelsOrLowFpTypeAttr();
+                if (auto intAttr = mlir::dyn_cast<mlir::IntegerAttr>(mergedAttr)) {
+                    const auto levels = intAttr.getInt();
                     return fakeQuantize(inputVal, inLowConstContentVal, inHighConstContentVal, outLowConstContentVal,
-                                        outHighConstContentVal, levels.value());
+                                        outHighConstContentVal, levels);
                 } else {
+                    // lowFpType case not supported by fakeQuantize function
                     return mlir::failure();
                 }
             })
@@ -998,37 +1095,15 @@ int64_t vpux::IE::getMaximumQuantizationLevels(int64_t currentLevels, mlir::Oper
     if (currentLevels != QuantizationLevels::QUANT_LEVELS_16BIT) {
         return QuantizationLevels::QUANT_LEVELS_8BIT;
     }
-    for (auto result : op->getResults()) {
-        if (result.use_empty()) {
-            continue;
-        }
-        // Allow 16-bit only if ALL users support it
-        if (llvm::all_of(result.getUsers(), [](mlir::Operation* userOp) {
-                if (auto quantizedLayerOp = mlir::dyn_cast<IE::QuantizedLayerOpInterface>(userOp)) {
-                    return quantizedLayerOp.getMaximumQuantizationLevels() == QuantizationLevels::QUANT_LEVELS_16BIT;
-                }
-                return false;
-            })) {
-            return QuantizationLevels::QUANT_LEVELS_16BIT;
-        }
+    if (IE::classifyMPEEngineMappableConsumers(
+                op, op != nullptr && config::hasEnableSEPtrsOperations(op->getParentOfType<mlir::ModuleOp>()))
+                .eligibility == IE::MPEConsumerEligibility::ALL) {
+        return QuantizationLevels::QUANT_LEVELS_16BIT;
     }
-    // Output FQ case: allow 16-bit only when this FQ feeds directly into the function return,
-    // meaning there are no downstream consumers that could be unable to handle 16-bit input.
-    if (auto fqOp = mlir::dyn_cast<IE::FakeQuantizeOp>(op)) {
-        const auto hasOnlyReturnUsers = llvm::all_of(fqOp->getResults(), [](mlir::Value result) {
-            return result.use_empty() || llvm::all_of(result.getUsers(), [](mlir::Operation* userOp) {
-                       return mlir::isa<mlir::func::ReturnOp>(userOp);
-                   });
-        });
-        if (hasOnlyReturnUsers) {
-            if (auto quantizedLayerOp =
-                        mlir::dyn_cast_if_present<IE::QuantizedLayerOpInterface>(fqOp.getInput().getDefiningOp())) {
-                if (quantizedLayerOp.getMaximumQuantizationLevels() == QuantizationLevels::QUANT_LEVELS_16BIT) {
-                    return QuantizationLevels::QUANT_LEVELS_16BIT;
-                }
-            }
-        }
+    if (op == nullptr) {
+        return QuantizationLevels::QUANT_LEVELS_8BIT;
     }
+
     return QuantizationLevels::QUANT_LEVELS_8BIT;
 }
 
@@ -1045,8 +1120,9 @@ bool vpux::IE::isNCEOpCandidatesWithWeights(mlir::Operation* op) {
 // bare (non-quantized) type, while the quantized type with its zero-point can be applied by a
 // QuantizeCast earlier in the chain, so it must be tracked separately to correctly detect SI
 // weights.
-static mlir::FailureOr<mlir::Value> findNCEOpWeightsAsInputOrConst(
-        mlir::Operation* op, mlir::quant::QuantizedType* firstQuantType = nullptr) {
+mlir::FailureOr<mlir::Value> vpux::IE::findNCEOpWeightsAsInputOrConst(mlir::Operation* op,
+                                                                      mlir::quant::QuantizedType* firstQuantType,
+                                                                      IE::DynamicDequantizeOp* dynamicDequantizeOp) {
     if (op == nullptr || op->getNumOperands() < 2) {
         return mlir::failure();
     }
@@ -1079,7 +1155,12 @@ static mlir::FailureOr<mlir::Value> findNCEOpWeightsAsInputOrConst(
             break;
         } else if (IE::isPureViewOp(filterOperand.getDefiningOp()) ||
                    mlir::isa<IE::QuantizeCastOp, IE::DequantizeOp, IE::ConvertOp, IE::SliceOp, IE::TransposeOp,
-                             IE::DynamicDequantizeOp>(filterOperand.getDefiningOp())) {
+                             IE::DynamicDequantizeOp, IE::GatherOp>(filterOperand.getDefiningOp())) {
+            if (auto dynDequantOp = mlir::dyn_cast_if_present<IE::DynamicDequantizeOp>(filterOperand.getDefiningOp())) {
+                if (dynamicDequantizeOp != nullptr && !(*dynamicDequantizeOp)) {
+                    *dynamicDequantizeOp = dynDequantOp;
+                }
+            }
             filterOperand = filterOperand.getDefiningOp()->getOperand(0);
             continue;
         } else {
@@ -1098,7 +1179,7 @@ static mlir::FailureOr<mlir::Value> findNCEOpWeightsAsInputOrConst(
 // Strategy parameter allows amortizing allocations across multiple calls.
 static bool willNCEWeightsConvertToUnsigned(mlir::Operation* op,
                                             const IE::IConvertWeightsToUnsignedStrategy* strategy = nullptr) {
-    const auto weights = findNCEOpWeightsAsInputOrConst(op);
+    const auto weights = IE::findNCEOpWeightsAsInputOrConst(op);
     if (mlir::failed(weights)) {
         return false;
     }
@@ -1134,9 +1215,26 @@ static bool nceOpCandidateHasSIWeightsAsInputOrConst(mlir::Operation* op, bool i
     }
 
     mlir::quant::QuantizedType firstQuantType = nullptr;
-    auto weights = findNCEOpWeightsAsInputOrConst(op, &firstQuantType);
+    IE::DynamicDequantizeOp dynamicDequantizeOp = nullptr;
+    auto weights = IE::findNCEOpWeightsAsInputOrConst(op, &firstQuantType, &dynamicDequantizeOp);
     if (mlir::failed(weights)) {
         return false;
+    }
+
+    bool dynamicDequantizeOpHasNonZeroZp = false;
+    if (dynamicDequantizeOp != nullptr) {
+        if (const auto zp = dynamicDequantizeOp.getZp()) {
+            if (auto zpConst = zp.getDefiningOp<Const::DeclareOp>()) {
+                const auto zpValues = IE::getConst(zpConst);
+                dynamicDequantizeOpHasNonZeroZp = llvm::any_of(zpValues, [](const auto& zpVal) {
+                    return zpVal != 0;
+                });
+            } else {
+                // Non-constant zero point cannot be proven to be all zeros here.
+                // Be conservative and treat it as non-zero/unknown.
+                dynamicDequantizeOpHasNonZeroZp = true;
+            }
+        }
     }
 
     if (firstQuantType != nullptr) {
@@ -1177,13 +1275,33 @@ static bool nceOpCandidateHasSIWeightsAsInputOrConst(mlir::Operation* op, bool i
                 return true;
             } else {
                 if (const auto perAxisType = mlir::dyn_cast<mlir::quant::UniformQuantizedPerAxisType>(firstQuantType)) {
-                    return llvm::any_of(perAxisType.getZeroPoints(), [](int64_t zp) {
-                        return zp != 0;
-                    });
+                    return dynamicDequantizeOpHasNonZeroZp || llvm::any_of(perAxisType.getZeroPoints(), [](int64_t zp) {
+                               return zp != 0;
+                           });
                 }
                 if (const auto uniformType = mlir::dyn_cast<mlir::quant::UniformQuantizedType>(firstQuantType)) {
-                    return uniformType.getZeroPoint() != 0;
+                    return dynamicDequantizeOpHasNonZeroZp || uniformType.getZeroPoint() != 0;
                 }
+            }
+        }
+    }
+
+    // Weights routed through IE::DynamicDequantizeOp may carry no mlir::quant::QuantizedType; their
+    // effective signedness must be derived from the raw narrow-bit storage type and its separate
+    // zero-point const operand instead. An unsigned storage type with a non-zero zero point means
+    // (data - zp) can still go negative, so the activation must be treated as signed, mirroring the
+    // quant-type zero-point checks above.
+    if (dynamicDequantizeOp != nullptr) {
+        const auto inputElemType =
+                mlir::cast<NDTypeInterface>(dynamicDequantizeOp.getInput().getType()).getElementType();
+        if (const auto intType = mlir::dyn_cast<mlir::IntegerType>(inputElemType)) {
+            const auto elemTypeSize = vpux::getElemTypeSize(intType).count();
+            if (elemTypeSize < CHAR_BIT) {
+                // signed always requires SI; unsigned only if the zero point is non-zero.
+                if (intType.isSigned()) {
+                    return true;
+                }
+                return dynamicDequantizeOpHasNonZeroZp;
             }
         }
     }
@@ -1229,8 +1347,10 @@ mlir::FailureOr<SmallVector<mlir::Operation*>> findNCEOpCandidatesWithWeights(ml
 bool vpux::IE::keepIntTypeForSIWeightsAsInputOrConst(mlir::Operation* op,
                                                      const IE::IConvertWeightsToUnsignedStrategy* strategy) {
     const auto moduleOp = getModuleOp(op);
+    const auto context = moduleOp->getContext();
+    const auto& constraints = config::getNPUConstraints(context);
     const auto isAsymmetricPerChannelZeroPointSupported = config::asymmetricPerChannelZeroPointSupported(moduleOp);
-    const auto isAsymmetricPerTensorZeroPointSupported = config::asymmetricPerTensorZeroPointSupported(moduleOp);
+    const auto isAsymmetricPerTensorZeroPointSupported = constraints.asymmetricPerTensorZP;
 
     if (auto fqOp = mlir::dyn_cast_if_present<IE::FakeQuantizeOp>(op)) {
         if (IE::hasStaticLowAndHighValues(fqOp)) {
@@ -1271,7 +1391,7 @@ bool vpux::IE::keepIntTypeForSIWeightsAsInputOrConst(mlir::Operation* op,
 
             const auto canConvertToSigned = canConvertToSignedQuantizedType(
                     inLowConst.getContentAttr(), inHighConst.getContentAttr(), outLowConst.getContentAttr(),
-                    outHighConst.getContentAttr(), fqOp.getLevels(), fqOp.getLowFpType(), fqOp.getAutoBroadcast());
+                    outHighConst.getContentAttr(), fqOp.getLevelsOrLowFpTypeAttr(), fqOp.getAutoBroadcast());
 
             if (isPerChannelQuant && !isAsymmetricPerChannelZeroPointSupported && !canConvertToSigned) {
                 return false;

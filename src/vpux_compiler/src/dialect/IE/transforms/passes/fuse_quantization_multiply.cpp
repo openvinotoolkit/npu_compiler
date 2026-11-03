@@ -175,10 +175,9 @@ mlir::LogicalResult FuseFQAndMul::matchAndRewrite(IE::MultiplyOp multiplyOp, mli
     auto newOutHighConst = Const::DeclareOp::create(rewriter, outHighConst.getLoc(), newOutRankedTensorType,
                                                     std::move(newOutHighContentAttr));
 
-    rewriter.replaceOpWithNewOp<IE::FakeQuantizeOp>(multiplyOp, fakeQuantOp.getInput(), fakeQuantOp.getInputLow(),
-                                                    fakeQuantOp.getInputHigh(), newOutLowConst, newOutHighConst,
-                                                    fakeQuantOp.getLevelsAttr(), fakeQuantOp.getLowFpTypeAttr(),
-                                                    fakeQuantOp.getAutoBroadcastAttr());
+    rewriter.replaceOpWithNewOp<IE::FakeQuantizeOp>(
+            multiplyOp, fakeQuantOp.getInput(), fakeQuantOp.getInputLow(), fakeQuantOp.getInputHigh(), newOutLowConst,
+            newOutHighConst, fakeQuantOp.getLevelsOrLowFpTypeAttr(), fakeQuantOp.getAutoBroadcastAttr());
 
     return mlir::success();
 }

@@ -35,7 +35,8 @@ std::shared_ptr<ov::Node> makeFQ(const std::shared_ptr<ov::Node>& input, float l
 }  // namespace
 
 std::shared_ptr<ov::Node> buildDynYuvToRgbPattern(const std::shared_ptr<ov::op::v0::Parameter>& yInput,
-                                                  const std::shared_ptr<ov::op::v0::Parameter>& uvInput) {
+                                                  const std::shared_ptr<ov::op::v0::Parameter>& uvInput,
+                                                  bool addOutputConv) {
     // Y path: f16 -> Convert(ui8) -> Convert(f32) -> ShapeOf -> Gather([0,3,1,2]) -> DynamicReshape -> [1,1,H,W]
     auto yToU8 = std::make_shared<ov::op::v0::Convert>(yInput, ov::element::u8);
     auto yToF32 = std::make_shared<ov::op::v0::Convert>(yToU8, ov::element::f32);
@@ -120,10 +121,22 @@ std::shared_ptr<ov::Node> buildDynYuvToRgbPattern(const std::shared_ptr<ov::op::
     // Output FakeQuantize: [0, 1]
     auto outputFQ = makeFQ(add, 0.0f, 1.0f, 256);
 
+    // Optionally insert a simple identity 1x1 Convolution right before the output, so callers can
+    // exercise fusion/tiling with an extra consumer op chained after the CSC subgraph.
+    std::shared_ptr<ov::Node> preTranspose = outputFQ;
+    if (addOutputConv) {
+        std::vector<float> identityWeights = {1.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 1.0f};
+        auto identityWeightsConst =
+                ov::op::v0::Constant::create(ov::element::f32, ov::Shape{3, 3, 1, 1}, identityWeights);
+        preTranspose = std::make_shared<ov::op::v1::Convolution>(outputFQ, identityWeightsConst, ov::Strides{1, 1},
+                                                                 ov::CoordinateDiff{0, 0}, ov::CoordinateDiff{0, 0},
+                                                                 ov::Strides{1, 1});
+    }
+
     // Transpose NCHW [1,3,H,W] -> NHWC [1,H,W,3] to match YuvToRgb output layout
     auto nchw2nhwcOrder =
             ov::op::v0::Constant::create(ov::element::i64, ov::Shape{4}, std::vector<int64_t>{0, 2, 3, 1});
-    auto toNhwc = std::make_shared<ov::op::v1::Transpose>(outputFQ, nchw2nhwcOrder);
+    auto toNhwc = std::make_shared<ov::op::v1::Transpose>(preTranspose, nchw2nhwcOrder);
 
     // Convert f32 -> f16 for output
     auto toF16 = std::make_shared<ov::op::v0::Convert>(toNhwc, ov::element::f16);

@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-// RUN: vpux-opt --split-input-file --init-compiler="platform=%platform% workload-management-enable=false" --assign-physical-barriers="num-barriers=4" %s | FileCheck %s
+// RUN: vpux-opt --split-input-file --init-compiler="platform=%platform%" --assign-physical-barriers="num-barriers=4" %s | FileCheck %s
 // REQUIRES: platform-NPU3720
 
 // CHECK-LABEL: @LinearDMA

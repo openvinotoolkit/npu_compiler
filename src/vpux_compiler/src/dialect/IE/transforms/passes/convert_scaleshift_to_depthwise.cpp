@@ -111,10 +111,13 @@ mlir::LogicalResult ConvertScaleShiftToDWPass::ScaleShiftOpConverter::matchAndRe
             // the created FQ is artificial, levels are set to 255 in correlation with FQ range from 0.0f to 254.0f (255
             // integer values)
             const auto lowFpTypeAttr = inputFq.getLowFpTypeAttr();
-            const auto levelsAttr = lowFpTypeAttr == nullptr ? getIntAttr(rewriter, 255) : nullptr;
-            auto newFqOp =
-                    IE::FakeQuantizeOp::create(rewriter, origOp->getLoc(), weights, weights, weights, weights, weights,
-                                               levelsAttr, lowFpTypeAttr, inputFq.getAutoBroadcastAttr());
+            const auto levelsAttr = getIntAttr(rewriter, 255);
+
+            const mlir::Attribute lowFpOrLevelsAttr = lowFpTypeAttr != nullptr
+                                                              ? mlir::cast<mlir::Attribute>(lowFpTypeAttr)
+                                                              : mlir::cast<mlir::Attribute>(levelsAttr);
+            auto newFqOp = IE::FakeQuantizeOp::create(rewriter, origOp->getLoc(), weights, weights, weights, weights,
+                                                      weights, lowFpOrLevelsAttr, inputFq.getAutoBroadcastAttr());
             weights = newFqOp.getOutput();
         }
     }

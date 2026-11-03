@@ -6,6 +6,7 @@
 #pragma once
 
 #include "vpux/compiler/dialect/Shave/IR/dialect.hpp"
+#include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
 #include "vpux/utils/logger/logger.hpp"
 
 #include <mlir/Pass/Pass.h>
@@ -21,6 +22,11 @@ namespace Shave {
 
 std::unique_ptr<mlir::Pass> createLoadExternalKernelResourcesPass(std::string customKernelConfigPath = "",
                                                                   Logger log = Logger::global());
+std::unique_ptr<mlir::Pass> createApplyExternalKernelConfigsPass(Logger log = Logger::global());
+
+std::unique_ptr<mlir::Pass> createMaterializeScratchBuffersPass(Logger log = Logger::global());
+std::unique_ptr<mlir::Pass> createHandleExternalKernelTilingRequirementsPass(Logger log = Logger::global());
+std::unique_ptr<mlir::Pass> createExternalKernelMemSpaceAdjustmentPass(Logger log = Logger::global());
 
 //
 // Registration

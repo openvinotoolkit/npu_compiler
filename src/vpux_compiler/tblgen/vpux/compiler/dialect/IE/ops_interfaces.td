@@ -289,6 +289,14 @@ def IE_MPEEngineInfoOpInterface : OpInterface<"MPEEngineInfoOpInterface"> {
             "mlir::Attribute",
             "getMPEEngineWithZP",
             (ins "mlir::Attribute":$weightZp, "mlir::Attribute":$activationZp)
+        >,
+        InterfaceMethod<
+            "Whether the operation can use a specialized MPE engine.",
+            "bool",
+            "supportsSpecializedMPE",
+            (ins),
+            [{}],
+            [{ return false; }]
         >
     ];
 }

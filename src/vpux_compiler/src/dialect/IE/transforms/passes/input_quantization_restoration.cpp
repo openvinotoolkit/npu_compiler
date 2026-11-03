@@ -211,7 +211,6 @@ private:
         rewriter.setInsertionPointAfter(input.getDefiningOp());
         auto newOp = rewriter.replaceOpWithNewOp<IE::FakeQuantizeOp>(
                 toReplace, input, inputLow, inputHigh, outputLow, outputHigh, rewriter.getI64IntegerAttr(levels),
-                nullptr,
                 vpux::IE::AutoBroadcastTypeAttr::get(rewriter.getContext(), vpux::IE::AutoBroadcastType::NUMPY));
         extendOpLoc(newOp, "as_fq");
     }

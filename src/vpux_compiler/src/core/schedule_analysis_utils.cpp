@@ -358,22 +358,37 @@ void vpux::createTracingJSON(mlir::func::FuncOp& netFunc, MemLiveRangeInfo& live
         }
 
         auto executor = VPUIP::VPUIPDialect::getExecutor(execOp).getLeafName().str();
+        std::optional<int64_t> spillId;
         if (auto dmaTask = VPUIP::getDmaTypeOp(execOp)) {
             executor = executor + "_CH_" + std::to_string(getDMAQueueIdEncoding(dmaTask.getChannelType()));
+        }
+        for (auto& innerOp : execOp.getBody()->getOperations()) {
+            if (auto nndmaOp = mlir::dyn_cast<VPUIP::NNDMAOp>(innerOp)) {
+                if (auto spillIdAttr = nndmaOp.getSpillIdAttr()) {
+                    spillId = spillIdAttr.getValue().getSExtValue();
+                }
+                break;
+            }
         }
         uint32_t executorMask = 1;
         if (vpux::VPUIP::VPUIPDialect::hasExecutorInstanceMask(execOp)) {
             executorMask = arrayAttrToMask32(vpux::VPUIP::VPUIPDialect::getExecutorInstanceMask(execOp));
         }
 
-        jOps.push_back(llvm::json::Object({{"op_id", std::move(indexString)},
-                                           {"op_loc", vpux::stringifyPrimaryLocation(execOp.getLoc())},
-                                           {"cycle_begin", cycleBegin},
-                                           {"cycle_end", cycleEnd},
-                                           {"inputs", llvm::json::Value(llvm::json::Array(std::move(inBuffers)))},
-                                           {"outputs", llvm::json::Value(llvm::json::Array(std::move(outBuffers)))},
-                                           {"executor", std::move(executor)},
-                                           {"executor_mask", llvm::json::Value(static_cast<int64_t>(executorMask))}}));
+        llvm::json::Object opObj({{"op_id", std::move(indexString)},
+                                  {"op_loc", vpux::stringifyPrimaryLocation(execOp.getLoc())},
+                                  {"cycle_begin", cycleBegin},
+                                  {"cycle_end", cycleEnd},
+                                  {"inputs", llvm::json::Value(llvm::json::Array(std::move(inBuffers)))},
+                                  {"outputs", llvm::json::Value(llvm::json::Array(std::move(outBuffers)))},
+                                  {"executor", std::move(executor)},
+                                  {"executor_mask", llvm::json::Value(static_cast<int64_t>(executorMask))}});
+        // spill-write and spill-read DMAs for the same evicted buffer share this id, letting
+        // downstream tooling pair them up without re-deriving scheduler-internal spill state.
+        if (spillId.has_value()) {
+            opObj["spill_id"] = spillId.value();
+        }
+        jOps.push_back(std::move(opObj));
     }
 
     // write buffers to json

@@ -280,8 +280,7 @@ vpux::InputTiling vpux::VPU::NCEMaxPoolOp::backInferTileInfo(const vpux::TileInf
     const auto origPadding = toPadInfo(getPad());
 
     // Invert the per-dimension ODU scaling to recover the pre-ODU tile before pool back-inference.
-    const auto scales = VPU::getODUScaling(getOperation());
-    const auto poolOutputTileResult = VPU::invertODUScaling(scales, outputTile, getLoc());
+    const auto poolOutputTileResult = VPU::invertODUScaling(VPU::getODUScaling(getOperation()), outputTile, getLoc());
     VPUX_THROW_UNLESS(mlir::succeeded(poolOutputTileResult), "Failed to invert ODU scaling for NCEMaxPoolOp at '{0}'",
                       getLoc());
 
@@ -418,8 +417,9 @@ bool VPU::NCEMaxPoolOp::doesLayerFitIntoCMX(VPU::MultiClusterStrategy strategy, 
 
     SmallVector<Byte> buffers = {
             VPU::getTotalAllocSizeWithDistribution(
-                    getInput().getType(), getActivationDistributionAttrFromOp(nceOp, getInput(), getInput().getType(),
-                                                                              numClusters, strategy, siblingsAnalysis)),
+                    getInput().getType(),
+                    getActivationDistributionAttrFromOp(nceOp, getInputMutable(), getInput().getType(), numClusters,
+                                                        strategy, siblingsAnalysis)),
             VPU::getTotalAllocSizeWithDistribution(outputDistributionMap.first, outputDistributionMap.second)};
 
     auto ppeAttr = getPpe();
@@ -448,8 +448,8 @@ bool VPU::NCEMaxPoolOp::doesLayerChangeOutputAlignmentFitIntoCMX(
     auto nceOp = mlir::cast<NCEMaxPoolOp>(getOperation());
     auto numClusters = VPU::getOptimalNumClusters(
             nceOp, mlir::cast<vpux::NDTypeInterface>(nceOp.getOutput().getType()).getShape(), strategy);
-    auto distributedInputType = getDistributedActivationTypeFromOp(nceOp, nceOp.getInput(), nceOp.getInput().getType(),
-                                                                   numClusters, strategy);
+    auto distributedInputType = getDistributedActivationTypeFromOp(nceOp, nceOp.getInputMutable(),
+                                                                   nceOp.getInput().getType(), numClusters, strategy);
     return fitIntoCMX(distributedInputType, newDistributedTensorType);
 }
 
@@ -460,8 +460,8 @@ vpux::NDTypeInterface vpux::VPU::NCEMaxPoolOp::getDistributedTypeForOpOperand(ml
     const auto strategy = clusteredOp.getMultiClusterStrategy().value();
 
     if (operand.get() == getInput()) {
-        return VPU::getDistributedActivationTypeForOpOperand(clusteredOp, getInput(), strategy,
-                                                             hasExplicitDistributedAttr, siblingsAnalysis);
+        return VPU::getDistributedActivationTypeForOpOperand(clusteredOp, operand, strategy, hasExplicitDistributedAttr,
+                                                             siblingsAnalysis);
     } else if (operand.get() == getWeightsTable()) {
         return VPU::getDistributedWeightsTypeForOpOperand(clusteredOp, operand.get(), strategy,
                                                           hasExplicitDistributedAttr, siblingsAnalysis);

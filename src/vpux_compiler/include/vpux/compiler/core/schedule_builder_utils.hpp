@@ -7,6 +7,7 @@
 
 #include "vpux/compiler/core/aliases_info.hpp"
 #include "vpux/compiler/core/async_deps_info.hpp"
+#include "vpux/compiler/core/loop_type.hpp"
 #include "vpux/compiler/dialect/VPURT/IR/task.hpp"
 #include "vpux/compiler/utils/stl_extras.hpp"
 #include "vpux/utils/core/small_vector.hpp"
@@ -26,6 +27,8 @@ static constexpr size_t MIN_TILING_LOOP_OPS = 5;
 static constexpr size_t MIN_VF_LOOP_OPS = 2;
 // Only consider vf loops when there are at least this many compute ops in each loop body
 static constexpr size_t MIN_VF_LOOP_BODY_COMPUTE_OPS = 2;
+
+void groupVfOpsByDependencies(llvm::DenseMap<size_t, SmallVector<size_t>>& loopOps, AsyncDepsInfo& depsInfo);
 
 // Classifies an operation's scheduling and CMX-allocation role within a loop:
 // - COMPUTE: DPU/SW work and operations not classified as a data movement below. These operations define the
@@ -102,6 +105,9 @@ struct OpAllocationInfo {
     SmallVector<mlir::Value> outBuffers;
     AllocationType allocationType;
     size_t executorDemand;
+    // Estimated cycle cost of the op, read from cycleCostAttrName (set earlier in the
+    // pipeline by CalculateAsyncRegionCycleCostPass); defaults to 1 when absent.
+    size_t cycleCost = 1;
     // Mark the data in DMA when it has any inner loop dependency
     // Don't schedule it outside of loop when this label is true
     // [E230500] TODO: use allocationType to represent the data movement
@@ -129,6 +135,11 @@ struct ComputeExplicitSchedule {
 using IterationSchedule = std::vector<ComputeExplicitSchedule>;
 using PredefinedSchedule = std::vector<IterationSchedule>;
 
+// Dumps a predefined schedule as an ASCII timeline to undefinedvf.txt in the
+// current working directory. No-op unless trace logging is active and this is
+// a developer build.
+void dumpScheduleASCII(const PredefinedSchedule& schedule, const Logger& log, llvm::StringRef tag, size_t regionIdx);
+
 // Result of predefined schedule generation for a single compute region.
 // Contains the schedule alongside memory layout metadata (size, shared buffers, alignment)
 // that the scheduler needs for allocation during loop execution.
@@ -137,26 +148,14 @@ struct LoopScheduleResult {
     vpux::AddressType reservedSize = 0;
     ValueOrderedSet sharedExternalBuffers;
     vpux::AddressType baseAlignment = 1;
+    // Keep one previous VF iteration scheduled while the next iteration runs.
+    // This is disabled when the schedule already hoists work across iterations.
+    bool enableIterationOverlap = false;
 
     bool empty() const {
         return schedule.empty();
     }
 };
-
-enum class LoopType { None, Tiling, VF };
-
-inline const char* toString(LoopType state) {
-    switch (state) {
-    case LoopType::None:
-        return "None";
-    case LoopType::Tiling:
-        return "Tiling";
-    case LoopType::VF:
-        return "VF";
-    default:
-        return "Unknown";
-    }
-}
 
 /*
 SchedulingLoop represents repeating blocks of compute graph.

@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-// RUN: vpux-opt --split-input-file --init-compiler="platform=%platform% allow-custom-values=true enable-sw-kernel-fifo-per-shave-engine=true" --link-enqueue-targets %s | FileCheck %s
+// RUN: vpux-opt --split-input-file --init-compiler="platform=%platform% allow-custom-values=true workload-management-mode=FWLM_V1_PAGES" --link-enqueue-targets %s | FileCheck %s
 // REQUIRES: platform-NPU5010
 
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
@@ -47,7 +47,7 @@ func.func @multiShave() {
   %e4 = VPURegMapped.Enqueue at(%b : !VPURegMapped.Index<0:0:0>) (%i7 -> %i7 : <1:1:0> -> <1:1:0>) -> !VPURegMapped.Index<0:0:4> {taskType = #VPURegMapped.task_type<ActKernelInvocation>}
   %e5 = VPURegMapped.Enqueue at(%b : !VPURegMapped.Index<0:0:0>) (%i8 -> %i9 : <1:1:1> -> <1:1:2>) -> !VPURegMapped.Index<0:0:5> {taskType = #VPURegMapped.task_type<ActKernelInvocation>}
 
-  %mi = VPUMI40XX.MappedInference actKernelRanges((%r0) : (!VPURegMapped.Index<0:0:0>)) actKernelInvocations((%i0, %i4), (%i6, %i7) : (!VPURegMapped.Index<0:0:0>, !VPURegMapped.Index<0:1:0>), (!VPURegMapped.Index<1:0:0>, !VPURegMapped.Index<1:1:0>)) barriers(%b : !VPURegMapped.Index<0:0:0>) workItemTasks(%e0 : !VPURegMapped.Index<0:0:0>) dmaCount([[0, 0], [0, 0], [0, 0], [0, 0], [0, 0], [0, 0]]) invariantCount([1, 0, 0, 0, 0, 0]) variantCount([2, 2, 0, 0, 0, 0]) actKernelRangesCount([[1, 0], [0, 0], [0, 0], [0, 0], [0, 0], [0, 0]]) actKernelInvocationsCount([[4, 2], [1, 3], [0, 0], [0, 0], [0, 0], [0, 0]]) mediaCount(0) barrierCount(1) workItemCount(6) -> !VPURegMapped.Index<0:0:0>
+  %mi = VPUMI40XX.MappedInference actKernelRanges((%r0) : (!VPURegMapped.Index<0:0:0>)) actKernelInvocations((%i0, %i4), (%i6, %i7) : (!VPURegMapped.Index<0:0:0>, !VPURegMapped.Index<0:1:0>), (!VPURegMapped.Index<1:0:0>, !VPURegMapped.Index<1:1:0>)) barriers(%b : !VPURegMapped.Index<0:0:0>) workItemTasks(%e0 : !VPURegMapped.Index<0:0:0>) dmaCount([[0, 0], [0, 0], [0, 0], [0, 0], [0, 0], [0, 0]]) invariantCount([1, 0, 0, 0, 0, 0]) variantCount([2, 2, 0, 0, 0, 0]) actKernelRangesCount([[1, 0], [0, 0], [0, 0], [0, 0], [0, 0], [0, 0]]) actKernelInvocationsCount([[4, 2], [1, 3], [0, 0], [0, 0], [0, 0], [0, 0]]) barrierCount(1) workItemCount(6) -> !VPURegMapped.Index<0:0:0>
   return
 }
 

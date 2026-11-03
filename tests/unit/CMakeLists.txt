@@ -3,10 +3,6 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 
-if(ENABLE_LTO)
-    set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RELEASE ON)
-endif()
-
 set(TARGET_NAME "npuUnitTests")
 set(EXCLUDED_UNIT_TESTS_DIR "")
 set(OPTIONAL_UNIT_TESTS_INCLUDES "")
@@ -98,6 +94,12 @@ ov_add_test_target(
     LABELS
         VPUX_PLUGIN
 )
+
+# npuUnitTests is intentionally left out of MSVC LTO as well: it links the same
+# header-scope statics (e.g. ov::test::utils::rangeByType in
+# common_test_utils/type_ranges.hpp) whose dynamic initialization /LTCG can
+# reorder behind the gtest registration thunks - the failure mode that crashes
+# npuFuncTests with 0xC0000005 during test registration.
 
 if(BYTECODE_ARTIFACTS_TARGET)
     add_dependencies(${TARGET_NAME} ${BYTECODE_ARTIFACTS_TARGET})

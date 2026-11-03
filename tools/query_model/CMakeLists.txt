@@ -1,10 +1,11 @@
 #
-# Copyright (C) 2022-2025 Intel Corporation
+# Copyright (C) 2022-2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 #
 
 set(TARGET_NAME query_model)
 
+set(GFLAGS_USE_TARGET_NAMESPACE ON)
 find_package(gflags QUIET)
 
 add_tool_target(

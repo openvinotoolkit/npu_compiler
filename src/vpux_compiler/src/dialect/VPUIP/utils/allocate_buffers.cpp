@@ -32,6 +32,19 @@ SmallVector<mlir::Value> allocateBuffersOfType(const Logger& log, mlir::Location
             }
             SmallVector<mlir::Value> dynamicSizes;
             if (!memref.hasStaticShape()) {
+                if (hasUnboundedDynamicShape(memref)) {
+                    const auto memKind = mlir::cast<vpux::NDTypeInterface>(memref).getMemoryKind();
+                    VPUX_THROW_UNLESS(memKind == VPU::MemoryKind::DDR,
+                                      "Cannot allocate a buffer of type '{0}' at '{1}': its shape has a dimension "
+                                      "without an upper bound, which is supported only in DDR",
+                                      memref, loc);
+                    // Not memref.alloc: it takes a size for every dynamic dimension, and an unbounded one has
+                    // none at compile time. FuseLastCopy replaces this placeholder with the network output.
+                    auto placeholder = VPURT::Alloc::create(builder, loc, memref, /*alignment=*/nullptr,
+                                                            /*swizzlingKey=*/nullptr);
+                    return static_cast<mlir::Value>(placeholder.getBuffer());
+                }
+
                 dynamicSizes.reserve(memref.getNumDynamicDims());
                 const auto bounds = getBounds(memref);
                 assert((static_cast<int64_t>(bounds.size()) == memref.getRank()) &&

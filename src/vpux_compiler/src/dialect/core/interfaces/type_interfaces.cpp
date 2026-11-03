@@ -190,6 +190,11 @@ vpux::Strides TensorNDTypeInterface::getStrides(mlir::Type type) const {
 vpux::MemStrides TensorNDTypeInterface::getMemStrides(mlir::Type type) const {
     VPUX_THROW_UNLESS(mlir::isa<mlir::RankedTensorType>(type),
                       "Only RankedTensorType is supported for 'getMemStrides'. Got '{0}'", type);
+    VPUX_THROW_WHEN(hasUnboundedDynamicShape(type),
+                    "Strides of '{0}' are unknown at compile time: a dimension has no upper bound. Unbounded dynamic "
+                    "shapes are not supported here",
+                    type);
+
     auto tensor = mlir::cast<mlir::RankedTensorType>(type);
     const auto order = getDimsOrder(type);
 
@@ -532,6 +537,10 @@ vpux::VPU::MemoryKind MemRefNDTypeInterface::getMemoryKind(mlir::Type type) cons
 vpux::Strides MemRefNDTypeInterface::getStrides(mlir::Type type) const {
     VPUX_THROW_UNLESS(mlir::isa<mlir::MemRefType>(type), "Only MemRefType is supported for 'getStrides'. Got '{0}'",
                       type);
+    VPUX_THROW_WHEN(hasUnboundedDynamicShape(type),
+                    "Strides of '{0}' are unknown at compile time: a dimension has no upper bound. Unbounded dynamic "
+                    "shapes are not supported here",
+                    type);
 
     const auto memref = mlir::cast<mlir::MemRefType>(type);
     const auto layout = memref.getLayout();
@@ -618,23 +627,20 @@ vpux::Byte MemRefNDTypeInterface::getTotalAllocSize(mlir::Type type) const {
                       memStrides);
 
     vpux::Byte allocSizeByte{0};
-    // memStrides.front() being equal to 0 implies a dimension with 0 size which can arise
-    // in some transformer models and are essentially an empty tensor. Below algorithm will
-    // find largest alloc size which won't work for tensors with one of the dimensions set to 0
-    // Possibly can be removed after E#-156188.
+    // Reach: elem + sum over i of (dim[i] - 1) * stride[i].
     if (memStrides.front().count() != 0) {
-        // With DMA fusion we can have front stride smaller than actual buffer size. It can lead to wrong
-        // allocations, so we're looking for the largest combination of stride*dim, like in DistributedTensor. CMX
-        // is opposite. Because of large inter-cluster stride we can get size larger than actual, so skip first dim
-        bool hasInterClusterStride =
-                getMemoryKind(type) == vpux::VPU::MemoryKind::CMX_NN && memStrides.front() >= Bit(2_MB);
-        const size_t startDim = hasInterClusterStride ? 1 : 0;
-        for (size_t i = startDim; i < memShape.size(); ++i) {
-            auto newAllocSizeByte = alignMemSize(memStrides[MemDim(i)] * memShape[MemDim(i)], Byte(1)).to<Byte>();
-            if (newAllocSizeByte > allocSizeByte) {
-                allocSizeByte = newAllocSizeByte;
+        vpux::Bit spanBits = getElemTypeSize(type);
+        int64_t dimSize = -1;
+        for (size_t i = 0; i < memShape.size(); ++i) {
+            dimSize = memShape[MemDim(i)];
+            VPUX_THROW_WHEN(dimSize < 0, "Only non-negative shapes are supported for 'getTotalAllocSize'.");
+            VPUX_THROW_WHEN(memStrides[MemDim(i)].count() < 0, "Stride for dimension {0} is negative", i);
+            if (dimSize == 0) {
+                return Byte(0);
             }
+            spanBits += (dimSize - 1) * memStrides[MemDim(i)];
         }
+        allocSizeByte = alignMemSize(spanBits, Byte(1)).to<Byte>();
     }
 
     if (memRefAttr) {
@@ -802,7 +808,7 @@ vpux::NDTypeInterface MemRefNDTypeInterface::changeMemSpace(mlir::Type type, vpu
                     return mlir::MemRefType::get(memrefType.getShape(), memrefType.getElementType(),
                                                  memrefType.getLayout(), memSpace);
                 }
-                const auto strides = getStrides(type);
+                const auto strides = getStridesUnlessUnbounded(mlir::cast<vpux::NDTypeInterface>(type));
                 return vpux::getMemRefType(getShape(type), getElementType(type), getDimsOrder(type), memSpace, strides,
                                            getBounds(type), VPUIP::getSwizzlingSchemeAttr(type),
                                            VPUIP::getSparsityCompressionAttr(type), VPUIP::getAllocSizeAttr(type),
@@ -833,7 +839,9 @@ vpux::NDTypeInterface MemRefNDTypeInterface::changeTypeComponents(mlir::Type typ
             typeComponents.elementType.has_value() ? *typeComponents.elementType : getElementType(type);
     const auto dimsOrder = typeComponents.dimsOrder.has_value() ? *typeComponents.dimsOrder : getDimsOrder(type);
     const auto memSpace = typeComponents.memSpace.has_value() ? *typeComponents.memSpace : getMemSpace(type);
-    const auto strides = typeComponents.strides.has_value() ? *typeComponents.strides : getStrides(type);
+    const auto strides = typeComponents.strides.has_value()
+                                 ? *typeComponents.strides
+                                 : getStridesUnlessUnbounded(mlir::cast<vpux::NDTypeInterface>(type));
     const BoundsRef bounds = typeComponents.bounds.has_value() ? *typeComponents.bounds : getBounds(type);
     return vpux::getMemRefType(shape, elementType, dimsOrder, memSpace, strides, bounds,
                                VPUIP::getSwizzlingSchemeAttr(type), VPUIP::getSparsityCompressionAttr(type),

@@ -8,7 +8,7 @@
  * @brief The bridge from L0 driver compiler to user API
  */
 
-#include "npu_driver_compiler.h"
+#include "compatibility/npu_driver_compiler.h"
 
 #include "vcl_compiler.hpp"
 #include "vcl_executable.hpp"

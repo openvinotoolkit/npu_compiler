@@ -590,10 +590,10 @@ func.func @MatMulWithDynamicDequantizeChain(%arg0: tensor<1x4x1x2880xf16>, %arg1
     // CHECK:       [[W_RESHAPE_3:%.+]] = IE.AffineReshape([[W_DEQUANT_3]])
     // CHECK-SAME{LITERAL}:  {dim_mapping = [[0], [0], [1]], shape_value = [5760, 2880]} : tensor<1x5760x2880xf16> -> tensor<5760x2880xf16>
 
-    // CHECK:       [[MATMUL_0:%.+]] = IE.MatMul([[IN_RESHAPE_0]], [[W_RESHAPE_0]]) {tiling_loop_index = [[RAW_LOOP_INDEX:[0-9]+]] : i64, transpose_b} : tensor<1x2880xf16>, tensor<5760x2880xf16> -> tensor<1x5760xf16>
-    // CHECK:       [[MATMUL_1:%.+]] = IE.MatMul([[IN_RESHAPE_1]], [[W_RESHAPE_1]]) {tiling_loop_index = [[RAW_LOOP_INDEX]] : i64, transpose_b} : tensor<1x2880xf16>, tensor<5760x2880xf16> -> tensor<1x5760xf16>
-    // CHECK:       [[MATMUL_2:%.+]] = IE.MatMul([[IN_RESHAPE_2]], [[W_RESHAPE_2]]) {tiling_loop_index = [[RAW_LOOP_INDEX]] : i64, transpose_b} : tensor<1x2880xf16>, tensor<5760x2880xf16> -> tensor<1x5760xf16>
-    // CHECK:       [[MATMUL_3:%.+]] = IE.MatMul([[IN_RESHAPE_3]], [[W_RESHAPE_3]]) {tiling_loop_index = [[RAW_LOOP_INDEX]] : i64, transpose_b} : tensor<1x2880xf16>, tensor<5760x2880xf16> -> tensor<1x5760xf16>
+    // CHECK:       [[MATMUL_0:%.+]] = IE.MatMul([[IN_RESHAPE_0]], [[W_RESHAPE_0]]) {loop_tile_coord = {axes = array<i64: 0>, indices = array<i64: 0>}, tiling_loop_index = [[RAW_LOOP_INDEX:[0-9]+]] : i64, transpose_b} : tensor<1x2880xf16>, tensor<5760x2880xf16> -> tensor<1x5760xf16>
+    // CHECK:       [[MATMUL_1:%.+]] = IE.MatMul([[IN_RESHAPE_1]], [[W_RESHAPE_1]]) {loop_tile_coord = {axes = array<i64: 0>, indices = array<i64: 1>}, tiling_loop_index = [[RAW_LOOP_INDEX]] : i64, transpose_b} : tensor<1x2880xf16>, tensor<5760x2880xf16> -> tensor<1x5760xf16>
+    // CHECK:       [[MATMUL_2:%.+]] = IE.MatMul([[IN_RESHAPE_2]], [[W_RESHAPE_2]]) {loop_tile_coord = {axes = array<i64: 0>, indices = array<i64: 2>}, tiling_loop_index = [[RAW_LOOP_INDEX]] : i64, transpose_b} : tensor<1x2880xf16>, tensor<5760x2880xf16> -> tensor<1x5760xf16>
+    // CHECK:       [[MATMUL_3:%.+]] = IE.MatMul([[IN_RESHAPE_3]], [[W_RESHAPE_3]]) {loop_tile_coord = {axes = array<i64: 0>, indices = array<i64: 3>}, tiling_loop_index = [[RAW_LOOP_INDEX]] : i64, transpose_b} : tensor<1x2880xf16>, tensor<5760x2880xf16> -> tensor<1x5760xf16>
 
     // CHECK:       [[CONCAT:%.+]] = IE.Concat([[MATMUL_0]], [[MATMUL_1]], [[MATMUL_2]], [[MATMUL_3]]) {per_axis = #IE.Concat<axis = 0 : i64>} : tensor<1x5760xf16>, tensor<1x5760xf16>, tensor<1x5760xf16>, tensor<1x5760xf16> -> tensor<4x5760xf16>
     // CHECK:       [[OUT:%.+]] = IE.AffineReshape([[CONCAT]])
@@ -714,8 +714,8 @@ func.func @MatMulWithDequantizeGatherChain(
     // CHECK:       [[W_RESHAPE_2D_1:%.+]] = IE.AffineReshape([[W_DEQUANT_1]])
     // CHECK-SAME{LITERAL}:     {dim_mapping = [[0], [0], [1]], shape_value = [4, 3]} : tensor<1x4x3xf16> -> tensor<4x3xf16>
 
-    // CHECK:       [[MATMUL_0:%.+]] = IE.MatMul([[IN_RESHAPE_0]], [[W_RESHAPE_2D_0]]) {tiling_loop_index = [[LOOP_INDEX:[0-9]+]] : i64, transpose_b} : tensor<1x3xf16>, tensor<4x3xf16> -> tensor<1x4xf16>
-    // CHECK:       [[MATMUL_1:%.+]] = IE.MatMul([[IN_RESHAPE_1]], [[W_RESHAPE_2D_1]]) {tiling_loop_index = [[LOOP_INDEX]] : i64, transpose_b} : tensor<1x3xf16>, tensor<4x3xf16> -> tensor<1x4xf16>
+    // CHECK:       [[MATMUL_0:%.+]] = IE.MatMul([[IN_RESHAPE_0]], [[W_RESHAPE_2D_0]]) {loop_tile_coord = {axes = array<i64: 0>, indices = array<i64: 0>}, tiling_loop_index = [[LOOP_INDEX:[0-9]+]] : i64, transpose_b} : tensor<1x3xf16>, tensor<4x3xf16> -> tensor<1x4xf16>
+    // CHECK:       [[MATMUL_1:%.+]] = IE.MatMul([[IN_RESHAPE_1]], [[W_RESHAPE_2D_1]]) {loop_tile_coord = {axes = array<i64: 0>, indices = array<i64: 1>}, tiling_loop_index = [[LOOP_INDEX]] : i64, transpose_b} : tensor<1x3xf16>, tensor<4x3xf16> -> tensor<1x4xf16>
 
     // CHECK:       [[CONCAT:%.+]] = IE.Concat([[MATMUL_0]], [[MATMUL_1]]) {per_axis = #IE.Concat<axis = 0 : i64>} : tensor<1x4xf16>, tensor<1x4xf16> -> tensor<2x4xf16>
     // CHECK:       [[OUT:%.+]] = IE.AffineReshape([[CONCAT]])

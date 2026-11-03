@@ -253,3 +253,110 @@ func.func @DynamicGelu3DTo4D(%arg0: tensor<1x?x3072xf16, {bounds = #const.Opaque
 
     // CHECK:       return [[RESHAPE_TO_3D]] : tensor<1x?x3072xf16, {bounds = #const.OpaqueI64Elements<[1, 8, 3072]> : tensor<3xsi64>, order = #CHW}>
 }
+
+// -----
+
+// An unbounded shape of rank > 4 cannot be reified to merge its axes, so it is kept unchanged.
+
+// CHECK-LABEL: @UnboundedGelu5DKept
+// CHECK-SAME:      [[INPUT:%.+]]: tensor<1x2x?x4x8xf16>
+func.func @UnboundedGelu5DKept(%arg0: tensor<1x2x?x4x8xf16>) -> tensor<1x2x?x4x8xf16> {
+    %0 = IE.Gelu(%arg0) : tensor<1x2x?x4x8xf16> -> tensor<1x2x?x4x8xf16>
+    return %0 : tensor<1x2x?x4x8xf16>
+
+    // CHECK:       [[GELU:%.+]] = IE.Gelu([[INPUT]]) : tensor<1x2x?x4x8xf16> -> tensor<1x2x?x4x8xf16>
+    // CHECK:       return [[GELU]] : tensor<1x2x?x4x8xf16>
+}
+
+// -----
+
+// An unbounded shape of rank < 4 is extended to 4D, keeping the unbounded dim.
+
+// CHECK-LABEL: @UnboundedGelu3DTo4D
+// CHECK-SAME:      [[INPUT:%.+]]: tensor<1x?x64xf16>
+func.func @UnboundedGelu3DTo4D(%arg0: tensor<1x?x64xf16>) -> tensor<1x?x64xf16> {
+    %0 = IE.Gelu(%arg0) : tensor<1x?x64xf16> -> tensor<1x?x64xf16>
+    return %0 : tensor<1x?x64xf16>
+
+    // CHECK:       [[RESHAPE_IN:%.+]] = IE.AffineReshape([[INPUT]])
+    // CHECK-SAME{LITERAL}:  {dim_mapping = [[0, 1], [2], [3]], shape_value = [1, 1, -9223372036854775808, 64]} : tensor<1x?x64xf16> -> tensor<1x1x?x64xf16>
+    // CHECK:       [[GELU:%.+]] = IE.Gelu([[RESHAPE_IN]]) : tensor<1x1x?x64xf16> -> tensor<1x1x?x64xf16>
+    // CHECK:       [[RESHAPE_OUT:%.+]] = IE.AffineReshape([[GELU]])
+    // CHECK-SAME{LITERAL}:  {dim_mapping = [[0], [0], [1], [2]], shape_value = [1, -9223372036854775808, 64]} : tensor<1x1x?x64xf16> -> tensor<1x?x64xf16>
+    // CHECK:       return [[RESHAPE_OUT]] : tensor<1x?x64xf16>
+}
+
+// -----
+
+// An unbounded eltwise operand of rank < 4 is extended to 4D without merging axes.
+
+// CHECK-LABEL: @UnboundedMultiply3DTo4D
+// CHECK-SAME:      [[INPUT1:%.+]]: tensor<1x?x64xf16>,
+// CHECK-SAME:      [[INPUT2:%.+]]: tensor<1x1x64xf16>
+func.func @UnboundedMultiply3DTo4D(%arg0: tensor<1x?x64xf16>, %arg1: tensor<1x1x64xf16>) -> tensor<1x?x64xf16> {
+    %0 = IE.Multiply(%arg0, %arg1) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x?x64xf16>, tensor<1x1x64xf16> -> tensor<1x?x64xf16>
+    return %0 : tensor<1x?x64xf16>
+
+    // CHECK-DAG:   [[RESHAPE_IN2:%.+]] = IE.AffineReshape([[INPUT2]]) {{.*}} : tensor<1x1x64xf16> -> tensor<1x1x1x64xf16>
+    // CHECK-DAG:   [[RESHAPE_IN1:%.+]] = IE.AffineReshape([[INPUT1]]) {{.*}} : tensor<1x?x64xf16> -> tensor<1x1x?x64xf16>
+    // CHECK:       [[MULTIPLY:%.+]] = IE.Multiply([[RESHAPE_IN1]], [[RESHAPE_IN2]])
+    // CHECK-SAME:      : tensor<1x1x?x64xf16>, tensor<1x1x1x64xf16> -> tensor<1x1x?x64xf16>
+    // CHECK:       [[RESHAPE_OUT:%.+]] = IE.AffineReshape([[MULTIPLY]]) {{.*}} : tensor<1x1x?x64xf16> -> tensor<1x?x64xf16>
+    // CHECK:       return [[RESHAPE_OUT]] : tensor<1x?x64xf16>
+}
+
+// -----
+
+// An unbounded eltwise operand of rank > 4 cannot be reified to merge its axes, so the op is kept unchanged.
+
+// CHECK-LABEL: @UnboundedMultiply5DKept
+// CHECK-SAME:      [[INPUT1:%.+]]: tensor<1x2x?x4x8xf16>,
+// CHECK-SAME:      [[INPUT2:%.+]]: tensor<1x2x1x4x8xf16>
+func.func @UnboundedMultiply5DKept(%arg0: tensor<1x2x?x4x8xf16>, %arg1: tensor<1x2x1x4x8xf16>) -> tensor<1x2x?x4x8xf16> {
+    %0 = IE.Multiply(%arg0, %arg1) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x2x?x4x8xf16>, tensor<1x2x1x4x8xf16> -> tensor<1x2x?x4x8xf16>
+    return %0 : tensor<1x2x?x4x8xf16>
+
+    // CHECK:       [[MULTIPLY:%.+]] = IE.Multiply([[INPUT1]], [[INPUT2]])
+    // CHECK-SAME:      : tensor<1x2x?x4x8xf16>, tensor<1x2x1x4x8xf16> -> tensor<1x2x?x4x8xf16>
+    // CHECK:       return [[MULTIPLY]] : tensor<1x2x?x4x8xf16>
+}
+
+// -----
+
+// An unbounded FakeQuantize input of rank < 4 is extended to 4D without merging axes.
+
+// CHECK-LABEL: @UnboundedFakeQuantize3DTo4D
+// CHECK-SAME:      [[INPUT:%.+]]: tensor<1x?x64xf16>
+func.func @UnboundedFakeQuantize3DTo4D(%arg0: tensor<1x?x64xf16>) -> tensor<1x?x64xf16> {
+    %low = const.Declare tensor<1x1x1xf16> = dense<0.0> : tensor<1x1x1xf16>
+    %high = const.Declare tensor<1x1x1xf16> = dense<255.0> : tensor<1x1x1xf16>
+    %0 = IE.FakeQuantize(%arg0, %low, %high, %low, %high) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256} : tensor<1x?x64xf16>, tensor<1x1x1xf16>, tensor<1x1x1xf16>, tensor<1x1x1xf16>, tensor<1x1x1xf16> -> tensor<1x?x64xf16>
+    return %0 : tensor<1x?x64xf16>
+
+    // CHECK-DAG:   [[LOW:%.+]] = const.Declare tensor<1x1x1x1xf16> = dense<0.000000e+00> : tensor<1x1x1xf16>, [#const.Reshape<[1, 1, 1, 1]>]
+    // CHECK-DAG:   [[HIGH:%.+]] = const.Declare tensor<1x1x1x1xf16> = dense<2.550000e+02> : tensor<1x1x1xf16>, [#const.Reshape<[1, 1, 1, 1]>]
+    // CHECK:       [[RESHAPE_IN:%.+]] = IE.AffineReshape([[INPUT]]) {{.*}} : tensor<1x?x64xf16> -> tensor<1x1x?x64xf16>
+    // CHECK:       [[FQ:%.+]] = IE.FakeQuantize([[RESHAPE_IN]], [[LOW]], [[HIGH]], [[LOW]], [[HIGH]])
+    // CHECK-SAME:      -> tensor<1x1x?x64xf16>
+    // CHECK:       [[RESHAPE_OUT:%.+]] = IE.AffineReshape([[FQ]]) {{.*}} : tensor<1x1x?x64xf16> -> tensor<1x?x64xf16>
+    // CHECK:       return [[RESHAPE_OUT]] : tensor<1x?x64xf16>
+}
+
+// -----
+
+// An unbounded FakeQuantize input of rank > 4 cannot be reified to merge its axes, so the op is kept unchanged.
+
+// CHECK-LABEL: @UnboundedFakeQuantize5DKept
+// CHECK-SAME:      [[INPUT:%.+]]: tensor<1x2x?x4x8xf16>
+func.func @UnboundedFakeQuantize5DKept(%arg0: tensor<1x2x?x4x8xf16>) -> tensor<1x2x?x4x8xf16> {
+    %low = const.Declare tensor<1x1x1x1x1xf16> = dense<0.0> : tensor<1x1x1x1x1xf16>
+    %high = const.Declare tensor<1x1x1x1x1xf16> = dense<255.0> : tensor<1x1x1x1x1xf16>
+    %0 = IE.FakeQuantize(%arg0, %low, %high, %low, %high) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256} : tensor<1x2x?x4x8xf16>, tensor<1x1x1x1x1xf16>, tensor<1x1x1x1x1xf16>, tensor<1x1x1x1x1xf16>, tensor<1x1x1x1x1xf16> -> tensor<1x2x?x4x8xf16>
+    return %0 : tensor<1x2x?x4x8xf16>
+
+    // CHECK-DAG:   [[LOW:%.+]] = const.Declare tensor<1x1x1x1x1xf16> = dense<0.000000e+00>
+    // CHECK-DAG:   [[HIGH:%.+]] = const.Declare tensor<1x1x1x1x1xf16> = dense<2.550000e+02>
+    // CHECK:       [[FQ:%.+]] = IE.FakeQuantize([[INPUT]], [[LOW]], [[HIGH]], [[LOW]], [[HIGH]])
+    // CHECK-SAME:      -> tensor<1x2x?x4x8xf16>
+    // CHECK:       return [[FQ]] : tensor<1x2x?x4x8xf16>
+}

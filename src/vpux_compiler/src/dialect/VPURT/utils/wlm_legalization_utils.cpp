@@ -96,7 +96,7 @@ mlir::Operation* findLastTaskToUpdate(const BarrierInfo::TaskSet& barriers, Barr
     SmallVector<VPURT::TaskOp> allUpdatingTasks;
     for (auto barrierIdx : barriers) {
         // Lambda to check if a task updates the current barrierIdx
-        auto validUser = [&barrierIdx, &barrierInfo](VPURT::TaskOp op) -> bool {
+        auto validUser = [barrierIdx, &barrierInfo](VPURT::TaskOp op) -> bool {
             auto opIdx = barrierInfo.getIndex(op);
 
             auto updateBarrierList = barrierInfo.getUpdateBarriers(opIdx);

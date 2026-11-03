@@ -34,6 +34,32 @@ func.func @EqualOpSWLayer(%input1: tensor<1x1x1x5xf16>, %input2: tensor<1x1x1x1x
 }
 
 // -----
+// CHECK: func.func nested @builtin_BitwiseAnd
+// CHECK-SAME: VPU.kernel_code = "eltwise_bitwise_and.cpp", VPU.kernel_entry = "eltwise_bitwise_and"
+// CHECK-LABEL: func.func @BitwiseAndInnerBroadcast
+func.func @BitwiseAndInnerBroadcast(%input: tensor<1x2x3x4xi8>, %broadcast: tensor<1x2x3x1xi8>) -> tensor<1x2x3x4xi8> {
+    %output = VPU.BitwiseAnd(%input, %broadcast) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x2x3x4xi8>, tensor<1x2x3x1xi8> -> tensor<1x2x3x4xi8>
+    return %output : tensor<1x2x3x4xi8>
+
+    // CHECK: VPUIP.SW.Kernel
+    // CHECK-SAME: @VPU.SW::@builtin_BitwiseAnd
+    // CHECK: VPUIP.SW.Kernel.run
+}
+
+// -----
+// CHECK: func.func nested @builtin_BitwiseAnd
+// CHECK-SAME: VPU.kernel_code = "eltwise_bitwise_and_p00.cpp", VPU.kernel_entry = "eltwise_bitwise_and_p00"
+// CHECK-LABEL: func.func @BitwiseAndOuterBroadcast
+func.func @BitwiseAndOuterBroadcast(%input: tensor<1x2x3x4xi8>, %broadcast: tensor<1x2x1x4xi8>) -> tensor<1x2x3x4xi8> {
+    %output = VPU.BitwiseAnd(%input, %broadcast) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x2x3x4xi8>, tensor<1x2x1x4xi8> -> tensor<1x2x3x4xi8>
+    return %output : tensor<1x2x3x4xi8>
+
+    // CHECK: VPUIP.SW.Kernel
+    // CHECK-SAME: @VPU.SW::@builtin_BitwiseAnd
+    // CHECK: VPUIP.SW.Kernel.run
+}
+
+// -----
 
 // CHECK:  module @VPU.SW {
 // CHECK-NEXT:    func.func nested @builtin_Convert(memref<*xi8, [@CMX_NN, 0]>, memref<*xf32, [@CMX_NN, 0]>) attributes {
@@ -1393,7 +1419,7 @@ func.func @DynamicDataMask(%arg0: tensor<4xsi32>) -> tensor<1x3x32x32xf16> {
 // CHECK-LABEL:   func.func @ExternalKernelOneInputOneOutputCMX(
 // CHECK-SAME:      [[INPUT:%.+]]: memref<1x512x512x1xf16, {order = #[[$NHWC]]}, [@CMX_NN, 0]>) -> memref<1x512x512x1xf16, {order = #[[$NHWC]]}, [@CMX_NN, 0]>
 func.func @ExternalKernelOneInputOneOutputCMX(%arg0: tensor<1x512x512x1xf16, {mem_space = [@CMX_NN, 0], order = #NHWC}>) -> tensor<1x512x512x1xf16, {mem_space = [@CMX_NN, 0], order = #NHWC}> {
-    %0 = Shave.ExternalKernel "dummy_kernel" inputs(%arg0 : tensor<1x512x512x1xf16, {mem_space = [@CMX_NN, 0], order = #NHWC}>) attrs({}) -> tensor<1x512x512x1xf16, {mem_space = [@CMX_NN, 0], order = #NHWC}>
+    %0 = Shave.ExternalKernel "dummy_kernel" inputs(%arg0 : tensor<1x512x512x1xf16, {mem_space = [@CMX_NN, 0], order = #NHWC}>) kernel_attributes ({}) -> tensor<1x512x512x1xf16, {mem_space = [@CMX_NN, 0], order = #NHWC}>
     return %0 : tensor<1x512x512x1xf16, {mem_space = [@CMX_NN, 0], order = #NHWC}>
 
 // CHECK:         [[ALLOC:%.+]] = memref.alloc() : memref<1x512x512x1xf16, {order = #[[$NHWC]]}, [@CMX_NN, 0]>
@@ -1416,7 +1442,7 @@ func.func @ExternalKernelOneInputOneOutputCMX(%arg0: tensor<1x512x512x1xf16, {me
 // CHECK-LABEL:   func.func @ExternalKernelOneInputCMXOneOutputDDR(
 // CHECK-SAME:      [[INPUT:%.+]]: memref<1x512x512x1xf16, {order = #[[$NHWC]]}, [@CMX_NN, 0]>) -> memref<1x512x512x10xf16, {order = #[[$NHWC]]}>
 func.func @ExternalKernelOneInputCMXOneOutputDDR(%arg0: tensor<1x512x512x1xf16, {mem_space = [@CMX_NN, 0], order = #NHWC}>) -> tensor<1x512x512x10xf16, {order = #NHWC}> {
-    %0 = Shave.ExternalKernel "dummy_kernel" inputs(%arg0 : tensor<1x512x512x1xf16, {mem_space = [@CMX_NN, 0], order = #NHWC}>) attrs({}) -> tensor<1x512x512x10xf16, {order = #NHWC}>
+    %0 = Shave.ExternalKernel "dummy_kernel" inputs(%arg0 : tensor<1x512x512x1xf16, {mem_space = [@CMX_NN, 0], order = #NHWC}>) kernel_attributes ({}) -> tensor<1x512x512x10xf16, {order = #NHWC}>
     return %0 : tensor<1x512x512x10xf16, {order = #NHWC}>
 
 // CHECK:         [[ALLOC:%.+]] = memref.alloc() : memref<1x512x512x10xf16, {order = #[[$NHWC]]}>
@@ -1442,7 +1468,7 @@ func.func @ExternalKernelOneInputCMXOneOutputDDR(%arg0: tensor<1x512x512x1xf16, 
 // CHECK-LABEL:   func.func @ExternalKernelOneInputDDROneOutputCMX(
 // CHECK-SAME:      [[INPUT:%.+]]: memref<1x512x512x10xf16, {order = #[[$NHWC]]}>) -> memref<1x512x512x1xf16, {order = #[[$NHWC]]}, [@CMX_NN, 0]>
 func.func @ExternalKernelOneInputDDROneOutputCMX(%arg0: tensor<1x512x512x10xf16, {order = #NHWC}>) -> tensor<1x512x512x1xf16, {mem_space = [@CMX_NN, 0],order = #NHWC}> {
-    %0 = Shave.ExternalKernel "dummy_kernel" inputs(%arg0 : tensor<1x512x512x10xf16, {order = #NHWC}>) attrs({}) -> tensor<1x512x512x1xf16, {mem_space = [@CMX_NN, 0], order = #NHWC}>
+    %0 = Shave.ExternalKernel "dummy_kernel" inputs(%arg0 : tensor<1x512x512x10xf16, {order = #NHWC}>) kernel_attributes ({}) -> tensor<1x512x512x1xf16, {mem_space = [@CMX_NN, 0], order = #NHWC}>
     return %0 : tensor<1x512x512x1xf16, {mem_space = [@CMX_NN, 0], order = #NHWC}>
 
 // CHECK:         [[ALLOC:%.+]] = memref.alloc() : memref<1x512x512x1xf16, {order = #[[$NHWC]]}, [@CMX_NN, 0]>
@@ -1471,7 +1497,7 @@ func.func @ExternalKernelMultipleIOCMX(%arg0: tensor<1x64x64x3xf16, {mem_space =
                                        %arg1: tensor<1x64x64x3xf16, {mem_space = [@CMX_NN, 0], order = #NHWC}>,
                                        %arg2: tensor<1x64x64x3xf16, {mem_space = [@CMX_NN, 0], order = #NHWC}>)
                                        -> (tensor<1x64x64x3xf16, {mem_space = [@CMX_NN, 0], order = #NHWC}>, tensor<1x64x64x3xf16, {mem_space = [@CMX_NN, 0], order = #NHWC}>) {
-    %0, %1 = Shave.ExternalKernel "dummy_kernel" inputs(%arg0, %arg1, %arg2 : tensor<1x64x64x3xf16, {mem_space = [@CMX_NN, 0], order = #NHWC}>, tensor<1x64x64x3xf16, {mem_space = [@CMX_NN, 0], order = #NHWC}>, tensor<1x64x64x3xf16, {mem_space = [@CMX_NN, 0], order = #NHWC}>) attrs({}) -> tensor<1x64x64x3xf16, {mem_space = [@CMX_NN, 0], order = #NHWC}>, tensor<1x64x64x3xf16, {mem_space = [@CMX_NN, 0], order = #NHWC}>
+    %0, %1 = Shave.ExternalKernel "dummy_kernel" inputs(%arg0, %arg1, %arg2 : tensor<1x64x64x3xf16, {mem_space = [@CMX_NN, 0], order = #NHWC}>, tensor<1x64x64x3xf16, {mem_space = [@CMX_NN, 0], order = #NHWC}>, tensor<1x64x64x3xf16, {mem_space = [@CMX_NN, 0], order = #NHWC}>) kernel_attributes ({}) -> tensor<1x64x64x3xf16, {mem_space = [@CMX_NN, 0], order = #NHWC}>, tensor<1x64x64x3xf16, {mem_space = [@CMX_NN, 0], order = #NHWC}>
     return %0, %1 : tensor<1x64x64x3xf16, {mem_space = [@CMX_NN, 0], order = #NHWC}>, tensor<1x64x64x3xf16, {mem_space = [@CMX_NN, 0], order = #NHWC}>
 
 // CHECK:         [[ALLOC0:%.+]] = memref.alloc() : memref<1x64x64x3xf16, {order = #[[$NHWC]]}, [@CMX_NN, 0]>
@@ -1496,7 +1522,7 @@ func.func @ExternalKernelMultipleIOHybrid(%arg0: tensor<1x64x64x3xf16, {mem_spac
                                           %arg1: tensor<1x64x64x3xf16, {mem_space = [@CMX_NN, 0], order = #NHWC}>,
                                           %arg2: tensor<1x512x512x10xf16, {order = #NHWC}>)
                                        -> (tensor<1x64x64x3xf16, {mem_space = [@CMX_NN, 0], order = #NHWC}>, tensor<1x512x512x10xf16, {order = #NHWC}>) {
-    %0, %1 = Shave.ExternalKernel "dummy_kernel" inputs(%arg0, %arg1, %arg2 : tensor<1x64x64x3xf16, {mem_space = [@CMX_NN, 0], order = #NHWC}>, tensor<1x64x64x3xf16, {mem_space = [@CMX_NN, 0], order = #NHWC}>, tensor<1x512x512x10xf16, {order = #NHWC}>) attrs({}) -> tensor<1x64x64x3xf16, {mem_space = [@CMX_NN, 0], order = #NHWC}>, tensor<1x512x512x10xf16, {order = #NHWC}>
+    %0, %1 = Shave.ExternalKernel "dummy_kernel" inputs(%arg0, %arg1, %arg2 : tensor<1x64x64x3xf16, {mem_space = [@CMX_NN, 0], order = #NHWC}>, tensor<1x64x64x3xf16, {mem_space = [@CMX_NN, 0], order = #NHWC}>, tensor<1x512x512x10xf16, {order = #NHWC}>) kernel_attributes ({}) -> tensor<1x64x64x3xf16, {mem_space = [@CMX_NN, 0], order = #NHWC}>, tensor<1x512x512x10xf16, {order = #NHWC}>
     return %0, %1 : tensor<1x64x64x3xf16, {mem_space = [@CMX_NN, 0], order = #NHWC}>, tensor<1x512x512x10xf16, {order = #NHWC}>
 
 // CHECK:           [[ALLOC0:%.+]] = memref.alloc() : memref<1x64x64x3xf16, {order = #[[$NHWC]]}, [@CMX_NN, 0]>
@@ -1567,20 +1593,276 @@ func.func @SoftMaxWithPrecomputedMax(%input: tensor<1x4x128x256xf16>, %max: tens
 
 // -----
 
-// CHECK:  module @VPU.SW {
-// CHECK-NEXT:    func.func nested @builtin_NormalizeL2({{.*}}) attributes {VPU.kernel_code = "normalize_l2_innermost.cpp", VPU.kernel_entry = "normalize_l2_innermost", {{.*}}}
-// CHECK:    func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"}
-// CHECK-NEXT:  }
 
-// CHECK-LABEL:  func.func @NormalizeL2InnermostAxis
-// CHECK-SAME:      ([[ARG:%.+]]: memref<1x1x1x1024xf16>)
-func.func @NormalizeL2InnermostAxis(%input: tensor<1x1x1x1024xf16>) -> tensor<1x1x1x1024xf16> {
-    %output = VPU.NormalizeL2(%input) {axes_value = [3], eps = 1.000000e-05 : f64, eps_mode = #IE.eps_mode<MAX>} : tensor<1x1x1x1024xf16> -> tensor<1x1x1x1024xf16>
-    return %output : tensor<1x1x1x1024xf16>
+// CHECK-LABEL: module @VPU.SW {
+// CHECK:         func.func nested @builtin_dummy_kernel(memref<*xf16>, memref<*xf16>)
+// CHECK-SAME:    attributes {VPU.kernel_code = "dummy_kernel.cpp", VPU.kernel_entry = "dummy_kernel", VPU.kernel_name = "dummy_kernel", VPU.task_type = @COMPUTE}
+// CHECK:         func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"}
 
-    // CHECK: [[OUT_BUF:%.+]] = memref.alloc() : memref<1x1x1x1024xf16>
-    // CHECK: [[RESULT:%.+]] = VPUIP.SW.Kernel {resultSegmentSizes = array<i32: 1, 0, 0>} @VPU.SW::@builtin_NormalizeL2
-    // CHECK-SAME:     inputs([[ARG]] as {{[^:]+}}: memref<1x1x1x1024xf16>)
-    // CHECK-SAME:     outputs([[OUT_BUF]] as {{[^:]+}}: memref<1x1x1x1024xf16>) on tile 0
-    // CHECK: return [[RESULT]] : memref<1x1x1x1024xf16>
+// CHECK-LABEL: func.func @ExternalKernelBasicDDR(
+// CHECK-SAME:    [[INPUT:%.+]]: memref<1x4x8x8xf16>) -> memref<1x4x8x8xf16>
+func.func @ExternalKernelBasicDDR(%arg0: tensor<1x4x8x8xf16>) -> tensor<1x4x8x8xf16> {
+    %r = Shave.ExternalKernel "dummy_kernel"
+        inputs(%arg0 : tensor<1x4x8x8xf16>) kernel_attributes ({})
+        -> tensor<1x4x8x8xf16>
+    return %r : tensor<1x4x8x8xf16>
+
+    // CHECK: [[ALLOC:%.+]] = memref.alloc() : memref<1x4x8x8xf16>
+    // CHECK: [[RES:%.+]] = VPUIP.SW.Kernel {resultSegmentSizes = array<i32: 1, 0, 0>} @VPU.SW::@builtin_dummy_kernel
+    // CHECK-SAME: inputs([[INPUT]] as {{[^:]+}}: memref<1x4x8x8xf16>)
+    // CHECK-SAME: outputs([[ALLOC]] as {{[^:]+}}: memref<1x4x8x8xf16>) on tile 0 -> memref<1x4x8x8xf16>
+    // CHECK:   VPUIP.SW.Kernel.run({{[^:]+}}, {{[^:]+}}) : memref<1x4x8x8xf16>, memref<1x4x8x8xf16>
+    // CHECK: return [[RES]] : memref<1x4x8x8xf16>
+}
+
+// -----
+
+// Verify that the @builtin function uses CMX-qualified memref<*> types when the
+// kernel operates on CMX tensors.
+
+// CHECK-LABEL: module @VPU.SW {
+// CHECK:         func.func nested @builtin_dummy_kernel(memref<*xf16, [@CMX_NN, 0]>, memref<*xf16, [@CMX_NN, 0]>)
+// CHECK-SAME:    attributes {VPU.kernel_code = "dummy_kernel.cpp", VPU.kernel_entry = "dummy_kernel", VPU.kernel_name = "dummy_kernel", VPU.task_type = @COMPUTE}
+
+// CHECK-LABEL: func.func @ExternalKernelCMX(
+// CHECK-SAME:    [[INPUT:%.+]]: memref<1x4x8x8xf16, [@CMX_NN, 0]>) -> memref<1x4x8x8xf16, [@CMX_NN, 0]>
+func.func @ExternalKernelCMX(%arg0: tensor<1x4x8x8xf16, {mem_space = [@CMX_NN, 0]}>) -> tensor<1x4x8x8xf16, {mem_space = [@CMX_NN, 0]}> {
+    %r = Shave.ExternalKernel "dummy_kernel"
+        inputs(%arg0 : tensor<1x4x8x8xf16, {mem_space = [@CMX_NN, 0]}>) kernel_attributes ({})
+        -> tensor<1x4x8x8xf16, {mem_space = [@CMX_NN, 0]}>
+    return %r : tensor<1x4x8x8xf16, {mem_space = [@CMX_NN, 0]}>
+
+    // CHECK: [[ALLOC:%.+]] = memref.alloc() : memref<1x4x8x8xf16, [@CMX_NN, 0]>
+    // CHECK: [[RES:%.+]] = VPUIP.SW.Kernel {resultSegmentSizes = array<i32: 1, 0, 0>} @VPU.SW::@builtin_dummy_kernel
+    // CHECK-SAME: inputs([[INPUT]] as {{[^:]+}}: memref<1x4x8x8xf16, [@CMX_NN, 0]>)
+    // CHECK-SAME: outputs([[ALLOC]] as {{[^:]+}}: memref<1x4x8x8xf16, [@CMX_NN, 0]>) on tile 0 -> memref<1x4x8x8xf16, [@CMX_NN, 0]>
+    // CHECK:   VPUIP.SW.Kernel.run({{[^:]+}}, {{[^:]+}}) : memref<1x4x8x8xf16, [@CMX_NN, 0]>, memref<1x4x8x8xf16, [@CMX_NN, 0]>
+    // CHECK: return [[RES]] : memref<1x4x8x8xf16, [@CMX_NN, 0]>
+}
+
+// -----
+
+// Verify that the uses_dma UnitAttr is propagated from ExternalKernelOp to the
+// resulting VPUIP.SW.Kernel op.
+
+// CHECK-LABEL: func.func @ExternalKernelUsesDma(
+// CHECK-SAME:    [[INPUT:%.+]]: memref<1x4x8x8xf16>) -> memref<1x4x8x8xf16>
+func.func @ExternalKernelUsesDma(%arg0: tensor<1x4x8x8xf16>) -> tensor<1x4x8x8xf16> {
+    %r = Shave.ExternalKernel "dummy_kernel"
+        inputs(%arg0 : tensor<1x4x8x8xf16>) uses_dma kernel_attributes ({})
+        -> tensor<1x4x8x8xf16>
+    return %r : tensor<1x4x8x8xf16>
+
+    // CHECK: [[ALLOC:%.+]] = memref.alloc() : memref<1x4x8x8xf16>
+    // CHECK: [[RES:%.+]] = VPUIP.SW.Kernel {resultSegmentSizes = array<i32: 1, 0, 0>, uses_dma} @VPU.SW::@builtin_dummy_kernel
+    // CHECK-SAME: inputs([[INPUT]] as {{[^:]+}}: memref<1x4x8x8xf16>)
+    // CHECK-SAME: outputs([[ALLOC]] as {{[^:]+}}: memref<1x4x8x8xf16>) on tile 0 -> memref<1x4x8x8xf16>
+    // CHECK:   VPUIP.SW.Kernel.run({{[^:]+}}, {{[^:]+}}) : memref<1x4x8x8xf16>, memref<1x4x8x8xf16>
+    // CHECK: return [[RES]] : memref<1x4x8x8xf16>
+}
+
+// -----
+
+// Verify that the uses_dpu UnitAttr is propagated from ExternalKernelOp to the
+// resulting VPUIP.SW.Kernel op.
+
+// CHECK-LABEL: func.func @ExternalKernelUsesDpu(
+// CHECK-SAME:    [[INPUT:%.+]]: memref<1x4x8x8xf16>) -> memref<1x4x8x8xf16>
+func.func @ExternalKernelUsesDpu(%arg0: tensor<1x4x8x8xf16>) -> tensor<1x4x8x8xf16> {
+    %r = Shave.ExternalKernel "dummy_kernel"
+        inputs(%arg0 : tensor<1x4x8x8xf16>) uses_dpu kernel_attributes ({})
+        -> tensor<1x4x8x8xf16>
+    return %r : tensor<1x4x8x8xf16>
+
+    // CHECK: [[ALLOC:%.+]] = memref.alloc() : memref<1x4x8x8xf16>
+    // CHECK: [[RES:%.+]] = VPUIP.SW.Kernel {resultSegmentSizes = array<i32: 1, 0, 0>, uses_dpu} @VPU.SW::@builtin_dummy_kernel
+    // CHECK-SAME: inputs([[INPUT]] as {{[^:]+}}: memref<1x4x8x8xf16>)
+    // CHECK-SAME: outputs([[ALLOC]] as {{[^:]+}}: memref<1x4x8x8xf16>) on tile 0 -> memref<1x4x8x8xf16>
+    // CHECK:   VPUIP.SW.Kernel.run({{[^:]+}}, {{[^:]+}}) : memref<1x4x8x8xf16>, memref<1x4x8x8xf16>
+    // CHECK: return [[RES]] : memref<1x4x8x8xf16>
+}
+
+// -----
+
+// Verify that a scratch buffer is passed as both an input and an output of the
+// resulting VPUIP.SW.Kernel (read-write auxiliary buffer semantics), and that
+// resultSegmentSizes counts the scratch as an additional result.
+
+// CHECK-LABEL: module @VPU.SW {
+// CHECK:         func.func nested @builtin_dummy_kernel(memref<*xf16>, memref<*xui8>, memref<*xf16>, memref<*xui8>)
+// CHECK-SAME:    attributes {VPU.kernel_code = "dummy_kernel.cpp", VPU.kernel_entry = "dummy_kernel", VPU.kernel_name = "dummy_kernel", VPU.task_type = @COMPUTE}
+
+// CHECK-LABEL: func.func @ExternalKernelWithScratch(
+// CHECK-SAME:    [[INPUT:%.+]]: memref<1x4x8x8xf16>) -> memref<1x4x8x8xf16>
+func.func @ExternalKernelWithScratch(%arg0: tensor<1x4x8x8xf16>) -> tensor<1x4x8x8xf16> {
+    %sc = VPU.Empty : tensor<64xui8>
+    %r = Shave.ExternalKernel "dummy_kernel"
+        inputs(%arg0 : tensor<1x4x8x8xf16>)
+        scratch(%sc : tensor<64xui8>)
+        scratch_locations([#Shave.scratch_location<CMX>])
+        kernel_attributes ({})
+        -> tensor<1x4x8x8xf16>
+    return %r : tensor<1x4x8x8xf16>
+
+    // CHECK: [[SCRATCH:%.+]] = memref.alloc() : memref<64xui8>
+    // CHECK: [[ALLOC:%.+]] = memref.alloc() : memref<1x4x8x8xf16>
+    // CHECK: [[RES:%.+]]:2 = VPUIP.SW.Kernel {resultSegmentSizes = array<i32: 2, 0, 0>} @VPU.SW::@builtin_dummy_kernel
+    // CHECK-SAME: inputs([[INPUT]] as {{[^:]+}}: memref<1x4x8x8xf16>, [[SCRATCH]] as {{[^:]+}}: memref<64xui8>)
+    // CHECK-SAME: outputs([[ALLOC]] as {{[^:]+}}: memref<1x4x8x8xf16>, [[SCRATCH]] as {{[^:]+}}: memref<64xui8>) on tile 0
+    // CHECK-SAME: -> (memref<1x4x8x8xf16>, memref<64xui8>)
+    // CHECK:   VPUIP.SW.Kernel.run({{[^:]+}}, {{[^:]+}}, {{[^:]+}}, {{[^:]+}}) : memref<1x4x8x8xf16>, memref<64xui8>, memref<1x4x8x8xf16>, memref<64xui8>
+    // CHECK: return [[RES]]#0 : memref<1x4x8x8xf16>
+}
+
+// -----
+
+// Verify multiple outputs: resultSegmentSizes reflects both allocated buffers.
+
+// CHECK-LABEL: module @VPU.SW {
+// CHECK:         func.func nested @builtin_dummy_kernel(memref<*xf16>, memref<*xf16>, memref<*xf16>)
+// CHECK-SAME:    attributes {VPU.kernel_code = "dummy_kernel.cpp", VPU.kernel_entry = "dummy_kernel", VPU.kernel_name = "dummy_kernel", VPU.task_type = @COMPUTE}
+
+// CHECK-LABEL: func.func @ExternalKernelMultiOutput(
+// CHECK-SAME:    [[INPUT:%.+]]: memref<1x4x8x8xf16>) -> (memref<1x4x8x8xf16>, memref<1x4x8x8xf16>)
+func.func @ExternalKernelMultiOutput(%arg0: tensor<1x4x8x8xf16>) -> (tensor<1x4x8x8xf16>, tensor<1x4x8x8xf16>) {
+    %r0, %r1 = Shave.ExternalKernel "dummy_kernel"
+        inputs(%arg0 : tensor<1x4x8x8xf16>) kernel_attributes ({})
+        -> tensor<1x4x8x8xf16>, tensor<1x4x8x8xf16>
+    return %r0, %r1 : tensor<1x4x8x8xf16>, tensor<1x4x8x8xf16>
+
+    // CHECK: [[ALLOC0:%.+]] = memref.alloc() : memref<1x4x8x8xf16>
+    // CHECK: [[ALLOC1:%.+]] = memref.alloc() : memref<1x4x8x8xf16>
+    // CHECK: [[RES:%.+]]:2 = VPUIP.SW.Kernel {resultSegmentSizes = array<i32: 2, 0, 0>} @VPU.SW::@builtin_dummy_kernel
+    // CHECK-SAME: inputs([[INPUT]] as {{[^:]+}}: memref<1x4x8x8xf16>)
+    // CHECK-SAME: outputs([[ALLOC0]] as {{[^:]+}}: memref<1x4x8x8xf16>, [[ALLOC1]] as {{[^:]+}}: memref<1x4x8x8xf16>) on tile 0
+    // CHECK-SAME: -> (memref<1x4x8x8xf16>, memref<1x4x8x8xf16>)
+    // CHECK:   VPUIP.SW.Kernel.run({{[^:]+}}, {{[^:]+}}, {{[^:]+}}) : memref<1x4x8x8xf16>, memref<1x4x8x8xf16>, memref<1x4x8x8xf16>
+    // CHECK: return [[RES]]#0, [[RES]]#1 : memref<1x4x8x8xf16>, memref<1x4x8x8xf16>
+}
+
+// -----
+
+// CHECK-LABEL: module @VPU.SW {
+// CHECK:         func.func nested @builtin_dummy_kernel(memref<*xf16>, memref<*xf16>, i64)
+// CHECK-SAME:    attributes {VPU.kernel_code = "dummy_kernel.cpp", VPU.kernel_entry = "dummy_kernel", VPU.kernel_name = "dummy_kernel", VPU.task_type = @COMPUTE}
+
+// CHECK-LABEL: func.func @RepeatedExternalKernelBasic(
+// CHECK-SAME:    [[INPUT:%.+]]: memref<1x4x8x8xf16>) -> memref<1x4x8x8xf16>
+func.func @RepeatedExternalKernelBasic(%arg0: tensor<1x4x8x8xf16>) -> tensor<1x4x8x8xf16> {
+    %r = Shave.RepeatedExternalKernel "dummy_kernel"
+        inputs(%arg0 : tensor<1x4x8x8xf16>) kernel_attributes ({})
+        {kernel_distribution = #Shave.KernelDistribution<num_shaves = 2 : i64, num_tiles = 3 : i64>}
+        -> tensor<1x4x8x8xf16>
+    return %r : tensor<1x4x8x8xf16>
+
+    // CHECK: [[ALLOC:%.+]] = memref.alloc() : memref<1x4x8x8xf16>
+    // CHECK: [[RES:%.+]] = VPUIP.SW.Kernel {resultSegmentSizes = array<i32: 1, 0, 0>} @VPU.SW::@builtin_dummy_kernel
+    // CHECK-SAME: inputs([[INPUT]] as {{[^:]+}}: memref<1x4x8x8xf16>)
+    // CHECK-SAME: outputs([[ALLOC]] as {{[^:]+}}: memref<1x4x8x8xf16>) on tile 0 -> memref<1x4x8x8xf16>
+    // CHECK:   VPUIP.SW.Kernel.run {attrs = [8589934595]}({{[^:]+}}, {{[^:]+}}) : memref<1x4x8x8xf16>, memref<1x4x8x8xf16>
+    // CHECK: return [[RES]] : memref<1x4x8x8xf16>
+}
+
+// -----
+
+// Verify that RepeatedExternalKernelOp with a CMX scratch buffer:
+//  - allocates the scratch via VPURT.AllocDistributed (DUPLICATED across tiles)
+//  - produces memref<*xui8, @CMX_NN> in the @builtin signature
+//  - passes the DistributedBuffer as both input and output of the SW.Kernel
+
+#C = affine_map<(d0) -> (d0)>
+// CHECK: #[[$C:.+]] = affine_map<(d0) -> (d0)>
+!DistScratch = !VPU.DistributedTensor<64xui8, #C, @CMX_NN, {mode = "DUPLICATED", num_clusters = 2 : i64}>
+
+// CHECK-LABEL: module @VPU.SW {
+// CHECK:         func.func nested @builtin_dummy_kernel(memref<*xf16>, memref<*xui8, @CMX_NN>, memref<*xf16>, memref<*xui8, @CMX_NN>, i64)
+// CHECK-SAME:    attributes {VPU.kernel_code = "dummy_kernel.cpp", VPU.kernel_entry = "dummy_kernel", VPU.kernel_name = "dummy_kernel", VPU.task_type = @COMPUTE}
+
+// CHECK-LABEL: func.func @RepeatedExternalKernelWithCmxScratch(
+// CHECK-SAME:    [[INPUT:%.+]]: memref<1x4x8x8xf16>) -> memref<1x4x8x8xf16>
+func.func @RepeatedExternalKernelWithCmxScratch(%arg0: tensor<1x4x8x8xf16>) -> tensor<1x4x8x8xf16> {
+    %sc = VPU.Empty : !DistScratch
+    %r = Shave.RepeatedExternalKernel "dummy_kernel"
+        inputs(%arg0 : tensor<1x4x8x8xf16>)
+        cmx_scratch(%sc : !DistScratch)
+        kernel_attributes ({})
+        {kernel_distribution = #Shave.KernelDistribution<num_shaves = 2 : i64, num_tiles = 2 : i64>}
+        -> tensor<1x4x8x8xf16>
+    return %r : tensor<1x4x8x8xf16>
+
+    // CHECK: [[SCRATCH:%.+]] = VPURT.AllocDistributed -> !VPUIP.DistributedBuffer<64xui8, #[[$C]], @CMX_NN, {mode = "DUPLICATED", num_clusters = 2 : i64}>
+    // CHECK: [[ALLOC:%.+]] = memref.alloc() : memref<1x4x8x8xf16>
+    // CHECK: [[RES:%.+]]:2 = VPUIP.SW.Kernel {resultSegmentSizes = array<i32: 2, 0, 0>} @VPU.SW::@builtin_dummy_kernel
+    // CHECK-SAME: inputs([[INPUT]] as {{[^:]+}}: memref<1x4x8x8xf16>, [[SCRATCH]] as {{[^:]+}}: !VPUIP.DistributedBuffer<64xui8, #[[$C]], @CMX_NN, {mode = "DUPLICATED", num_clusters = 2 : i64}>)
+    // CHECK-SAME: outputs([[ALLOC]] as {{[^:]+}}: memref<1x4x8x8xf16>, [[SCRATCH]] as {{[^:]+}}: !VPUIP.DistributedBuffer<64xui8, #[[$C]], @CMX_NN, {mode = "DUPLICATED", num_clusters = 2 : i64}>) on tile 0
+    // CHECK-SAME: -> (memref<1x4x8x8xf16>, !VPUIP.DistributedBuffer<64xui8, #[[$C]], @CMX_NN, {mode = "DUPLICATED", num_clusters = 2 : i64}>)
+    // CHECK:   VPUIP.SW.Kernel.run {attrs = [8589934594]}({{[^:]+}}, {{[^:]+}}, {{[^:]+}}, {{[^:]+}}) : memref<1x4x8x8xf16>, !VPUIP.DistributedBuffer<64xui8, #[[$C]], @CMX_NN, {mode = "DUPLICATED", num_clusters = 2 : i64}>, memref<1x4x8x8xf16>, !VPUIP.DistributedBuffer<64xui8, #[[$C]], @CMX_NN, {mode = "DUPLICATED", num_clusters = 2 : i64}>
+    // CHECK: return [[RES]]#0 : memref<1x4x8x8xf16>
+}
+
+// -----
+
+// Verify that RepeatedExternalKernelOp with 2 CMX scratch buffers (DUPLICATED)
+// and 1 DDR scratch buffer:
+//  - orders aux buffers as [cmx_scratch..., ddr_scratch...] in both inputs/outputs
+//  - CMX scratch -> VPURT.AllocDistributed; DDR scratch -> memref.alloc
+//  - resultSegmentSizes counts all 3 scratch slots: <1+3, 0, 0>
+//  - DDR scratch uses plain memref<Nxui8> (not DistributedBuffer)
+
+#C = affine_map<(d0) -> (d0)>
+// CHECK: #[[$C:.+]] = affine_map<(d0) -> (d0)>
+!DistScratch = !VPU.DistributedTensor<64xui8, #C, @CMX_NN, {mode = "DUPLICATED", num_clusters = 2 : i64}>
+
+// CHECK-LABEL: module @VPU.SW {
+// CHECK:         func.func nested @builtin_dummy_kernel(memref<*xf16>, memref<*xui8, @CMX_NN>, memref<*xui8, @CMX_NN>, memref<*xui8>, memref<*xf16>, memref<*xui8, @CMX_NN>, memref<*xui8, @CMX_NN>, memref<*xui8>, i64)
+// CHECK-SAME:    attributes {VPU.kernel_code = "dummy_kernel.cpp", VPU.kernel_entry = "dummy_kernel", VPU.kernel_name = "dummy_kernel", VPU.task_type = @COMPUTE}
+
+// CHECK-LABEL: func.func @RepeatedExternalKernelMultiScratch(
+// CHECK-SAME:    [[INPUT:%.+]]: memref<1x4x8x8xf16>) -> memref<1x4x8x8xf16>
+func.func @RepeatedExternalKernelMultiScratch(%arg0: tensor<1x4x8x8xf16>) -> tensor<1x4x8x8xf16> {
+    %sc0 = VPU.Empty : !DistScratch
+    %sc1 = VPU.Empty : !DistScratch
+    %ddr = VPU.Empty : tensor<256xui8>
+    %r = Shave.RepeatedExternalKernel "dummy_kernel"
+        inputs(%arg0 : tensor<1x4x8x8xf16>)
+        cmx_scratch(%sc0, %sc1 : !DistScratch, !DistScratch)
+        ddr_scratch(%ddr : tensor<256xui8>)
+        kernel_attributes ({})
+        {kernel_distribution = #Shave.KernelDistribution<num_shaves = 2 : i64, num_tiles = 2 : i64>}
+        -> tensor<1x4x8x8xf16>
+    return %r : tensor<1x4x8x8xf16>
+
+    // CHECK-DAG: [[SC0:%.+]] = VPURT.AllocDistributed -> !VPUIP.DistributedBuffer<64xui8, #[[$C]], @CMX_NN, {mode = "DUPLICATED", num_clusters = 2 : i64}>
+    // CHECK-DAG: [[SC1:%.+]] = VPURT.AllocDistributed -> !VPUIP.DistributedBuffer<64xui8, #[[$C]], @CMX_NN, {mode = "DUPLICATED", num_clusters = 2 : i64}>
+    // CHECK-DAG: [[DDR:%.+]] = memref.alloc() : memref<256xui8>
+    // CHECK-DAG: [[ALLOC:%.+]] = memref.alloc() : memref<1x4x8x8xf16>
+    // CHECK: [[RES:%.+]]:4 = VPUIP.SW.Kernel {resultSegmentSizes = array<i32: 4, 0, 0>} @VPU.SW::@builtin_dummy_kernel
+    // CHECK-SAME: inputs([[INPUT]] as {{[^:]+}}: memref<1x4x8x8xf16>, [[SC0]] as {{[^:]+}}: !VPUIP.DistributedBuffer<64xui8, #[[$C]], @CMX_NN, {mode = "DUPLICATED", num_clusters = 2 : i64}>, [[SC1]] as {{[^:]+}}: !VPUIP.DistributedBuffer<64xui8, #[[$C]], @CMX_NN, {mode = "DUPLICATED", num_clusters = 2 : i64}>, [[DDR]] as {{[^:]+}}: memref<256xui8>)
+    // CHECK-SAME: outputs([[ALLOC]] as {{[^:]+}}: memref<1x4x8x8xf16>, [[SC0]] as {{[^:]+}}: !VPUIP.DistributedBuffer<64xui8, #[[$C]], @CMX_NN, {mode = "DUPLICATED", num_clusters = 2 : i64}>, [[SC1]] as {{[^:]+}}: !VPUIP.DistributedBuffer<64xui8, #[[$C]], @CMX_NN, {mode = "DUPLICATED", num_clusters = 2 : i64}>, [[DDR]] as {{[^:]+}}: memref<256xui8>) on tile 0
+    // CHECK-SAME: -> (memref<1x4x8x8xf16>, !VPUIP.DistributedBuffer<64xui8, #[[$C]], @CMX_NN, {mode = "DUPLICATED", num_clusters = 2 : i64}>, !VPUIP.DistributedBuffer<64xui8, #[[$C]], @CMX_NN, {mode = "DUPLICATED", num_clusters = 2 : i64}>, memref<256xui8>)
+    // CHECK:   VPUIP.SW.Kernel.run {attrs = [8589934594]}({{[^:]+}}, {{[^:]+}}, {{[^:]+}}, {{[^:]+}}, {{[^:]+}}, {{[^:]+}}, {{[^:]+}}, {{[^:]+}}) : memref<1x4x8x8xf16>, !VPUIP.DistributedBuffer<64xui8, #[[$C]], @CMX_NN, {mode = "DUPLICATED", num_clusters = 2 : i64}>, !VPUIP.DistributedBuffer<64xui8, #[[$C]], @CMX_NN, {mode = "DUPLICATED", num_clusters = 2 : i64}>, memref<256xui8>, memref<1x4x8x8xf16>, !VPUIP.DistributedBuffer<64xui8, #[[$C]], @CMX_NN, {mode = "DUPLICATED", num_clusters = 2 : i64}>, !VPUIP.DistributedBuffer<64xui8, #[[$C]], @CMX_NN, {mode = "DUPLICATED", num_clusters = 2 : i64}>, memref<256xui8>
+    // CHECK: return [[RES]]#0 : memref<1x4x8x8xf16>
+}
+
+// -----
+
+// Verify that uses_dma is propagated to the VPUIP.SW.Kernel op for
+// RepeatedExternalKernelOp, alongside the kernel_distribution attrs encoding.
+
+// CHECK-LABEL: func.func @RepeatedExternalKernelUsesDma(
+// CHECK-SAME:    [[INPUT:%.+]]: memref<1x4x8x8xf16>) -> memref<1x4x8x8xf16>
+func.func @RepeatedExternalKernelUsesDma(%arg0: tensor<1x4x8x8xf16>) -> tensor<1x4x8x8xf16> {
+    %r = Shave.RepeatedExternalKernel "dummy_kernel"
+        inputs(%arg0 : tensor<1x4x8x8xf16>)
+        kernel_attributes ({})
+        {kernel_distribution = #Shave.KernelDistribution<num_shaves = 2 : i64, num_tiles = 3 : i64>, uses_dma}
+        -> tensor<1x4x8x8xf16>
+    return %r : tensor<1x4x8x8xf16>
+
+    // CHECK: [[ALLOC:%.+]] = memref.alloc() : memref<1x4x8x8xf16>
+    // CHECK: [[RES:%.+]] = VPUIP.SW.Kernel {resultSegmentSizes = array<i32: 1, 0, 0>, uses_dma} @VPU.SW::@builtin_dummy_kernel
+    // CHECK-SAME: inputs([[INPUT]] as {{[^:]+}}: memref<1x4x8x8xf16>)
+    // CHECK-SAME: outputs([[ALLOC]] as {{[^:]+}}: memref<1x4x8x8xf16>) on tile 0 -> memref<1x4x8x8xf16>
+    // CHECK:   VPUIP.SW.Kernel.run {attrs = [8589934595]}({{[^:]+}}, {{[^:]+}}) : memref<1x4x8x8xf16>, memref<1x4x8x8xf16>
+    // CHECK: return [[RES]] : memref<1x4x8x8xf16>
 }

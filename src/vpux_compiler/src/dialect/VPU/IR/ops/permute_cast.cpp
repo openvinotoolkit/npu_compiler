@@ -183,18 +183,37 @@ vpux::Dim vpux::VPU::PermuteCastOp::backInferTilingDim(vpux::Dim outputDim) {
     return srcType.getDimsOrder().toDim(backInferMemDim);
 }
 
+mlir::SmallVector<vpux::Dim> vpux::VPU::PermuteCastOp::inferTilingDim(vpux::Dim inputDim) {
+    const auto srcType = mlir::cast<vpux::NDTypeInterface>(getInput().getType());
+    const auto dstType = mlir::cast<vpux::NDTypeInterface>(getOutput().getType());
+
+    VPUX_THROW_WHEN(inputDim.ind() < 0 || inputDim.ind() >= srcType.getRank(),
+                    "Input tiling dimension {0} is out of range for src type rank {1}", inputDim.ind(),
+                    srcType.getRank());
+
+    const auto memPerm = DimsOrder::fromAffineMap(getMemPerm());
+
+    // Forward counterpart of backInferTilingDim: same dimPos-based mapping, but using memPerm
+    // directly (not inverted) and swapping the src/dst roles.
+    auto inMemDim = srcType.getDimsOrder().toMemDim(inputDim);
+    auto outMemDim = MemDim(memPerm.dimPos(Dim(inMemDim.ind())));
+    return {dstType.getDimsOrder().toDim(outMemDim)};
+}
+
 void vpux::VPU::PermuteCastOp::adjustAttrs(const TilingInfo&, const TileInfo&, ShapeRef) {
     // Do nothing
 }
 
 bool vpux::VPU::PermuteCastOp::isVFSupported() {
-    if (auto parentOp = getInput().getDefiningOp()) {
-        if (!VPU::opHasAccurateCost(parentOp)) {
-            return false;
-        }
+    auto parentOp = getInput().getDefiningOp();
+    while (parentOp != nullptr && mlir::isa<VPU::TilingViewLikeOpInterface>(parentOp)) {
+        parentOp = parentOp->getOperand(0).getDefiningOp();
     }
-    return llvm::all_of(getOutput().getUsers(), [](mlir::Operation* userOp) {
-        return VPU::opHasAccurateCost(userOp);
+    if (parentOp != nullptr && !VPU::isViewOpSupportedForVF(parentOp, std::nullopt)) {
+        return false;
+    }
+    return llvm::all_of(getOutput().getUses(), [](mlir::OpOperand& use) {
+        return VPU::isViewOpSupportedForVF(use.getOwner(), use.getOperandNumber());
     });
 }
 

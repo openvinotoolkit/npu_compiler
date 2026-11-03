@@ -26,9 +26,7 @@ mlir::LogicalResult vpux::IE::LayoutCastOp::inferReturnTypeComponents(
 
     const auto outAffineMap = overrideLayout.getDstOrder();
     const auto inType = mlir::cast<mlir::RankedTensorType>(overrideLayout.getInput().getType());
-    VPUX_THROW_WHEN(mlir::isa<Core::BoundedTensorType>(inType), "{0} doesn't support dynamic shapes",
-                    IE::LayoutCastOp::getOperationName());
-    const auto outDesc = vpux::getTensorAttr(ctx, outAffineMap, nullptr);
+    const auto outDesc = vpux::getTensorAttr(ctx, outAffineMap, /*memSpace=*/nullptr, getBounds(inType));
     inferredReturnShapes.emplace_back(inType.getShape(), inType.getElementType(), outDesc);
 
     return mlir::success();

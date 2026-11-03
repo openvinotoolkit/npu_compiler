@@ -345,7 +345,12 @@ mlir::FailureOr<OutputTiling> vpux::VPU::NCEMatMulOp::getTilingStrategy(TilingMo
 //
 
 bool vpux::VPU::NCEMatMulOp::checkStrategyCompatibility(vpux::VPU::MultiClusterStrategy strategy, size_t) {
-    return strategy == VPU::MultiClusterStrategy::SplitOverGroup;
+    // SplitOverKernel tiles over C. Reduce outputs have C=1, so SOK is incompatible.
+    if (VPU::hasReduceOutputs(getOperation())) {
+        return strategy == VPU::MultiClusterStrategy::SplitOverGroup;
+    }
+    return strategy == VPU::MultiClusterStrategy::SplitOverGroup ||
+           strategy == VPU::MultiClusterStrategy::SplitOverKernel;
 }
 
 vpux::VPU::DistributionInfo vpux::VPU::NCEMatMulOp::getExplicitDistributionInfoAttr(
@@ -368,10 +373,24 @@ bool VPU::NCEMatMulOp::isOperationSplitOverWidthCompatible([[maybe_unused]] Shap
     return false;
 }
 
-bool VPU::NCEMatMulOp::isOperationSplitOverKernelCompatible([[maybe_unused]] ShapeRef outputShape,
-                                                            [[maybe_unused]] ShapeRef offset,
-                                                            [[maybe_unused]] ShapeRef axis) {
-    return false;
+bool VPU::NCEMatMulOp::isOperationSplitOverKernelCompatible(ShapeRef outputShape, ShapeRef, ShapeRef) {
+    // SplitOverKernel tiles over C. Reduce outputs have C=1, so SOK is incompatible.
+    if (VPU::hasReduceOutputs(getOperation())) {
+        return false;
+    }
+    if (outputShape == ShapeRef()) {
+        outputShape = getShape(getOutput());
+    }
+    if (outputShape.size() != DimsGroups5D::Act::numDims) {
+        return false;
+    }
+
+    const auto numTiles = config::getNumOfTiles(getOperation());
+    VPUX_THROW_WHEN(numTiles <= 0, "Number of tiles must be greater than zero");
+
+    const auto outputChannels = outputShape[DimsGroups5D::Act::C];
+    auto channelAlignmentInterface = mlir::cast<IE::AlignedChannelsOpInterface>(getOperation());
+    return outputChannels >= channelAlignmentInterface.getOutputChannelAlignment() * numTiles;
 }
 
 bool VPU::NCEMatMulOp::doesLayerFitIntoCMX(VPU::MultiClusterStrategy strategy, SiblingOpsAnalysis& siblingsAnalysis,
@@ -388,8 +407,9 @@ bool VPU::NCEMatMulOp::doesLayerFitIntoCMX(VPU::MultiClusterStrategy strategy, S
 
     SmallVector<Byte> buffers = {
             VPU::getTotalAllocSizeWithDistribution(
-                    getInput().getType(), getActivationDistributionAttrFromOp(nceOp, getInput(), getInput().getType(),
-                                                                              numClusters, strategy, siblingsAnalysis)),
+                    getInput().getType(),
+                    getActivationDistributionAttrFromOp(nceOp, getInputMutable(), getInput().getType(), numClusters,
+                                                        strategy, siblingsAnalysis)),
             VPU::getTotalAllocSizeWithDistribution(
                     getWeights().getType(),
                     getFilterDistributionAttrFromOp(nceOpInterface, getWeights().getType(), numClusters, strategy)),
@@ -424,8 +444,8 @@ bool VPU::NCEMatMulOp::doesLayerChangeOutputAlignmentFitIntoCMX(
     auto nceOpInterface = mlir::cast<VPU::NCEOpInterface>(getOperation());
     auto numClusters = VPU::getOptimalNumClusters(
             nceOp, mlir::cast<vpux::NDTypeInterface>(nceOp.getOutput().getType()).getShape(), strategy);
-    auto distributedInputType = getDistributedActivationTypeFromOp(nceOp, nceOp.getInput(), nceOp.getInput().getType(),
-                                                                   numClusters, strategy);
+    auto distributedInputType = getDistributedActivationTypeFromOp(nceOp, nceOp.getInputMutable(),
+                                                                   nceOp.getInput().getType(), numClusters, strategy);
     auto distributedFilterType =
             getDistributedFilterTypeFromOp(nceOpInterface, nceOp.getWeights().getType(), numClusters, strategy);
     return fitIntoCMX(distributedInputType, distributedFilterType, newDistributedTensorType);
@@ -439,8 +459,8 @@ vpux::NDTypeInterface vpux::VPU::NCEMatMulOp::getDistributedTypeForOpOperand(mli
     const auto strategy = clusteredOp.getMultiClusterStrategy().value();
 
     if (operand.get() == origOp.getInput()) {
-        return VPU::getDistributedActivationTypeForOpOperand(clusteredOp, origOp.getInput(), strategy,
-                                                             hasExplicitDistributedAttr, siblingsAnalysis);
+        return VPU::getDistributedActivationTypeForOpOperand(clusteredOp, operand, strategy, hasExplicitDistributedAttr,
+                                                             siblingsAnalysis);
     } else if (operand.get() == origOp.getWeights()) {
         return VPU::getDistributedWeightsTypeForOpOperand(clusteredOp, origOp.getWeights(), strategy,
                                                           hasExplicitDistributedAttr, siblingsAnalysis);

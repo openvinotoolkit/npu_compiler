@@ -22,7 +22,7 @@ func.func @PropagateSoftmaxFakeQuantizeThroughBatchUnrolledMatmulF8E4M3FN(%input
     %6 = IE.SoftMax(%5) {axisInd = -1 : i64} : tensor<2x16x2xf32> -> tensor<2x16x2xf32>
 
     %7 = IE.FakeQuantize(%6, %low, %high, %low, %high) {
-        auto_broadcast = #IE.auto_broadcast_type<NUMPY>, low_fp_type = f8E4M3FN
+        auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = f8E4M3FN
     } : tensor<2x16x2xf32>, tensor<1x1x1xf32>, tensor<1x1x1xf32>, tensor<1x1x1xf32>, tensor<1x1x1xf32> -> tensor<2x16x2xf32>
 
     return %7 : tensor<2x16x2xf32>
@@ -39,9 +39,9 @@ func.func @PropagateSoftmaxFakeQuantizeThroughBatchUnrolledMatmulF8E4M3FN(%input
     // CHECK:    [[MAX_1:%.+]] = IE.SoftMax([[RESHAPE_1]]) {axisInd = -1 : i64} : tensor<1x16x2xf32> -> tensor<1x16x2xf32>
 
     // CHECK:    [[FQ_0:%.+]] = IE.FakeQuantize([[MAX_0]], [[LOW]], [[HIGH]], [[LOW]], [[HIGH]])
-    // CHECK-SAME:  {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, low_fp_type = f8E4M3FN} : tensor<1x16x2xf32>, tensor<1x1x1xf32>, tensor<1x1x1xf32>, tensor<1x1x1xf32>, tensor<1x1x1xf32> -> tensor<1x16x2xf32>
+    // CHECK-SAME:  {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = f8E4M3FN} : tensor<1x16x2xf32>, tensor<1x1x1xf32>, tensor<1x1x1xf32>, tensor<1x1x1xf32>, tensor<1x1x1xf32> -> tensor<1x16x2xf32>
     // CHECK:    [[FQ_1:%.+]] = IE.FakeQuantize([[MAX_1]], [[LOW]], [[HIGH]], [[LOW]], [[HIGH]])
-    // CHECK-SAME:  {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, low_fp_type = f8E4M3FN} : tensor<1x16x2xf32>, tensor<1x1x1xf32>, tensor<1x1x1xf32>, tensor<1x1x1xf32>, tensor<1x1x1xf32> -> tensor<1x16x2xf32>
+    // CHECK-SAME:  {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = f8E4M3FN} : tensor<1x16x2xf32>, tensor<1x1x1xf32>, tensor<1x1x1xf32>, tensor<1x1x1xf32>, tensor<1x1x1xf32> -> tensor<1x16x2xf32>
 
     // CHECK:    [[CONCAT:%.+]] = IE.Concat([[FQ_0]], [[FQ_1]]) {per_axis = #IE.Concat<axis = 0 : i64>} : tensor<1x16x2xf32>, tensor<1x16x2xf32> -> tensor<2x16x2xf32>
 

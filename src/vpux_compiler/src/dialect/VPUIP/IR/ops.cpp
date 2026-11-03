@@ -126,7 +126,7 @@ bool isSupportedIsolatedTilingConvBased(ConcreteOp origOp, const OutputTiling& t
             }
 
             return origOp.fitIntoCMX(
-                    VPU::getDistributedActivationTypeFromOp(clusteredOp, clusteredOp->getOperand(0), inputTileType,
+                    VPU::getDistributedActivationTypeFromOp(clusteredOp, clusteredOp->getOpOperand(0), inputTileType,
                                                             numClusters, nullptr, inputTile),
                     VPU::getDistributedFilterTypeFromOp(nceOp, filterTileType, numClusters),
                     VPU::getDistributedOutputTypeFromOp(clusteredOp, outputTileType, numClusters, {}, outputTile));
@@ -188,8 +188,8 @@ bool isSupportedIsolatedTiling(VPU::NCEReduceOp origOp, const OutputTiling& tile
         auto numClusters = VPU::getOptimalNumClusters(clusteredOp, outputTileType.getShape(),
                                                       clusteredOp.getMultiClusterStrategy().value());
         return origOp.fitIntoCMX(
-                VPU::getDistributedActivationTypeFromOp(clusteredOp, origOp.getInput(), inputTileType, numClusters,
-                                                        nullptr, inputTile),
+                VPU::getDistributedActivationTypeFromOp(clusteredOp, origOp.getInputMutable(), inputTileType,
+                                                        numClusters, nullptr, inputTile),
                 VPU::getDistributedOutputTypeFromOp(clusteredOp, outputTileType, numClusters, {}, outputTile));
     });
 }
@@ -231,8 +231,8 @@ bool isSupportedIsolatedTiling(VPU::NCEMaxPoolOp origOp, const OutputTiling& til
             auto numClusters = VPU::getOptimalNumClusters(clusteredOp, outputTileType.getShape(),
                                                           clusteredOp.getMultiClusterStrategy().value());
             return origOp.fitIntoCMX(
-                    VPU::getDistributedActivationTypeFromOp(clusteredOp, origOp.getInput(), inputTileType, numClusters,
-                                                            nullptr, inputTile),
+                    VPU::getDistributedActivationTypeFromOp(clusteredOp, origOp.getInputMutable(), inputTileType,
+                                                            numClusters, nullptr, inputTile),
                     VPU::getDistributedOutputTypeFromOp(clusteredOp, outputTileType, numClusters, {}, outputTile));
         }
         return origOp.fitIntoCMX(inputTileType, outputTileType);
@@ -270,8 +270,8 @@ bool isSupportedIsolatedTiling(VPU::NCEAveragePoolOp origOp, const OutputTiling&
             auto numClusters = VPU::getOptimalNumClusters(clusteredOp, outputTileType.getShape(),
                                                           clusteredOp.getMultiClusterStrategy().value());
             return origOp.fitIntoCMX(
-                    VPU::getDistributedActivationTypeFromOp(clusteredOp, origOp.getInput(), inputTileType, numClusters,
-                                                            nullptr, inputTile),
+                    VPU::getDistributedActivationTypeFromOp(clusteredOp, origOp.getInputMutable(), inputTileType,
+                                                            numClusters, nullptr, inputTile),
                     VPU::getDistributedOutputTypeFromOp(clusteredOp, outputTileType, numClusters, {}, outputTile));
         }
         return origOp.fitIntoCMX(inputTileType, outputTileType);
@@ -299,8 +299,8 @@ bool isSupportedIsolatedTiling(VPU::NCEPermuteOp origOp, const OutputTiling& til
                     mlir::cast<vpux::VPU::MultiClusterStrategyAttr>(clusteredOp->getAttr(VPU::multiClusterStrategy))
                             .getValue());
             return origOp.fitIntoCMX(
-                    VPU::getDistributedActivationTypeFromOp(clusteredOp, origOp.getInput(), inputTileType, numClusters,
-                                                            outputTileType, inputTile),
+                    VPU::getDistributedActivationTypeFromOp(clusteredOp, origOp.getInputMutable(), inputTileType,
+                                                            numClusters, outputTileType, inputTile),
                     VPU::getDistributedOutputTypeFromOp(clusteredOp, outputTileType, numClusters, {}, outputTile));
         }
         return origOp.fitIntoCMX(inputTileType, outputTileType);
@@ -575,11 +575,9 @@ public:
         // produce an integer pre-ODU tile; invertODUScaling verifies this and returns failure()
         // if any dimension is not exactly divisible.
         const auto oduScales = VPU::getODUScaling(origOp);
-        if (!oduScales.empty() && !vpux::VPU::isODUScalingNeutral(oduScales)) {
-            for (const auto& tile : tiles) {
-                if (mlir::failed(VPU::invertODUScaling(oduScales, tile))) {
-                    return false;
-                }
+        for (const auto& tile : tiles) {
+            if (mlir::failed(VPU::invertODUScaling(oduScales, tile))) {
+                return false;
             }
         }
 
@@ -919,6 +917,7 @@ void vpux::VPUIP::VPUIPDialect::setupExtraInterfaces(mlir::DialectRegistry& regi
         VPU::ReduceL1Op::attachInterface<SoftwareLayerOpModel>(*ctx);
         VPU::ReduceSumOp::attachInterface<SoftwareLayerOpModel>(*ctx);
         VPU::ReduceMeanOp::attachInterface<SoftwareLayerOpModel>(*ctx);
+        VPU::ReduceMeanDMAOp::attachInterface<SoftwareLayerOpModel>(*ctx);
         VPU::ReduceLogicalAndOp::attachInterface<SoftwareLayerOpModel>(*ctx);
         VPU::ReduceMaxOp::attachInterface<SoftwareLayerOpModel>(*ctx);
         VPU::ReduceMinOp::attachInterface<SoftwareLayerOpModel>(*ctx);
@@ -993,6 +992,7 @@ void vpux::VPUIP::VPUIPDialect::setupExtraInterfaces(mlir::DialectRegistry& regi
 
     registry.addExtension(+[](mlir::MLIRContext* ctx, vpux::Shave::ShaveDialect*) {
         Shave::ExternalKernelOp::attachInterface<SoftwareLayerOpModel>(*ctx);
+        Shave::RepeatedExternalKernelOp::attachInterface<SoftwareLayerOpModel>(*ctx);
     });
 
     // When implementing a new SW core, remove the corresponding operation from setupExtraInterfacesAdditional

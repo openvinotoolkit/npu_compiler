@@ -50,10 +50,8 @@ void BackendPipelineStrategy40XX::buildELFPipeline(mlir::OpPassManager& pm, cons
         backendCompilationOptions->enableShaveDDRAccessOptimization = options->enableShaveDDRAccessOptimization;
         backendCompilationOptions->enableDumpStatisticsOfWlmOps = options->enableDumpTaskStats;
         backendCompilationOptions->workloadManagementMode = options->workloadManagementMode;
-        backendCompilationOptions->workloadManagementEnable = options->workloadManagementEnable;
         backendCompilationOptions->workloadManagementBarrierProgrammingMode =
                 options->workloadManagementBarrierProgrammingMode;
-        backendCompilationOptions->workloadManagementDmaFifoType = options->workloadManagementDmaFifoType;
         backendCompilationOptions->modelIdentifier = options->modelIdentifier;
         backendCompilationOptions->allocateDDRStackFrames = options->allocateDDRStackFrames;
     }

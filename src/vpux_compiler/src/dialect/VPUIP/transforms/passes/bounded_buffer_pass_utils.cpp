@@ -9,7 +9,7 @@
 #include "vpux/compiler/utils/rewriter.hpp"
 #include "vpux/compiler/utils/types.hpp"
 
-#include <intel_npu/prefix.hpp>
+#include "compatibility/prefix.hpp"
 
 #include <mlir/IR/Builders.h>
 

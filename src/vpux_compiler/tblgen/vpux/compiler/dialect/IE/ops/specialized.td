@@ -213,21 +213,17 @@ def IE_EmbeddingBagOffsetsSumOp :
 
         Optional<1DTensorOf<[SI64, SI32]>>:$indices,
         Optional<1DTensorOf<[SI64, SI32]>>:$offsets,
-        Optional<RankedTensorOf<[SI64, SI32]>>:$default_index,
         Optional<1DTensorOf<[AnyInteger, AnyFloat]>>:$per_sample_weights,
 
         OptionalAttr<I64ArrayAttr>:$indices_value,
         OptionalAttr<I64ArrayAttr>:$offsets_value,
-        OptionalAttr<IntAttr>:$default_index_value,
+        IntAttr:$default_index_value,
         OptionalAttr<F64ArrayAttr>:$per_sample_weights_value
     );
 
     let results = (outs
         AnyRankedTensor:$output
     );
-
-    let hasVerifier = 1;
-    let hasCanonicalizer = 1;
 }
 
 def IE_EmbeddingBagPackedSumOp :
@@ -791,15 +787,25 @@ def IE_AttentionDMAOp :
             "AttentionDMA",
             [
                 AttrSizedOperandSegments,
+                SameVariadicResultSize,
                 DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface, ["reifyResultShapes"]>
             ]
         > {
     let summary = "InferenceEngine custom AttentionDMA layer";
 
+    let description = [{
+        `pastK`/`pastV` carry the sliding-window KV cache the kernel updates in place. When they are
+        provided, the updated caches are returned as the extra `presentK`/`presentV` results, which
+        keep the shape and element type of the corresponding `pastK`/`pastV` operand. Both cache
+        operands and both cache results are always present or absent together.
+    }];
+
     let arguments = (ins
         RankedTensorOf<[F16, F32]>:$inputQ,
         RankedTensorOf<[F16, F32, SI8]>:$inputK,
         RankedTensorOf<[F16, F32, SI8]>:$inputV,
+        Optional<RankedTensorOf<[F16, F32, SI8]>>:$pastK,
+        Optional<RankedTensorOf<[F16, F32, SI8]>>:$pastV,
         Optional<RankedTensorOf<[F16, F32, Bool8]>>:$inputMask,
         Optional<RankedTensorOf<[F16, F32]>>:$inputScale,
         Optional<RankedTensorOf<[F16, F32]>>:$inputSink,
@@ -810,10 +816,65 @@ def IE_AttentionDMAOp :
 
         OptionalAttr<IntAttr>:$padSizeS,
         OptionalAttr<IntAttr>:$localWindowSize,
-        UnitAttr:$smoothSoftmax
+        UnitAttr:$smoothSoftmax,
+        UnitAttr:$slidingWindowCache,
+        UnitAttr:$vTransposed
      );
    let results = (outs
-        RankedTensorOf<[F16, F32, F64]>:$output
+        RankedTensorOf<[F16, F32, F64]>:$output,
+        Optional<RankedTensorOf<[F16, F32, SI8]>>:$presentK,
+        Optional<RankedTensorOf<[F16, F32, SI8]>>:$presentV
+    );
+}
+
+def IE_GroupQueryAttentionOp :
+        IE_LayerOp<
+            "GroupQueryAttention",
+            [
+                AttrSizedOperandSegments
+            ]
+        > {
+    let summary = "InferenceEngine GroupQueryAttention layer";
+
+    let description = [{
+        Mirrors ov::op::internal::GroupQueryAttention. Q/K/V and the KV cache are [batch, heads, seqLen, headSize].
+        Produces the attention output [batch, seqLen, numHeads * headSize] and the updated presentKey/presentValue.
+    }];
+
+    let arguments = (ins
+        RankedTensorOf<[F16, F32]>:$query,
+        RankedTensorOf<[F16, F32]>:$key,
+        RankedTensorOf<[F16, F32]>:$value,
+        RankedTensorOf<[F16, F32, SI8]>:$pastKey,
+        RankedTensorOf<[F16, F32, SI8]>:$pastValue,
+        RankedTensorOf<[AnyInteger]>:$seqLensK,
+        Optional<RankedTensorOf<[AnyInteger]>>:$totalSequenceLength,
+        Optional<RankedTensorOf<[F16, F32]>>:$cosCache,
+        Optional<RankedTensorOf<[F16, F32]>>:$sinCache,
+        Optional<RankedTensorOf<[AnyInteger]>>:$positionIds,
+        Optional<RankedTensorOf<[F16, F32]>>:$attentionBias,
+        Optional<RankedTensorOf<[F16, F32]>>:$headSink,
+        Optional<RankedTensorOf<[F16, F32]>>:$kScale,
+        Optional<RankedTensorOf<[F16, F32]>>:$vScale,
+
+        IntAttr:$numHeads,
+        IntAttr:$kvNumHeads,
+        F32Attr:$scale,
+        UnitAttr:$doRotary,
+        UnitAttr:$rotaryInterleaved,
+        IntAttr:$kvCacheBitWidth,
+        IE_GQAQuantTypeAttr:$kQuantType,
+        IE_GQAQuantTypeAttr:$vQuantType,
+        IntAttr:$localWindowSize,
+        UnitAttr:$slidingWindowCache,
+        UnitAttr:$smoothSoftmax,
+        UnitAttr:$causal
+    );
+
+    let results = (outs
+        RankedTensorOf<[F16, F32]>:$output,
+        RankedTensorOf<[F16, F32, SI8]>:$presentKey,
+        RankedTensorOf<[F16, F32, SI8]>:$presentValue
     );
 }
 

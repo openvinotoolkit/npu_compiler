@@ -39,12 +39,6 @@ VpuOv2LayerTest::VpuOv2LayerTest(): testTool(envConfig) {
     _log.setLevel(vpux::LogLevel::Info);
 }
 
-void VpuOv2LayerTest::importModel() {
-    OPENVINO_ASSERT(core != nullptr);
-    compiledModel = testTool.importModel(core, filesysName(testing::UnitTest::GetInstance()->current_test_info(),
-                                                           ".net", !envConfig.IE_NPU_TESTS_LONG_FILE_NAME));
-}
-
 void VpuOv2LayerTest::exportModel() {
     testTool.exportModel(compiledModel, filesysName(testing::UnitTest::GetInstance()->current_test_info(), ".net",
                                                     !envConfig.IE_NPU_TESTS_LONG_FILE_NAME));
@@ -134,6 +128,16 @@ void VpuOv2LayerTest::run() {
     targetDevice = test_utils::TARGET_DEVICE;
     summary.setDeviceName(targetDevice);
 
+    if (!envConfig.IE_NPU_FORCE_COMPILER.empty()) {
+        const auto compilerTypeIt = configuration.find(ov::intel_npu::compiler_type.name());
+        if (compilerTypeIt != configuration.end() &&
+            compilerTypeIt->second.as<std::string>() != envConfig.IE_NPU_FORCE_COMPILER) {
+            _log.warning("Compiler type '{0}' is overridden with '{1}' since IE_NPU_FORCE_COMPILER is set",
+                         compilerTypeIt->second.as<std::string>(), envConfig.IE_NPU_FORCE_COMPILER);
+        }
+        configuration[ov::intel_npu::compiler_type.name()] = envConfig.IE_NPU_FORCE_COMPILER;
+    }
+
     if (ov::test::utils::current_test_is_disabled()) {
         summary.updateOPsStats(function, ov::test::utils::PassRate::Statuses::SKIPPED);
         GTEST_SKIP_("Disabled test due to configuration");
@@ -196,18 +200,18 @@ VpuOv2LayerTest::ErrorMessage VpuOv2LayerTest::runTest() {
             return std::nullopt;
         }
 
-        if (envConfig.IE_NPU_TESTS_RUN_COMPILER) {
-            compile_model();
-            report.compiled(testInfo);
+        compile_model();
+        report.compiled(testInfo);
 
-            if (envConfig.IE_NPU_TESTS_RUN_EXPORT) {
-                _log.debug("`VpuOv2LayerTest::ExportModel()`");
-                exportModel();
-            }
-        } else {
-            _log.debug("`VpuOv2LayerTest::ImportModel()`");
-            importModel();
-            report.imported(testInfo);
+        if (envConfig.IE_NPU_TESTS_RUN_EXPORT) {
+            _log.debug("`VpuOv2LayerTest::ExportModel()`");
+            exportModel();
+        }
+
+        // Generation of inputs, references and inference are skipped in compile-only mode
+        if (envConfig.IE_NPU_COMPILE_ONLY) {
+            _log.info("Test stops after compilation since IE_NPU_COMPILE_ONLY=1");
+            return std::nullopt;
         }
 
         for (const auto& targetStaticShapeVec : targetStaticShapes) {
@@ -259,12 +263,8 @@ VpuOv2LayerTest::ErrorMessage VpuOv2LayerTest::runTest() {
 }
 
 void VpuOv2LayerTest::validate() {
-    std::vector<ov::Tensor> expectedOutputs, actualOutputs;
-
-    if (envConfig.IE_NPU_TESTS_RUN_INFER) {
-        actualOutputs = get_plugin_outputs();
-    }
-    expectedOutputs = calculate_refs();
+    const auto actualOutputs = get_plugin_outputs();
+    auto expectedOutputs = calculate_refs();
 
     if (envConfig.IE_NPU_TESTS_EXPORT_REF) {
         _log.debug("`VpuOv2LayerTest::ExportReference()`");
@@ -350,16 +350,6 @@ bool VpuOv2LayerTest::skipCompilationImpl() {
 }
 
 VpuOv2LayerTest::ErrorMessage VpuOv2LayerTest::skipInferenceImpl() {
-    if (!envConfig.IE_NPU_TESTS_RUN_INFER) {
-        _log.warning("Inference is skipped globally");
-        return ErrorMessage{"SKIP"};
-    }
-    const auto backendName = getBackendName(*core);
-
-    if (backendName.empty()) {
-        return ErrorMessage{"Inference cannot run: backend is empty (no device)"};
-    }
-
     if (skipInferenceCallback != nullptr) {
         std::stringstream skipStream;
         skipInferenceCallback(skipStream);

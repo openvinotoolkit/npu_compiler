@@ -66,7 +66,7 @@ mlir::LogicalResult vpux::VPURT::DeclareBufferOp::verify() {
     }
 
     if (getSection() == VPURT::BufferSection::CMX_NN) {
-        const auto checkSectionIndex = [&op, &type](ArrayRef<int64_t> sectionIdx) {
+        const auto checkSectionIndex = [op, type](ArrayRef<int64_t> sectionIdx) {
             if (auto distributedType = mlir::dyn_cast<vpux::VPUIP::DistributedBufferType>(type)) {
                 const auto distribution = distributedType.getDistribution();
                 const auto numClusters = checked_cast<size_t>(distribution.getNumClusters().getInt());

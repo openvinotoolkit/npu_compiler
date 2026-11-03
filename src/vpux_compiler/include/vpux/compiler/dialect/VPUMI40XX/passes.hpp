@@ -64,7 +64,6 @@ struct TaskDescriptorConstraintsPassArgs {
     size_t actKernelInvocation = 0;
     size_t actKernelRange = 0;
     size_t dma = 0;
-    size_t m2i = 0;
 };
 
 std::unique_ptr<mlir::Pass> createSetupTaskDescriptorConstraintsPass(Logger log = Logger::global());

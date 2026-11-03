@@ -31,7 +31,7 @@ module @DefaultHWTestWithOutliner {
         %fake_quant = IE.FakeQuantize(%convert, %cst_1, %cst_2, %cst_3, %cst_4)
             {
                 auto_broadcast = #IE.auto_broadcast_type<NUMPY>,
-                levels = 256 : i64
+                levels_or_low_fp_type = 256 : i64
             } :
             tensor<1x3x62x62xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32> -> tensor<1x3x62x62xf32> loc(#loc27)
 

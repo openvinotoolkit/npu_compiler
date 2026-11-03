@@ -93,7 +93,101 @@ protected:
     static bool rangesOverlap(std::pair<AddressType, AddressType> lhs, std::pair<AddressType, AddressType> rhs) {
         return lhs.first < rhs.second && rhs.first < lhs.second;
     }
+
+    // Template position of the schedule entry that allocated `buf`, if any.
+    static std::optional<size_t> getBufferAllocEntryPos(const VfAllocateResult& result, mlir::Value buf) {
+        for (const auto& entry : result.iterationSchedule) {
+            for (const auto& [v, offset] : entry.allocations) {
+                std::ignore = offset;
+                if (v == buf) {
+                    return entry.templatePos;
+                }
+            }
+        }
+        return std::nullopt;
+    }
 };
+
+// ---------------------------------------------------------------------------
+// Reclaim speculative last-compute reservations under memory pressure.
+// ---------------------------------------------------------------------------
+TEST_F(MLIR_VFAllocateLinear, ReclaimEarlyReservationWithoutSpillingUnproducedBuffer) {
+    auto makeBody = [&](size_t firstOp) {
+        auto input = createBuffer(64);
+        auto mid = createBuffer(64);
+        auto scratch = createBuffer(256);
+        auto futureInput = createBuffer(512);
+        auto output = createBuffer(64);
+        return LoopBody{dataIn(firstOp, {}, {input}),           computeOp(firstOp + 1, {input}, {mid}),
+                        dataIn(firstOp + 2, {}, {scratch}),     dataOut(firstOp + 3, {scratch}, {}),
+                        dataIn(firstOp + 4, {}, {futureInput}), computeOp(firstOp + 5, {mid, futureInput}, {output}),
+                        dataOut(firstOp + 6, {output}, {})};
+    };
+    auto region = makeVfRegion({makeBody(0), makeBody(7)});
+    constexpr AddressType memoryLimit = 768;
+    const auto classifier = classifyVFRegion(region, memoryLimit);
+    ASSERT_TRUE(classifier.classifierSupportedRegion);
+    VfSchedStrategyDescriptor params;
+    params.lastCompOverlapNextIterIn = VfSchedStrategyDescriptor::LastComputeOverlapWithNextIterInputs::ENABLED;
+
+    const auto result = VfAllocateLinear(region, classifier, memoryLimit, params).performAllocation();
+    ASSERT_TRUE(result.feasible);
+    ASSERT_EQ(result.iterationSchedule.size(), 7u);
+    EXPECT_TRUE(result.spilledBuffers.empty());
+
+    // Producing mid initially reserves futureInput for the last compute. Loading
+    // scratch must reclaim that reservation, then futureInput is allocated at its
+    // own DMA. It must never appear as a spill of data that does not exist yet.
+    const auto futureInput = region.schedulingLoop->loopBodies.front()[4].outBuffers.front();
+    size_t allocationCount = 0;
+    for (const auto& entry : result.iterationSchedule) {
+        if (entry.allocInfo.opIdx < 4) {
+            EXPECT_FALSE(llvm::is_contained(entry.deallocations, futureInput));
+        }
+        for (const auto& allocation : entry.allocations) {
+            if (allocation.first == futureInput) {
+                ++allocationCount;
+                EXPECT_EQ(entry.allocInfo.opIdx, 4u);
+            }
+        }
+    }
+    EXPECT_EQ(allocationCount, 1u);
+}
+
+TEST_F(MLIR_VFAllocateLinear, PreserveProducedTemporaryReloadedByOverlap) {
+    auto makeBody = [&](size_t firstOp) {
+        auto seed = createBuffer(64);
+        auto produced = createBuffer(512);
+        auto scratchA = createBuffer(512);
+        auto mid = createBuffer(64);
+        auto scratchB = createBuffer(512);
+        auto output = createBuffer(64);
+        return LoopBody{dataIn(firstOp, {}, {seed}),           computeOp(firstOp + 1, {seed}, {produced}),
+                        dataIn(firstOp + 2, {}, {scratchA}),   dataOut(firstOp + 3, {scratchA}, {}),
+                        computeOp(firstOp + 4, {seed}, {mid}), dataIn(firstOp + 5, {}, {scratchB}),
+                        dataOut(firstOp + 6, {scratchB}, {}),  computeOp(firstOp + 7, {produced, mid}, {output}),
+                        dataOut(firstOp + 8, {output}, {})};
+    };
+    auto region = makeVfRegion({makeBody(0), makeBody(9)});
+    const auto produced = region.schedulingLoop->loopBodies.front()[1].outBuffers.front();
+    constexpr AddressType memoryLimit = 768;
+    const auto classifier = classifyVFRegion(region, memoryLimit);
+    ASSERT_TRUE(classifier.classifierSupportedRegion);
+    ASSERT_EQ(classifier.buffers[classifier.valueToRecord.at(produced)].category, BufferCategory::TEMPORARY);
+    VfSchedStrategyDescriptor params;
+    params.lastCompOverlapNextIterIn = VfSchedStrategyDescriptor::LastComputeOverlapWithNextIterInputs::ENABLED;
+    const auto result = VfAllocateLinear(region, classifier, memoryLimit, params).performAllocation();
+    ASSERT_TRUE(result.feasible);
+    ASSERT_EQ(result.iterationSchedule.size(), 9u);
+    EXPECT_TRUE(llvm::any_of(result.iterationSchedule[1].allocations, [&](const auto& a) {
+        return a.first == produced;
+    }));
+    EXPECT_TRUE(llvm::is_contained(result.iterationSchedule[2].deallocations, produced));
+    EXPECT_TRUE(llvm::any_of(result.iterationSchedule[4].allocations, [&](const auto& a) {
+        return a.first == produced;
+    }));
+    EXPECT_TRUE(llvm::is_contained(result.iterationSchedule[5].deallocations, produced));
+}
 
 // ---------------------------------------------------------------------------
 // Check basic MINIMAL strategy allocation for trivial 2-op region.
@@ -111,7 +205,7 @@ TEST_F(MLIR_VFAllocateLinear, MinimalRegionFeasible) {
     const auto classifier = classifyVFRegion(region, memoryLimit);
     ASSERT_TRUE(classifier.iterationIdentityHolds);
 
-    VfSchedStrategyDescriptor params;  // FetchScope=NONE, LastComputeOverlapWithNextIterInputs=DISABLED
+    VfSchedStrategyDescriptor params;  // IntraIterFetch=DISABLED, LastComputeOverlapWithNextIterInputs=DISABLED
 
     const auto result = VfAllocateLinear(region, classifier, memoryLimit, params).performAllocation();
 
@@ -353,6 +447,117 @@ TEST_F(MLIR_VFAllocateLinear, PersistentThatCrowdsVolatilePeakDowngradesToTempor
     EXPECT_LE(result.peakUsedBytes, memoryLimit);
 }
 
+TEST_F(MLIR_VFAllocateLinear, PersistentEvictionWithMisalignedMemoryLimitKeepsReservationAligned) {
+    auto weightA = createBuffer(4096);
+    auto weightB = createBuffer(2048);
+    auto in = createBuffer(2560);
+    auto mid = createBuffer(2048);
+    auto out = createBuffer(512);
+
+    LoopBody body{computeOp(0, {weightA, in}, {mid}), computeOp(1, {weightB, mid}, {out})};
+    auto region = makeVfRegion({body, body});
+
+    // Deliberately 32 bytes off the buffers' 64-byte alignment. Previously the
+    // first persistent eviction consumed those 32 bytes without admission
+    // having reserved them.
+    constexpr AddressType memoryLimit = 8736;
+    const auto classifier = classifyVFRegion(region, memoryLimit);
+    ASSERT_TRUE(classifier.classifierSupportedRegion);
+
+    VfSchedStrategyDescriptor params;
+    const auto result = VfAllocateLinear(region, classifier, memoryLimit, params).performAllocation();
+
+    ASSERT_TRUE(result.feasible);
+    EXPECT_EQ((memoryLimit - result.persistentReservedBytes) % 64, 0u);
+    EXPECT_GE(result.persistentReservedBytes, 4096u);
+    EXPECT_LE(result.peakUsedBytes, memoryLimit);
+}
+
+TEST_F(MLIR_VFAllocateLinear, PersistentAdmissionUsesEvictionOrderForMixedAlignments) {
+    auto persistentA = createBuffer(65, /*rawAlign=*/64);
+    auto persistentB = createBuffer(63, /*rawAlign=*/32);
+    auto persistentC = createBuffer(63, /*rawAlign=*/32);
+    auto persistentD = createBuffer(63, /*rawAlign=*/32);
+    auto temporary0 = createBuffer(64, /*rawAlign=*/1);
+    auto temporary1 = createBuffer(64, /*rawAlign=*/1);
+
+    LoopBody body0{computeOp(0, {persistentA, persistentB, persistentC, persistentD}, {temporary0}),
+                   dataOut(1, {temporary0}, {})};
+    LoopBody body1{computeOp(2, {persistentA, persistentB, persistentC, persistentD}, {temporary1}),
+                   dataOut(3, {temporary1}, {})};
+    auto region = makeVfRegion({body0, body1});
+
+    // Four candidates bypass the classifier's small mixed-alignment order
+    // search. The allocator must therefore evaluate its own back-to-front
+    // eviction order instead of assuming forward admission order is equivalent.
+    constexpr AddressType memoryLimit = 321;
+    const auto classifier = classifyVFRegion(region, memoryLimit);
+    ASSERT_TRUE(classifier.classifierSupportedRegion);
+    ASSERT_EQ(classifier.persistentFitOrder.size(), 4u);
+
+    VfSchedStrategyDescriptor params;
+    const auto result = VfAllocateLinear(region, classifier, memoryLimit, params).performAllocation();
+
+    ASSERT_TRUE(result.feasible);
+    EXPECT_EQ(result.sharedExternalBuffers.size(), 4u);
+    EXPECT_LE(result.peakUsedBytes, memoryLimit);
+}
+
+// Verify that admission packs persistent buffers in the same back-to-front
+// order used by eviction. Otherwise admission may underestimate the required
+// space, causing an out-of-bounds allocation after a persistent spill.
+
+// The four persistent candidates exceed the classifier's exhaustive
+// mixed-alignment search limit. Verify that allocator admission instead packs
+// them in the normal back-to-front eviction order.
+//
+// With memoryLimit=321, eviction order D, C, B, A consumes 257 bytes,
+// leaving [0, 64) for the temporary buffer:
+//
+//   temporary: [0, 64)
+//   D:         [64, 127)
+//   C:         [128, 191)
+//   B:         [192, 255)
+//   A:         [256, 321)
+//
+// All four persistents must be admitted and the complete schedule must fit.
+TEST_F(MLIR_VFAllocateLinear, PersistentEvictionSkipRejectsMixedAlignmentRepackOverflow) {
+    auto persistentA = createBuffer(65, /*rawAlign=*/64);
+    auto persistentB = createBuffer(63, /*rawAlign=*/32);
+    auto persistentC = createBuffer(63, /*rawAlign=*/32);
+    auto persistentD = createBuffer(63, /*rawAlign=*/32);
+    auto mid0 = createBuffer(64, /*rawAlign=*/1);
+    auto out0 = createBuffer(64, /*rawAlign=*/1);
+    auto mid1 = createBuffer(64, /*rawAlign=*/1);
+    auto out1 = createBuffer(64, /*rawAlign=*/1);
+
+    // At op1, B/C/D are protected as current inputs. Memory pressure therefore
+    // considers A even though it is not the back of the modeled eviction stack.
+    LoopBody body0{computeOp(0, {persistentA}, {mid0}),
+                   computeOp(1, {persistentB, persistentC, persistentD, mid0}, {out0}), dataOut(2, {out0}, {})};
+    LoopBody body1{computeOp(3, {persistentA}, {mid1}),
+                   computeOp(4, {persistentB, persistentC, persistentD, mid1}, {out1}), dataOut(5, {out1}, {})};
+    auto region = makeVfRegion({body0, body1});
+
+    constexpr AddressType memoryLimit = 321;
+    auto classifier = classifyVFRegion(region, memoryLimit);
+    ASSERT_TRUE(classifier.classifierSupportedRegion);
+    ASSERT_EQ(classifier.persistentFitOrder.size(), 4u);
+
+    // Exercise the allocator's spill-time safety check directly. The normal
+    // classifier accounts for both live temporaries and may admit fewer
+    // persistents before this path is reached.
+    classifier.temporaryPeakBytes = 64;
+
+    VfSchedStrategyDescriptor params;
+    const auto result = VfAllocateLinear(region, classifier, memoryLimit, params).performAllocation();
+
+    // Repacking A before the protected B/C/D buffers exceeds the reserved zone.
+    // The allocator must reject that persistent spill instead of placing A past
+    // memoryLimit; with no other legal victim, this schedule is infeasible.
+    EXPECT_FALSE(result.feasible);
+}
+
 // ---------------------------------------------------------------------------
 // Spill trigger in a branched template body:
 //
@@ -418,7 +623,7 @@ TEST_F(MLIR_VFAllocateLinear, TemporaryBufferSpillWithParallelBranches) {
     const auto classifier = classifyVFRegion(region, memoryLimit);
     ASSERT_TRUE(classifier.iterationIdentityHolds);
 
-    VfSchedStrategyDescriptor params;  // FetchScope=NONE, LastComputeOverlapWithNextIterInputs=DISABLED
+    VfSchedStrategyDescriptor params;  // IntraIterFetch=DISABLED, LastComputeOverlapWithNextIterInputs=DISABLED
     const auto result = VfAllocateLinear(region, classifier, memoryLimit, params).performAllocation();
 
     ASSERT_TRUE(result.feasible);
@@ -521,7 +726,7 @@ TEST_F(MLIR_VFAllocateLinear, SpillVictimSelectionExcludesCurrentOpInput) {
     const auto classifier = classifyVFRegion(region, memoryLimit);
     ASSERT_TRUE(classifier.iterationIdentityHolds);
 
-    VfSchedStrategyDescriptor params;  // FetchScope=NONE, LastComputeOverlapWithNextIterInputs=DISABLED
+    VfSchedStrategyDescriptor params;  // IntraIterFetch=DISABLED, LastComputeOverlapWithNextIterInputs=DISABLED
     const auto result = VfAllocateLinear(region, classifier, memoryLimit, params).performAllocation();
 
     ASSERT_TRUE(result.feasible);
@@ -603,7 +808,7 @@ TEST_F(MLIR_VFAllocateLinear, LastComputeOpOutputsDoesNotOverlapFirstComputeOpIn
     const auto classifier = classifyVFRegion(region, memoryLimit);
     ASSERT_TRUE(classifier.iterationIdentityHolds);
 
-    VfSchedStrategyDescriptor params;  // FetchScope=NONE, LastComputeOverlapWithNextIterInputs=DISABLED
+    VfSchedStrategyDescriptor params;  // IntraIterFetch=DISABLED, LastComputeOverlapWithNextIterInputs=DISABLED
     params.lastCompOverlapNextIterIn = VfSchedStrategyDescriptor::LastComputeOverlapWithNextIterInputs::ENABLED;
     const auto result = VfAllocateLinear(region, classifier, memoryLimit, params).performAllocation();
 
@@ -679,7 +884,7 @@ TEST_F(MLIR_VFAllocateLinear, LastComputeOpSingleOutputDoesNotOverlapFirstComput
     const auto classifier = classifyVFRegion(region, memoryLimit);
     ASSERT_TRUE(classifier.iterationIdentityHolds);
 
-    VfSchedStrategyDescriptor params;  // FetchScope=NONE, LastComputeOverlapWithNextIterInputs=DISABLED
+    VfSchedStrategyDescriptor params;  // IntraIterFetch=DISABLED, LastComputeOverlapWithNextIterInputs=DISABLED
     params.lastCompOverlapNextIterIn = VfSchedStrategyDescriptor::LastComputeOverlapWithNextIterInputs::ENABLED;
     const auto result = VfAllocateLinear(region, classifier, memoryLimit, params).performAllocation();
 
@@ -864,7 +1069,7 @@ TEST_F(MLIR_VFAllocateLinear, LastComputeOpInputsAndOutputsDoNotOverlapFirstComp
     const auto classifier = classifyVFRegion(region, memoryLimit);
     ASSERT_TRUE(classifier.iterationIdentityHolds);
 
-    VfSchedStrategyDescriptor params;  // FetchScope=NONE
+    VfSchedStrategyDescriptor params;  // IntraIterFetch=DISABLED
     params.lastCompOverlapNextIterIn = VfSchedStrategyDescriptor::LastComputeOverlapWithNextIterInputs::ENABLED;
     const auto result = VfAllocateLinear(region, classifier, memoryLimit, params).performAllocation();
 
@@ -894,4 +1099,421 @@ TEST_F(MLIR_VFAllocateLinear, LastComputeOpInputsAndOutputsDoNotOverlapFirstComp
     EXPECT_FALSE(rangesOverlap(*out0aRange, *in0bRange));
     EXPECT_FALSE(rangesOverlap(*out0bRange, *in0aRange));
     EXPECT_FALSE(rangesOverlap(*out0bRange, *in0bRange));
+}
+
+// ---------------------------------------------------------------------------
+// Variant of LastComputeOpInputsAndOutputsDoNotOverlapFirstComputeOpInputs with
+// four compute ops that all run in place: each DPU writes its result back into
+// its own first input buffer, so a single activation buffer (act0) is threaded
+// through the whole chain as both input and output of every compute op.
+//
+//     DATA_IN(act0) --> DPU0 --> DPU1 --> DPU2 --> DPU3 --> DATA_OUT(act0)
+//                        ^        ^        ^        ^
+//                        |        |        |        |
+//                    DATA_IN  DATA_IN  DATA_IN  DATA_IN
+//                     (w0a)    (w0b)    (w0c)    (w0d)
+//
+// In-place chaining means the activation cannot be steered away from the first
+// compute op input ranges — it *is* one of them. What the overlap heuristic can
+// still do is keep the last compute op's other input (the w0d weight tile) off
+// the ranges of the first compute op inputs, so the next iteration's activation
+// and first weight DMAs can be issued while DPU3 and the DATA_OUT of this
+// iteration are still running.
+//
+// The overlap-aware allocation keeps w0d separate from the first-compute inputs
+// by excluding w0a's range when w0d is allocated at OP7; the shared act0 buffer
+// remains live throughout the chain and is intentionally not an exclusion candidate.
+// ---------------------------------------------------------------------------
+TEST_F(MLIR_VFAllocateLinear, InPlaceComputeChainLastComputeWeightsNotOverlapFirstComputeOpInputs) {
+    // Iteration 0
+    //   OP0 = DATA_IN                          -> act0
+    //   OP1 = DATA_IN                          -> w0a
+    //   OP2 = COMPUTE_OP(act0, w0a) -> act0      // in place
+    //   OP3 = DATA_IN                          -> w0b
+    //   OP4 = COMPUTE_OP(act0, w0b) -> act0      // in place
+    //   OP5 = DATA_IN                          -> w0c
+    //   OP6 = COMPUTE_OP(act0, w0c) -> act0      // in place
+    //   OP7 = DATA_IN                          -> w0d
+    //   OP8 = COMPUTE_OP(act0, w0d) -> act0      // in place
+    //   OP9 = DATA_OUT(act0)
+
+    auto act0 = createBuffer(1024);
+    auto w0a = createBuffer(512);
+    auto w0b = createBuffer(512);
+    auto w0c = createBuffer(512);
+    auto w0d = createBuffer(512);
+
+    LoopBody body0{dataIn(0, {}, {act0}),
+                   dataIn(1, {}, {w0a}),
+                   computeOp(2, {act0, w0a}, {act0}),
+                   dataIn(3, {}, {w0b}),
+                   computeOp(4, {act0, w0b}, {act0}),
+                   dataIn(5, {}, {w0c}),
+                   computeOp(6, {act0, w0c}, {act0}),
+                   dataIn(7, {}, {w0d}),
+                   computeOp(8, {act0, w0d}, {act0}),
+                   dataOut(9, {act0}, {})};
+
+    // Iteration 1 - mirror structure with fresh SSA values.
+    auto act1 = createBuffer(1024);
+    auto w1a = createBuffer(512);
+    auto w1b = createBuffer(512);
+    auto w1c = createBuffer(512);
+    auto w1d = createBuffer(512);
+
+    LoopBody body1{dataIn(10, {}, {act1}),
+                   dataIn(11, {}, {w1a}),
+                   computeOp(12, {act1, w1a}, {act1}),
+                   dataIn(13, {}, {w1b}),
+                   computeOp(14, {act1, w1b}, {act1}),
+                   dataIn(15, {}, {w1c}),
+                   computeOp(16, {act1, w1c}, {act1}),
+                   dataIn(17, {}, {w1d}),
+                   computeOp(18, {act1, w1d}, {act1}),
+                   dataOut(19, {act1}, {})};
+
+    auto region = makeVfRegion({body0, body1});
+
+    // memoryLimit leaves room for the in-place activation plus two concurrent
+    // weight slots and nothing more:
+    //   * OP0 co-allocates act0 at [0, 1024) and w0d at [1024, 1536).
+    //   * OP1 places w0a in the only gap left, [1536, 2048).
+    //   * OP3 and OP5 reuse that same freed slot for w0b and w0c, again
+    //     [1536, 2048) each — the middle weights rotate through one slot.
+    //   * w0d keeps its dedicated slot for the whole iteration, so it never
+    //     lands on w0a's range.
+    constexpr AddressType memoryLimit = 2048;
+    const auto classifier = classifyVFRegion(region, memoryLimit);
+    ASSERT_TRUE(classifier.iterationIdentityHolds);
+    ASSERT_TRUE(classifier.classifierSupportedRegion);
+
+    // The activation is recognized as structurally in place: same SSA value on
+    // the input and the output side of the same op.
+    const auto act0RecIt = classifier.valueToRecord.find(act0);
+    ASSERT_NE(act0RecIt, classifier.valueToRecord.end());
+    EXPECT_TRUE(classifier.buffers[act0RecIt->second].isInPlaceAlias);
+
+    VfSchedStrategyDescriptor params;  // FetchScope=NONE
+    params.lastCompOverlapNextIterIn = VfSchedStrategyDescriptor::LastComputeOverlapWithNextIterInputs::ENABLED;
+    const auto result = VfAllocateLinear(region, classifier, memoryLimit, params).performAllocation();
+
+    ASSERT_TRUE(result.feasible);
+    ASSERT_EQ(result.iterationSchedule.size(), 10u);
+    EXPECT_TRUE(result.spilledBuffers.empty());
+    EXPECT_LE(result.peakUsedBytes, memoryLimit);
+
+    // An in-place op must not re-allocate its output: act0 is allocated once by
+    // the DATA_IN that loads it and stays at that address for the whole chain.
+    size_t act0AllocCount = 0;
+    for (const auto& entry : result.iterationSchedule) {
+        act0AllocCount += std::count_if(entry.allocations.begin(), entry.allocations.end(), [&](const auto& p) {
+            return p.first == act0;
+        });
+    }
+    EXPECT_EQ(act0AllocCount, 1u);
+
+    // All four compute ops reuse already-live buffers only, so none of them
+    // emits an allocation.
+    EXPECT_TRUE(result.iterationSchedule[2].allocations.empty());
+    EXPECT_TRUE(result.iterationSchedule[4].allocations.empty());
+    EXPECT_TRUE(result.iterationSchedule[6].allocations.empty());
+    EXPECT_TRUE(result.iterationSchedule[8].allocations.empty());
+
+    auto act0Range = getBufferAssignedRange(result, classifier, act0);
+    auto w0aRange = getBufferAssignedRange(result, classifier, w0a);
+    auto w0bRange = getBufferAssignedRange(result, classifier, w0b);
+    auto w0cRange = getBufferAssignedRange(result, classifier, w0c);
+    auto w0dRange = getBufferAssignedRange(result, classifier, w0d);
+    ASSERT_TRUE(act0Range.has_value());
+    ASSERT_TRUE(w0aRange.has_value());
+    ASSERT_TRUE(w0bRange.has_value());
+    ASSERT_TRUE(w0cRange.has_value());
+    ASSERT_TRUE(w0dRange.has_value());
+
+    // The last compute op input (w0d) avoids the ranges of both first compute op
+    // inputs (act0 and w0a), so the next iteration's DATA_IN DMAs can overlap
+    // with this iteration's last compute op and its DATA_OUT.
+    EXPECT_FALSE(rangesOverlap(*w0dRange, *act0Range));
+    EXPECT_FALSE(rangesOverlap(*w0dRange, *w0aRange));
+}
+
+// ---------------------------------------------------------------------------
+// IntraIterFetch=ENABLED: the DATA_IN DMAs that load the next COMPUTE op's inputs
+// are allocated while the current COMPUTE op still owns its buffers, so they
+// get ranges disjoint from all of its inputs and outputs and can execute in
+// parallel with it.
+//
+//   OP0_DATA_IN OP1_DATA_IN ->|            OP3_DATA_IN ->| OP4_DATA_IN ->|
+//        |---------------------> OP2_COMPUTE -----------|---------------|-> OP5_COMPUTE -> OP6_DATA_OUT
+//
+// Layout with prefetching at OP2 (limit 4096, everything 512B):
+//   in0a [0, 512), in0b [512, 1024), mid0 [1024, 1536) are live, so the
+//   prefetched in0c lands at [1536, 2048) and in0d at [2048, 2560).
+// Without prefetching OP3 first releases in0a/in0b (dead after OP2) and in0c
+// reuses in0a's range, which is exactly what serializes the DMA behind OP2.
+// ---------------------------------------------------------------------------
+TEST_F(MLIR_VFAllocateLinear, PrefetchOfNextComputeInputsAvoidsCurrentComputeRanges) {
+    // Iteration 0
+    auto in0a = createBuffer(512);
+    auto in0b = createBuffer(512);
+    auto mid0 = createBuffer(512);
+    auto in0c = createBuffer(512);
+    auto in0d = createBuffer(512);
+    auto out0 = createBuffer(512);
+
+    LoopBody body0{dataIn(0, {}, {in0a}), dataIn(1, {}, {in0b}), computeOp(2, {in0a, in0b}, {mid0}),
+                   dataIn(3, {}, {in0c}), dataIn(4, {}, {in0d}), computeOp(5, {mid0, in0c, in0d}, {out0}),
+                   dataOut(6, {out0}, {})};
+
+    // Iteration 1 - mirror structure with fresh SSA values.
+    auto in1a = createBuffer(512);
+    auto in1b = createBuffer(512);
+    auto mid1 = createBuffer(512);
+    auto in1c = createBuffer(512);
+    auto in1d = createBuffer(512);
+    auto out1 = createBuffer(512);
+
+    LoopBody body1{dataIn(7, {}, {in1a}),  dataIn(8, {}, {in1b}),  computeOp(9, {in1a, in1b}, {mid1}),
+                   dataIn(10, {}, {in1c}), dataIn(11, {}, {in1d}), computeOp(12, {mid1, in1c, in1d}, {out1}),
+                   dataOut(13, {out1}, {})};
+
+    auto region = makeVfRegion({body0, body1});
+
+    constexpr AddressType memoryLimit = 4096;
+    const auto classifier = classifyVFRegion(region, memoryLimit);
+    ASSERT_TRUE(classifier.iterationIdentityHolds);
+
+    VfSchedStrategyDescriptor params;
+    params.intraIterFetch = VfSchedStrategyDescriptor::IntraIterFetch::ENABLED;
+    const auto result = VfAllocateLinear(region, classifier, memoryLimit, params).performAllocation();
+
+    ASSERT_TRUE(result.feasible);
+    ASSERT_EQ(result.iterationSchedule.size(), 7u);
+    EXPECT_TRUE(result.spilledBuffers.empty());
+
+    const auto in0aRange = getBufferAssignedRange(result, classifier, in0a);
+    const auto in0bRange = getBufferAssignedRange(result, classifier, in0b);
+    const auto mid0Range = getBufferAssignedRange(result, classifier, mid0);
+    const auto in0cRange = getBufferAssignedRange(result, classifier, in0c);
+    const auto in0dRange = getBufferAssignedRange(result, classifier, in0d);
+    ASSERT_TRUE(in0aRange.has_value());
+    ASSERT_TRUE(in0bRange.has_value());
+    ASSERT_TRUE(mid0Range.has_value());
+    ASSERT_TRUE(in0cRange.has_value());
+    ASSERT_TRUE(in0dRange.has_value());
+
+    // Next COMPUTE op inputs must not share memory with any input or output of
+    // the COMPUTE op they are prefetched over.
+    EXPECT_FALSE(rangesOverlap(*in0cRange, *in0aRange));
+    EXPECT_FALSE(rangesOverlap(*in0cRange, *in0bRange));
+    EXPECT_FALSE(rangesOverlap(*in0cRange, *mid0Range));
+    EXPECT_FALSE(rangesOverlap(*in0dRange, *in0aRange));
+    EXPECT_FALSE(rangesOverlap(*in0dRange, *in0bRange));
+    EXPECT_FALSE(rangesOverlap(*in0dRange, *mid0Range));
+    // The two prefetched buffers must not share memory with each other either.
+    EXPECT_FALSE(rangesOverlap(*in0cRange, *in0dRange));
+
+    // A prefetch only decides the address early - the allocation entry stays at
+    // the DATA_IN op that produces the buffer. Downstream consumers rely on it:
+    // verifyLocalSchedule() requires every entry to allocate its own outputs and
+    // the pipelined pairwise rewrite moves compute stages together with their
+    // input DMA entries across iterations.
+    EXPECT_EQ(getBufferAllocEntryPos(result, in0c), std::optional<size_t>(3u));
+    EXPECT_EQ(getBufferAllocEntryPos(result, in0d), std::optional<size_t>(4u));
+
+    // Reference point: with IntraIterFetch=DISABLED the same region reuses the COMPUTE
+    // op's released input ranges for the next DATA_IN buffers.
+    VfSchedStrategyDescriptor noPrefetchParams;
+    const auto noPrefetch = VfAllocateLinear(region, classifier, memoryLimit, noPrefetchParams).performAllocation();
+    ASSERT_TRUE(noPrefetch.feasible);
+    const auto refIn0aRange = getBufferAssignedRange(noPrefetch, classifier, in0a);
+    const auto refIn0cRange = getBufferAssignedRange(noPrefetch, classifier, in0c);
+    ASSERT_TRUE(refIn0aRange.has_value());
+    ASSERT_TRUE(refIn0cRange.has_value());
+    EXPECT_TRUE(rangesOverlap(*refIn0cRange, *refIn0aRange));
+}
+
+TEST_F(MLIR_VFAllocateLinear, PrefetchRespectsLastComputeInputExclusions) {
+    auto makeBody = [&](size_t firstOp) {
+        auto firstInput = createBuffer(1024);
+        auto mid = createBuffer(512);
+        auto scratch = createBuffer(512);
+        auto nextInput = createBuffer(1536);
+        auto lastInput = createBuffer(1024);
+        auto otherInput = createBuffer(512);
+        auto output = createBuffer(512);
+        return LoopBody{dataIn(firstOp, {}, {firstInput}),
+                        computeOp(firstOp + 1, {firstInput}, {mid, scratch}),
+                        computeOp(firstOp + 2, {mid, scratch}, {nextInput}),
+                        dataIn(firstOp + 3, {}, {lastInput}),
+                        dataIn(firstOp + 4, {}, {otherInput}),
+                        dataOut(firstOp + 5, {otherInput}, {}),
+                        computeOp(firstOp + 6, {nextInput, lastInput}, {output}),
+                        dataOut(firstOp + 7, {output}, {})};
+    };
+    auto region = makeVfRegion({makeBody(0), makeBody(8)});
+    const auto& body = region.schedulingLoop->loopBodies.front();
+    const auto firstInput = body[0].outBuffers.front();
+    const auto otherInput = body[4].outBuffers.front();
+    constexpr AddressType memoryLimit = 3584;
+    const auto classifier = classifyVFRegion(region, memoryLimit);
+    ASSERT_TRUE(classifier.iterationIdentityHolds);
+
+    VfSchedStrategyDescriptor params;
+    params.intraIterFetch = VfSchedStrategyDescriptor::IntraIterFetch::ENABLED;
+    params.lastCompOverlapNextIterIn = VfSchedStrategyDescriptor::LastComputeOverlapWithNextIterInputs::ENABLED;
+    const auto result = VfAllocateLinear(region, classifier, memoryLimit, params).performAllocation();
+    ASSERT_TRUE(result.feasible);
+    EXPECT_TRUE(result.spilledBuffers.empty());
+
+    const auto firstRange = getBufferAssignedRange(result, classifier, firstInput);
+    const auto otherRange = getBufferAssignedRange(result, classifier, otherInput);
+    ASSERT_TRUE(firstRange.has_value());
+    ASSERT_TRUE(otherRange.has_value());
+    // The last-compute input cannot prefetch into the first-input range, so
+    // the following DATA_IN candidate reserves that gap instead.
+    EXPECT_TRUE(rangesOverlap(*otherRange, *firstRange));
+}
+
+// ---------------------------------------------------------------------------
+// Prefetching is best effort: a candidate that does not fit next to the current
+// COMPUTE op's buffers is left to the regular path at its own position, and the
+// remaining candidates are still attempted.
+//
+// Layout at OP2 (limit 3072): in0a [0, 512), in0b [512, 1024) and mid0
+// [1024, 1536) are live, leaving 1536B free.
+//   * in0c (1536B) fits exactly -> prefetched at [1536, 3072).
+//   * in0d (512B) has no free range left -> not prefetched. At OP4 in0a/in0b are
+//     already released, so it reuses in0a's range at [0, 512).
+// ---------------------------------------------------------------------------
+TEST_F(MLIR_VFAllocateLinear, PartialPrefetchWhenNotAllNextComputeInputsFit) {
+    // Iteration 0
+    auto in0a = createBuffer(512);
+    auto in0b = createBuffer(512);
+    auto mid0 = createBuffer(512);
+    auto in0c = createBuffer(1536);
+    auto in0d = createBuffer(512);
+    auto out0 = createBuffer(512);
+
+    LoopBody body0{dataIn(0, {}, {in0a}), dataIn(1, {}, {in0b}), computeOp(2, {in0a, in0b}, {mid0}),
+                   dataIn(3, {}, {in0c}), dataIn(4, {}, {in0d}), computeOp(5, {mid0, in0c, in0d}, {out0}),
+                   dataOut(6, {out0}, {})};
+
+    // Iteration 1 - mirror structure with fresh SSA values.
+    auto in1a = createBuffer(512);
+    auto in1b = createBuffer(512);
+    auto mid1 = createBuffer(512);
+    auto in1c = createBuffer(1536);
+    auto in1d = createBuffer(512);
+    auto out1 = createBuffer(512);
+
+    LoopBody body1{dataIn(7, {}, {in1a}),  dataIn(8, {}, {in1b}),  computeOp(9, {in1a, in1b}, {mid1}),
+                   dataIn(10, {}, {in1c}), dataIn(11, {}, {in1d}), computeOp(12, {mid1, in1c, in1d}, {out1}),
+                   dataOut(13, {out1}, {})};
+
+    auto region = makeVfRegion({body0, body1});
+
+    constexpr AddressType memoryLimit = 3072;
+    const auto classifier = classifyVFRegion(region, memoryLimit);
+    ASSERT_TRUE(classifier.iterationIdentityHolds);
+
+    VfSchedStrategyDescriptor params;
+    params.intraIterFetch = VfSchedStrategyDescriptor::IntraIterFetch::ENABLED;
+    const auto result = VfAllocateLinear(region, classifier, memoryLimit, params).performAllocation();
+
+    ASSERT_TRUE(result.feasible);
+    ASSERT_EQ(result.iterationSchedule.size(), 7u);
+    EXPECT_TRUE(result.spilledBuffers.empty());
+
+    const auto in0aRange = getBufferAssignedRange(result, classifier, in0a);
+    const auto in0bRange = getBufferAssignedRange(result, classifier, in0b);
+    const auto mid0Range = getBufferAssignedRange(result, classifier, mid0);
+    const auto in0cRange = getBufferAssignedRange(result, classifier, in0c);
+    const auto in0dRange = getBufferAssignedRange(result, classifier, in0d);
+    ASSERT_TRUE(in0aRange.has_value());
+    ASSERT_TRUE(in0bRange.has_value());
+    ASSERT_TRUE(mid0Range.has_value());
+    ASSERT_TRUE(in0cRange.has_value());
+    ASSERT_TRUE(in0dRange.has_value());
+
+    // in0c was prefetched over OP2 - no conflict with OP2's buffers.
+    EXPECT_FALSE(rangesOverlap(*in0cRange, *in0aRange));
+    EXPECT_FALSE(rangesOverlap(*in0cRange, *in0bRange));
+    EXPECT_FALSE(rangesOverlap(*in0cRange, *mid0Range));
+
+    // in0d did not fit next to OP2's buffers, so it is placed only at its own
+    // position and reuses the range of an OP2 input.
+    EXPECT_TRUE(rangesOverlap(*in0dRange, *in0aRange));
+
+    // Both allocations are recorded at the DATA_IN ops producing them - a
+    // prefetch moves the address decision earlier, not the schedule entry.
+    EXPECT_EQ(getBufferAllocEntryPos(result, in0c), std::optional<size_t>(3u));
+    EXPECT_EQ(getBufferAllocEntryPos(result, in0d), std::optional<size_t>(4u));
+}
+
+// ---------------------------------------------------------------------------
+// Memory reserved by a prefetch is handed back when a later allocation cannot
+// be satisfied. The buffer holds no data yet (its DATA_IN DMA is not scheduled),
+// so cancelling costs nothing and runs before persistent eviction and temporary
+// spilling. Without it the allocator would have to spill a buffer that has not
+// been produced yet - which the downstream scheduler cannot express - or declare
+// the region infeasible.
+//
+// Layout (limit 3072): at OP2 in0a [0, 512), in0b [512, 1024), mid0
+// [1024, 1536) are live, leaving 1536B.
+//   * in0c (2048B) does not fit -> not prefetched.
+//   * in0d (256B) fits -> prefetched at [1536, 1792).
+// At OP3 in0a/in0b are released but the largest free range is still too small
+// for in0c, so the in0d prefetch is cancelled first and mid0 is then spilled,
+// which merges the whole space and lets in0c land at [0, 2048).
+// ---------------------------------------------------------------------------
+TEST_F(MLIR_VFAllocateLinear, PendingPrefetchIsCancelledBeforeSpillingLiveBuffers) {
+    // Iteration 0
+    auto in0a = createBuffer(512);
+    auto in0b = createBuffer(512);
+    auto mid0 = createBuffer(512);
+    auto in0c = createBuffer(2048);
+    auto in0d = createBuffer(256);
+    auto out0 = createBuffer(256);
+
+    LoopBody body0{dataIn(0, {}, {in0a}), dataIn(1, {}, {in0b}), computeOp(2, {in0a, in0b}, {mid0}),
+                   dataIn(3, {}, {in0c}), dataIn(4, {}, {in0d}), computeOp(5, {mid0, in0c, in0d}, {out0}),
+                   dataOut(6, {out0}, {})};
+
+    // Iteration 1 - mirror structure with fresh SSA values.
+    auto in1a = createBuffer(512);
+    auto in1b = createBuffer(512);
+    auto mid1 = createBuffer(512);
+    auto in1c = createBuffer(2048);
+    auto in1d = createBuffer(256);
+    auto out1 = createBuffer(256);
+
+    LoopBody body1{dataIn(7, {}, {in1a}),  dataIn(8, {}, {in1b}),  computeOp(9, {in1a, in1b}, {mid1}),
+                   dataIn(10, {}, {in1c}), dataIn(11, {}, {in1d}), computeOp(12, {mid1, in1c, in1d}, {out1}),
+                   dataOut(13, {out1}, {})};
+
+    auto region = makeVfRegion({body0, body1});
+
+    constexpr AddressType memoryLimit = 3072;
+    const auto classifier = classifyVFRegion(region, memoryLimit);
+    ASSERT_TRUE(classifier.iterationIdentityHolds);
+
+    VfSchedStrategyDescriptor params;
+    params.intraIterFetch = VfSchedStrategyDescriptor::IntraIterFetch::ENABLED;
+    const auto result = VfAllocateLinear(region, classifier, memoryLimit, params).performAllocation();
+
+    ASSERT_TRUE(result.feasible);
+    ASSERT_EQ(result.iterationSchedule.size(), 7u);
+
+    // mid0 is the only spill victim: in0d, still unproduced at OP3, must not be
+    // picked as one.
+    ASSERT_EQ(result.spilledBuffers.size(), 1u);
+    EXPECT_EQ(result.spilledBuffers.front(), mid0);
+
+    // Both buffers end up allocated at their own DATA_IN positions: in0c because
+    // it never fit next to OP2's buffers, in0d because its prefetch was cancelled.
+    EXPECT_EQ(getBufferAllocEntryPos(result, in0c), std::optional<size_t>(3u));
+    EXPECT_EQ(getBufferAllocEntryPos(result, in0d), std::optional<size_t>(4u));
+
+    EXPECT_LE(result.peakUsedBytes, memoryLimit);
 }

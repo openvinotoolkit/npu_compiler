@@ -14,7 +14,7 @@ func.func @RemoveFQU16(%arg0: tensor<1x3x640x640xf16>) -> tensor<1x4x640x640xf16
     %cst_1 = const.Declare tensor<1x1x1x1xf16> = dense<57.9222679> : tensor<1x1x1x1xf32>, [#const.CastElemType<f16>]
     %cst_2 = const.Declare tensor<1x1x1x1xf16> = dense<-57.1374702> : tensor<1x1x1x1xf32>, [#const.CastElemType<f16>]
     %0 = IE.Convolution(%arg0, %cst_0, %cst) {dilations = [1, 1], pads_begin = [1, 1], pads_end = [1, 1], strides = [1, 1]} : tensor<1x3x640x640xf16>, tensor<4x3x3x3xf16>, tensor<1x4x1x1xf16> -> tensor<1x4x640x640xf16>
-    %1 = IE.FakeQuantize(%0, %cst_2, %cst_1, %cst_2, %cst_1) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 65536 : i64} : tensor<1x4x640x640xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<1x4x640x640xf16>
+    %1 = IE.FakeQuantize(%0, %cst_2, %cst_1, %cst_2, %cst_1) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 65536 : i64} : tensor<1x4x640x640xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<1x4x640x640xf16>
     %2 = IE.Sigmoid(%1) : tensor<1x4x640x640xf16> -> tensor<1x4x640x640xf16>
     return %2 : tensor<1x4x640x640xf16>
 
@@ -35,7 +35,7 @@ func.func @RemoveFQU16(%arg0: tensor<1x3x640x640xf16>) -> tensor<1x4x640x640xf16
 func.func @ReplaceFQU16WithReLU(%arg0: tensor<1x4x640x640xf16>) -> tensor<1x4x640x640xf16> {
     %cst = const.Declare tensor<1x1x1x1xf16> = dense<0.000000e+00> : tensor<1x1x1x1xf32>, [#const.CastElemType<f16>]
     %cst_0 = const.Declare tensor<1x1x1x1xf16> = dense<57.1374702> : tensor<1x1x1x1xf32>, [#const.CastElemType<f16>]
-    %0 = IE.FakeQuantize(%arg0, %cst, %cst_0, %cst, %cst_0) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 65536 : i64} : tensor<1x4x640x640xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<1x4x640x640xf16>
+    %0 = IE.FakeQuantize(%arg0, %cst, %cst_0, %cst, %cst_0) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 65536 : i64} : tensor<1x4x640x640xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<1x4x640x640xf16>
     %1 = IE.Sigmoid(%0) : tensor<1x4x640x640xf16> -> tensor<1x4x640x640xf16>
     return %1 : tensor<1x4x640x640xf16>
 
@@ -58,8 +58,8 @@ func.func @DoNotChainCollapseAdaptiveStrippingDisabled(%arg0: tensor<1x512x51x39
     %fq2_low  = const.Declare tensor<1x1x1x1xf16> = dense<0.000000e+00> : tensor<1x1x1x1xf32>, [#const.CastElemType<f16>]
     %fq2_high = const.Declare tensor<1x1x1x1xf16> = dense<14.7559032> : tensor<1x1x1x1xf32>, [#const.CastElemType<f16>]
 
-    %parent = IE.FakeQuantize(%arg0, %fq1_low, %fq1_high, %fq1_low, %fq1_high) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 65536 : i64} : tensor<1x512x51x39xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<1x512x51x39xf16>
-    %child  = IE.FakeQuantize(%parent, %fq2_low, %fq2_high, %fq2_low, %fq2_high) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 65536 : i64} : tensor<1x512x51x39xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<1x512x51x39xf16>
+    %parent = IE.FakeQuantize(%arg0, %fq1_low, %fq1_high, %fq1_low, %fq1_high) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 65536 : i64} : tensor<1x512x51x39xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<1x512x51x39xf16>
+    %child  = IE.FakeQuantize(%parent, %fq2_low, %fq2_high, %fq2_low, %fq2_high) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 65536 : i64} : tensor<1x512x51x39xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<1x512x51x39xf16>
     %sigmoid = IE.Sigmoid(%child) : tensor<1x512x51x39xf16> -> tensor<1x512x51x39xf16>
     return %sigmoid : tensor<1x512x51x39xf16>
 

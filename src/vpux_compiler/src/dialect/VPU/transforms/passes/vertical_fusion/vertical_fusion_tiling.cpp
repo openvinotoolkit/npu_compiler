@@ -11,11 +11,13 @@
 #include "vpux/compiler/dialect/VPU/utils/vertical_fusion/v1/vf_tiling_rewriter.hpp"
 #include "vpux/compiler/dialect/VPU/utils/vertical_fusion/v2/vertical_fusion_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/vertical_fusion/v2/vf_tiling_rewriter.hpp"
+#include "vpux/compiler/dialect/VPU/utils/vertical_fusion/vertical_fusion_utils.hpp"
 #include "vpux/compiler/dialect/config/IR/attributes.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
 #include "vpux/compiler/dialect/const/dialect.hpp"
 #include "vpux/compiler/dialect/core/IR/dialect.hpp"
 
+#include <mlir/Dialect/Func/IR/FuncOps.h>
 #include <mlir/Dialect/Linalg/IR/Linalg.h>
 #include <mlir/Dialect/Math/IR/Math.h>
 #include <mlir/Dialect/SCF/IR/SCF.h>
@@ -41,12 +43,10 @@ namespace {
 class VfTilingPass final : public VPU::impl::VfTilingBase<VfTilingPass> {
 public:
     explicit VfTilingPass(bool enableVerticalFusionPipelining, bool enableVFScheduleTrace,
-                          const WorkloadManagementMode workloadManagementMode, VFMergeCostMode costMode, Logger log)
+                          const WorkloadManagementMode workloadManagementMode, Logger log)
             : _enableVerticalFusionPipelining(enableVerticalFusionPipelining),
               _enableVerticalFusionScheduleTrace(enableVFScheduleTrace),
-              _workloadManagementMode(workloadManagementMode),
-              _costMode(costMode),
-              _enableOutputTileAdjustmentForSW(costMode == VFMergeCostMode::POWER) {
+              _workloadManagementMode(workloadManagementMode) {
         Base::initLogger(log, Base::getArgumentName());
     }
 
@@ -57,8 +57,6 @@ private:
     bool _enableVerticalFusionPipelining = false;
     bool _enableVerticalFusionScheduleTrace = false;
     WorkloadManagementMode _workloadManagementMode = WorkloadManagementMode::PWLM_V0_1_PAGES;
-    VFMergeCostMode _costMode = VFMergeCostMode::PERFORMANCE;
-    bool _enableOutputTileAdjustmentForSW = false;
 };
 
 mlir::LogicalResult VfTilingPass::initialize(mlir::MLIRContext* ctx) {
@@ -76,10 +74,6 @@ mlir::LogicalResult VfTilingPass::initialize(mlir::MLIRContext* ctx) {
     if (workloadManagementModeOpt.hasValue()) {
         _workloadManagementMode = workloadManagementModeOpt.getValue();
     }
-    if (vfMergeCostModeOpt.hasValue()) {
-        _costMode = vfMergeCostModeOpt.getValue();
-        _enableOutputTileAdjustmentForSW = _costMode == VFMergeCostMode::POWER;
-    }
     return mlir::success();
 }
 
@@ -90,6 +84,7 @@ mlir::LogicalResult VfTilingPass::initialize(mlir::MLIRContext* ctx) {
 void VfTilingPass::safeRunOnFunc() {
     auto& ctx = getContext();
     auto func = getOperation();
+    LoopIndexAllocator loopIndexAllocator(func);
 
     auto module = func->getParentOfType<mlir::ModuleOp>();
     auto maybeLayerCostModelAnalysis = getCachedParentAnalysis<VPU::LayerCostModelAnalysis>(module);
@@ -98,10 +93,8 @@ void VfTilingPass::safeRunOnFunc() {
 
     const auto costFunction = std::make_unique<VPU::LayerVPUNNCost>(func, layerCostModel, _log);
 
-    // Use a module-wide index for normal compilation to avoid the possibility vf loop index conflict
-    // Isolated function tests may have no module, so use a local counter
-    func->walk([module, vfIndex = 0ll](VPU::VerticalFusionOp vfOp) mutable {
-        const auto loopIndex = module != nullptr ? getNextVFLoopIndex(module) : vfIndex++;
+    func->walk([&](VPU::VerticalFusionOp vfOp) {
+        const auto loopIndex = loopIndexAllocator.getNextVFLoopIndex();
         vfOp->setAttr(VF_LOOP_INDEX_ATTR_NAME, VFLoopIndexAttr::get(vfOp->getContext(), loopIndex));
     });
 
@@ -109,6 +102,8 @@ void VfTilingPass::safeRunOnFunc() {
     target.addIllegalOp<VPU::VerticalFusionOp>();
     target.addLegalDialect<Const::ConstDialect>();
     target.addLegalDialect<VPU::VPUDialect>();
+    // Mark the func dialect as legal to avoid touching function attributes.
+    target.addLegalDialect<mlir::func::FuncDialect>();
 
     if (config::isPureHostCompileFunc(func)) {
         // host pipeline related
@@ -128,8 +123,9 @@ void VfTilingPass::safeRunOnFunc() {
             VPU::VF::v2::printVFSchedulingTrace(func, costFunction, _log);
         }
         auto& vfCache = getAnalysis<VPU::VF::v2::VFCacheAnalysis>();
+        const auto enableOutputTileAdjustmentForSW = VPU::getVFMergeCostMode(func) == VFMergeCostMode::POWER;
         patterns.add<VPU::VF::v2::VerticalFusionTilingRewriter>(&ctx, _enableVerticalFusionPipelining, costFunction,
-                                                                _enableOutputTileAdjustmentForSW, _log, vfCache);
+                                                                enableOutputTileAdjustmentForSW, _log, vfCache);
     }
 
     if (mlir::failed(mlir::applyPartialConversion(func, target, std::move(patterns)))) {
@@ -144,8 +140,7 @@ void VfTilingPass::safeRunOnFunc() {
 //
 
 std::unique_ptr<mlir::Pass> VPU::createVfTilingPass(bool enableVerticalFusionPipelining, bool enableVFScheduleTrace,
-                                                    const WorkloadManagementMode workloadManagementMode,
-                                                    VFMergeCostMode costMode, Logger log) {
+                                                    const WorkloadManagementMode workloadManagementMode, Logger log) {
     return std::make_unique<VfTilingPass>(enableVerticalFusionPipelining, enableVFScheduleTrace, workloadManagementMode,
-                                          costMode, log);
+                                          log);
 }

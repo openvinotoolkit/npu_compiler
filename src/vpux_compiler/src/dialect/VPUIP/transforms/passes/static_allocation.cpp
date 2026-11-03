@@ -6,6 +6,7 @@
 #include "vpux/compiler/core/aliases_info.hpp"
 #include "vpux/compiler/core/allocation_info.hpp"
 #include "vpux/compiler/core/async_deps_info.hpp"
+#include "vpux/compiler/core/attributes/shape.hpp"
 #include "vpux/compiler/core/control_edge_generator.hpp"
 #include "vpux/compiler/core/feasible_memory_scheduler_control_edges.hpp"
 #include "vpux/compiler/core/feasible_scheduler_utils.hpp"
@@ -223,9 +224,34 @@ LinearScanHandler StaticAllocationPass::runLinearScan(mlir::func::FuncOp funcOp)
     return scanHandler;
 }
 
+// An unbounded buffer is a placeholder for a network output, see allocateBuffersOfType.
+mlir::LogicalResult checkNoUnboundedAllocation(mlir::func::FuncOp func, VPU::MemoryKind memKind) {
+    const auto walkResult = func.walk([&](mlir::Operation* op) {
+        if (!mlir::isa<mlir::memref::AllocOp, VPURT::Alloc>(op)) {
+            return mlir::WalkResult::advance();
+        }
+        const auto type = mlir::cast<vpux::NDTypeInterface>(op->getResult(0).getType());
+        if (type.getMemoryKind() != memKind || !hasUnboundedDynamicShape(type)) {
+            return mlir::WalkResult::advance();
+        }
+        std::ignore = errorAt(op,
+                              "Cannot allocate a buffer of type '{0}': its shape has a dimension without an upper "
+                              "bound and it was not replaced by a network output, so there is no size to allocate "
+                              "it with",
+                              type);
+        return mlir::WalkResult::interrupt();
+    });
+    return mlir::failure(walkResult.wasInterrupted());
+}
+
 void StaticAllocationPass::safeRunOnFunc() {
     auto& ctx = getContext();
     auto func = getOperation();
+
+    if (mlir::failed(checkNoUnboundedAllocation(func, _memKind))) {
+        signalPassFailure();
+        return;
+    }
 
     const auto allocInfo = runLinearScan(func);
 

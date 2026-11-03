@@ -19,7 +19,7 @@
 
     %0 = IE.AffineReshape(%arg0) {dim_mapping = [[0, 1], [2], [3]], shape_value = [1, 1, 256, 2048]} : tensor<1x256x2048xf32> -> tensor<1x1x256x2048xf32>
     %1 = IE.Convert(%0) {dstElemType = f16} : tensor<1x1x256x2048xf32> -> tensor<1x1x256x2048xf16>
-    %2 = IE.FakeQuantize(%1, %cst_3, %cst_2, %cst_1, %cst_0) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i64} : tensor<1x1x256x2048xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<1x1x256x2048xf16>
+    %2 = IE.FakeQuantize(%1, %cst_3, %cst_2, %cst_1, %cst_0) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256 : i64} : tensor<1x1x256x2048xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<1x1x256x2048xf16>
     %3 = IE.QuantizeCast(%arg1) {dstElemType = !quant.uniform<i8:f32, 1.000000e+00>} : tensor<2048x2048xsi8> -> tensor<2048x2048x!quant.uniform<i8:f32, 1.000000e+00>>
     %4 = IE.Dequantize(%3) {dstElemType = f16} : tensor<2048x2048x!quant.uniform<i8:f32, 1.000000e+00>> -> tensor<2048x2048xf16>
     %5 = IE.AffineReshape(%2) {dim_mapping = [[0], [0], [0], [1, 2, 3]], shape_value = [256, 2048, 1, 1]} : tensor<1x1x256x2048xf16> -> tensor<256x2048x1x1xf16>
@@ -59,7 +59,7 @@
     %cst_2 = const.Declare tensor<1x1x1x1xf16> = dense<7.62890625> : tensor<1x1x1xf32>, [#const.Reshape<[1, 1, 1, 1]>, #const.CastElemType<f16>]
     %cst_3 = const.Declare tensor<1x1x1x1xf16> = dense<-7.6875> : tensor<1x1x1xf32>, [#const.Reshape<[1, 1, 1, 1]>, #const.CastElemType<f16>]
 
-    %0 = IE.FakeQuantize(%arg0, %cst_3, %cst_2, %cst_1, %cst_0) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i64} : tensor<1x256x2048x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<1x256x2048x1xf16>
+    %0 = IE.FakeQuantize(%arg0, %cst_3, %cst_2, %cst_1, %cst_0) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256 : i64} : tensor<1x256x2048x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<1x256x2048x1xf16>
     %1 = IE.QuantizeCast(%arg1) {dstElemType = !quant.uniform<i8:f32, 1.000000e+00>} : tensor<2048x2048xsi8> -> tensor<2048x2048x!quant.uniform<i8:f32, 1.000000e+00>>
     %2 = IE.Dequantize(%1) {dstElemType = f16} : tensor<2048x2048x!quant.uniform<i8:f32, 1.000000e+00>> -> tensor<2048x2048xf16>
     %3 = IE.AffineReshape(%0) {dim_mapping = [[0], [0], [1], [2, 3]], shape_value = [256, 2048, 1, 1]} : tensor<1x256x2048x1xf16> -> tensor<256x2048x1x1xf16>
@@ -113,7 +113,7 @@
     %cst_2 = const.Declare tensor<1x1x1x1xf16> = dense<7.62890625> : tensor<1x1x1xf32>, [#const.Reshape<[1, 1, 1, 1]>, #const.CastElemType<f16>]
     %cst_3 = const.Declare tensor<1x1x1x1xf16> = dense<-7.6875> : tensor<1x1x1xf32>, [#const.Reshape<[1, 1, 1, 1]>, #const.CastElemType<f16>]
 
-    %0 = IE.FakeQuantize(%arg0, %cst_3, %cst_2, %cst_1, %cst_0) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i64} : tensor<1x256x2048x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<1x256x2048x1xf16>
+    %0 = IE.FakeQuantize(%arg0, %cst_3, %cst_2, %cst_1, %cst_0) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256 : i64} : tensor<1x256x2048x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<1x256x2048x1xf16>
     %1 = IE.QuantizeCast(%arg1) {dstElemType = !quant.uniform<i8:f32, 1.000000e+00>} : tensor<2048x2048xsi8> -> tensor<2048x2048x!quant.uniform<i8:f32, 1.000000e+00>>
     %2 = IE.Dequantize(%1) {dstElemType = f16} : tensor<2048x2048x!quant.uniform<i8:f32, 1.000000e+00>> -> tensor<2048x2048xf16>
     %3 = IE.AffineReshape(%0) {dim_mapping = [[0], [0], [1], [2, 3]], shape_value = [256, 2048, 1, 1]} : tensor<1x256x2048x1xf16> -> tensor<256x2048x1x1xf16>
@@ -167,7 +167,7 @@ func.func @SplitFakeQuantToI8ForSI4WeightsAsInputs(%arg0: tensor<1x256x2048xf32>
 
   %0 = IE.AffineReshape(%arg0) {dim_mapping = [[0, 1], [2], [3]], shape_value = [1, 1, 256, 2048]} : tensor<1x256x2048xf32> -> tensor<1x1x256x2048xf32>
   %1 = IE.Convert(%0) {dstElemType = f16} : tensor<1x1x256x2048xf32> -> tensor<1x1x256x2048xf16>
-  %2 = IE.FakeQuantize(%1, %cst_3, %cst_2, %cst_1, %cst_0) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i64} : tensor<1x1x256x2048xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<1x1x256x2048xf16>
+  %2 = IE.FakeQuantize(%1, %cst_3, %cst_2, %cst_1, %cst_0) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256 : i64} : tensor<1x1x256x2048xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<1x1x256x2048xf16>
   %3 = IE.Convert(%arg1) {dstElemType = f16} : tensor<2048x2048xsi4> -> tensor<2048x2048xf16>
   %4 = IE.AffineReshape(%2) {dim_mapping = [[0], [0], [0], [1, 2, 3]], shape_value = [256, 2048, 1, 1]} : tensor<1x1x256x2048xf16> -> tensor<256x2048x1x1xf16>
   %5 = IE.AffineReshape(%3) {dim_mapping = [[0], [1, 2, 3]], shape_value = [2048, 2048, 1, 1]} : tensor<2048x2048xf16> -> tensor<2048x2048x1x1xf16>
@@ -206,7 +206,7 @@ func.func @SplitFakeQuantToI8ForSlicedIntWeightsAsInputs(%arg0: tensor<1x256x204
 
   %reshape0 = IE.AffineReshape(%arg0) {dim_mapping = [[0, 1], [2], [3]], shape_value = [1, 1, 256, 2048]} : tensor<1x256x2048xf32> -> tensor<1x1x256x2048xf32>
   %convert = IE.Convert(%reshape0) {dstElemType = f16} : tensor<1x1x256x2048xf32> -> tensor<1x1x256x2048xf16>
-  %quantize = IE.FakeQuantize(%convert, %cst_3, %cst_2, %cst_1, %cst_0) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i64} : tensor<1x1x256x2048xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<1x1x256x2048xf16>
+  %quantize = IE.FakeQuantize(%convert, %cst_3, %cst_2, %cst_1, %cst_0) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256 : i64} : tensor<1x1x256x2048xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<1x1x256x2048xf16>
   %slice = IE.Slice %arg1 [0, 0] [2048, 2048] : tensor<4096x2048xsi8> to tensor<2048x2048xsi8>
   %quantizecast = IE.QuantizeCast(%slice) {dstElemType = !quant.uniform<i8:f32, 1.000000e+00>} : tensor<2048x2048xsi8> -> tensor<2048x2048x!quant.uniform<i8:f32, 1.000000e+00>>
   %dequantize1 = IE.Dequantize(%quantizecast) {dstElemType = f16} : tensor<2048x2048x!quant.uniform<i8:f32, 1.000000e+00>> -> tensor<2048x2048xf16>

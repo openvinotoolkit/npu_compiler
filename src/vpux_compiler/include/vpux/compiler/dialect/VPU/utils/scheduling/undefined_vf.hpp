@@ -16,7 +16,7 @@ namespace vpux::VPU {
 // VF strategy recipe
 struct VfStrategyRecipe {
     VPU::VFScenario id;
-    VfSchedStrategyDescriptor::FetchScope fetchScp;
+    VfSchedStrategyDescriptor::IntraIterFetch intraIterFetch;
     VfSchedStrategyDescriptor::LastComputeOverlapWithNextIterInputs lastCompOverlapNextIterIn;
 };
 
@@ -46,8 +46,8 @@ public:
                                            vpux::AddressType memorySize) const override;
 
     // Iterate over predefined list of strategies and return the first feasible one:
-    // FULL_PREFETCHING, LASTOP_PREFETCHING, WEIGHTS_PREFETCHING, MINIMAL.
-    // Note: the current linear allocator supports only MINIMAL (other recipes are treated as infeasible).
+    // VF_PIPELINING, FULL_PREFETCHING, LASTOP_PREFETCHING, WEIGHTS_PREFETCHING, MINIMAL.
+    // Note: unsupported recipes are treated as infeasible by the selected allocator implementation.
     SearchOutcome runStrategySearch(const AllocatorFn& allocator) const;
 
 private:

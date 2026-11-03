@@ -38,31 +38,86 @@ func.func @PatchWeightTable() ->  memref<1008x1x1x4xsi32, [@CMX_NN, 0]> {
 
 // -----
 
+#GNHWC = affine_map<(d0, d1, d2, d3, d4) -> (d0, d1, d3, d4, d2)>
+
+!Input = !VPUIP.DistributedBuffer<2x1x16x1x1xf16, #GNHWC, @CMX_NN,
+    {mode = "DUPLICATED", num_clusters = 2 : i64, uniform_distributed_segments,
+    compute_shapes = [[2, 1, 16, 1, 1], [2, 1, 16, 1, 1]],
+    compute_offsets = [[0, 0, 0, 0, 0], [0, 0, 0, 0, 0]],
+    memory_shapes = [[2, 1, 16, 1, 1], [2, 1, 16, 1, 1]],
+    memory_offsets = [[0, 0, 0, 0, 0], [0, 0, 0, 0, 0]]}>
+
+!Weights = !VPUIP.DistributedBuffer<2x48x16x1x1xui2, #GNHWC, @CMX_NN,
+    {mode = "SEGMENTED", num_tiles = [1, 2, 1, 1, 1], num_clusters = 2 : i64,
+    compute_shapes = [[2, 16, 16, 1, 1], [2, 32, 16, 1, 1]],
+    compute_offsets = [[0, 0, 0, 0, 0], [0, 16, 0, 0, 0]],
+    memory_shapes = [[2, 16, 16, 1, 1], [2, 32, 16, 1, 1]],
+    memory_offsets = [[0, 0, 0, 0, 0], [0, 16, 0, 0, 0]]}>
+
+!WeightsTable = !VPUIP.DistributedBuffer<2x48x1x1x4xsi32, affine_map<(d0, d1, d2, d3, d4) -> (d0, d1, d2, d3, d4)>, @CMX_NN,
+    {mode = "SEGMENTED", num_tiles = [1, 2, 1, 1, 1], num_clusters = 2 : i64,
+    compute_shapes = [[2, 16, 1, 1, 4], [2, 32, 1, 1, 4]],
+    compute_offsets = [[0, 0, 0, 0, 0], [0, 16, 0, 0, 0]],
+    memory_shapes = [[2, 16, 1, 1, 4], [2, 32, 1, 1, 4]],
+    memory_offsets = [[0, 0, 0, 0, 0], [0, 16, 0, 0, 0]]}>
+
+!Output = !VPUIP.DistributedBuffer<2x1x48x1x1xf16, #GNHWC, @CMX_NN,
+    {mode = "SEGMENTED", num_tiles = [1, 1, 2, 1, 1], num_clusters = 2 : i64,
+    compute_shapes = [[2, 1, 16, 1, 1], [2, 1, 32, 1, 1]],
+    compute_offsets = [[0, 0, 0, 0, 0], [0, 0, 16, 0, 0]],
+    memory_shapes = [[2, 1, 16, 1, 1], [2, 1, 32, 1, 1]],
+    memory_offsets = [[0, 0, 0, 0, 0], [0, 0, 16, 0, 0]]}>
+
+// CHECK-LABEL: @PatchSOKMatMulWeightTable
+func.func @PatchSOKMatMulWeightTable() -> !WeightsTable {
+    %input = VPURT.DeclareBuffer <CMX_NN> <0> -> !Input
+    %weights = VPURT.DeclareBuffer <CMX_NN> <4096> -> !Weights
+    %weight_table = VPURT.DeclareBuffer <CMX_NN> <1024> -> !WeightsTable
+    %output = VPURT.DeclareBuffer <CMX_NN> <8192> -> !Output
+    %constant = const.Declare memref<2x48x1x1x4xsi32> = dense<0> : tensor<2x48x1x1x4xsi32>
+    %copy = VPUIP.NNDMA inputs(%constant : memref<2x48x1x1x4xsi32>) outputs(%weight_table : !WeightsTable) -> !WeightsTable
+    %matmul = VPUIP.NCEClusterTask <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>,
+        kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
+        kernel_size = [1, 1], kernel_strides = [1, 1], task_type = #VPUIP.nce_task_type<CONV>}>
+        input(%input : !Input) weights(%weights : !Weights) weight_table(%weight_table : !WeightsTable)
+        parent_input(%input : !Input) parent_output(%output : !Output) outputs(%output : !Output) -> !Output variants : {
+        DPUTask {outEnd = [0, 0, 47], mpe_mode = #VPU.mpe_mode<VECTOR_FP16>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, outStart = [0, 0, 0]}
+    } PPE : {
+    }
+    return %weight_table : !WeightsTable
+
+    // CHECK: [[PATCHED_TABLE:%.+]] = const.Declare memref<2x48x1x1x4xsi32>
+    // CHECK-SAME: #const.RelocateWeightsTable<weightsPtr=[4096, 4096, 4160, 4224], sparsityPtr=16777215 : i64, offsets=[0, 16, 48, 64], weightsTableSize=1536 : i64, weightsElemBitSize=2 : i64, channelOffset=0 : i64, originalOC=0 : i64>
+    // CHECK: VPUIP.NNDMA inputs([[PATCHED_TABLE]] : memref<2x48x1x1x4xsi32>)
+}
+
+// -----
+
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
 // CHECK-LABEL: @PatchWeightTableWeightsOnly
-func.func @PatchWeightTableWeightsOnly() -> memref<256x1x1x1xsi32, [@CMX_NN, 0]> {
-    %weight_table = VPURT.DeclareBuffer <CMX_NN> [0] <1024> -> memref<256x1x1x1xsi32, [@CMX_NN, 0]>
+func.func @PatchWeightTableWeightsOnly() -> memref<64x1x1x4xsi32, [@CMX_NN, 0]> {
+    %weight_table = VPURT.DeclareBuffer <CMX_NN> [0] <1024> -> memref<64x1x1x4xsi32, [@CMX_NN, 0]>
     %weights = VPURT.DeclareBuffer <CMX_NN> [0] <4096> -> memref<64x16x3x3xf16, {order = #NHWC}, [@CMX_NN, 0]>
-    %weight_table_const = const.Declare memref<256x1x1x1xsi32> = dense<1> : tensor<256x1x1x1xsi32>
+    %weight_table_const = const.Declare memref<64x1x1x4xsi32> = dense<1> : tensor<64x1x1x4xsi32>
 
     %in = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x16x59x227xf16, {order = #NHWC}, [@CMX_NN, 0]>
     %out = VPURT.DeclareBuffer <CMX_NN> [0] <428608> -> memref<1x64x29x113xf16, {order = #NHWC}, [@CMX_NN, 0]>
-    %4 = VPUIP.NNDMA inputs(%weight_table_const : memref<256x1x1x1xsi32>) outputs(%weight_table : memref<256x1x1x1xsi32, [@CMX_NN, 0]>) -> memref<256x1x1x1xsi32, [@CMX_NN, 0]>
-    %5 = VPUIP.NCEClusterTask <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>, kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [3, 3], kernel_strides = [2, 2], task_type = #VPUIP.nce_task_type<CONV>}> input(%in : memref<1x16x59x227xf16, {order = #NHWC}, [@CMX_NN, 0]>) weights(%weights : memref<64x16x3x3xf16, {order = #NHWC}, [@CMX_NN, 0]>) weight_table(%weight_table : memref<256x1x1x1xsi32, [@CMX_NN, 0]>) parent_input(%in : memref<1x16x59x227xf16, {order = #NHWC}, [@CMX_NN, 0]>) parent_output(%out : memref<1x64x29x113xf16, {order = #NHWC}, [@CMX_NN, 0]>) outputs(%out : memref<1x64x29x113xf16, {order = #NHWC}, [@CMX_NN, 0]>) -> memref<1x64x29x113xf16, {order = #NHWC}, [@CMX_NN, 0]> variants : {
+    %4 = VPUIP.NNDMA inputs(%weight_table_const : memref<64x1x1x4xsi32>) outputs(%weight_table : memref<64x1x1x4xsi32, [@CMX_NN, 0]>) -> memref<64x1x1x4xsi32, [@CMX_NN, 0]>
+    %5 = VPUIP.NCEClusterTask <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>, kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [3, 3], kernel_strides = [2, 2], task_type = #VPUIP.nce_task_type<CONV>}> input(%in : memref<1x16x59x227xf16, {order = #NHWC}, [@CMX_NN, 0]>) weights(%weights : memref<64x16x3x3xf16, {order = #NHWC}, [@CMX_NN, 0]>) weight_table(%weight_table : memref<64x1x1x4xsi32, [@CMX_NN, 0]>) parent_input(%in : memref<1x16x59x227xf16, {order = #NHWC}, [@CMX_NN, 0]>) parent_output(%out : memref<1x64x29x113xf16, {order = #NHWC}, [@CMX_NN, 0]>) outputs(%out : memref<1x64x29x113xf16, {order = #NHWC}, [@CMX_NN, 0]>) -> memref<1x64x29x113xf16, {order = #NHWC}, [@CMX_NN, 0]> variants : {
       DPUTask {outEnd = [112, 4, 63], mpe_mode = #VPU.mpe_mode<VECTOR_FP16>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, outStart = [0, 0, 0]}
     } PPE :  {
     }
 
-    return %weight_table : memref<256x1x1x1xsi32, [@CMX_NN, 0]>
+    return %weight_table : memref<64x1x1x4xsi32, [@CMX_NN, 0]>
 
-    // CHECK:       [[WEIGHT_TABLE_BUF:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <1024> -> memref<256x1x1x1xsi32, [@CMX_NN, 0]>
+    // CHECK:       [[WEIGHT_TABLE_BUF:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <1024> -> memref<64x1x1x4xsi32, [@CMX_NN, 0]>
     // CHECK:       [[WEIGHTS_BUF:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <[[WEIGHTS_ADDR:[^>]+]]> -> memref<64x16x3x3xf16, {order = #NHWC}, [@CMX_NN, 0]>
-    // CHECK-DAG:       [[CONST:%.+]] = const.Declare memref<256x1x1x1xsi32> = dense<1> : tensor<256x1x1x1xsi32>, [#const.RelocateWeightsTable<weightsPtr=[[[WEIGHTS_ADDR]]], sparsityPtr=16777215 : i64, offsets=[0], weightsTableSize=1024 : i64, weightsElemBitSize=16 : i64, channelOffset=0 : i64, originalOC=0 : i64>]
-    // CHECK:       [[NDMA_OP:.+]] = VPUIP.NNDMA inputs([[CONST]] : memref<256x1x1x1xsi32>) outputs([[WEIGHT_TABLE_BUF]] : memref<256x1x1x1xsi32, [@CMX_NN, 0]>) -> memref<256x1x1x1xsi32, [@CMX_NN, 0]>
+    // CHECK-DAG:       [[CONST:%.+]] = const.Declare memref<64x1x1x4xsi32> = dense<1> : tensor<64x1x1x4xsi32>, [#const.RelocateWeightsTable<weightsPtr=[[[WEIGHTS_ADDR]]], sparsityPtr=16777215 : i64, offsets=[0], weightsTableSize=1024 : i64, weightsElemBitSize=16 : i64, channelOffset=0 : i64, originalOC=0 : i64>]
+    // CHECK:       [[NDMA_OP:.+]] = VPUIP.NNDMA inputs([[CONST]] : memref<64x1x1x4xsi32>) outputs([[WEIGHT_TABLE_BUF]] : memref<64x1x1x4xsi32, [@CMX_NN, 0]>) -> memref<64x1x1x4xsi32, [@CMX_NN, 0]>
     // CHECK:       [[NCE_CLUST_TASK_OP:.+]] = VPUIP.NCEClusterTask
     // CHECK-SAME:  weights([[WEIGHTS_BUF]] : memref<64x16x3x3xf16, {order = #NHWC}, [@CMX_NN, 0]>)
-    // CHECK-SAME:  weight_table([[WEIGHT_TABLE_BUF]] : memref<256x1x1x1xsi32, [@CMX_NN, 0]>)
+    // CHECK-SAME:  weight_table([[WEIGHT_TABLE_BUF]] : memref<64x1x1x4xsi32, [@CMX_NN, 0]>)
 }
 
 // -----
@@ -860,18 +915,18 @@ func.func @PatchWeightTableWithDistributedBufferWithDuplicatedSegmentedWeights()
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 !qElemType = !quant.uniform<i4:f16, 1.3385416666666667>
 // CHECK-LABEL: @PatchWeightTableI4WeightsOnly
-func.func @PatchWeightTableI4WeightsOnly() -> memref<256x1x1x1xsi32, [@CMX_NN, 0]> {
-    %weight_table = VPURT.DeclareBuffer <CMX_NN> [0] <1024> -> memref<256x1x1x1xsi32, [@CMX_NN, 0]>
+func.func @PatchWeightTableI4WeightsOnly() -> memref<64x1x1x4xsi32, [@CMX_NN, 0]> {
+    %weight_table = VPURT.DeclareBuffer <CMX_NN> [0] <1024> -> memref<64x1x1x4xsi32, [@CMX_NN, 0]>
     %weights = VPURT.DeclareBuffer <CMX_NN> [0] <4096> -> memref<64x16x3x3x!qElemType, {order = #NHWC}, [@CMX_NN, 0]>
-    %weight_table_const = const.Declare memref<256x1x1x1xsi32> = dense<1> : tensor<256x1x1x1xsi32>
+    %weight_table_const = const.Declare memref<64x1x1x4xsi32> = dense<1> : tensor<64x1x1x4xsi32>
 
     %in = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x16x59x227xf16, {order = #NHWC}, [@CMX_NN, 0]>
     %out = VPURT.DeclareBuffer <CMX_NN> [0] <428608> -> memref<1x64x29x113xf16, {order = #NHWC}, [@CMX_NN, 0]>
-    %4 = VPUIP.NNDMA inputs(%weight_table_const : memref<256x1x1x1xsi32>) outputs(%weight_table : memref<256x1x1x1xsi32, [@CMX_NN, 0]>) -> memref<256x1x1x1xsi32, [@CMX_NN, 0]>
+    %4 = VPUIP.NNDMA inputs(%weight_table_const : memref<64x1x1x4xsi32>) outputs(%weight_table : memref<64x1x1x4xsi32, [@CMX_NN, 0]>) -> memref<64x1x1x4xsi32, [@CMX_NN, 0]>
     %5 = VPUIP.NCEClusterTask <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>, kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [3, 3], kernel_strides = [2, 2], task_type = #VPUIP.nce_task_type<CONV>}>
         input(%in : memref<1x16x59x227xf16, {order = #NHWC}, [@CMX_NN, 0]>)
         weights(%weights : memref<64x16x3x3x!qElemType, {order = #NHWC}, [@CMX_NN, 0]>)
-        weight_table(%weight_table : memref<256x1x1x1xsi32, [@CMX_NN, 0]>)
+        weight_table(%weight_table : memref<64x1x1x4xsi32, [@CMX_NN, 0]>)
         parent_input(%in : memref<1x16x59x227xf16, {order = #NHWC}, [@CMX_NN, 0]>)
         parent_output(%out : memref<1x64x29x113xf16, {order = #NHWC}, [@CMX_NN, 0]>)
         outputs(%out : memref<1x64x29x113xf16, {order = #NHWC}, [@CMX_NN, 0]>)
@@ -880,15 +935,15 @@ func.func @PatchWeightTableI4WeightsOnly() -> memref<256x1x1x1xsi32, [@CMX_NN, 0
     } PPE :  {
     }
 
-    return %weight_table : memref<256x1x1x1xsi32, [@CMX_NN, 0]>
+    return %weight_table : memref<64x1x1x4xsi32, [@CMX_NN, 0]>
 
-    // CHECK:       [[WEIGHT_TABLE_BUF:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <1024> -> memref<256x1x1x1xsi32, [@CMX_NN, 0]>
+    // CHECK:       [[WEIGHT_TABLE_BUF:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <1024> -> memref<64x1x1x4xsi32, [@CMX_NN, 0]>
     // CHECK:       [[WEIGHTS_BUF:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <[[WEIGHTS_ADDR:[^>]+]]> -> memref<64x16x3x3x!qElemType, {order = #NHWC}, [@CMX_NN, 0]>
-    // CHECK-DAG:       [[CONST:%.+]] = const.Declare memref<256x1x1x1xsi32> = dense<1> : tensor<256x1x1x1xsi32>, [#const.RelocateWeightsTable<weightsPtr=[[[WEIGHTS_ADDR]]], sparsityPtr=16777215 : i64, offsets=[0], weightsTableSize=1024 : i64, weightsElemBitSize=4 : i64, channelOffset=0 : i64, originalOC=0 : i64>]
-    // CHECK:       [[NDMA_OP:.+]] = VPUIP.NNDMA inputs([[CONST]] : memref<256x1x1x1xsi32>) outputs([[WEIGHT_TABLE_BUF]] : memref<256x1x1x1xsi32, [@CMX_NN, 0]>) -> memref<256x1x1x1xsi32, [@CMX_NN, 0]>
+    // CHECK-DAG:       [[CONST:%.+]] = const.Declare memref<64x1x1x4xsi32> = dense<1> : tensor<64x1x1x4xsi32>, [#const.RelocateWeightsTable<weightsPtr=[[[WEIGHTS_ADDR]]], sparsityPtr=16777215 : i64, offsets=[0], weightsTableSize=1024 : i64, weightsElemBitSize=4 : i64, channelOffset=0 : i64, originalOC=0 : i64>]
+    // CHECK:       [[NDMA_OP:.+]] = VPUIP.NNDMA inputs([[CONST]] : memref<64x1x1x4xsi32>) outputs([[WEIGHT_TABLE_BUF]] : memref<64x1x1x4xsi32, [@CMX_NN, 0]>) -> memref<64x1x1x4xsi32, [@CMX_NN, 0]>
     // CHECK:       [[NCE_CLUST_TASK_OP:.+]] = VPUIP.NCEClusterTask
     // CHECK-SAME:  weights([[WEIGHTS_BUF]] : memref<64x16x3x3x!qElemType, {order = #NHWC}, [@CMX_NN, 0]>)
-    // CHECK-SAME:  weight_table([[WEIGHT_TABLE_BUF]] : memref<256x1x1x1xsi32, [@CMX_NN, 0]>)
+    // CHECK-SAME:  weight_table([[WEIGHT_TABLE_BUF]] : memref<64x1x1x4xsi32, [@CMX_NN, 0]>)
 }
 
 // -----

@@ -67,15 +67,18 @@ IE::ConvolutionOp createStridedSliceConv(mlir::Value input, mlir::ArrayRef<int64
 
         // the created FQ is artificial, levels are set to 255 in correlation with FQ range from 0.0f to 254.0f (255
         // integer values)
-        auto fqLevelsVal = inputFQ.getLowFpType().has_value() ? nullptr : getIntAttr(rewriter, 255);
+        mlir::Attribute fqMergedAttr = inputFQ.getLevelsOrLowFpTypeAttr();
+        if (!mlir::isa<mlir::TypeAttr>(fqMergedAttr)) {
+            fqMergedAttr = getIntAttr(rewriter, 255);
+        }
 
         auto fqLowVal = Const::createFloatConst(rewriter, loc, fqArgType, 0.0f);
         auto fqInHighVal = Const::createFloatConst(rewriter, loc, fqArgType, 254.0f);
         auto fqOutHighVal = Const::createFloatConst(rewriter, loc, fqArgType, 254.0f);
 
-        auto quantizationForWeights = IE::FakeQuantizeOp::create(
-                rewriter, loc, dataStorageType, weights, fqLowVal, fqInHighVal, fqLowVal, fqOutHighVal, fqLevelsVal,
-                inputFQ.getLowFpTypeAttr(), inputFQ.getAutoBroadcastAttr());
+        auto quantizationForWeights =
+                IE::FakeQuantizeOp::create(rewriter, loc, dataStorageType, weights, fqLowVal, fqInHighVal, fqLowVal,
+                                           fqOutHighVal, fqMergedAttr, inputFQ.getAutoBroadcastAttr());
         weights = quantizationForWeights.getOutput();
     }
 
@@ -126,15 +129,19 @@ IE::ConvolutionOp createParallelStridedSliceToConv(mlir::Value input, mlir::Arra
 
         // the created FQ is artificial, levels are set to 255 in correlation with FQ range from 0.0f to 254.0f (255
         // integer values)
-        auto fqLevelsVal = inputFQ.getLowFpType().has_value() ? nullptr : getIntAttr(rewriter, 255);
+        mlir::Attribute fqMergedAttr = inputFQ.getLevelsOrLowFpTypeAttr();
+        if (!mlir::isa<mlir::TypeAttr>(fqMergedAttr)) {
+            // Input FQ has lowFpType, create merged attr with levels=255
+            fqMergedAttr = getIntAttr(rewriter, 255);
+        }
 
         auto fqLowVal = Const::createFloatConst(rewriter, loc, fqArgType, 0.0f);
         auto fqInHighVal = Const::createFloatConst(rewriter, loc, fqArgType, 254.0f);
         auto fqOutHighVal = Const::createFloatConst(rewriter, loc, fqArgType, 254.0f);
 
-        auto quantizationForWeights = IE::FakeQuantizeOp::create(
-                rewriter, loc, dataStorageType, weights, fqLowVal, fqInHighVal, fqLowVal, fqOutHighVal, fqLevelsVal,
-                inputFQ.getLowFpTypeAttr(), inputFQ.getAutoBroadcastAttr());
+        auto quantizationForWeights =
+                IE::FakeQuantizeOp::create(rewriter, loc, dataStorageType, weights, fqLowVal, fqInHighVal, fqLowVal,
+                                           fqOutHighVal, fqMergedAttr, inputFQ.getAutoBroadcastAttr());
 
         weights = quantizationForWeights.getOutput();
     }

@@ -71,6 +71,16 @@ bool isOpFromHostCompilePipeline(mlir::Operation* op) {
     return isOpFromAnyDialect<mlir::arith::ArithDialect, mlir::scf::SCFDialect, mlir::tensor::TensorDialect>(op);
 }
 
+constexpr StringRef VPU_SW_MODULE_NAME = "VPU.SW";
+
+// ShaveCodeGen outlines generated kernel bodies (potentially containing linalg ops not lowered away
+// until later VPU/VPUIP stages) into a nested "VPU.SW" module by cloning ops, which duplicates their
+// locations. That module's contents are synthetic, so their locations don't need to be traced/unique.
+bool isOpInsideVpuSwModule(mlir::Operation* op) {
+    auto moduleOp = op->getParentOfType<mlir::ModuleOp>();
+    return moduleOp && moduleOp.getSymName() == VPU_SW_MODULE_NAME;
+}
+
 bool isIgnoredOpType(mlir::Operation* op) {
     // Excluding IE/VPU/VPUIP casts ops, because they won't be translated to real SW/DMA tasks.DistributedCasts because
     // of CMXConcat dependency, track: E81319.
@@ -89,7 +99,9 @@ bool isIgnoredOpType(mlir::Operation* op) {
     bool isIgnoredOp = mlir::isa<VPUIP::GroupSparseBufferOp, VPUIP::UngroupSparseBufferOp, net::DataInfoOp,
                                  mlir::UnrealizedConversionCastOp>(op);
     bool isHostPipeline = config::isHostCompileMode(op);
-    return isViewLikeOp || isControlFlowOp || isMemoryAllocOp || isSetupOp || isIgnoredOp || isHostPipeline;
+    bool isInsideVpuSwModule = isOpInsideVpuSwModule(op);
+    return isViewLikeOp || isControlFlowOp || isMemoryAllocOp || isSetupOp || isIgnoredOp || isHostPipeline ||
+           isInsideVpuSwModule;
 }
 
 bool hasExcludedPatterns(mlir::Operation* op) {
@@ -226,8 +238,9 @@ mlir::LogicalResult verifyLocationsUniquenessImpl(mlir::Operation* op, StringRef
     HighVerbosityDuplicatesHandler<KeyType> duplicatesHandler;
     op->walk([&](mlir::Operation* nestedOp) {
         // If we hit an operation from late dialects - likely wrong use of setupLocationVerifierPass
-        // If we hit an operation the host comile pipeline - do nothing
-        VPUX_THROW_WHEN(!isOpFromHostCompilePipeline(nestedOp) && isOpFromIgnoredDialect(nestedOp),
+        // If we hit an operation from the host compile pipeline or the generated "VPU.SW" module - do nothing
+        VPUX_THROW_WHEN(!isOpFromHostCompilePipeline(nestedOp) && !isOpInsideVpuSwModule(nestedOp) &&
+                                isOpFromIgnoredDialect(nestedOp),
                         "Op '{0}' is from ignored dialect: {1}", nestedOp->getName(),
                         nestedOp->getDialect()->getNamespace());
 

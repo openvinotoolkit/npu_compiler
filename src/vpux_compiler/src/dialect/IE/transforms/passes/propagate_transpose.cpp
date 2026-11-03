@@ -10,12 +10,15 @@
 #include "vpux/compiler/dialect/IE/IR/ops/data_movement.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/data_type.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/normalization.hpp"
+#include "vpux/compiler/dialect/IE/IR/ops/specialized.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
 #include "vpux/compiler/dialect/IE/transforms/rewriters/propagate_transpose_affine_reshape_common.hpp"
 #include "vpux/compiler/dialect/IE/utils/concat_utils.hpp"
 #include "vpux/compiler/dialect/IE/utils/pooling_utils.hpp"
+#include "vpux/compiler/dialect/IE/utils/transpose_op_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_invariant.hpp"
 #include "vpux/compiler/utils/error.hpp"
+#include "vpux/compiler/utils/infer_output_shape.hpp"
 #include "vpux/compiler/utils/passes.hpp"
 #include "vpux/compiler/utils/permute_utils.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
@@ -864,6 +867,69 @@ private:
 };
 
 //
+// MoveThroughAttentionDMA
+//
+
+// Folds a WH-swapping Transpose on the pastV cache operand (and the inverse Transpose on the
+// presentV result) into IE.AttentionDMA. The SHAVE kernel derives the V^T layout from the cache
+// dimensions, so feeding the un-transposed cache directly lets both Transposes disappear.
+class MoveThroughAttentionDMA final : public mlir::OpRewritePattern<IE::AttentionDMAOp> {
+public:
+    MoveThroughAttentionDMA(mlir::MLIRContext* ctx, Logger log)
+            : mlir::OpRewritePattern<IE::AttentionDMAOp>(ctx), _log(log) {
+        this->setDebugName("MoveThroughAttentionDMA");
+    }
+
+    mlir::LogicalResult matchAndRewrite(IE::AttentionDMAOp origOp, mlir::PatternRewriter& rewriter) const final;
+
+private:
+    Logger _log;
+};
+
+mlir::LogicalResult MoveThroughAttentionDMA::matchAndRewrite(IE::AttentionDMAOp origOp,
+                                                             mlir::PatternRewriter& rewriter) const {
+    auto pastV = origOp.getPastV();
+    auto presentV = origOp.getPresentV();
+    if (pastV == nullptr || presentV == nullptr) {
+        return matchFailed(_log, rewriter, origOp, "AttentionDMA has no pastV/presentV cache");
+    }
+
+    auto inTranspose = pastV.getDefiningOp<IE::TransposeOp>();
+    if (inTranspose == nullptr || !inTranspose->hasOneUse() || !IE::isWHSwappingTranspose(inTranspose)) {
+        return matchFailed(_log, rewriter, origOp, "pastV is not fed by a single-use WH-swapping Transpose");
+    }
+
+    // A WH swap alone doesn't prove inTranspose.getInput() is laid out as [Ev, S]: compare its Seq-sized
+    // dim against pastK's Seq dim to confirm the pre-transpose value truly has Seq and Ev swapped.
+    auto pastK = origOp.getPastK();
+    if (pastK == nullptr || !isAttentionVTransposed(getShape(pastK), getShape(inTranspose.getInput()))) {
+        return matchFailed(_log, rewriter, origOp,
+                           "pre-transpose pastV is not in the [Ev, S] layout relative to pastK");
+    }
+
+    if (!presentV.hasOneUse()) {
+        return matchFailed(_log, rewriter, origOp, "presentV has more than one consumer");
+    }
+    auto outTranspose = mlir::dyn_cast<IE::TransposeOp>(*presentV.getUsers().begin());
+    if (outTranspose == nullptr || !IE::isWHSwappingTranspose(outTranspose)) {
+        return matchFailed(_log, rewriter, origOp, "presentV is not consumed by a WH-swapping Transpose");
+    }
+
+    // Rewire the cache to its pre-transpose layout; presentV then mirrors pastV's shape/type.
+    const auto newVType = inTranspose.getInput().getType();
+    rewriter.modifyOpInPlace(origOp, [&]() {
+        origOp.getPastVMutable().assign(inTranspose.getInput());
+        presentV.setType(newVType);
+        origOp.setVTransposedAttr(rewriter.getUnitAttr());
+    });
+    rewriter.replaceOp(outTranspose, presentV);
+    rewriter.eraseOp(inTranspose);
+
+    _log.trace("[{0}] Folded V-cache Transpose into AttentionDMA at {1}", getDebugName(), origOp->getLoc());
+    return mlir::success();
+}
+
+//
 // PropagateTransposePass
 //
 
@@ -913,6 +979,7 @@ void PropagateTransposePass::safeRunOnFunc() {
     patterns.add<MoveConcatThroughTranspose>(&ctx, _log);
     patterns.add<MoveTransposeThroughRMS>(&ctx, _log);
     patterns.add<MoveThroughScatterUpdate>(&ctx, _log);
+    patterns.add<MoveThroughAttentionDMA>(&ctx, _log);
 
     if (mlir::failed(mlir::applyPatternsGreedily(func, std::move(patterns), getDefaultGreedyRewriteConfig()))) {
         signalPassFailure();

@@ -20,24 +20,23 @@
 using namespace vpux;
 
 mlir::LogicalResult vpux::IE::FakeQuantizeOp::verify() {
-    const auto levels = getLevels();
-    const auto lowFpType = getLowFpType();
+    const auto attr = getLevelsOrLowFpTypeAttr();
+    // Note: attr is always present (not optional)
 
-    if (!levels.has_value()) {
-        if (!lowFpType.has_value()) {
-            return errorAt(*this, "Missing both levels and low precision floating type");
-        }
-        if (!isLowFpType(lowFpType.value()) && !mlir::isa<mlir::quant::QuantileType>(lowFpType.value())) {
-            return errorAt(*this, "Unsupported low floating point type {0}", *lowFpType);
-        }
-    } else {
-        if (lowFpType.has_value()) {
-            return errorAt(*this,
-                           "Contradicting attributes, both levels and low precision floating type were provided");
-        }
+    if (auto intAttr = mlir::dyn_cast<mlir::IntegerAttr>(attr)) {
+        // IntegerAttr case (levels) is always valid
+        return mlir::success();
     }
 
-    return mlir::success();
+    if (auto typeAttr = mlir::dyn_cast<mlir::TypeAttr>(attr)) {
+        const auto type = typeAttr.getValue();
+        if (!isLowFpType(type) && !mlir::isa<mlir::quant::QuantileType>(type)) {
+            return errorAt(*this, "Unsupported low floating point type {0}", type);
+        }
+        return mlir::success();
+    }
+
+    return errorAt(*this, "levels_or_low_fp_type must be either IntegerAttr or TypeAttr");
 }
 
 mlir::LogicalResult vpux::IE::FakeQuantizeOp::inferReturnTypeComponents(
@@ -221,9 +220,9 @@ mlir::LogicalResult TransposeGroups::matchAndRewrite(IE::FakeQuantizeOp fqOp, ml
                                           fqOp.getOutputLow(), nullptr, orderAttr);
     auto outHigh = IE::TransposeOp::create(rewriter, appendLoc(fqOp.getOutputHigh().getLoc(), "transposed"),
                                            fqOp.getOutputHigh(), nullptr, orderAttr);
-    auto newFqOp = IE::FakeQuantizeOp::create(
-            rewriter, fqOp->getLoc(), input.getOutput(), inLow.getOutput(), inHigh.getOutput(), outLow.getOutput(),
-            outHigh.getOutput(), fqOp.getLevelsAttr(), fqOp.getLowFpTypeAttr(), fqOp.getAutoBroadcastAttr());
+    auto newFqOp = IE::FakeQuantizeOp::create(rewriter, fqOp->getLoc(), input.getOutput(), inLow.getOutput(),
+                                              inHigh.getOutput(), outLow.getOutput(), outHigh.getOutput(),
+                                              fqOp.getLevelsOrLowFpTypeAttr(), fqOp.getAutoBroadcastAttr());
     const auto inverseOrder = IE::deduceInverseOrder(input);
     auto restoreOrderAttr = mlir::AffineMapAttr::get(inverseOrder.toAffineMap(getContext()));
     auto out = IE::TransposeOp::create(rewriter, appendLoc(newFqOp.getOutput().getLoc(), "transposed"),

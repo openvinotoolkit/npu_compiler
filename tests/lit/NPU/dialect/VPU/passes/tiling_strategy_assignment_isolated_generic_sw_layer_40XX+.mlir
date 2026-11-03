@@ -21,8 +21,10 @@ module @IsolatedGenericSwLayerNCHW {
       kernelInfo = #VPU.KernelInfo<
         tilingInfoFunc = @generated_info_0,
         tilingAxes = [1, 2, 3],
-        numSlicedInputs = 2 : i64
-      >
+        numSlicedInputs = 2 : i64,
+        numTensorInputs = 2 : i64,
+        numAuxBuffers = 0 : i64,
+        inputSegmentationAxes = []>
     }
   }
   config.Resources 6 of @NCE at 1.700000e+03 MHz {
@@ -60,8 +62,10 @@ module @IsolatedGenericSwLayerNHWC {
       kernelInfo = #VPU.KernelInfo<
         tilingInfoFunc = @generated_info_0,
         tilingAxes = [1, 2, 3],
-        numSlicedInputs = 2 : i64
-      >
+        numSlicedInputs = 2 : i64,
+        numTensorInputs = 2 : i64,
+        numAuxBuffers = 0 : i64,
+        inputSegmentationAxes = []>
     }
   }
   config.Resources 6 of @NCE at 1.700000e+03 MHz {
@@ -99,8 +103,10 @@ module @IsolatedGenericSwLayerNWCH {
       kernelInfo = #VPU.KernelInfo<
         tilingInfoFunc = @generated_info_0,
         tilingAxes = [1, 2, 3],
-        numSlicedInputs = 2 : i64
-      >
+        numSlicedInputs = 2 : i64,
+        numTensorInputs = 2 : i64,
+        numAuxBuffers = 0 : i64,
+        inputSegmentationAxes = []>
     }
   }
   config.Resources 6 of @NCE at 1.700000e+03 MHz {
@@ -136,8 +142,10 @@ module @IsolatedGenericSwLayerNCHW {
       kernelInfo = #VPU.KernelInfo<
         tilingInfoFunc = @generated_info_0,
         tilingAxes = [1, 2, 3],
-        numSlicedInputs = 2 : i64
-      >
+        numSlicedInputs = 2 : i64,
+        numTensorInputs = 2 : i64,
+        numAuxBuffers = 0 : i64,
+        inputSegmentationAxes = []>
     }
   }
   config.Resources 6 of @NCE at 1.700000e+03 MHz {
@@ -176,8 +184,10 @@ module @IsolatedGenericSwLayerNHWC {
       kernelInfo = #VPU.KernelInfo<
         tilingInfoFunc = @generated_info_0,
         tilingAxes = [1, 2, 3],
-        numSlicedInputs = 2 : i64
-      >
+        numSlicedInputs = 2 : i64,
+        numTensorInputs = 2 : i64,
+        numAuxBuffers = 0 : i64,
+        inputSegmentationAxes = []>
     }
   }
   config.Resources 6 of @NCE at 1.700000e+03 MHz {
@@ -215,8 +225,10 @@ module @IsolatedGenericSwLayerNWCH {
       kernelInfo = #VPU.KernelInfo<
         tilingInfoFunc = @generated_info_0,
         tilingAxes = [1, 2, 3],
-        numSlicedInputs = 2 : i64
-      >
+        numSlicedInputs = 2 : i64,
+        numTensorInputs = 2 : i64,
+        numAuxBuffers = 0 : i64,
+        inputSegmentationAxes = []>
     }
   }
   config.Resources 6 of @NCE at 1.700000e+03 MHz {
@@ -255,8 +267,10 @@ module @IsolatedGenericSwLayerNHWCLargeC {
       kernelInfo = #VPU.KernelInfo<
         tilingInfoFunc = @generated_info_0,
         tilingAxes = [2, 3],
-        numSlicedInputs = 2 : i64
-      >
+        numSlicedInputs = 2 : i64,
+        numTensorInputs = 2 : i64,
+        numAuxBuffers = 0 : i64,
+        inputSegmentationAxes = []>
     }
   }
   config.Resources 6 of @NCE at 1.700000e+03 MHz {
@@ -294,8 +308,10 @@ module @IsolatedGenericSwLayerNHWCLargeH {
       kernelInfo = #VPU.KernelInfo<
         tilingInfoFunc = @generated_info_0,
         tilingAxes = [2, 3],
-        numSlicedInputs = 2 : i64
-      >
+        numSlicedInputs = 2 : i64,
+        numTensorInputs = 2 : i64,
+        numAuxBuffers = 0 : i64,
+        inputSegmentationAxes = []>
     }
   }
   config.Resources 6 of @NCE at 1.700000e+03 MHz {
@@ -311,5 +327,33 @@ module @IsolatedGenericSwLayerNHWCLargeH {
   func.func @main(%arg0: tensor<1x960x1x640xf16, {order = #NHWC}>, %arg1: tensor<1x960x1x1xf16, {order = #NHWC}>) -> tensor<1x960x1x640xf16, {order = #NHWC}> {
     %0 = VPU.GenericSwLayer(%arg0, %arg1 : tensor<1x960x1x640xf16, {order = #NHWC}>, tensor<1x960x1x1xf16, {order = #NHWC}>) @VPU.SW::@generated_0 tiling(sizes = [640, 960], offsets = [0, 0]) -> tensor<1x960x1x640xf16, {order = #NHWC}>
     return %0 : tensor<1x960x1x640xf16, {order = #NHWC}>
+  }
+}
+
+// -----
+
+// GenericSwLayer kernels without tiling metadata may execute with non-CMX-backed buffers.
+// Failing the whole-op CMX fit check is not a hard failure for this execution model.
+
+// CHECK-LABEL: module @UntiledGenericSwLayerDoesNotRequireAllBuffersInCMX
+// CHECK: VPU.GenericSwLayer
+// CHECK-NOT: tilingStrategy
+module @UntiledGenericSwLayerDoesNotRequireAllBuffersInCMX {
+  module @VPU.SW {
+    func.func nested @generated_0(%arg0: tensor<1x16x4000x200xf32>) -> tensor<1x16x4000x200xf32>
+  }
+
+  config.Resources 1 of @NCE at 1.700000e+03 MHz {
+      config.MemoryResource 1 bytes of @CMX_NN
+  }
+
+  net.NetworkInfo entryPoint : @main inputsInfo : {
+    DataInfo "input" : tensor<1x16x4000x200xf32>
+  } outputsInfo : {
+    DataInfo "output" : tensor<1x16x4000x200xf32>
+  }
+  func.func @main(%arg0: tensor<1x16x4000x200xf32>) -> tensor<1x16x4000x200xf32> {
+    %0 = VPU.GenericSwLayer(%arg0 : tensor<1x16x4000x200xf32>) @VPU.SW::@generated_0 -> tensor<1x16x4000x200xf32>
+    return %0 : tensor<1x16x4000x200xf32>
   }
 }

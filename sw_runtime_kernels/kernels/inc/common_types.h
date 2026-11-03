@@ -3,6 +3,17 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
+#pragma once
+
+// Forwarding shim: the vpux param base normally lives in the sw_operators toolkit
+// (vpux layer). The full build forwards to that copy (an explicit relative path so it
+// always reaches it). The open-source build does not ship the sw_operators/toolkit
+// tree, so __has_include falls back to the inline definitions below (kept in sync with
+// the toolkit copy). TODO(E#236490): remove when consumers migrate to toolkit/vpux/include.
+#if __has_include("../../../sw_operators/toolkit/vpux/include/common_types.h")
+#include "../../../sw_operators/toolkit/vpux/include/common_types.h"
+#else
+
 #ifndef COMMON_TYPES_H_
 #define COMMON_TYPES_H_
 
@@ -168,3 +179,5 @@ static inline uint32_t countMemrefs(uint32_t layerParams, uint32_t maxCount) {
 #endif
 
 #endif  // COMMON_TYPES_H_
+
+#endif  // __has_include toolkit copy

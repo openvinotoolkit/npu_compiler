@@ -75,71 +75,6 @@ std::optional<double> getMultiplierFromUser(IE::DequantizeOp dequantizeOp) {
     return vpux::IE::getConst(constOp).front();
 }
 
-bool isValidToPropagateQuantize(mlir::Operation* op, bool seOpsEnabled, mlir::Type& quantizedElemType, Logger log) {
-    const auto isSameQuantize = [&](mlir::Operation* user) {
-        if (auto currentQuantize = mlir::dyn_cast_if_present<IE::QuantizeOp>(user)) {
-            return currentQuantize.getDstElemType() == quantizedElemType;
-        }
-
-        return false;
-    };
-    const auto logCb = [&](const formatv_object_base& msg) {
-        log.trace("{0}", msg.str());
-    };
-    // 1. Check the prevOp is ElemTypeInfoOp
-    auto elemTypeInfoOp = mlir::dyn_cast_if_present<IE::ElemTypeInfoOpInterface>(op);
-    if (!elemTypeInfoOp) {
-        log.trace("Not an ElemTypeInfoOp {0}", op->getResult(0));
-        return false;
-    }
-    // 2. Check that every user is Quantize op and they are the same.
-    auto layer = mlir::cast<IE::LayerOpInterface>(op);
-    // Only check quantize dst element type for multiple users
-    // Direct case like op1 -> op2 passed.
-    if (!layer->hasOneUse() && !llvm::all_of(layer->getUsers(), isSameQuantize)) {
-        log.trace("The users of Operation {0} should all be the same quantizeOp when users number > 1", elemTypeInfoOp);
-        return false;
-    }
-    // 3. Check that operation supports quantization params propagation.
-    if (auto layerWithPostOp = mlir::dyn_cast<IE::LayerWithPostOpInterface>(elemTypeInfoOp.getOperation());
-        layerWithPostOp != nullptr && layerWithPostOp.hasPPE()) {
-        // A quantization-agnostic operation is no longer quantization-agnostic after it is fused with a post-op
-        // (because post-op's are not quantization-agnostic). Since most post-op's will be fused by this time, this
-        // check is here to prevent the propagation of output quantization through both the ElemTypeInfoOp and its
-        // post-op. (At this time MaxPool seems to be the only operation which is both a IE::ElemTypeInfoOpInterface
-        // and a IE::LayerWithPostOpInterface)
-        log.trace("Operation {0} does not support quantization params propagation: layer has post op", elemTypeInfoOp);
-        return false;
-    }
-
-    // 4. Particular check for SE pointers
-    if (!vpux::IE::isSupportedElemTypeInfoCase(elemTypeInfoOp.getOperation(), seOpsEnabled, logCb)) {
-        log.trace("Operation {0} does not support SE pointers", elemTypeInfoOp);
-        return false;
-    }
-
-    // 5. Check quantization params propagation
-    auto elemTypeInfo = elemTypeInfoOp.getElemTypeInfo();
-    for (size_t outputInd = 0; outputInd < layer->getNumResults(); outputInd++) {
-        elemTypeInfo.setOutput(outputInd, quantizedElemType);
-    }
-    elemTypeInfoOp.inferElemTypeInfoUp(elemTypeInfo);
-
-    if (!mlir::isa<mlir::quant::QuantizedType>(elemTypeInfo.getInput(0))) {
-        log.trace("Operation {0} does not support quantization params propagation: input cannot be quantized",
-                  elemTypeInfoOp);
-        return false;
-    }
-    for (size_t outputInd = 0; outputInd < layer->getNumResults(); outputInd++) {
-        if (elemTypeInfo.getOutput(outputInd) != quantizedElemType) {
-            log.trace("Operation {0} does not support quantization params propagation", elemTypeInfoOp);
-            return false;
-        }
-    }
-    quantizedElemType = elemTypeInfo.getInput(0);
-    return true;
-}
-
 // Whether splitting Quantize across multiOperandOp's operands pays off: either the quantized
 // type is narrower than origElemType, or an operand traces back to a Dequantize that can fold
 // or fuse with the inserted Quantize.
@@ -159,7 +94,7 @@ bool shouldSplitQuantizeAcrossOperands(mlir::Operation* multiOperandOp, mlir::Ty
                        dequantizeOp.getOutput().hasOneUse();
             }
             if (op->getNumOperands() != 1 || op->getNumResults() != 1 || !op->getResult(0).hasOneUse() ||
-                !isValidToPropagateQuantize(op, seOpsEnabled, hopElemType, log)) {
+                !IE::isValidToPropagateQuantize(op, seOpsEnabled, hopElemType, log)) {
                 break;
             }
             op = op->getOperand(0).getDefiningOp();
@@ -264,7 +199,7 @@ mlir::LogicalResult PropagateQuantize::matchAndRewrite(IE::QuantizeOp origOp, ml
         // Snapshot the type valid at the previously accepted op, in case prevOp is a
         // rejected multi-operand op and this needs to be restored.
         const auto quantizedElemTypeBeforeThisOp = quantizedElemType;
-        if (!isValidToPropagateQuantize(prevOp, _seOpsEnabled, quantizedElemType, _log)) {
+        if (!IE::isValidToPropagateQuantize(prevOp, _seOpsEnabled, quantizedElemType, _log)) {
             break;
         }
         // Not backward for multiple operands, unless splitting pays off.

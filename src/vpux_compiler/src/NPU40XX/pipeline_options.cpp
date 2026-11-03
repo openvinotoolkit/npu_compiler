@@ -35,43 +35,24 @@ void setupParamsAccordingToOptimizationLevel(int optimizationLevel, DefaultHWOpt
     //
     // WLM-related params
     //
-    if (!compilationOptions.workloadManagementEnable.hasValue()) {
-        std::optional<WorkloadManagementMode> originalValueWorkloadManagementMode = std::nullopt;
 
-        if (compilationOptions.workloadManagementMode.hasValue()) {
-            originalValueWorkloadManagementMode = compilationOptions.workloadManagementMode;
-        }
-
-        // we do not have default value for workloadManagementMode on NPU40XX. Need to set it explicitly
-        // E166333
-        compilationOptions.workloadManagementEnable = true;
-        compilationOptions.workloadManagementMode = WorkloadManagementMode::PWLM_V0_1_PAGES;
-
-        switch (optimizationLevel) {
-        case 0:
-        case 1:
-        case 2: {
-            break;
-        }
-        case 3: {
-            compilationOptions.workloadManagementEnable = true;
-            compilationOptions.workloadManagementMode = WorkloadManagementMode::FWLM_V1_PAGES;
-            compilationOptions.workloadManagementDmaFifoType = DMAFifoType::HW;
-            compilationOptions.enableSwKernelFifoPerShaveEngine = true;
-            break;
-        }
-        default:
-            VPUX_THROW("Unexpected optimization-level. Actual value = {0}\n"
-                       "Possible values: 0 - optimization for compilation time, "
-                       "1 - optimization for execution time (default), 2 - high optimization for execution time, 3 - "
-                       "optimization for maximaze HW utilization, may affect compilation time and memory footprint",
-                       optimizationLevel);
-            break;
-        }
-
-        if (originalValueWorkloadManagementMode.has_value()) {
-            compilationOptions.workloadManagementMode = originalValueWorkloadManagementMode.value();
-        }
+    switch (optimizationLevel) {
+    case 0:
+    case 1:
+    case 2: {
+        break;
+    }
+    case 3: {
+        overwriteIfUnset(compilationOptions.workloadManagementMode, WorkloadManagementMode::FWLM_V1_PAGES);
+        break;
+    }
+    default:
+        VPUX_THROW("Unexpected optimization-level. Actual value = {0}\n"
+                   "Possible values: 0 - optimization for compilation time, "
+                   "1 - optimization for execution time (default), 2 - high optimization for execution time, 3 - "
+                   "optimization for maximaze HW utilization, may affect compilation time and memory footprint",
+                   optimizationLevel);
+        break;
     }
 }
 

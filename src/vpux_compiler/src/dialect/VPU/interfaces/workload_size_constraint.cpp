@@ -7,8 +7,9 @@
 
 using namespace vpux;
 
-bool VPU::WorkloadSizeConstraint::doesDWOperationNeedWorkloadSplit(mlir::Operation* op) const {
-    return self->doesDWOperationNeedWorkloadSplit(op);
+bool VPU::WorkloadSizeConstraint::doesDWOperationNeedWorkloadSplit(mlir::Operation* op,
+                                                                   ShapeRef inputShapeOverride) const {
+    return self->doesDWOperationNeedWorkloadSplit(op, inputShapeOverride);
 }
 
 bool VPU::WorkloadSizeConstraint::checkDWOperationWorkloadLimit(mlir::Operation* op, const OutputTiling& tiles) const {

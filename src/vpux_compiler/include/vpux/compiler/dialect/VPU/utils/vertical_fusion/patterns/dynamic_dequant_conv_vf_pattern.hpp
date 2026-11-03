@@ -27,7 +27,8 @@ private:
     bool hasExpectedMemPermuteProducer(VPU::VerticalFusionOp memPermuteVF, VPU::VerticalFusionOp dequantVF) const;
     VPU::VerticalFusionOp getExpectedMemPermuteProducer(VPU::VerticalFusionOp dequantVF) const;
     bool alignConvStrategyWithDequant(VPU::VerticalFusionOp dequantVF, VPU::VerticalFusionOp convVF, Logger log) const;
-    std::optional<VPU::VF::v2::VFCase> buildVFCase(VPU::VerticalFusionOp mergedOp, VPU::VerticalFusionOp convVFOp,
+    std::optional<VPU::VF::v2::VFCase> buildVFCase(VPU::VerticalFusionOp mergedOp,
+                                                   ArrayRef<VPU::VerticalFusionOp> matchedOps,
                                                    const std::unique_ptr<VPU::LayerVPUNNCost>& costFunction,
                                                    VFMergeCostMode costMode, Logger log) const;
 };

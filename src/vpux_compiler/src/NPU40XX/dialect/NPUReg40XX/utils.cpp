@@ -63,5 +63,5 @@ npu40xx::nn_public::VpuActWLType vpux::NPUReg40XX::getActWLType(mlir::SymbolRefA
 vpux::VPUMI40XX::TaskDescriptorConstraintsPassArgs vpux::NPUReg40XX::getTaskDescriptorConstraintsArgs() {
     using namespace Descriptors;
     return {DpuInvariantRegister{}.size(), DpuVariantRegister{}.size(), VpuActKernelInvocation{}.size(),
-            VpuActKernelRange{}.size(),    DMARegister{}.size(),        VpuMediaTask{}.size()};
+            VpuActKernelRange{}.size(), DMARegister{}.size()};
 }

@@ -16,6 +16,7 @@
 #include "vpux/compiler/dialect/config/utils/config_option_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/function_outlining_splitter.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_invariant.hpp"
+#include "vpux/compiler/utils/options.hpp"
 
 using namespace vpux;
 
@@ -31,11 +32,6 @@ mlir::func::FuncOp config::getOwningFuncOp(mlir::Operation* operation) {
 // Adaptive Stripping
 bool config::hasEnableAdaptiveStripping(mlir::ModuleOp module) {
     return config::tryGetBoolPassOption(module, ENABLE_ADAPTIVE_STRIPPING).value_or(false);
-}
-
-// Asymmetric Quantization
-bool config::asymmetricPerTensorZeroPointSupported(mlir::ModuleOp module) {
-    return config::tryGetBoolPassOption(module, ASYMMETRIC_PER_TENSOR_ZP).value_or(false);
 }
 
 bool config::asymmetricPerChannelZeroPointSupported(mlir::ModuleOp module) {
@@ -171,6 +167,25 @@ bool config::isWeightsTableReuseEnabled(mlir::Operation* op) {
             func->hasAttr(VPU::PureVerticalFusionRegionAttrName));
 }
 
+// Unbounded Dynamism Mode
+UnboundedDynamismMode config::getUnboundedDynamismMode(mlir::Operation* op) {
+    return static_cast<UnboundedDynamismMode>(config::getConstraint(op, UNBOUNDED_DYNAMISM_MODE));
+}
+
+bool config::isLowerUnboundedDynamismEnabled(mlir::Operation* op) {
+    mlir::func::FuncOp func = getOwningFuncOp(op);
+    const auto unboundedDynamismMode = getUnboundedDynamismMode(func);
+    return unboundedDynamismMode == UnboundedDynamismMode::LOWER ||
+           unboundedDynamismMode == UnboundedDynamismMode::LOWER_UPPER;
+}
+
+bool config::isUpperUnboundedDynamismEnabled(mlir::Operation* op) {
+    mlir::func::FuncOp func = getOwningFuncOp(op);
+    const auto unboundedDynamismMode = getUnboundedDynamismMode(func);
+    return unboundedDynamismMode == UnboundedDynamismMode::UPPER ||
+           unboundedDynamismMode == UnboundedDynamismMode::LOWER_UPPER;
+}
+
 // SHAVE Engine FIFO
 bool config::isFifoPerShaveEngineEnabled(mlir::Operation* op) {
     return config::getConstraint<bool>(op, config::USE_DEDICATED_FIFO_PER_SHAVE_ENGINE);
@@ -205,12 +220,37 @@ bool config::hasUseLegacyBarriers(mlir::Operation* op) {
     return boolAttr != nullptr && boolAttr.getValue();
 }
 
+// Power Optimized
+bool config::isPowerOptimized(mlir::Operation* op) {
+    return config::tryGetBoolPassOption(getModuleOp(op), POWER_OPTIMIZED).value_or(false);
+}
+
 // Enable SoftmaxMaskAware to account for an upward adjustment of the FP16 minimum threshold.
 bool config::isSoftmaxMaskAwareEnabled(mlir::Operation* op) {
     return config::getConstraint<bool>(op, SOFTMAX_MASK_AWARE);
 }
 double config::getSoftmaxMaskAwareThreshold(mlir::Operation* op) {
     return config::getConstraint<double>(op, SOFTMAX_MASK_AWARE_THRESHOLD);
+}
+
+// Minimum Tiles
+std::optional<int64_t> config::getDefaultMinTiles(config::Platform platform) {
+    switch (platform) {
+    case config::Platform::NPU5010:
+        return 3;
+    case config::Platform::NPU5020:
+        return 1;
+    default:
+        return std::nullopt;
+    }
+}
+
+std::optional<int64_t> config::getMinTiles(mlir::Operation* op) {
+    auto pipelineOptionOp = getModuleOp(op).lookupSymbol<config::PipelineOptionsOp>(config::PIPELINE_OPTIONS);
+    if (pipelineOptionOp == nullptr || pipelineOptionOp.lookupSymbol<config::OptionOp>(MIN_TILES) == nullptr) {
+        return std::nullopt;
+    }
+    return config::getConstraint<int64_t>(op, MIN_TILES);
 }
 
 bool config::isBarrierFifoDummyEntrySupported([[maybe_unused]] config::ArchKind arch) {

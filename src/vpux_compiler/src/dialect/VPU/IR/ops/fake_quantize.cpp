@@ -73,9 +73,9 @@ mlir::LogicalResult vpux::VPU::FakeQuantizeOp::inferReturnTypes(
 void vpux::VPU::FakeQuantizeOp::build(::mlir::OpBuilder& odsBuilder, ::mlir::OperationState& odsState,
                                       ::mlir::Value input, ::mlir::Value input_low, ::mlir::Value input_high,
                                       ::mlir::Value output_low, ::mlir::Value output_high,
-                                      /*optional*/ mlir::IntegerAttr levels, /*optional*/ ::mlir::TypeAttr low_fp_type,
+                                      mlir::Attribute levels_or_low_fp_type,
                                       vpux::IE::AutoBroadcastTypeAttr auto_broadcast) {
-    build(odsBuilder, odsState, input, input_low, input_high, output_low, output_high, levels, low_fp_type,
+    build(odsBuilder, odsState, input, input_low, input_high, output_low, output_high, levels_or_low_fp_type,
           auto_broadcast, {});
 }
 

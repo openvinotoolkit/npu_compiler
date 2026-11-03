@@ -19,6 +19,11 @@ ov_dependent_option(ENABLE_NPU_FUZZ_TESTS "NPU Fuzz tests" OFF "ENABLE_TESTS" OF
 
 ov_dependent_option(ENABLE_CLANG_TIDY_PLUGIN "Use clang-tidy together with custom checks plugin during build" OFF "ENABLE_DEVELOPER_BUILD" OFF)
 
+# OV's developer_package/features.cmake forces ENABLE_LTO OFF on Windows via
+# cmake_dependent_option (condition: LINUX only). Restore from cache if user passed -DENABLE_LTO=ON.
+if(DEFINED CACHE{ENABLE_LTO})
+    set(ENABLE_LTO "$CACHE{ENABLE_LTO}")
+endif()
 if(NOT ENABLE_LTO)
     set(ENABLE_LTO OFF)
 endif()

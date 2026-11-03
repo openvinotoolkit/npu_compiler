@@ -14,7 +14,7 @@ func.func @ConvertNearestToStridedConcatFQuantPropagationF8E4M3FN(%input: tensor
     %high = const.Declare tensor<1x1x1x1xf16> = dense<4.480000e+02> : tensor<1x1x1x1xf16>
 
     %0 = IE.FakeQuantize(%input, %low, %high, %low, %high) {
-            auto_broadcast = #IE.auto_broadcast_type<NUMPY>, low_fp_type = f8E4M3FN
+            auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = f8E4M3FN
         } : tensor<1x128x6x10xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<1x128x6x10xf16>
 
     %1 = IE.Interpolate(%0) {
@@ -28,7 +28,7 @@ func.func @ConvertNearestToStridedConcatFQuantPropagationF8E4M3FN(%input: tensor
         } : tensor<1x128x6x10xf16> -> tensor<1x128x12x20xf16>
 
     %2 = IE.FakeQuantize(%1, %low, %high, %low, %high) {
-            auto_broadcast = #IE.auto_broadcast_type<NUMPY>, low_fp_type = f8E4M3FN
+            auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = f8E4M3FN
         } : tensor<1x128x12x20xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<1x128x12x20xf16>
 
     return %2 : tensor<1x128x12x20xf16>
@@ -39,17 +39,17 @@ func.func @ConvertNearestToStridedConcatFQuantPropagationF8E4M3FN(%input: tensor
     // CHECK-DAG:    [[HIGH:%.+]] = const.Declare tensor<1x1x1x1xf16> = dense<4.480000e+02> : tensor<1x1x1x1xf16>
 
     // CHECK:    [[FQ_0:%.+]] = IE.FakeQuantize([[INPUT]], [[LOW]], [[HIGH]], [[LOW]], [[HIGH]])
-    // CHECK-SAME:  {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, low_fp_type = f8E4M3FN} : tensor<1x128x6x10xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<1x128x6x10xf16>
+    // CHECK-SAME:  {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = f8E4M3FN} : tensor<1x128x6x10xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<1x128x6x10xf16>
     // CHECK:    [[CONCAT_0:%.+]] = IE.Concat([[FQ_0]], [[FQ_0]])
     // CHECK-SAME:  {per_axis = #IE.Concat<axis = 3 : i64, offset = 1 : i64, stride = 2 : i64>} : tensor<1x128x6x10xf16>, tensor<1x128x6x10xf16> -> tensor<1x128x6x20xf16>
 
     // CHECK:    [[FQ_1:%.+]] = IE.FakeQuantize([[CONCAT_0]], [[LOW]], [[HIGH]], [[LOW]], [[HIGH]])
-    // CHECK-SAME:  {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, low_fp_type = f8E4M3FN} : tensor<1x128x6x20xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<1x128x6x20xf16>
+    // CHECK-SAME:  {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = f8E4M3FN} : tensor<1x128x6x20xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<1x128x6x20xf16>
     // CHECK:    [[CONCAT_1:%.+]] = IE.Concat([[FQ_1]], [[FQ_1]])
     // CHECK-SAME:  {per_axis = #IE.Concat<axis = 2 : i64, offset = 1 : i64, stride = 2 : i64>} : tensor<1x128x6x20xf16>, tensor<1x128x6x20xf16> -> tensor<1x128x12x20xf16>
 
     // CHECK:    [[FQ_2:%.+]] = IE.FakeQuantize([[CONCAT_1]], [[LOW]], [[HIGH]], [[LOW]], [[HIGH]])
-    // CHECK-SAME:  {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, low_fp_type = f8E4M3FN} : tensor<1x128x12x20xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<1x128x12x20xf16>
+    // CHECK-SAME:  {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = f8E4M3FN} : tensor<1x128x12x20xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<1x128x12x20xf16>
 
     // CHECK:    return [[FQ_2]] : tensor<1x128x12x20xf16>
 }
@@ -63,7 +63,7 @@ func.func @ConvertNearestInterpolate4ToStridedConcatFQuantF8E5M2(%input: tensor<
     %high = const.Declare tensor<1x1x1x1xf16> = dense<5.734400e+04> : tensor<1x1x1x1xf16>
 
     %0 = IE.FakeQuantize(%input, %low, %high, %low, %high) {
-            auto_broadcast = #IE.auto_broadcast_type<NUMPY>, low_fp_type = f8E5M2
+            auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = f8E5M2
         } : tensor<1x32x360x640xf32>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<1x32x360x640xf32>
 
     %1 = IE.Interpolate(%0) {
@@ -77,7 +77,7 @@ func.func @ConvertNearestInterpolate4ToStridedConcatFQuantF8E5M2(%input: tensor<
         } : tensor<1x32x360x640xf32> -> tensor<1x32x720x1280xf32>
 
     %2 = IE.FakeQuantize(%1, %low, %high, %low, %high) {
-            auto_broadcast = #IE.auto_broadcast_type<NUMPY>, low_fp_type = f8E5M2
+            auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = f8E5M2
         } : tensor<1x32x720x1280xf32>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<1x32x720x1280xf32>
 
     return %2 : tensor<1x32x720x1280xf32>
@@ -86,17 +86,17 @@ func.func @ConvertNearestInterpolate4ToStridedConcatFQuantF8E5M2(%input: tensor<
     // CHECK-DAG:    [[HIGH:%.+]] = const.Declare tensor<1x1x1x1xf16> = dense<5.734400e+04> : tensor<1x1x1x1xf16>
 
     // CHECK:    [[FQ_0:%.+]] = IE.FakeQuantize([[INPUT]], [[LOW]], [[HIGH]], [[LOW]], [[HIGH]])
-    // CHECK-SAME:  {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, low_fp_type = f8E5M2} : tensor<1x32x360x640xf32>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<1x32x360x640xf32>
+    // CHECK-SAME:  {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = f8E5M2} : tensor<1x32x360x640xf32>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<1x32x360x640xf32>
     // CHECK:    [[CONCAT_0:%.+]] = IE.Concat([[FQ_0]], [[FQ_0]])
     // CHECK-SAME:  {per_axis = #IE.Concat<axis = 3 : i64, offset = 1 : i64, stride = 2 : i64>} : tensor<1x32x360x640xf32>, tensor<1x32x360x640xf32> -> tensor<1x32x360x1280xf32>
 
     // CHECK:    [[FQ_1:%.+]] = IE.FakeQuantize([[CONCAT_0]], [[LOW]], [[HIGH]], [[LOW]], [[HIGH]])
-    // CHECK-SAME:  {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, low_fp_type = f8E5M2} : tensor<1x32x360x1280xf32>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<1x32x360x1280xf32>
+    // CHECK-SAME:  {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = f8E5M2} : tensor<1x32x360x1280xf32>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<1x32x360x1280xf32>
     // CHECK:    [[CONCAT_1:%.+]] = IE.Concat([[FQ_1]], [[FQ_1]])
     // CHECK-SAME:  {per_axis = #IE.Concat<axis = 2 : i64, offset = 1 : i64, stride = 2 : i64>} : tensor<1x32x360x1280xf32>, tensor<1x32x360x1280xf32> -> tensor<1x32x720x1280xf32>
 
     // CHECK:    [[FQ_2:%.+]] = IE.FakeQuantize([[CONCAT_1]], [[LOW]], [[HIGH]], [[LOW]], [[HIGH]])
-    // CHECK-SAME:  {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, low_fp_type = f8E5M2} : tensor<1x32x720x1280xf32>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<1x32x720x1280xf32>
+    // CHECK-SAME:  {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = f8E5M2} : tensor<1x32x720x1280xf32>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<1x32x720x1280xf32>
 
     // CHECK:    return [[FQ_2]] : tensor<1x32x720x1280xf32>
 }

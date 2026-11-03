@@ -50,7 +50,15 @@ bool vpux::VPU::NCEConvolutionOp::fitIntoCMX(vpux::NDTypeInterface input, vpux::
 bool vpux::VPU::NCEConvolutionOp::fitIntoCMX(vpux::NDTypeInterface input, vpux::NDTypeInterface filter,
                                              vpux::NDTypeInterface output, Byte reservedMem) {
     // These depend on a particular tile
-    const auto OC = output.getShape()[Dims4D::Act::C];
+    const auto preODUShape = invertODUScaling(getODUScaling(getOperation()), output.getShape());
+    // Failing to invert ODU scaling indicates a critical error at this stage:
+    //  - non-invertible tiling candidates should never be emitted
+    //  - actual full output of the op must always be invertible
+    VPUX_THROW_WHEN(mlir::failed(preODUShape), "Failed to invert ODU scaling");
+
+    // Size of weights is calculated based on the pre-S2DD2S channels count, even if channels count must be expressed as
+    // aligned with hardware constraints. So no further rounding up is needed here for now.
+    const auto OC = preODUShape.value()[Dims4D::Act::C];
 
     SmallVector<Byte> buffers = {input.getTotalAllocSize(), filter.getTotalAllocSize(), output.getTotalAllocSize()};
 
@@ -121,13 +129,12 @@ static mlir::LogicalResult verifyConv(mlir::Location loc, mlir::Operation* op, V
         const auto transformInfo = VPU::getODUS2DD2STransformInfo(s2dd2sConfig, rank);
         if (transformInfo.has_value() && weightsTableShape.has_value()) {
             const auto scales = VPU::getODUS2DD2SScaling(*transformInfo, rank);
-            const auto preODUOutputShapeResult =
-                    VPU::invertODUScaling(scales, SmallVector<int64_t>(outputShape.raw()), loc);
+            const auto preODUOutputShapeResult = VPU::invertODUScaling(scales, outputShape, loc);
             if (mlir::failed(preODUOutputShapeResult)) {
                 return mlir::failure();
             }
 
-            const auto outputChannels = (*preODUOutputShapeResult)[Dims4D::Act::C.ind()];
+            const auto outputChannels = (*preODUOutputShapeResult)[Dims4D::Act::C];
             const auto channelAlignment = VPU::NCEInvariant::VPU_CHANNEL_ALIGNMENT;
             const auto weightsTableOC = alignValUp(outputChannels, channelAlignment);
             const auto expectedWeightsTableShape = VPU::NCESparsity::inferWeightsTableShape(weightsTableOC);
@@ -194,15 +201,11 @@ Shape vpux::VPU::NCEConvolutionOp::inferAlignedFilterShape(NDTypeInterface input
     const auto KX = rawFilterShape[Dims4D::Filter::KX];
     const auto inputShape = getBoundedShape(input);
     const auto outputShape = getBoundedShape(output);
-    auto preODUOutputChannels = outputShape[Dims4D::Act::C];
-    const auto oduScales = VPU::getODUScaling(getOperation());
-    if (!oduScales.empty()) {
-        const auto preODUOutputShapeResult =
-                VPU::invertODUScaling(oduScales, SmallVector<int64_t>(outputShape.raw()), getLoc());
-        VPUX_THROW_UNLESS(mlir::succeeded(preODUOutputShapeResult),
-                          "Failed to invert ODU scaling for NCEConvolutionOp output shape at '{0}'", getLoc());
-        preODUOutputChannels = (*preODUOutputShapeResult)[Dims4D::Act::C.ind()];
-    }
+    const auto preODUOutputShapeResult =
+            VPU::invertODUScaling(VPU::getODUScaling(getOperation()), outputShape, getLoc());
+    VPUX_THROW_UNLESS(mlir::succeeded(preODUOutputShapeResult),
+                      "Failed to invert ODU scaling for NCEConvolutionOp output shape at '{0}'", getLoc());
+    const auto preODUOutputChannels = (*preODUOutputShapeResult)[Dims4D::Act::C];
 
     // When IDU autopad is used and the weight pointers are computed during the inference by the DPU, the weight set
     // must have the input channels aligned to 16 as a hardware requirement. For this reason, the filter shape is larger
@@ -324,8 +327,7 @@ vpux::InputTiling vpux::VPU::NCEConvolutionOp::backInferTileInfo(const vpux::Til
     const auto origPadding = toPadInfo(getPad());
 
     // Invert the per-dimension ODU scaling to recover the pre-ODU tile before convolution back-inference.
-    const auto scales = VPU::getODUScaling(getOperation());
-    const auto convOutputTileResult = VPU::invertODUScaling(scales, outputTile, getLoc());
+    const auto convOutputTileResult = VPU::invertODUScaling(VPU::getODUScaling(getOperation()), outputTile, getLoc());
     VPUX_THROW_UNLESS(mlir::succeeded(convOutputTileResult),
                       "Failed to invert ODU scaling for NCEConvolutionOp at '{0}'", getLoc());
 
@@ -392,8 +394,7 @@ vpux::InputTiling vpux::VPU::NCEConvolutionOp::backInferTileInfo(const vpux::Til
 void vpux::VPU::NCEConvolutionOp::adjustAttrs(const TilingInfo& inputTiling, const TileInfo& outputTile) {
     VPU::adjustPaddings(this, inputTiling);
 
-    const auto scales = VPU::getODUScaling(getOperation());
-    const auto preODUOutputTileResult = VPU::invertODUScaling(scales, outputTile, getLoc());
+    const auto preODUOutputTileResult = VPU::invertODUScaling(VPU::getODUScaling(getOperation()), outputTile, getLoc());
     VPUX_THROW_UNLESS(mlir::succeeded(preODUOutputTileResult),
                       "Failed to invert ODU scaling for NCEConvolutionOp adjustAttrs at '{0}'", getLoc());
 
@@ -519,15 +520,24 @@ bool VPU::NCEConvolutionOp::doesLayerFitIntoCMX(VPU::MultiClusterStrategy strate
     auto numClusters = VPU::getOptimalNumClusters(nceOp, output.getShape(), strategy);
 
     // These depend on a particular tile
-    const auto OC = output.getShape()[Dims4D::Act::C];
+    const auto preODUShape = invertODUScaling(getODUScaling(getOperation()), output.getShape());
+    // Failing to invert ODU scaling indicates a critical error at this stage:
+    //  - non-invertible tiling candidates should never be emitted
+    //  - actual full output of the op must always be invertible
+    VPUX_THROW_WHEN(mlir::failed(preODUShape), "Failed to invert ODU scaling");
+
+    // Size of weights is calculated based on the pre-S2DD2S channels count, even if channels count must be expressed as
+    // aligned with hardware constraints. So no further rounding up is needed here for now.
+    const auto OC = preODUShape.value()[Dims4D::Act::C];
 
     const auto outputDistributionMap = std::make_pair(
             output, getOutputDistributionAttrFromOp(nceOp, output, numClusters, strategy, siblingsAnalysis));
 
     SmallVector<Byte> buffers = {
             VPU::getTotalAllocSizeWithDistribution(
-                    getInput().getType(), getActivationDistributionAttrFromOp(nceOp, getInput(), getInput().getType(),
-                                                                              numClusters, strategy, siblingsAnalysis)),
+                    getInput().getType(),
+                    getActivationDistributionAttrFromOp(nceOp, getInputMutable(), getInput().getType(), numClusters,
+                                                        strategy, siblingsAnalysis)),
             VPU::getTotalAllocSizeWithDistribution(
                     getFilter().getType(),
                     getFilterDistributionAttrFromOp(nceOpInterface, getFilter().getType(), numClusters, strategy)),
@@ -558,8 +568,8 @@ bool VPU::NCEConvolutionOp::doesLayerChangeOutputAlignmentFitIntoCMX(
     auto nceOpInterface = mlir::cast<VPU::NCEOpInterface>(getOperation());
     auto numClusters = VPU::getOptimalNumClusters(
             nceOp, mlir::cast<vpux::NDTypeInterface>(nceOp.getOutput().getType()).getShape(), strategy);
-    auto distributedInputType = getDistributedActivationTypeFromOp(nceOp, nceOp.getInput(), nceOp.getInput().getType(),
-                                                                   numClusters, strategy);
+    auto distributedInputType = getDistributedActivationTypeFromOp(nceOp, nceOp.getInputMutable(),
+                                                                   nceOp.getInput().getType(), numClusters, strategy);
     auto distributedFilterType =
             getDistributedFilterTypeFromOp(nceOpInterface, nceOp.getFilter().getType(), numClusters, strategy);
     return fitIntoCMX(distributedInputType, distributedFilterType, newDistributedTensorType);
@@ -596,8 +606,8 @@ vpux::NDTypeInterface vpux::VPU::NCEConvolutionOp::getDistributedTypeForOpOperan
     const auto strategy = clusteredOp.getMultiClusterStrategy().value();
 
     if (operand.get() == origOp.getInput()) {
-        return VPU::getDistributedActivationTypeForOpOperand(clusteredOp, origOp.getInput(), strategy,
-                                                             hasExplicitDistributedAttr, siblingsAnalysis);
+        return VPU::getDistributedActivationTypeForOpOperand(clusteredOp, operand, strategy, hasExplicitDistributedAttr,
+                                                             siblingsAnalysis);
     } else if (operand.get() == origOp.getFilter()) {
         return VPU::getDistributedWeightsTypeForOpOperand(clusteredOp, origOp.getFilter(), strategy,
                                                           hasExplicitDistributedAttr, siblingsAnalysis);

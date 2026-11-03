@@ -577,7 +577,7 @@ StrategyCost PipeliningVFScenarioCostCalculator::calculate(VFScenarioCostCalcula
 
 VFPipelineContainer PipeliningVFScenarioCostCalculator::getPipelining(VFScenarioCostCalculationContext& context) const {
     auto operations = context.config.getVFOperations().getArrayRef();
-    auto pipelinedStructure = VFPipelineContainer();
+    auto pipelinedStructure = VFPipelineContainer(dmaPrefetchingEnabled);
     ParentVFTilingInfoCache parentVFTilingInfoCache;
     const size_t totalTiledOpSize = operations.size() * checked_cast<size_t>(context.tilesNumber);
     size_t executedOpSize = 0;
@@ -889,6 +889,8 @@ std::unique_ptr<VFScenarioCostCalculator> PerformanceVFScenarioCostCalculatorFac
         return std::make_unique<FullPrefetchingVFScenarioCostCalculator>();
     case VFScenario::VF_PIPELINING:
         return std::make_unique<PipeliningVFScenarioCostCalculator>();
+    case VFScenario::VF_DPU_SHV_DOUBLE_BUFFERING:
+        return std::make_unique<PipeliningVFScenarioCostCalculator>(/*dmaPrefetchingEnabled=*/true);
     default:
         VPUX_THROW("Unsupported VF scenario for performance cost calculation: {0}", scenario);
     }

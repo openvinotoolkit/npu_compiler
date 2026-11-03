@@ -71,32 +71,46 @@ bool isODUScalingNeutral(ArrayRef<ODUDimScale> scales);
 ///
 /// Supported types:
 ///   - SmallVector<int64_t>: flat array of dimension sizes; no kDynamic handling.
+///   - vpux::Shape: flat array of dimension sizes; no kDynamic handling.
 ///   - vpux::ShapeInfo: both shape and bounds are scaled. Shape field: dynamic dims
 ///     (mlir::ShapedType::kDynamic) are preserved as-is. Bounds: always scaled.
 ///   - vpux::TileInfo: shape and offsets are scaled; axis is preserved.
 ///     Tiles are always static so kDynamic handling is not needed.
 ///
-/// When @p scales is empty, @p preODU is returned unchanged (identity).
+/// When @p scales is empty or neutral (see isODUScalingNeutral()), @p preODU is returned unchanged
+/// (identity); callers do not need to guard against either case before calling this function.
 /// When @p loc is absent, failures are returned as silent failure() without diagnostics.
 template <typename T>
 mlir::FailureOr<T> applyODUScaling(ArrayRef<ODUDimScale> scales, const T& preODU,
                                    std::optional<mlir::Location> loc = std::nullopt);
+
+/// @brief Overload for a non-owning @p preODU, returning an owning vpux::Shape directly instead
+/// of requiring the caller to first materialize one, saving a copy.
+mlir::FailureOr<Shape> applyODUScaling(ArrayRef<ODUDimScale> scales, ShapeRef preODU,
+                                       std::optional<mlir::Location> loc = std::nullopt);
 
 /// @brief Invert @p scales on @p postODU to recover the pre-ODU value, or failure() if
 /// any dimension is not exactly invertible.
 ///
 /// Supported types:
 ///   - SmallVector<int64_t>: flat array of dimension sizes; no kDynamic handling.
+///   - vpux::Shape: flat array of dimension sizes; no kDynamic handling.
 ///   - vpux::ShapeInfo: both shape and bounds are inverted. Shape field: dynamic dims
 ///     (mlir::ShapedType::kDynamic) are preserved as-is. Bounds: always inverted.
 ///   - vpux::TileInfo: shape and offsets are inverted; axis is preserved.
 ///     Tiles are always static so kDynamic handling is not needed.
 ///
-/// When @p scales is empty, @p postODU is returned unchanged (identity).
+/// When @p scales is empty or neutral (see isODUScalingNeutral()), @p postODU is returned unchanged
+/// (identity); callers do not need to guard against either case before calling this function.
 /// When @p loc is absent, failures are returned as silent failure() without diagnostics.
 template <typename T>
 mlir::FailureOr<T> invertODUScaling(ArrayRef<ODUDimScale> scales, const T& postODU,
                                     std::optional<mlir::Location> loc = std::nullopt);
+
+/// @brief Overload for a non-owning @p postODU, returning an owning vpux::Shape directly instead
+/// of requiring the caller to first materialize one, saving a copy.
+mlir::FailureOr<Shape> invertODUScaling(ArrayRef<ODUDimScale> scales, ShapeRef postODU,
+                                        std::optional<mlir::Location> loc = std::nullopt);
 
 }  // namespace VPU
 }  // namespace vpux

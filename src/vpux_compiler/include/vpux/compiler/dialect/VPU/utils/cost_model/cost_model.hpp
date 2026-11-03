@@ -112,11 +112,19 @@ VPUNN::VPUDevice getVPUDeviceType(config::Platform platform);
 VPUNN::VPUDevice getVPUDeviceType(config::ArchKind archKind);
 VPUNN::VPUDevice getVPUDeviceType(mlir::Operation* op);
 
-bool isVPUNNSupportedElementType(mlir::Type type, config::ArchKind arch);
 std::optional<VPUNN::DataType> getVPUNNElementType(mlir::Type type);
+// Devices below NPU_5_0 use the legacy mapping.
+std::optional<VPUNN::DataType> getVPUNNElementType(mlir::Type type, VPUNN::VPUDevice device);
+VPUNN::DataType getVPUNNWorkloadElementType(mlir::Type type, VPUNN::VPUDevice device);
+bool isVPUNNSupportedElementType(mlir::Type type, config::ArchKind arch);
+// SHAVE type mapping uses the legacy mapping through NPU_5_0_W
+VPUNN::VPUDevice getVPUNNShaveMappingDevice(VPUNN::VPUDevice device);
 VPUNN::Layout getVPUNNLayout(const vpux::DimsOrder& vpuxLayout);
-VPUNN::VPUTensor getVPUTensor(ShapeRef shape, mlir::Type elemType,
+VPUNN::VPUTensor getVPUTensor(ShapeRef shape, mlir::Type elemType, VPUNN::VPUDevice device,
                               const vpux::DimsOrder& layout = vpux::DimsOrder::NHWC);
+VPUNN::VPUTensor getVPUTensor(ShapeRef shape, VPUNN::DataType dataType,
+                              const vpux::DimsOrder& layout = vpux::DimsOrder::NHWC);
+// The returned mode must stay consistent with the MPE engine assigned to the same workload, see getVPUNNMPEEngine.
 VPUNN::ExecutionMode getExecutionMode(VPU::MPEMode mpeMode);
 VPUNN::VPULayerStrategy getVPULayerStrategy(VPU::MultiClusterStrategy mcStrategy, size_t nDPUs, size_t nTiles,
                                             config::ArchKind arch, size_t nSHVs = 1, bool prefetching = false,

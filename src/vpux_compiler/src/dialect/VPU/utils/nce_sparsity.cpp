@@ -15,6 +15,7 @@
 #include "vpux/compiler/dialect/const/utils/utils.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
 #include "vpux/compiler/utils/types.hpp"
+#include "vpux/utils/core/algo.hpp"
 #include "vpux/utils/core/enums.hpp"
 #include "vpux/utils/core/numeric.hpp"
 
@@ -52,6 +53,12 @@ llvm::unique_function<ScaleElemType(size_t)> getBiasFunc(mlir::Type inElemType, 
 
     auto filterQuantScales =
             isWeightsQuantized ? extractScalesAndZeroPoints(weightsElemType).first : SmallVector<double>{1.0};
+
+    // Grouped ops carry N per-channel scales that broadcast across all G groups; tile them to OC
+    // so the per-oc indexing below stays in bounds.
+    if (filterQuantScales.size() != 1) {
+        broadcast(filterQuantScales, OC);
+    }
 
     if (isQuant || isQuantInFloatOut) {
         // PPE engages float by-pass in this case. Apply re-scaling.
@@ -198,19 +205,21 @@ std::vector<int32_t> vpux::VPU::NCESparsity::getWeightsTable(
                                           checked_cast<size_t>(OC));
 
     std::vector<std::int32_t> weightsTableVals(OC * WEIGHT_TABLE_NUM_ELEMENTS_PER_OC, 0);
+    const auto hasPerChannelWeights =
+            weightsElemType != nullptr && mlir::isa<mlir::quant::UniformQuantizedPerAxisType>(weightsElemType);
+    SmallVector<int64_t> zeroPoints;
+    if (hasPerChannelWeights) {
+        const auto weightsQuantizedPerChannel = mlir::cast<mlir::quant::UniformQuantizedPerAxisType>(weightsElemType);
+        zeroPoints = to_small_vector(weightsQuantizedPerChannel.getZeroPoints());
+        // Grouped ops carry N per-channel zero-points that broadcast across all G groups; tile them to OC
+        // so the per-oc indexing below stays in bounds.
+        broadcast(zeroPoints, checked_cast<size_t>(OC));
+    }
 
     auto maybePatchWeightPtrWithZeroPoint = [&]([[maybe_unused]] size_t oc, int32_t weightPtr) -> int32_t {
-        if (weightsElemType != nullptr) {
-            if (auto weightsQuantizedPerChannel =
-                        mlir::dyn_cast<mlir::quant::UniformQuantizedPerAxisType>(weightsElemType)) {
-                auto zeroPoints = weightsQuantizedPerChannel.getZeroPoints();
-
-                auto zp = static_cast<uint8_t>(zeroPoints[oc]);
-                weightPtr |= ((zp & 0x0F) << 28);
-            } else {
-                // No quantization per channel
-                return weightPtr;
-            }
+        if (hasPerChannelWeights) {
+            auto zp = static_cast<uint8_t>(zeroPoints[oc]);
+            weightPtr |= ((zp & 0x0F) << 28);
         }
 
         return weightPtr;
@@ -492,7 +501,7 @@ bool vpux::VPU::NCESparsity::RuntimeSparsityStatsProvider::likelySparsityConsume
 //
 
 std::vector<int32_t> vpux::VPU::NCESparsity::NewWeightsTableFormatMapper::computeInversePermutation(
-        std::vector<int32_t> v) {
+        const std::vector<int32_t>& v) {
     VPUX_THROW_WHEN(v.size() == 0, "Input vector is empty");
 
     std::unordered_set checkForDuplicates(v.begin(), v.end());
@@ -617,16 +626,16 @@ std::vector<std::vector<int32_t>>
 std::vector<std::vector<int32_t>> vpux::VPU::NCESparsity::NewWeightsTableFormatMapper::pointerTables =
         std::vector<std::vector<int32_t>>{pointersK16, pointersK32, pointersK48, pointersK64};
 
-std::vector<int32_t> vpux::VPU::NCESparsity::NewWeightsTableFormatMapper::getZeroPointTableByK(int32_t k) {
+const std::vector<int32_t>& vpux::VPU::NCESparsity::NewWeightsTableFormatMapper::getZeroPointTableByK(int32_t k) {
     return zeroPointTables[k / WEIGHTS_TABLE_SETS_MIN_ALIGNMENT - 1];
 }
 
-std::vector<int32_t> vpux::VPU::NCESparsity::NewWeightsTableFormatMapper::getZeroPointInversePermutationTableByK(
+const std::vector<int32_t>& vpux::VPU::NCESparsity::NewWeightsTableFormatMapper::getZeroPointInversePermutationTableByK(
         int32_t k) {
     return zeroPointInversePermutationTables[k / WEIGHTS_TABLE_SETS_MIN_ALIGNMENT - 1];
 }
 
-std::vector<int32_t> vpux::VPU::NCESparsity::NewWeightsTableFormatMapper::getPointerTableByK(int32_t k) {
+const std::vector<int32_t>& vpux::VPU::NCESparsity::NewWeightsTableFormatMapper::getPointerTableByK(int32_t k) {
     return pointerTables[k / WEIGHTS_TABLE_SETS_MIN_ALIGNMENT - 1];
 }
 
@@ -649,15 +658,19 @@ int32_t vpux::VPU::NCESparsity::NewWeightsTableFormatMapper::getZeroPointTableLo
 }
 
 int32_t vpux::VPU::NCESparsity::NewWeightsTableFormatMapper::encodePositionInWorkloadInZeroPointTableLayout(
-        int32_t position, int32_t k) {
-    auto map = getZeroPointInversePermutationTableByK(k);
+        int32_t position, int32_t k, ZeroPointTableLayout layout) {
+    if (layout == ZeroPointTableLayout::Linear) {
+        return position;
+    }
+
+    const auto& map = getZeroPointInversePermutationTableByK(k);
     auto oldPosOffset = position - position % ZERO_POINT_TABLE_PATTERN_LENGTH;
     auto newPos = oldPosOffset + map[position % ZERO_POINT_TABLE_PATTERN_LENGTH];
     return newPos;
 }
 
 int32_t vpux::VPU::NCESparsity::NewWeightsTableFormatMapper::encodePositionInZeroPointTableLayout(
-        bool isZeroPoint4Bit, int32_t position, std::vector<int32_t> workloads) {
+        bool isZeroPoint4Bit, int32_t position, const std::vector<int32_t>& workloads, ZeroPointTableLayout layout) {
     VPUX_THROW_WHEN(position < 0, "The position has to be valid, i.e. a natural number, not {0}", position);
     VPUX_THROW_WHEN(workloads.size() == 0, "There has to be at least one workload");
 
@@ -698,19 +711,23 @@ int32_t vpux::VPU::NCESparsity::NewWeightsTableFormatMapper::encodePositionInZer
         elemsInCurrentGroup = workloads[workloadIndex] % ZERO_POINT_TABLE_PATTERN_LENGTH;
     }
 
-    return workloadOffset + encodePositionInWorkloadInZeroPointTableLayout(position, elemsInCurrentGroup);
+    return workloadOffset + encodePositionInWorkloadInZeroPointTableLayout(position, elemsInCurrentGroup, layout);
 }
 
 int32_t vpux::VPU::NCESparsity::NewWeightsTableFormatMapper::decodePositionInWorkloadInZeroPointTableLayout(
-        int32_t position, int32_t k) {
-    auto map = getZeroPointTableByK(k);
+        int32_t position, int32_t k, ZeroPointTableLayout layout) {
+    if (layout == ZeroPointTableLayout::Linear) {
+        return position;
+    }
+
+    const auto& map = getZeroPointTableByK(k);
     auto oldPosOffset = position - position % ZERO_POINT_TABLE_PATTERN_LENGTH;
     auto newPos = oldPosOffset + map[position % ZERO_POINT_TABLE_PATTERN_LENGTH];
     return newPos;
 }
 
 int32_t vpux::VPU::NCESparsity::NewWeightsTableFormatMapper::decodePositionInZeroPointTableLayout(
-        bool isZeroPoint4Bit, int32_t position, std::vector<int32_t> workloads) {
+        bool isZeroPoint4Bit, int32_t position, const std::vector<int32_t>& workloads, ZeroPointTableLayout layout) {
     VPUX_THROW_WHEN(position < 0, "The position has to be valid, i.e. a natural number, not {0}", position);
     VPUX_THROW_WHEN(workloads.size() == 0, "There has to be at least one workload");
 
@@ -761,7 +778,7 @@ int32_t vpux::VPU::NCESparsity::NewWeightsTableFormatMapper::decodePositionInZer
         return PADDING_POSITION_INDICATOR;
     }
 
-    return workloadOffset + decodePositionInWorkloadInZeroPointTableLayout(position, elemsInCurrentGroup);
+    return workloadOffset + decodePositionInWorkloadInZeroPointTableLayout(position, elemsInCurrentGroup, layout);
 }
 
 int8_t vpux::VPU::NCESparsity::NewWeightsTableFormatMapper::extractOneZPFromZPPalletizedByte(int8_t zeroPoint,
@@ -811,7 +828,7 @@ void vpux::VPU::NCESparsity::NewWeightsTableFormatMapper::mapElementsToNewPointe
     int32_t alignEndUpToMultipleOf16 = vpux::alignValUp(end, WEIGHTS_TABLE_SETS_MIN_ALIGNMENT);
     int32_t alignRangeUpToMultipleOf16 = alignEndUpToMultipleOf16 - start;
 
-    auto map = getPointerTableByK(alignRangeUpToMultipleOf16);
+    const auto& map = getPointerTableByK(alignRangeUpToMultipleOf16);
     for (auto index = start; index < end; index++) {
         auto newPos = start + map[index % WEIGHTS_TABLE_READER_ALIGNMENT];
         result[newPos] = ptrs[ptrStartingIndex++];
@@ -871,11 +888,13 @@ std::vector<int32_t> vpux::VPU::NCESparsity::NewWeightsTableFormatMapper::constr
 std::vector<int32_t> vpux::VPU::NCESparsity::NewWeightsTableFormatMapper::constructNewPointerTable(
         ArrayRef<VPUIP::DPUTaskOp> tasks, ArrayRef<int32_t> ptrs) {
     std::vector<int32_t> workloadSizes(tasks.size(), -1);
-    std::vector<VPUIP::DPUTaskOp> tasksVector(tasks.begin(), tasks.end());
 
-    for (unsigned long index = 0; index < tasksVector.size(); index++) {
-        int32_t cStart = mlir::dyn_cast<mlir::IntegerAttr>(tasksVector[index].getOutStart()[2]).getInt();
-        int32_t cEnd = mlir::dyn_cast<mlir::IntegerAttr>(tasksVector[index].getOutEnd()[2]).getInt();
+    for (unsigned long index = 0; index < tasks.size(); index++) {
+        // ArrayRef only exposes const access, but getOutStart()/getOutEnd() aren't const-qualified;
+        // copy just this element (a cheap op-wrapper, not the full task list) to call them.
+        auto task = tasks[index];
+        int32_t cStart = mlir::dyn_cast<mlir::IntegerAttr>(task.getOutStart()[2]).getInt();
+        int32_t cEnd = mlir::dyn_cast<mlir::IntegerAttr>(task.getOutEnd()[2]).getInt();
 
         workloadSizes[index] = cEnd - cStart + 1;
     }

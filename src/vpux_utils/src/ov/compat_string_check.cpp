@@ -4,7 +4,7 @@
 //
 
 #include "vpux/utils/ov/compat_string_check.hpp"
-#include "vpux/utils/ov/compat_string_parser.hpp"
+#include "compatibility/compat_string_parser.hpp"
 
 #include <algorithm>
 #include <array>

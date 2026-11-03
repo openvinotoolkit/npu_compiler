@@ -42,6 +42,43 @@ func.func @UnrollConvert(%arg0: tensor<1x4x1600x2560xf32, {order = #NHWC}>) -> t
 
 // -----
 
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+
+#map = affine_map<(d0)[s0] -> (-d0 + s0, 38)>
+
+// Sub-tile fallback loops have a dynamic trip count by design and must not be collected for unrolling
+// CHECK-LABEL: func.func @SkipSubTileFallbackLoop
+// CHECK-SAME: ([[INPUT:%.+]]: tensor<1x4x1600x?xf32, {bounds = #const.OpaqueI64Elements<[1, 4, 1600, 2560]> : tensor<4xsi64>, order = #NHWC}>)
+func.func @SkipSubTileFallbackLoop(%arg0: tensor<1x4x1600x?xf32, {bounds = #const.OpaqueI64Elements<[1, 4, 1600, 2560]> : tensor<4xsi64>, order = #NHWC}>) -> tensor<1x4x1600x?xf16, {bounds = #const.OpaqueI64Elements<[1, 4, 1600, 2560]> : tensor<4xsi64>, order = #NHWC}> {
+    %c38 = arith.constant 38 : index
+    %c3 = arith.constant 3 : index
+    %c0 = arith.constant 0 : index
+
+    %dim = tensor.dim %arg0, %c3 : tensor<1x4x1600x?xf32, {bounds = #const.OpaqueI64Elements<[1, 4, 1600, 2560]> : tensor<4xsi64>, order = #NHWC}>
+    %0 = tensor.empty(%dim) : tensor<1x4x1600x?xf16, {bounds = #const.OpaqueI64Elements<[1, 4, 1600, 2560]> : tensor<4xsi64>, order = #NHWC}>
+    %1 = scf.for %arg1 = %c0 to %dim step %c38 iter_args(%arg2 = %0) -> (tensor<1x4x1600x?xf16, {bounds = #const.OpaqueI64Elements<[1, 4, 1600, 2560]> : tensor<4xsi64>, order = #NHWC}>) {
+      %map = affine.min #map(%arg1)[%dim]
+      %extracted_slice = tensor.extract_slice %arg0[0, 0, 0, %arg1] [1, 4, 1600, %map] [1, 1, 1, 1] : tensor<1x4x1600x?xf32, {bounds = #const.OpaqueI64Elements<[1, 4, 1600, 2560]> : tensor<4xsi64>, order = #NHWC}> to tensor<1x4x1600x?xf32, {bounds = #const.OpaqueI64Elements<[1, 4, 1600, 38]> : tensor<4xsi64>, order = #NHWC}>
+      %40 = VPU.Convert(%extracted_slice) {dstElemType = f16} : tensor<1x4x1600x?xf32, {bounds = #const.OpaqueI64Elements<[1, 4, 1600, 38]> : tensor<4xsi64>, order = #NHWC}> -> tensor<1x4x1600x?xf16, {bounds = #const.OpaqueI64Elements<[1, 4, 1600, 38]> : tensor<4xsi64>, order = #NHWC}>
+      %inserted_slice = tensor.insert_slice %40 into %arg2[0, 0, 0, %arg1] [1, 4, 1600, %map] [1, 1, 1, 1] : tensor<1x4x1600x?xf16, {bounds = #const.OpaqueI64Elements<[1, 4, 1600, 38]> : tensor<4xsi64>, order = #NHWC}> into tensor<1x4x1600x?xf16, {bounds = #const.OpaqueI64Elements<[1, 4, 1600, 2560]> : tensor<4xsi64>, order = #NHWC}>
+      scf.yield %inserted_slice : tensor<1x4x1600x?xf16, {bounds = #const.OpaqueI64Elements<[1, 4, 1600, 2560]> : tensor<4xsi64>, order = #NHWC}>
+    } {sub_tile_fallback}
+
+    return %1 : tensor<1x4x1600x?xf16, {bounds = #const.OpaqueI64Elements<[1, 4, 1600, 2560]> : tensor<4xsi64>, order = #NHWC}>
+
+    //CHECK: [[DIM:%.+]] = tensor.dim [[INPUT]]
+    //CHECK: [[FOR:%.+]] = scf.for {{%.+}} = {{%.+}} to [[DIM]] step {{%.+}}
+    //CHECK:   tensor.extract_slice [[INPUT]]
+    //CHECK:   VPU.Convert
+    //CHECK:   tensor.insert_slice
+    //CHECK: } {sub_tile_fallback}
+    //CHECK-NOT: VPU.Slice
+    //CHECK-NOT: VPU.Concat
+    //CHECK: return [[FOR]]
+}
+
+// -----
+
 config.PipelineOptions @Options {
     config.Option @config.AutoPaddingODU : true
     config.Option @config.AutoPaddingIDU : true

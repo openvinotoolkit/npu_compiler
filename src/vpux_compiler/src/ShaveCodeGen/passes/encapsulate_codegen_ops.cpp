@@ -6,6 +6,7 @@
 #include "vpux/compiler/ShaveCodeGen/analysis.hpp"
 #include "vpux/compiler/ShaveCodeGen/passes.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/specialized.hpp"
+#include "vpux/compiler/utils/rewriter.hpp"
 #include "vpux/utils/logger/logger.hpp"
 
 #include <llvm/ADT/STLExtras.h>
@@ -48,7 +49,8 @@ private:
 
 mlir::Operation* EncapsulateCodeGenOpsPass::wrapInCodeGenCapsule(mlir::Operation* op, mlir::OpBuilder& opBuilder) {
     opBuilder.setInsertionPoint(op);
-    auto cgCapsule = IE::CodeGenCapsuleOp::create(opBuilder, op->getLoc(), op->getResultTypes(), op->getOperands());
+    auto cgCapsule = IE::CodeGenCapsuleOp::create(opBuilder, takeOpLoc(op, "codegen_capsule"), op->getResultTypes(),
+                                                  op->getOperands());
     auto& cgBlock = cgCapsule.getContent().emplaceBlock();
 
     opBuilder.setInsertionPointToEnd(&cgBlock);

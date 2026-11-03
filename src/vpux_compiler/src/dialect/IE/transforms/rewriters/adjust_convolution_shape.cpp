@@ -108,8 +108,8 @@ mlir::LogicalResult FoldConvStrideKernel::matchAndRewrite(IE::ConvolutionOp conv
     const auto ctx = rewriter.getContext();
     const auto dstType = inputType.changeShape(newShape);
     const auto targetShapeAttr = getIntArrayAttr(ctx, newShape.raw());
-    auto inputShapeCastOp =
-            IE::ShapeCastOp::create(rewriter, convOp.getLoc(), dstType, convOp.getInput(), targetShapeAttr);
+    auto inputShapeCastOp = IE::ShapeCastOp::create(rewriter, takeOpLoc(convOp, "shapecast_in"), dstType,
+                                                    convOp.getInput(), targetShapeAttr);
 
     Shape newFilterShape(filterShape.raw());
     newFilterShape[Dims4D::Filter::IC] *= newFilterShape[Dims4D::Filter::KX];
@@ -121,8 +121,8 @@ mlir::LogicalResult FoldConvStrideKernel::matchAndRewrite(IE::ConvolutionOp conv
         cstContentAttrFilterSetup = cstContentAttrFilterSetup.padWithZero({0, 0, 0, 0}, {0, padding, 0, 0});
     }
     auto cstContentAttrFilter = cstContentAttrFilterSetup.get();
-    auto newFilter = Const::DeclareOp::create(rewriter, convOp.getLoc(), cstContentAttrFilter.getType(),
-                                              std::move(cstContentAttrFilter));
+    auto newFilter = Const::DeclareOp::create(rewriter, takeOpLoc(convOp, "const_filter"),
+                                              cstContentAttrFilter.getType(), std::move(cstContentAttrFilter));
 
     auto newStride = std::move(strides);
     newStride[Dims4D::Strides::X] = 1;
@@ -184,7 +184,8 @@ mlir::Value reshapeBias(mlir::PatternRewriter& rewriter, mlir::Value bias, Shape
         contentAttrSetup = contentAttrSetup.broadcast(broadCastDim, dimValue);
     }
     auto contentAttr = contentAttrSetup.reshape(newOutShape).get();
-    return Const::DeclareOp::create(rewriter, bias.getLoc(), contentAttr.getType(), std::move(contentAttr));
+    return Const::DeclareOp::create(rewriter, appendLoc(bias.getLoc(), "const_bias"), contentAttr.getType(),
+                                    std::move(contentAttr));
 }
 
 //
@@ -395,18 +396,19 @@ mlir::LogicalResult AdjustConvShape::matchAndRewrite(IE::ConvolutionOp convOp, m
             newCstContentSetup = newCstContentSetup.subview(offset, viewShape);
         }
         auto newCstContent = newCstContentSetup.get();
-        auto temp =
-                Const::DeclareOp::create(rewriter, convOp.getLoc(), newCstContent.getType(), std::move(newCstContent));
+        auto temp = Const::DeclareOp::create(rewriter, takeOpLoc(convOp, "const_filter_{0}", i),
+                                             newCstContent.getType(), std::move(newCstContent));
         filterConst.push_back(temp);
         leftPading += filterShape[Dims4D::Filter::IC] * strides[Dims4D::Strides::X];
     }
     auto newFilterConcatOp =
-            IE::ConcatOp::create(rewriter, appendLoc(convOp.getLoc(), "filter"), filterConst, Dims4D::Filter::OC);
+            IE::ConcatOp::create(rewriter, takeOpLoc(convOp, "concat_filter"), filterConst, Dims4D::Filter::OC);
     auto newFilterConcatType = mlir::dyn_cast<vpux::NDTypeInterface>(newFilterConcatOp.getOutput().getType());
     auto newFilterType = newFilterConcatType.changeShape(newFilterShape);
 
-    auto newFilter = rewriter.createOrFold<IE::ShapeCastOp>(
-            convOp.getLoc(), newFilterType, newFilterConcatOp.getOutput(), getIntArrayAttr(ctx, newFilterShape.raw()));
+    auto newFilter = rewriter.createOrFold<IE::ShapeCastOp>(takeOpLoc(convOp, "shapecast_filter"), newFilterType,
+                                                            newFilterConcatOp.getOutput(),
+                                                            getIntArrayAttr(ctx, newFilterShape.raw()));
 
     // Pading on the Dim W already handled by the const construct
     auto newBeginAttr = convOp.getPadsBeginAttr();
@@ -433,14 +435,14 @@ mlir::LogicalResult AdjustConvShape::matchAndRewrite(IE::ConvolutionOp convOp, m
         constShape[Dims4D::Act::W.ind()] = padNum;
         SmallVector<mlir::Value> valueRange;
         valueRange.push_back(convOp.getInput());
-        valueRange.push_back(
-                vpux::IE::createPaddingConstForConcat(constShape, convOp->getLoc(), inNDInterface, 0.0f, rewriter));
+        valueRange.push_back(vpux::IE::createPaddingConstForConcat(constShape, takeOpLoc(convOp, "const_pad"),
+                                                                   inNDInterface, 0.0f, rewriter));
         maybePaddedInput =
                 IE::ConcatOp::create(rewriter, appendLoc(convOp.getLoc(), "pad"), valueRange, Dims4D::Act::W.ind())
                         .getOutput();
     }
-    auto inputShapeCastOp =
-            IE::ShapeCastOp::create(rewriter, convOp.getLoc(), dstType, maybePaddedInput, targetShapeAttr);
+    auto inputShapeCastOp = IE::ShapeCastOp::create(rewriter, takeOpLoc(convOp, "shapecast_in"), dstType,
+                                                    maybePaddedInput, targetShapeAttr);
     auto newConvOp = IE::ConvolutionOp::create(
             rewriter, convOp.getLoc(), inputShapeCastOp, newFilter, newBias, /*scale*/ nullptr, /*zero_points*/ nullptr,
             getIntArrayAttr(ctx, newStride), getIntArrayAttr(ctx, padBVect), getIntArrayAttr(ctx, padEVect),
@@ -464,7 +466,9 @@ mlir::LogicalResult AdjustConvShape::matchAndRewrite(IE::ConvolutionOp convOp, m
     });
 
     const auto outShapeAttr = getIntArrayAttr(ctx, outNDInterface.getShape().raw());
-    rewriter.replaceOpWithNewOp<IE::ShapeCastOp>(convOp, outNDInterface, newConvOp.getOutput(), outShapeAttr);
+    auto outShapeCastOp =
+            rewriter.replaceOpWithNewOp<IE::ShapeCastOp>(convOp, outNDInterface, newConvOp.getOutput(), outShapeAttr);
+    extendOpLoc(outShapeCastOp, "shapecast_out");
     _log.trace("Successfully adjusted convolution shape");
     return mlir::success();
 }

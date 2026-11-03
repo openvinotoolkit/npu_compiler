@@ -9,26 +9,18 @@
 #CN = affine_map<(d0, d1) -> (d1, d0)>
 
 // CHECK-LABEL: @UnrollMatMul
-// CHECK-SAME:   [[LHS_1:%arg[0-9]+]]: tensor<16x3072xf32>,
-// CHECK-SAME:   [[WEIGHTS:%arg[0-9]+]]: tensor<1x1024x4096xf32>,
-// CHECK-SAME:   [[IN_PARAM:%arg[0-9]+]]: tensor<1x1x1xf32>,
-// CHECK-SAME:   [[OUT_PARAM:%arg[0-9]+]]: tensor<1x1x4096xf32>
+// CHECK-SAME:   [[LHS_1:%[^:]+]]: tensor<16x3072xf32>,
+// CHECK-SAME:   [[WEIGHTS:%[^:]+]]: tensor<1x1024x4096xsi4>,
+// CHECK-SAME:   [[SCALE:%[^:]+]]: tensor<1x1024x1xf32>
 func.func @UnrollMatMul(%LHS_1: tensor<16x3072xf32>,
-                        %WEIGHTS: tensor<1x1024x4096xf32>,
-                        %IN_PARAM: tensor<1x1x1xf32>,
-                        %OUT_PARAM: tensor<1x1x4096xf32>) -> tensor<16x4096xf32> {
-    %RHS_1 = IE.FakeQuantize(%WEIGHTS, %IN_PARAM, %IN_PARAM, %OUT_PARAM, %OUT_PARAM) {
-        auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 16 : i64
-    } : tensor<1x1024x4096xf32>, tensor<1x1x1xf32>, tensor<1x1x1xf32>, tensor<1x1x4096xf32>, tensor<1x1x4096xf32> -> tensor<1x1024x4096xf32>
-    %RHS_2 = IE.FakeQuantize(%WEIGHTS, %IN_PARAM, %IN_PARAM, %OUT_PARAM, %OUT_PARAM) {
-        auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 16 : i64
-    } : tensor<1x1024x4096xf32>, tensor<1x1x1xf32>, tensor<1x1x1xf32>, tensor<1x1x4096xf32>, tensor<1x1x4096xf32> -> tensor<1x1024x4096xf32>
-    %RHS_3 = IE.FakeQuantize(%WEIGHTS, %IN_PARAM, %IN_PARAM, %OUT_PARAM, %OUT_PARAM) {
-        auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 16 : i64
-    } : tensor<1x1024x4096xf32>, tensor<1x1x1xf32>, tensor<1x1x1xf32>, tensor<1x1x4096xf32>, tensor<1x1x4096xf32> -> tensor<1x1024x4096xf32>
-    // CHECK:   [[RHS_1:%.+]] = IE.FakeQuantize
-    // CHECK:   [[RHS_2:%.+]] = IE.FakeQuantize
-    // CHECK:   [[RHS_3:%.+]] = IE.FakeQuantize
+                        %WEIGHTS: tensor<1x1024x4096xsi4>,
+                        %SCALE: tensor<1x1024x1xf32>) -> tensor<16x4096xf32> {
+    %RHS_1 = IE.DynamicDequantize(%WEIGHTS, %SCALE) {dstElemType = f32} : tensor<1x1024x4096xsi4>, tensor<1x1024x1xf32> -> tensor<1x1024x4096xf32>
+    %RHS_2 = IE.DynamicDequantize(%WEIGHTS, %SCALE) {dstElemType = f32} : tensor<1x1024x4096xsi4>, tensor<1x1024x1xf32> -> tensor<1x1024x4096xf32>
+    %RHS_3 = IE.DynamicDequantize(%WEIGHTS, %SCALE) {dstElemType = f32} : tensor<1x1024x4096xsi4>, tensor<1x1024x1xf32> -> tensor<1x1024x4096xf32>
+    // CHECK:   [[RHS_1:%.+]] = IE.DynamicDequantize
+    // CHECK:   [[RHS_2:%.+]] = IE.DynamicDequantize
+    // CHECK:   [[RHS_3:%.+]] = IE.DynamicDequantize
 
     %CONCAT_RHS = IE.Concat(%RHS_1, %RHS_2, %RHS_3) {
         per_axis = #IE.Concat<axis = 0 : i64>
@@ -80,48 +72,6 @@ func.func @UnrollMatMul(%LHS_1: tensor<16x3072xf32>,
 
 #CN = affine_map<(d0, d1) -> (d1, d0)>
 
-// CHECK-LABEL: @UnrollMatMulPrefill
-// CHECK-SAME:   [[LHS_1:%arg[0-9]+]]: tensor<17x3072xf32>,
-func.func @UnrollMatMulPrefill(%LHS_1: tensor<17x3072xf32>,
-                               %WEIGHTS: tensor<1x1024x4096xf32>,
-                               %IN_PARAM: tensor<1x1x1xf32>,
-                               %OUT_PARAM: tensor<1x1x4096xf32>) -> tensor<17x4096xf32> {
-    %RHS_1 = IE.FakeQuantize(%WEIGHTS, %IN_PARAM, %IN_PARAM, %OUT_PARAM, %OUT_PARAM) {
-        auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 16 : i64
-    } : tensor<1x1024x4096xf32>, tensor<1x1x1xf32>, tensor<1x1x1xf32>, tensor<1x1x4096xf32>, tensor<1x1x4096xf32> -> tensor<1x1024x4096xf32>
-    %RHS_2 = IE.FakeQuantize(%WEIGHTS, %IN_PARAM, %IN_PARAM, %OUT_PARAM, %OUT_PARAM) {
-        auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 16 : i64
-    } : tensor<1x1024x4096xf32>, tensor<1x1x1xf32>, tensor<1x1x1xf32>, tensor<1x1x4096xf32>, tensor<1x1x4096xf32> -> tensor<1x1024x4096xf32>
-    %RHS_3 = IE.FakeQuantize(%WEIGHTS, %IN_PARAM, %IN_PARAM, %OUT_PARAM, %OUT_PARAM) {
-        auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 16 : i64
-    } : tensor<1x1024x4096xf32>, tensor<1x1x1xf32>, tensor<1x1x1xf32>, tensor<1x1x4096xf32>, tensor<1x1x4096xf32> -> tensor<1x1024x4096xf32>
-
-    %CONCAT_RHS = IE.Concat(%RHS_1, %RHS_2, %RHS_3) {
-        per_axis = #IE.Concat<axis = 0 : i64>
-    } : tensor<1x1024x4096xf32>, tensor<1x1024x4096xf32>, tensor<1x1024x4096xf32> -> tensor<3x1024x4096xf32>
-
-    %RESHAPE_RHS = IE.AffineReshape(%CONCAT_RHS) {
-        dim_mapping = [[0], [0], [1]],
-        shape_value = [3072, 4096]
-    } : tensor<3x1024x4096xf32> -> tensor<3072x4096xf32>
-
-    %TRANSPOSE_RHS = IE.Transpose(%RESHAPE_RHS) {
-        order_value = #CN
-    } : tensor<3072x4096xf32> -> tensor<4096x3072xf32>
-
-    %GEMM = IE.FullyConnected(%LHS_1, %TRANSPOSE_RHS) : tensor<17x3072xf32>, tensor<4096x3072xf32> -> tensor<17x4096xf32>
-    // CHECK:   [[ADD_1:%.+]] = IE.Add
-    // CHECK:   [[ADD_2:%.+]] = IE.Add
-    // CHECK-NOT:   IE.ReduceSum
-    // CHECK:   return [[ADD_2]] : tensor<17x4096xf32>
-
-    return %GEMM : tensor<17x4096xf32>
-}
-
-// -----
-
-#CN = affine_map<(d0, d1) -> (d1, d0)>
-
 // CHECK-LABEL: @DontUnrollMatMulNot4bit
 // CHECK-SAME:   [[LHS_1:%arg[0-9]+]]: tensor<16x3072xf32>,
 func.func @DontUnrollMatMulNot4bit(%LHS_1: tensor<16x3072xf32>,
@@ -129,13 +79,13 @@ func.func @DontUnrollMatMulNot4bit(%LHS_1: tensor<16x3072xf32>,
                         %IN_PARAM: tensor<1x1x1xf32>,
                         %OUT_PARAM: tensor<1x1x4096xf32>) -> tensor<16x4096xf32> {
     %RHS_1 = IE.FakeQuantize(%WEIGHTS, %IN_PARAM, %IN_PARAM, %OUT_PARAM, %OUT_PARAM) {
-        auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i64
+        auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256 : i64
     } : tensor<1x1024x4096xf32>, tensor<1x1x1xf32>, tensor<1x1x1xf32>, tensor<1x1x4096xf32>, tensor<1x1x4096xf32> -> tensor<1x1024x4096xf32>
     %RHS_2 = IE.FakeQuantize(%WEIGHTS, %IN_PARAM, %IN_PARAM, %OUT_PARAM, %OUT_PARAM) {
-        auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i64
+        auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256 : i64
     } : tensor<1x1024x4096xf32>, tensor<1x1x1xf32>, tensor<1x1x1xf32>, tensor<1x1x4096xf32>, tensor<1x1x4096xf32> -> tensor<1x1024x4096xf32>
     %RHS_3 = IE.FakeQuantize(%WEIGHTS, %IN_PARAM, %IN_PARAM, %OUT_PARAM, %OUT_PARAM) {
-        auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i64
+        auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256 : i64
     } : tensor<1x1024x4096xf32>, tensor<1x1x1xf32>, tensor<1x1x1xf32>, tensor<1x1x4096xf32>, tensor<1x1x4096xf32> -> tensor<1x1024x4096xf32>
 
     %CONCAT_RHS = IE.Concat(%RHS_1, %RHS_2, %RHS_3) {
@@ -174,13 +124,13 @@ func.func @DontUnrollMatMulNoPerfBenefit(%LHS_1: tensor<16x96xf32>,
                         %IN_PARAM: tensor<1x1x1xf32>,
                         %OUT_PARAM: tensor<1x1x64xf32>) -> tensor<16x64xf32> {
     %RHS_1 = IE.FakeQuantize(%WEIGHTS, %IN_PARAM, %IN_PARAM, %OUT_PARAM, %OUT_PARAM) {
-        auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 16 : i64
+        auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 16 : i64
     } : tensor<1x32x64xf32>, tensor<1x1x1xf32>, tensor<1x1x1xf32>, tensor<1x1x64xf32>, tensor<1x1x64xf32> -> tensor<1x32x64xf32>
     %RHS_2 = IE.FakeQuantize(%WEIGHTS, %IN_PARAM, %IN_PARAM, %OUT_PARAM, %OUT_PARAM) {
-        auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 16 : i64
+        auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 16 : i64
     } : tensor<1x32x64xf32>, tensor<1x1x1xf32>, tensor<1x1x1xf32>, tensor<1x1x64xf32>, tensor<1x1x64xf32> -> tensor<1x32x64xf32>
     %RHS_3 = IE.FakeQuantize(%WEIGHTS, %IN_PARAM, %IN_PARAM, %OUT_PARAM, %OUT_PARAM) {
-        auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 16 : i64
+        auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 16 : i64
     } : tensor<1x32x64xf32>, tensor<1x1x1xf32>, tensor<1x1x1xf32>, tensor<1x1x64xf32>, tensor<1x1x64xf32> -> tensor<1x32x64xf32>
 
     %CONCAT_RHS = IE.Concat(%RHS_1, %RHS_2, %RHS_3) {
@@ -339,25 +289,17 @@ func.func @SkipMatMulWithUnsupportedConcat(%LHS: tensor<16x96xf32>,
 
 // CHECK-LABEL: @UnrollMatMulReshapeTranspose
 // CHECK-SAME:   [[LHS_1:%arg[0-9]+]]: tensor<16x3072xf32>,
-// CHECK-SAME:   [[WEIGHTS:%arg[0-9]+]]: tensor<1x1024x4096xf32>,
-// CHECK-SAME:   [[IN_PARAM:%arg[0-9]+]]: tensor<1x1x1xf32>,
-// CHECK-SAME:   [[OUT_PARAM:%arg[0-9]+]]: tensor<1x1x4096xf32>
+// CHECK-SAME:   [[WEIGHTS:%arg[0-9]+]]: tensor<1x1024x4096xsi4>,
+// CHECK-SAME:   [[SCALE:%arg[0-9]+]]: tensor<1x1024x1xf32>
 func.func @UnrollMatMulReshapeTranspose(%LHS_1: tensor<16x3072xf32>,
-                                        %WEIGHTS: tensor<1x1024x4096xf32>,
-                                        %IN_PARAM: tensor<1x1x1xf32>,
-                                        %OUT_PARAM: tensor<1x1x4096xf32>) -> tensor<16x4096xf32> {
-    %RHS_1 = IE.FakeQuantize(%WEIGHTS, %IN_PARAM, %IN_PARAM, %OUT_PARAM, %OUT_PARAM) {
-        auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 16 : i64
-    } : tensor<1x1024x4096xf32>, tensor<1x1x1xf32>, tensor<1x1x1xf32>, tensor<1x1x4096xf32>, tensor<1x1x4096xf32> -> tensor<1x1024x4096xf32>
-    %RHS_2 = IE.FakeQuantize(%WEIGHTS, %IN_PARAM, %IN_PARAM, %OUT_PARAM, %OUT_PARAM) {
-        auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 16 : i64
-    } : tensor<1x1024x4096xf32>, tensor<1x1x1xf32>, tensor<1x1x1xf32>, tensor<1x1x4096xf32>, tensor<1x1x4096xf32> -> tensor<1x1024x4096xf32>
-    %RHS_3 = IE.FakeQuantize(%WEIGHTS, %IN_PARAM, %IN_PARAM, %OUT_PARAM, %OUT_PARAM) {
-        auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 16 : i64
-    } : tensor<1x1024x4096xf32>, tensor<1x1x1xf32>, tensor<1x1x1xf32>, tensor<1x1x4096xf32>, tensor<1x1x4096xf32> -> tensor<1x1024x4096xf32>
-    // CHECK:   [[RHS_1:%.+]] = IE.FakeQuantize
-    // CHECK:   [[RHS_2:%.+]] = IE.FakeQuantize
-    // CHECK:   [[RHS_3:%.+]] = IE.FakeQuantize
+                                        %WEIGHTS: tensor<1x1024x4096xsi4>,
+                                        %SCALE: tensor<1x1024x1xf32>) -> tensor<16x4096xf32> {
+    %RHS_1 = IE.DynamicDequantize(%WEIGHTS, %SCALE) {dstElemType = f32} : tensor<1x1024x4096xsi4>, tensor<1x1024x1xf32> -> tensor<1x1024x4096xf32>
+    %RHS_2 = IE.DynamicDequantize(%WEIGHTS, %SCALE) {dstElemType = f32} : tensor<1x1024x4096xsi4>, tensor<1x1024x1xf32> -> tensor<1x1024x4096xf32>
+    %RHS_3 = IE.DynamicDequantize(%WEIGHTS, %SCALE) {dstElemType = f32} : tensor<1x1024x4096xsi4>, tensor<1x1024x1xf32> -> tensor<1x1024x4096xf32>
+    // CHECK:   [[RHS_1:%.+]] = IE.DynamicDequantize
+    // CHECK:   [[RHS_2:%.+]] = IE.DynamicDequantize
+    // CHECK:   [[RHS_3:%.+]] = IE.DynamicDequantize
 
     %CONCAT_RHS = IE.Concat(%RHS_1, %RHS_2, %RHS_3) {
         per_axis = #IE.Concat<axis = 0 : i64>
@@ -409,25 +351,17 @@ func.func @UnrollMatMulReshapeTranspose(%LHS_1: tensor<16x3072xf32>,
 
 // CHECK-LABEL: @UnrollMatMulWithOnlyReshape
 // CHECK-SAME:   [[LHS_1:%arg[0-9]+]]: tensor<16x3072xf32>,
-// CHECK-SAME:   [[WEIGHTS:%arg[0-9]+]]: tensor<2048x1x1024xf32>,
-// CHECK-SAME:   [[IN_PARAM:%arg[0-9]+]]: tensor<1x1x1xf32>,
-// CHECK-SAME:   [[OUT_PARAM:%arg[0-9]+]]: tensor<2048x1x1xf32>
-func.func @UnrollMatMulWithOnlyReshape( %LHS_1: tensor<16x3072xf32>,
-                                        %WEIGHTS: tensor<2048x1x1024xf32>,
-                                        %IN_PARAM: tensor<1x1x1xf32>,
-                                        %OUT_PARAM: tensor<2048x1x1xf32>) -> tensor<16x2048xf32> {
-    %RHS_1 = IE.FakeQuantize(%WEIGHTS, %IN_PARAM, %IN_PARAM, %OUT_PARAM, %OUT_PARAM) {
-        auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 16 : i64
-    } : tensor<2048x1x1024xf32>, tensor<1x1x1xf32>, tensor<1x1x1xf32>, tensor<2048x1x1xf32>, tensor<2048x1x1xf32> -> tensor<2048x1x1024xf32>
-    %RHS_2 = IE.FakeQuantize(%WEIGHTS, %IN_PARAM, %IN_PARAM, %OUT_PARAM, %OUT_PARAM) {
-        auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 16 : i64
-    } : tensor<2048x1x1024xf32>, tensor<1x1x1xf32>, tensor<1x1x1xf32>, tensor<2048x1x1xf32>, tensor<2048x1x1xf32> -> tensor<2048x1x1024xf32>
-    %RHS_3 = IE.FakeQuantize(%WEIGHTS, %IN_PARAM, %IN_PARAM, %OUT_PARAM, %OUT_PARAM) {
-        auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 16 : i64
-    } : tensor<2048x1x1024xf32>, tensor<1x1x1xf32>, tensor<1x1x1xf32>, tensor<2048x1x1xf32>, tensor<2048x1x1xf32> -> tensor<2048x1x1024xf32>
-    // CHECK:   [[RHS_1:%.+]] = IE.FakeQuantize
-    // CHECK:   [[RHS_2:%.+]] = IE.FakeQuantize
-    // CHECK:   [[RHS_3:%.+]] = IE.FakeQuantize
+// CHECK-SAME:   [[WEIGHTS:%arg[0-9]+]]: tensor<2048x1x1024xsi4>,
+// CHECK-SAME:   [[SCALE:%arg[0-9]+]]: tensor<2048x1x1xf32>
+func.func @UnrollMatMulWithOnlyReshape(%LHS_1: tensor<16x3072xf32>,
+                                      %WEIGHTS: tensor<2048x1x1024xsi4>,
+                                      %SCALE: tensor<2048x1x1xf32>) -> tensor<16x2048xf32> {
+    %RHS_1 = IE.DynamicDequantize(%WEIGHTS, %SCALE) {dstElemType = f32} : tensor<2048x1x1024xsi4>, tensor<2048x1x1xf32> -> tensor<2048x1x1024xf32>
+    %RHS_2 = IE.DynamicDequantize(%WEIGHTS, %SCALE) {dstElemType = f32} : tensor<2048x1x1024xsi4>, tensor<2048x1x1xf32> -> tensor<2048x1x1024xf32>
+    %RHS_3 = IE.DynamicDequantize(%WEIGHTS, %SCALE) {dstElemType = f32} : tensor<2048x1x1024xsi4>, tensor<2048x1x1xf32> -> tensor<2048x1x1024xf32>
+    // CHECK:   [[RHS_1:%.+]] = IE.DynamicDequantize
+    // CHECK:   [[RHS_2:%.+]] = IE.DynamicDequantize
+    // CHECK:   [[RHS_3:%.+]] = IE.DynamicDequantize
 
     %CONCAT_RHS = IE.Concat(%RHS_1, %RHS_2, %RHS_3) {
         per_axis = #IE.Concat<axis = 1 : i64>
@@ -509,22 +443,14 @@ func.func @SkipMatMulWith2dReshape(%LHS: tensor<32xf16>, %RHS: tensor<32xf16>) -
 
 // CHECK-LABEL: @UnrollMatMulForConvAccumulate
 // CHECK-SAME:   [[LHS_1:%arg[0-9]+]]: tensor<1x3072xf32>,
-// CHECK-SAME:   [[WEIGHTS:%arg[0-9]+]]: tensor<1x1024x3584xf32>,
-// CHECK-SAME:   [[IN_PARAM:%arg[0-9]+]]: tensor<1x1x1xf32>,
-// CHECK-SAME:   [[OUT_PARAM:%arg[0-9]+]]: tensor<1x1x3584xf32>
+// CHECK-SAME:   [[WEIGHTS:%arg[0-9]+]]: tensor<1x1024x3584xsi4>,
+// CHECK-SAME:   [[SCALE:%arg[0-9]+]]: tensor<1x1024x1xf32>
 func.func @UnrollMatMulForConvAccumulate(%LHS_1: tensor<1x3072xf32>,
-                        %WEIGHTS: tensor<1x1024x3584xf32>,
-                        %IN_PARAM: tensor<1x1x1xf32>,
-                        %OUT_PARAM: tensor<1x1x3584xf32>) -> tensor<1x3584xf32> {
-    %RHS_1 = IE.FakeQuantize(%WEIGHTS, %IN_PARAM, %IN_PARAM, %OUT_PARAM, %OUT_PARAM) {
-        auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 16 : i64
-    } : tensor<1x1024x3584xf32>, tensor<1x1x1xf32>, tensor<1x1x1xf32>, tensor<1x1x3584xf32>, tensor<1x1x3584xf32> -> tensor<1x1024x3584xf32>
-    %RHS_2 = IE.FakeQuantize(%WEIGHTS, %IN_PARAM, %IN_PARAM, %OUT_PARAM, %OUT_PARAM) {
-        auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 16 : i64
-    } : tensor<1x1024x3584xf32>, tensor<1x1x1xf32>, tensor<1x1x1xf32>, tensor<1x1x3584xf32>, tensor<1x1x3584xf32> -> tensor<1x1024x3584xf32>
-    %RHS_3 = IE.FakeQuantize(%WEIGHTS, %IN_PARAM, %IN_PARAM, %OUT_PARAM, %OUT_PARAM) {
-        auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 16 : i64
-    } : tensor<1x1024x3584xf32>, tensor<1x1x1xf32>, tensor<1x1x1xf32>, tensor<1x1x3584xf32>, tensor<1x1x3584xf32> -> tensor<1x1024x3584xf32>
+                                        %WEIGHTS: tensor<1x1024x3584xsi4>,
+                                        %SCALE: tensor<1x1024x1xf32>) -> tensor<1x3584xf32> {
+    %RHS_1 = IE.DynamicDequantize(%WEIGHTS, %SCALE) {dstElemType = f32} : tensor<1x1024x3584xsi4>, tensor<1x1024x1xf32> -> tensor<1x1024x3584xf32>
+    %RHS_2 = IE.DynamicDequantize(%WEIGHTS, %SCALE) {dstElemType = f32} : tensor<1x1024x3584xsi4>, tensor<1x1024x1xf32> -> tensor<1x1024x3584xf32>
+    %RHS_3 = IE.DynamicDequantize(%WEIGHTS, %SCALE) {dstElemType = f32} : tensor<1x1024x3584xsi4>, tensor<1x1024x1xf32> -> tensor<1x1024x3584xf32>
 
     %CONCAT_RHS = IE.Concat(%RHS_1, %RHS_2, %RHS_3) {
         per_axis = #IE.Concat<axis = 0 : i64>
@@ -539,9 +465,9 @@ func.func @UnrollMatMulForConvAccumulate(%LHS_1: tensor<1x3072xf32>,
     %GEMM = IE.FullyConnected(%LHS_1, %TRANSPOSE_RHS) : tensor<1x3072xf32>, tensor<3584x3072xf32> -> tensor<1x3584xf32>
     return %GEMM : tensor<1x3584xf32>
 
-    // CHECK:   [[RHS_1:%.+]] = IE.FakeQuantize
-    // CHECK:   [[RHS_2:%.+]] = IE.FakeQuantize
-    // CHECK:   [[RHS_3:%.+]] = IE.FakeQuantize
+    // CHECK:   [[RHS_1:%.+]] = IE.DynamicDequantize
+    // CHECK:   [[RHS_2:%.+]] = IE.DynamicDequantize
+    // CHECK:   [[RHS_3:%.+]] = IE.DynamicDequantize
     // CHECK:   [[RESHAPE_RHS_1:%.+]] = IE.Reshape([[RHS_1]]) {shape_value = [1024, 3584]} : tensor<1x1024x3584xf32> -> tensor<1024x3584xf32>
     // CHECK:   [[RESHAPE_RHS_2:%.+]] = IE.Reshape([[RHS_2]]) {shape_value = [1024, 3584]} : tensor<1x1024x3584xf32> -> tensor<1024x3584xf32>
     // CHECK:   [[RESHAPE_RHS_3:%.+]] = IE.Reshape([[RHS_3]]) {shape_value = [1024, 3584]} : tensor<1x1024x3584xf32> -> tensor<1024x3584xf32>
@@ -574,26 +500,19 @@ func.func @UnrollMatMulForConvAccumulate(%LHS_1: tensor<1x3072xf32>,
 
 // CHECK-LABEL: @UnrollMatMulWithDPUAccumulateForLargeSize
 // CHECK-SAME:   [[LHS_1:%arg[0-9]+]]: tensor<1x3072xf32>,
-// CHECK-SAME:   [[RHS_1:%arg[0-9]+]]: tensor<1x1024x9000xf32>,
-// CHECK-SAME:   [[RHS_2:%arg[0-9]+]]: tensor<1x1x1xf32>,
-// CHECK-SAME:   [[RHS_3:%arg[0-9]+]]: tensor<1x1x9000xf32>
+// CHECK-SAME:   [[WEIGHTS:%arg[0-9]+]]: tensor<1x1024x9000xsi4>,
+// CHECK-SAME:   [[SCALE:%arg[0-9]+]]: tensor<1x1024x1xf32>
 func.func @UnrollMatMulWithDPUAccumulateForLargeSize(
         %LHS_1: tensor<1x3072xf32>,
-        %WEIGHTS: tensor<1x1024x9000xf32>,
-        %IN_PARAM: tensor<1x1x1xf32>,
-        %OUT_PARAM: tensor<1x1x9000xf32>) -> tensor<1x9000xf32> {
-    %RHS_1 = IE.FakeQuantize(%WEIGHTS, %IN_PARAM, %IN_PARAM, %OUT_PARAM, %OUT_PARAM) {
-        auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 16 : i64
-    } : tensor<1x1024x9000xf32>, tensor<1x1x1xf32>, tensor<1x1x1xf32>, tensor<1x1x9000xf32>, tensor<1x1x9000xf32> -> tensor<1x1024x9000xf32>
-    %RHS_2 = IE.FakeQuantize(%WEIGHTS, %IN_PARAM, %IN_PARAM, %OUT_PARAM, %OUT_PARAM) {
-        auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 16 : i64
-    } : tensor<1x1024x9000xf32>, tensor<1x1x1xf32>, tensor<1x1x1xf32>, tensor<1x1x9000xf32>, tensor<1x1x9000xf32> -> tensor<1x1024x9000xf32>
-    %RHS_3 = IE.FakeQuantize(%WEIGHTS, %IN_PARAM, %IN_PARAM, %OUT_PARAM, %OUT_PARAM) {
-        auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 16 : i64
-    } : tensor<1x1024x9000xf32>, tensor<1x1x1xf32>, tensor<1x1x1xf32>, tensor<1x1x9000xf32>, tensor<1x1x9000xf32> -> tensor<1x1024x9000xf32>
-    // CHECK:   [[RHS_1:%.+]] = IE.FakeQuantize
-    // CHECK:   [[RHS_2:%.+]] = IE.FakeQuantize
-    // CHECK:   [[RHS_3:%.+]] = IE.FakeQuantize
+        %WEIGHTS: tensor<1x1024x9000xsi4>,
+        %SCALE: tensor<1x1024x1xf32>) -> tensor<1x9000xf32> {
+    %RHS_1 = IE.DynamicDequantize(%WEIGHTS, %SCALE) {dstElemType = f32} : tensor<1x1024x9000xsi4>, tensor<1x1024x1xf32> -> tensor<1x1024x9000xf32>
+    %RHS_2 = IE.DynamicDequantize(%WEIGHTS, %SCALE) {dstElemType = f32} : tensor<1x1024x9000xsi4>, tensor<1x1024x1xf32> -> tensor<1x1024x9000xf32>
+    %RHS_3 = IE.DynamicDequantize(%WEIGHTS, %SCALE) {dstElemType = f32} : tensor<1x1024x9000xsi4>, tensor<1x1024x1xf32> -> tensor<1x1024x9000xf32>
+
+    // CHECK:   [[RHS_1:%.+]] = IE.DynamicDequantize
+    // CHECK:   [[RHS_2:%.+]] = IE.DynamicDequantize
+    // CHECK:   [[RHS_3:%.+]] = IE.DynamicDequantize
 
     %CONCAT_RHS = IE.Concat(%RHS_1, %RHS_2, %RHS_3) {
         per_axis = #IE.Concat<axis = 0 : i64>
@@ -633,6 +552,7 @@ func.func @UnrollMatMulWithDPUAccumulateForLargeSize(
 
     // CHECK:   return  [[RESHAPE_OUT]]
 }
+
 
 
 
@@ -770,25 +690,18 @@ func.func @UnrollMatMulForU2DynamicDequantize(%WEIGHTS: tensor<1x1024x3584x!qEle
 
 // CHECK-LABEL: @UnrollMatMulReshapeTranspose102
 // CHECK-SAME:   [[LHS_1:%arg[0-9]+]]: tensor<1x12288xf32>,
-// CHECK-SAME:   [[WEIGHTS:%arg[0-9]+]]: tensor<1x4608x4096xf32>,
-// CHECK-SAME:   [[IN_PARAM:%arg[0-9]+]]: tensor<1x1x1xf32>,
-// CHECK-SAME:   [[OUT_PARAM:%arg[0-9]+]]: tensor<1x4608x1xf32>
+// CHECK-SAME:   [[WEIGHTS:%arg[0-9]+]]: tensor<1x4608x4096xsi4>,
+// CHECK-SAME:   [[SCALE:%arg[0-9]+]]: tensor<1x4608x1xf32>
 func.func @UnrollMatMulReshapeTranspose102(%LHS_1: tensor<1x12288xf32>,
-                                        %WEIGHTS: tensor<1x4608x4096xf32>,
-                                        %IN_PARAM: tensor<1x1x1xf32>,
-                                        %OUT_PARAM: tensor<1x4608x1xf32>) -> tensor<1x4608xf32> {
-    %RHS_1 = IE.FakeQuantize(%WEIGHTS, %IN_PARAM, %IN_PARAM, %OUT_PARAM, %OUT_PARAM) {
-        auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 16 : i64
-    } : tensor<1x4608x4096xf32>, tensor<1x1x1xf32>, tensor<1x1x1xf32>, tensor<1x4608x1xf32>, tensor<1x4608x1xf32> -> tensor<1x4608x4096xf32>
-    %RHS_2 = IE.FakeQuantize(%WEIGHTS, %IN_PARAM, %IN_PARAM, %OUT_PARAM, %OUT_PARAM) {
-        auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 16 : i64
-    } : tensor<1x4608x4096xf32>, tensor<1x1x1xf32>, tensor<1x1x1xf32>, tensor<1x4608x1xf32>, tensor<1x4608x1xf32> -> tensor<1x4608x4096xf32>
-    %RHS_3 = IE.FakeQuantize(%WEIGHTS, %IN_PARAM, %IN_PARAM, %OUT_PARAM, %OUT_PARAM) {
-        auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 16 : i64
-    } : tensor<1x4608x4096xf32>, tensor<1x1x1xf32>, tensor<1x1x1xf32>, tensor<1x4608x1xf32>, tensor<1x4608x1xf32> -> tensor<1x4608x4096xf32>
-    // CHECK:   [[RHS_1:%.+]] = IE.FakeQuantize
-    // CHECK:   [[RHS_2:%.+]] = IE.FakeQuantize
-    // CHECK:   [[RHS_3:%.+]] = IE.FakeQuantize
+                                          %WEIGHTS: tensor<1x4608x4096xsi4>,
+                                          %SCALE: tensor<1x4608x1xf32>) -> tensor<1x4608xf32> {
+    %RHS_1 = IE.DynamicDequantize(%WEIGHTS, %SCALE) {dstElemType = f32} : tensor<1x4608x4096xsi4>, tensor<1x4608x1xf32> -> tensor<1x4608x4096xf32>
+    %RHS_2 = IE.DynamicDequantize(%WEIGHTS, %SCALE) {dstElemType = f32} : tensor<1x4608x4096xsi4>, tensor<1x4608x1xf32> -> tensor<1x4608x4096xf32>
+    %RHS_3 = IE.DynamicDequantize(%WEIGHTS, %SCALE) {dstElemType = f32} : tensor<1x4608x4096xsi4>, tensor<1x4608x1xf32> -> tensor<1x4608x4096xf32>
+
+    // CHECK:   [[RHS_1:%.+]] = IE.DynamicDequantize
+    // CHECK:   [[RHS_2:%.+]] = IE.DynamicDequantize
+    // CHECK:   [[RHS_3:%.+]] = IE.DynamicDequantize
 
     %CONCAT_RHS = IE.Concat(%RHS_1, %RHS_2, %RHS_3) {
         per_axis = #IE.Concat<axis = 0 : i64>
@@ -841,12 +754,15 @@ func.func @UnrollMatMulReshapeTranspose102(%LHS_1: tensor<1x12288xf32>,
 !qElemType = !quant.uniform<i4:f16, 1.000000e+00>
 
 // CHECK-LABEL: @UnrollMatMulForDequantize
-// CHECK-SAME:   [[INPUT:%arg[0-9]+]]: tensor<1x1024x3584x!qElemType>,
+// CHECK-SAME:   [[WEIGHTS:%arg[0-9]+]]: tensor<1x1024x3584x!qElemType>,
+// CHECK-SAME:   [[SCALE:%arg[0-9]+]]: tensor<1x1024x1xf32>,
 // CHECK-SAME:   [[LHS_1:%arg[0-9]+]]: tensor<1x3072xf32>
-func.func @UnrollMatMulForDequantize(%INPUT: tensor<1x1024x3584x!qElemType>, %LHS_1: tensor<1x3072xf32>) -> tensor<1x3584xf32> {
-    %RHS_1 = IE.Dequantize(%INPUT) {dstElemType = f32} : tensor<1x1024x3584x!qElemType> -> tensor<1x1024x3584xf32>
-    %RHS_2 = IE.Dequantize(%INPUT) {dstElemType = f32} : tensor<1x1024x3584x!qElemType> -> tensor<1x1024x3584xf32>
-    %RHS_3 = IE.Dequantize(%INPUT) {dstElemType = f32} : tensor<1x1024x3584x!qElemType> -> tensor<1x1024x3584xf32>
+func.func @UnrollMatMulForDequantize(%WEIGHTS: tensor<1x1024x3584x!qElemType>,
+                                    %SCALE: tensor<1x1024x1xf32>,
+                                    %LHS_1: tensor<1x3072xf32>) -> tensor<1x3584xf32> {
+    %RHS_1 = IE.DynamicDequantize(%WEIGHTS, %SCALE) {dstElemType = f32} : tensor<1x1024x3584x!qElemType>, tensor<1x1024x1xf32> -> tensor<1x1024x3584xf32>
+    %RHS_2 = IE.DynamicDequantize(%WEIGHTS, %SCALE) {dstElemType = f32} : tensor<1x1024x3584x!qElemType>, tensor<1x1024x1xf32> -> tensor<1x1024x3584xf32>
+    %RHS_3 = IE.DynamicDequantize(%WEIGHTS, %SCALE) {dstElemType = f32} : tensor<1x1024x3584x!qElemType>, tensor<1x1024x1xf32> -> tensor<1x1024x3584xf32>
 
     %CONCAT_RHS = IE.Concat(%RHS_1, %RHS_2, %RHS_3) {
         per_axis = #IE.Concat<axis = 0 : i64>
@@ -861,9 +777,9 @@ func.func @UnrollMatMulForDequantize(%INPUT: tensor<1x1024x3584x!qElemType>, %LH
     %GEMM = IE.FullyConnected(%LHS_1, %TRANSPOSE_RHS) : tensor<1x3072xf32>, tensor<3584x3072xf32> -> tensor<1x3584xf32>
     return %GEMM : tensor<1x3584xf32>
 
-    // CHECK:   [[RHS_1:%.+]] = IE.Dequantize
-    // CHECK:   [[RHS_2:%.+]] = IE.Dequantize
-    // CHECK:   [[RHS_3:%.+]] = IE.Dequantize
+    // CHECK:   [[RHS_1:%.+]] = IE.DynamicDequantize
+    // CHECK:   [[RHS_2:%.+]] = IE.DynamicDequantize
+    // CHECK:   [[RHS_3:%.+]] = IE.DynamicDequantize
     // CHECK:   [[RESHAPE_RHS_1:%.+]] = IE.Reshape([[RHS_1]]) {shape_value = [1024, 3584]} : tensor<1x1024x3584xf32> -> tensor<1024x3584xf32>
     // CHECK:   [[RESHAPE_RHS_2:%.+]] = IE.Reshape([[RHS_2]]) {shape_value = [1024, 3584]} : tensor<1x1024x3584xf32> -> tensor<1024x3584xf32>
     // CHECK:   [[RESHAPE_RHS_3:%.+]] = IE.Reshape([[RHS_3]]) {shape_value = [1024, 3584]} : tensor<1x1024x3584xf32> -> tensor<1024x3584xf32>
@@ -994,30 +910,21 @@ func.func @DontUnrollMatMulWhenInputChannelsNotDivisible(%WEIGHTS: tensor<1x1x35
 #CN = affine_map<(d0, d1) -> (d1, d0)>
 
 // CHECK-LABEL: @AccumulateMatmulWithDPU
-// CHECK-SAME:   [[LHS_1:%arg[0-9]]]: tensor<1024x3584xf32>,
-// CHECK-SAME:   [[WEIGHTS:%arg[0-9]]]: tensor<1x896x512xf32>,
-// CHECK-SAME:   [[IN_PARAM:%arg[0-9]]]: tensor<1x1x1xf32>,
-// CHECK-SAME:   [[OUT_PARAM:%arg[0-9]]]: tensor<1x1x512xf32>
+// CHECK-SAME:   [[LHS_1:%arg[0-9]+]]: tensor<1024x3584xf32>,
+// CHECK-SAME:   [[WEIGHTS:%arg[0-9]+]]: tensor<1x896x512xsi4>,
+// CHECK-SAME:   [[SCALE:%arg[0-9]+]]: tensor<1x1x512xf32>
 func.func @AccumulateMatmulWithDPU(%LHS_1: tensor<1024x3584xf32>,
-                        %WEIGHTS: tensor<1x896x512xf32>,
-                        %IN_PARAM: tensor<1x1x1xf32>,
-                        %OUT_PARAM: tensor<1x1x512xf32>) -> tensor<1024x512xf32> {
-    %RHS_1 = IE.FakeQuantize(%WEIGHTS, %IN_PARAM, %IN_PARAM, %OUT_PARAM, %OUT_PARAM) {
-        auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 16 : i64
-    } : tensor<1x896x512xf32>, tensor<1x1x1xf32>, tensor<1x1x1xf32>, tensor<1x1x512xf32>, tensor<1x1x512xf32> -> tensor<1x896x512xf32>
-    %RHS_2 = IE.FakeQuantize(%WEIGHTS, %IN_PARAM, %IN_PARAM, %OUT_PARAM, %OUT_PARAM) {
-        auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 16 : i64
-    } : tensor<1x896x512xf32>, tensor<1x1x1xf32>, tensor<1x1x1xf32>, tensor<1x1x512xf32>, tensor<1x1x512xf32> -> tensor<1x896x512xf32>
-    %RHS_3 = IE.FakeQuantize(%WEIGHTS, %IN_PARAM, %IN_PARAM, %OUT_PARAM, %OUT_PARAM) {
-        auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 16 : i64
-    } : tensor<1x896x512xf32>, tensor<1x1x1xf32>, tensor<1x1x1xf32>, tensor<1x1x512xf32>, tensor<1x1x512xf32> -> tensor<1x896x512xf32>
-    %RHS_4 = IE.FakeQuantize(%WEIGHTS, %IN_PARAM, %IN_PARAM, %OUT_PARAM, %OUT_PARAM) {
-        auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 16 : i64
-    } : tensor<1x896x512xf32>, tensor<1x1x1xf32>, tensor<1x1x1xf32>, tensor<1x1x512xf32>, tensor<1x1x512xf32> -> tensor<1x896x512xf32>
-    // CHECK:   [[RHS_1:%.+]] = IE.FakeQuantize
-    // CHECK:   [[RHS_2:%.+]] = IE.FakeQuantize
-    // CHECK:   [[RHS_3:%.+]] = IE.FakeQuantize
-    // CHECK:   [[RHS_4:%.+]] = IE.FakeQuantize
+                                   %WEIGHTS: tensor<1x896x512xsi4>,
+                                   %SCALE: tensor<1x1x512xf32>) -> tensor<1024x512xf32> {
+    %RHS_1 = IE.DynamicDequantize(%WEIGHTS, %SCALE) {dstElemType = f32} : tensor<1x896x512xsi4>, tensor<1x1x512xf32> -> tensor<1x896x512xf32>
+    %RHS_2 = IE.DynamicDequantize(%WEIGHTS, %SCALE) {dstElemType = f32} : tensor<1x896x512xsi4>, tensor<1x1x512xf32> -> tensor<1x896x512xf32>
+    %RHS_3 = IE.DynamicDequantize(%WEIGHTS, %SCALE) {dstElemType = f32} : tensor<1x896x512xsi4>, tensor<1x1x512xf32> -> tensor<1x896x512xf32>
+    %RHS_4 = IE.DynamicDequantize(%WEIGHTS, %SCALE) {dstElemType = f32} : tensor<1x896x512xsi4>, tensor<1x1x512xf32> -> tensor<1x896x512xf32>
+
+    // CHECK:   [[RHS_1:%.+]] = IE.DynamicDequantize
+    // CHECK:   [[RHS_2:%.+]] = IE.DynamicDequantize
+    // CHECK:   [[RHS_3:%.+]] = IE.DynamicDequantize
+    // CHECK:   [[RHS_4:%.+]] = IE.DynamicDequantize
 
     %CONCAT_RHS = IE.Concat(%RHS_1, %RHS_2, %RHS_3, %RHS_4) {
         per_axis = #IE.Concat<axis = 0 : i64>
@@ -1182,32 +1089,26 @@ func.func @UnrollMatMulForI4DynamicDequantize(
 
 // -----
 
-// Verify that U2 weights (levels=4 FakeQuantize) are always unrolled regardless of the
+// Verify that U2 weights (2-bit DynamicDequantize) are always unrolled regardless of the
 // cost-model threshold that would prevent unrolling for small shapes with i4 weights.
-// This mirrors @DontUnrollMatMulNoPerfBenefit but with levels=4 instead of levels=16.
+// This mirrors @DontUnrollMatMulNoPerfBenefit but with 2-bit weights instead of 4-bit.
 
 // CHECK-LABEL: @UnrollMatMulU2AlwaysBeneficial
 // CHECK-SAME:   [[ARG0:%.+]]: tensor<1x1x64xf16>
 func.func @UnrollMatMulU2AlwaysBeneficial(%arg0: tensor<1x1x64xf16>) -> tensor<1x1x64xf16> {
-  %cst   = const.Declare tensor<1x1x1xf16> = dense<0.000000e+00> : tensor<1x1x1xf16>, [#const.Transpose<affine_map<(d0, d1, d2) -> (d1, d2, d0)>>]
-  %cst_0 = const.Declare tensor<1x1x1xf16> = dense<3.000000e+00> : tensor<1x1x1xf16>, [#const.Transpose<affine_map<(d0, d1, d2) -> (d1, d2, d0)>>]
-  %cst_1 = const.Declare tensor<1x16x64xf16> = dense<1> : tensor<64x4x16xui2>, [#const.SubView<[0, 0, 0], [64, 1, 16]>, #const.ConvertElemType<ui8>, #const.CastElemType<f16>, #const.Transpose<affine_map<(d0, d1, d2) -> (d1, d2, d0)>>]
-  %cst_2 = const.Declare tensor<1x16x64xf16> = dense<1> : tensor<64x4x16xui2>, [#const.SubView<[0, 1, 0], [64, 1, 16]>, #const.ConvertElemType<ui8>, #const.CastElemType<f16>, #const.Transpose<affine_map<(d0, d1, d2) -> (d1, d2, d0)>>]
-  %cst_3 = const.Declare tensor<1x16x64xf16> = dense<1> : tensor<64x4x16xui2>, [#const.SubView<[0, 2, 0], [64, 1, 16]>, #const.ConvertElemType<ui8>, #const.CastElemType<f16>, #const.Transpose<affine_map<(d0, d1, d2) -> (d1, d2, d0)>>]
-  %cst_4 = const.Declare tensor<1x16x64xf16> = dense<1> : tensor<64x4x16xui2>, [#const.SubView<[0, 3, 0], [64, 1, 16]>, #const.ConvertElemType<ui8>, #const.CastElemType<f16>, #const.Transpose<affine_map<(d0, d1, d2) -> (d1, d2, d0)>>]
-  %cst_5  = const.Declare tensor<1x1x64xf16> = dense<1.0> : tensor<64x4x1xf16>, [#const.SubView<[0, 0, 0], [64, 1, 1]>, #const.Transpose<affine_map<(d0, d1, d2) -> (d1, d2, d0)>>]
-  %cst_6  = const.Declare tensor<1x1x64xf16> = dense<1.0> : tensor<64x4x1xf16>, [#const.SubView<[0, 1, 0], [64, 1, 1]>, #const.Transpose<affine_map<(d0, d1, d2) -> (d1, d2, d0)>>]
-  %cst_7  = const.Declare tensor<1x1x64xf16> = dense<1.0> : tensor<64x4x1xf16>, [#const.SubView<[0, 2, 0], [64, 1, 1]>, #const.Transpose<affine_map<(d0, d1, d2) -> (d1, d2, d0)>>]
-  %cst_8  = const.Declare tensor<1x1x64xf16> = dense<1.0> : tensor<64x4x1xf16>, [#const.SubView<[0, 3, 0], [64, 1, 1]>, #const.Transpose<affine_map<(d0, d1, d2) -> (d1, d2, d0)>>]
-  %cst_9  = const.Declare tensor<1x1x64xf16> = dense<1.0> : tensor<64x4x1xf16>, [#const.SubView<[0, 0, 0], [64, 1, 1]>, #const.Transpose<affine_map<(d0, d1, d2) -> (d1, d2, d0)>>]
-  %cst_10 = const.Declare tensor<1x1x64xf16> = dense<1.0> : tensor<64x4x1xf16>, [#const.SubView<[0, 1, 0], [64, 1, 1]>, #const.Transpose<affine_map<(d0, d1, d2) -> (d1, d2, d0)>>]
-  %cst_11 = const.Declare tensor<1x1x64xf16> = dense<1.0> : tensor<64x4x1xf16>, [#const.SubView<[0, 2, 0], [64, 1, 1]>, #const.Transpose<affine_map<(d0, d1, d2) -> (d1, d2, d0)>>]
-  %cst_12 = const.Declare tensor<1x1x64xf16> = dense<1.0> : tensor<64x4x1xf16>, [#const.SubView<[0, 3, 0], [64, 1, 1]>, #const.Transpose<affine_map<(d0, d1, d2) -> (d1, d2, d0)>>]
+  %cst_1 = const.Declare tensor<1x16x64xui2> = dense<1> : tensor<64x4x16xui2>, [#const.SubView<[0, 0, 0], [64, 1, 16]>, #const.Transpose<affine_map<(d0, d1, d2) -> (d1, d2, d0)>>]
+  %cst_2 = const.Declare tensor<1x16x64xui2> = dense<1> : tensor<64x4x16xui2>, [#const.SubView<[0, 1, 0], [64, 1, 16]>, #const.Transpose<affine_map<(d0, d1, d2) -> (d1, d2, d0)>>]
+  %cst_3 = const.Declare tensor<1x16x64xui2> = dense<1> : tensor<64x4x16xui2>, [#const.SubView<[0, 2, 0], [64, 1, 16]>, #const.Transpose<affine_map<(d0, d1, d2) -> (d1, d2, d0)>>]
+  %cst_4 = const.Declare tensor<1x16x64xui2> = dense<1> : tensor<64x4x16xui2>, [#const.SubView<[0, 3, 0], [64, 1, 16]>, #const.Transpose<affine_map<(d0, d1, d2) -> (d1, d2, d0)>>]
+  %cst_5 = const.Declare tensor<1x1x64xf16> = dense<1.0> : tensor<64x4x1xf16>, [#const.SubView<[0, 0, 0], [64, 1, 1]>, #const.Transpose<affine_map<(d0, d1, d2) -> (d1, d2, d0)>>]
+  %cst_6 = const.Declare tensor<1x1x64xf16> = dense<1.0> : tensor<64x4x1xf16>, [#const.SubView<[0, 1, 0], [64, 1, 1]>, #const.Transpose<affine_map<(d0, d1, d2) -> (d1, d2, d0)>>]
+  %cst_7 = const.Declare tensor<1x1x64xf16> = dense<1.0> : tensor<64x4x1xf16>, [#const.SubView<[0, 2, 0], [64, 1, 1]>, #const.Transpose<affine_map<(d0, d1, d2) -> (d1, d2, d0)>>]
+  %cst_8 = const.Declare tensor<1x1x64xf16> = dense<1.0> : tensor<64x4x1xf16>, [#const.SubView<[0, 3, 0], [64, 1, 1]>, #const.Transpose<affine_map<(d0, d1, d2) -> (d1, d2, d0)>>]
 
-  %0 = IE.FakeQuantize(%cst_1, %cst, %cst_0, %cst_5,  %cst_9)  {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 4 : i64} : tensor<1x16x64xf16>, tensor<1x1x1xf16>, tensor<1x1x1xf16>, tensor<1x1x64xf16>, tensor<1x1x64xf16> -> tensor<1x16x64xf16>
-  %1 = IE.FakeQuantize(%cst_2, %cst, %cst_0, %cst_6,  %cst_10) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 4 : i64} : tensor<1x16x64xf16>, tensor<1x1x1xf16>, tensor<1x1x1xf16>, tensor<1x1x64xf16>, tensor<1x1x64xf16> -> tensor<1x16x64xf16>
-  %2 = IE.FakeQuantize(%cst_3, %cst, %cst_0, %cst_7,  %cst_11) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 4 : i64} : tensor<1x16x64xf16>, tensor<1x1x1xf16>, tensor<1x1x1xf16>, tensor<1x1x64xf16>, tensor<1x1x64xf16> -> tensor<1x16x64xf16>
-  %3 = IE.FakeQuantize(%cst_4, %cst, %cst_0, %cst_8,  %cst_12) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 4 : i64} : tensor<1x16x64xf16>, tensor<1x1x1xf16>, tensor<1x1x1xf16>, tensor<1x1x64xf16>, tensor<1x1x64xf16> -> tensor<1x16x64xf16>
+  %0 = IE.DynamicDequantize(%cst_1, %cst_5) {dstElemType = f16} : tensor<1x16x64xui2>, tensor<1x1x64xf16> -> tensor<1x16x64xf16>
+  %1 = IE.DynamicDequantize(%cst_2, %cst_6) {dstElemType = f16} : tensor<1x16x64xui2>, tensor<1x1x64xf16> -> tensor<1x16x64xf16>
+  %2 = IE.DynamicDequantize(%cst_3, %cst_7) {dstElemType = f16} : tensor<1x16x64xui2>, tensor<1x1x64xf16> -> tensor<1x16x64xf16>
+  %3 = IE.DynamicDequantize(%cst_4, %cst_8) {dstElemType = f16} : tensor<1x16x64xui2>, tensor<1x1x64xf16> -> tensor<1x16x64xf16>
 
   %4 = IE.Concat(%0, %1, %2, %3) {per_axis = #IE.Concat<axis = 0 : i64>} : tensor<1x16x64xf16>, tensor<1x16x64xf16>, tensor<1x16x64xf16>, tensor<1x16x64xf16> -> tensor<4x16x64xf16>
   %5 = IE.Transpose(%4) {order_value = affine_map<(d0, d1, d2) -> (d2, d0, d1)>} : tensor<4x16x64xf16> -> tensor<64x4x16xf16>
@@ -1217,11 +1118,10 @@ func.func @UnrollMatMulU2AlwaysBeneficial(%arg0: tensor<1x1x64xf16>) -> tensor<1
   %9 = IE.AffineReshape(%8) {dim_mapping = [[0, 1], [2]], shape_value = [1, 1, 64]} : tensor<1x64xf16> -> tensor<1x1x64xf16>
   return %9 : tensor<1x1x64xf16>
 
-
-  // CHECK:   IE.FakeQuantize
-  // CHECK:   IE.FakeQuantize
-  // CHECK:   IE.FakeQuantize
-  // CHECK:   IE.FakeQuantize
+  // CHECK:   IE.DynamicDequantize
+  // CHECK:   IE.DynamicDequantize
+  // CHECK:   IE.DynamicDequantize
+  // CHECK:   IE.DynamicDequantize
   // CHECK:   IE.FullyConnected
   // CHECK:   IE.FullyConnected
   // CHECK:   IE.FullyConnected
@@ -1235,18 +1135,18 @@ func.func @UnrollMatMulU2AlwaysBeneficial(%arg0: tensor<1x1x64xf16>) -> tensor<1
 
 // CHECK-LABEL: @UnrollMatMulConstInt4Decode2Tokens8Groups
 // CHECK-SAME:   [[LHS:%arg[0-9]+]]: tensor<2x1024xf16>,
+// CHECK-SAME:   [[SCALE:%arg[0-9]+]]: tensor<1x1x4096xf16>
 func.func @UnrollMatMulConstInt4Decode2Tokens8Groups(%LHS: tensor<2x1024xf16>,
-                        %IN_PARAM: tensor<1x1x1xf16>,
-                        %OUT_PARAM: tensor<1x1x4096xf16>) -> tensor<2x4096xf16> {
-    %WEIGHTS = const.Declare tensor<1x128x4096xf16> = dense<1.000000e+00> : tensor<1x128x4096xf16>
-    %RHS_1 = IE.FakeQuantize(%WEIGHTS, %IN_PARAM, %IN_PARAM, %OUT_PARAM, %OUT_PARAM) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 16 : i64} : tensor<1x128x4096xf16>, tensor<1x1x1xf16>, tensor<1x1x1xf16>, tensor<1x1x4096xf16>, tensor<1x1x4096xf16> -> tensor<1x128x4096xf16>
-    %RHS_2 = IE.FakeQuantize(%WEIGHTS, %IN_PARAM, %IN_PARAM, %OUT_PARAM, %OUT_PARAM) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 16 : i64} : tensor<1x128x4096xf16>, tensor<1x1x1xf16>, tensor<1x1x1xf16>, tensor<1x1x4096xf16>, tensor<1x1x4096xf16> -> tensor<1x128x4096xf16>
-    %RHS_3 = IE.FakeQuantize(%WEIGHTS, %IN_PARAM, %IN_PARAM, %OUT_PARAM, %OUT_PARAM) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 16 : i64} : tensor<1x128x4096xf16>, tensor<1x1x1xf16>, tensor<1x1x1xf16>, tensor<1x1x4096xf16>, tensor<1x1x4096xf16> -> tensor<1x128x4096xf16>
-    %RHS_4 = IE.FakeQuantize(%WEIGHTS, %IN_PARAM, %IN_PARAM, %OUT_PARAM, %OUT_PARAM) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 16 : i64} : tensor<1x128x4096xf16>, tensor<1x1x1xf16>, tensor<1x1x1xf16>, tensor<1x1x4096xf16>, tensor<1x1x4096xf16> -> tensor<1x128x4096xf16>
-    %RHS_5 = IE.FakeQuantize(%WEIGHTS, %IN_PARAM, %IN_PARAM, %OUT_PARAM, %OUT_PARAM) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 16 : i64} : tensor<1x128x4096xf16>, tensor<1x1x1xf16>, tensor<1x1x1xf16>, tensor<1x1x4096xf16>, tensor<1x1x4096xf16> -> tensor<1x128x4096xf16>
-    %RHS_6 = IE.FakeQuantize(%WEIGHTS, %IN_PARAM, %IN_PARAM, %OUT_PARAM, %OUT_PARAM) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 16 : i64} : tensor<1x128x4096xf16>, tensor<1x1x1xf16>, tensor<1x1x1xf16>, tensor<1x1x4096xf16>, tensor<1x1x4096xf16> -> tensor<1x128x4096xf16>
-    %RHS_7 = IE.FakeQuantize(%WEIGHTS, %IN_PARAM, %IN_PARAM, %OUT_PARAM, %OUT_PARAM) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 16 : i64} : tensor<1x128x4096xf16>, tensor<1x1x1xf16>, tensor<1x1x1xf16>, tensor<1x1x4096xf16>, tensor<1x1x4096xf16> -> tensor<1x128x4096xf16>
-    %RHS_8 = IE.FakeQuantize(%WEIGHTS, %IN_PARAM, %IN_PARAM, %OUT_PARAM, %OUT_PARAM) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 16 : i64} : tensor<1x128x4096xf16>, tensor<1x1x1xf16>, tensor<1x1x1xf16>, tensor<1x1x4096xf16>, tensor<1x1x4096xf16> -> tensor<1x128x4096xf16>
+                                                    %SCALE: tensor<1x1x4096xf16>) -> tensor<2x4096xf16> {
+    %WEIGHTS = const.Declare tensor<1x128x4096xsi4> = dense<1> : tensor<1x128x4096xsi4>
+    %RHS_1 = IE.DynamicDequantize(%WEIGHTS, %SCALE) {dstElemType = f16, vpux.weights_import_dyn_dequant} : tensor<1x128x4096xsi4>, tensor<1x1x4096xf16> -> tensor<1x128x4096xf16>
+    %RHS_2 = IE.DynamicDequantize(%WEIGHTS, %SCALE) {dstElemType = f16, vpux.weights_import_dyn_dequant} : tensor<1x128x4096xsi4>, tensor<1x1x4096xf16> -> tensor<1x128x4096xf16>
+    %RHS_3 = IE.DynamicDequantize(%WEIGHTS, %SCALE) {dstElemType = f16, vpux.weights_import_dyn_dequant} : tensor<1x128x4096xsi4>, tensor<1x1x4096xf16> -> tensor<1x128x4096xf16>
+    %RHS_4 = IE.DynamicDequantize(%WEIGHTS, %SCALE) {dstElemType = f16, vpux.weights_import_dyn_dequant} : tensor<1x128x4096xsi4>, tensor<1x1x4096xf16> -> tensor<1x128x4096xf16>
+    %RHS_5 = IE.DynamicDequantize(%WEIGHTS, %SCALE) {dstElemType = f16, vpux.weights_import_dyn_dequant} : tensor<1x128x4096xsi4>, tensor<1x1x4096xf16> -> tensor<1x128x4096xf16>
+    %RHS_6 = IE.DynamicDequantize(%WEIGHTS, %SCALE) {dstElemType = f16, vpux.weights_import_dyn_dequant} : tensor<1x128x4096xsi4>, tensor<1x1x4096xf16> -> tensor<1x128x4096xf16>
+    %RHS_7 = IE.DynamicDequantize(%WEIGHTS, %SCALE) {dstElemType = f16, vpux.weights_import_dyn_dequant} : tensor<1x128x4096xsi4>, tensor<1x1x4096xf16> -> tensor<1x128x4096xf16>
+    %RHS_8 = IE.DynamicDequantize(%WEIGHTS, %SCALE) {dstElemType = f16, vpux.weights_import_dyn_dequant} : tensor<1x128x4096xsi4>, tensor<1x1x4096xf16> -> tensor<1x128x4096xf16>
 
     %CONCAT_RHS = IE.Concat(%RHS_1, %RHS_2, %RHS_3, %RHS_4, %RHS_5, %RHS_6, %RHS_7, %RHS_8) {per_axis = #IE.Concat<axis = 0 : i64>} : tensor<1x128x4096xf16>, tensor<1x128x4096xf16>, tensor<1x128x4096xf16>, tensor<1x128x4096xf16>, tensor<1x128x4096xf16>, tensor<1x128x4096xf16>, tensor<1x128x4096xf16>, tensor<1x128x4096xf16> -> tensor<8x128x4096xf16>
     %TRANSPOSE_RHS = IE.Transpose(%CONCAT_RHS) {order_value = #map} : tensor<8x128x4096xf16> -> tensor<4096x8x128xf16>
@@ -1254,7 +1154,7 @@ func.func @UnrollMatMulConstInt4Decode2Tokens8Groups(%LHS: tensor<2x1024xf16>,
     %GEMM = IE.FullyConnected(%LHS, %RESHAPE_RHS) : tensor<2x1024xf16>, tensor<4096x1024xf16> -> tensor<2x4096xf16>
     return %GEMM : tensor<2x4096xf16>
 
-    // CHECK-COUNT-8:   IE.FakeQuantize
+    // CHECK-COUNT-8:   IE.DynamicDequantize
     // CHECK-COUNT-8:   IE.Reshape({{%.+}}) {shape_value = [128, 4096]} : tensor<1x128x4096xf16> -> tensor<128x4096xf16>
     // CHECK-COUNT-8:   IE.Slice [[LHS]] {{.+}} [2, 128] : tensor<2x1024xf16> to tensor<2x128xf16>
     // CHECK-COUNT-8:   IE.FullyConnected({{%.+}}, {{%.+}}) : tensor<2x128xf16>, tensor<4096x128xf16> -> tensor<2x4096xf16>
@@ -1263,44 +1163,6 @@ func.func @UnrollMatMulConstInt4Decode2Tokens8Groups(%LHS: tensor<2x1024xf16>,
     // CHECK:   IE.Reshape([[REDUCE_SUM]]) {shape_value = [2, 4096]} : tensor<1x2x4096xf16> -> tensor<2x4096xf16>
     // CHECK-NOT:   IE.Add
     // CHECK-NOT:   IE.Concat
-    // CHECK:   return
-}
-
-// -----
-
-#map = affine_map<(d0, d1, d2) -> (d2, d0, d1)>
-
-// Boundary of the speculative-decoding regime (token length 16 == MAX_TOKEN_LENGTH):
-// constant sub-byte grouped weights still unroll and the accumulation uses ReduceSum.
-// CHECK-LABEL: @UnrollMatMulConstInt4Decode16Tokens8Groups
-// CHECK-SAME:   [[LHS:%arg[0-9]+]]: tensor<16x1024xf16>,
-func.func @UnrollMatMulConstInt4Decode16Tokens8Groups(%LHS: tensor<16x1024xf16>,
-                        %IN_PARAM: tensor<1x1x1xf16>,
-                        %OUT_PARAM: tensor<1x1x4096xf16>) -> tensor<16x4096xf16> {
-    %WEIGHTS = const.Declare tensor<1x128x4096xf16> = dense<1.000000e+00> : tensor<1x128x4096xf16>
-    %RHS_1 = IE.FakeQuantize(%WEIGHTS, %IN_PARAM, %IN_PARAM, %OUT_PARAM, %OUT_PARAM) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 16 : i64} : tensor<1x128x4096xf16>, tensor<1x1x1xf16>, tensor<1x1x1xf16>, tensor<1x1x4096xf16>, tensor<1x1x4096xf16> -> tensor<1x128x4096xf16>
-    %RHS_2 = IE.FakeQuantize(%WEIGHTS, %IN_PARAM, %IN_PARAM, %OUT_PARAM, %OUT_PARAM) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 16 : i64} : tensor<1x128x4096xf16>, tensor<1x1x1xf16>, tensor<1x1x1xf16>, tensor<1x1x4096xf16>, tensor<1x1x4096xf16> -> tensor<1x128x4096xf16>
-    %RHS_3 = IE.FakeQuantize(%WEIGHTS, %IN_PARAM, %IN_PARAM, %OUT_PARAM, %OUT_PARAM) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 16 : i64} : tensor<1x128x4096xf16>, tensor<1x1x1xf16>, tensor<1x1x1xf16>, tensor<1x1x4096xf16>, tensor<1x1x4096xf16> -> tensor<1x128x4096xf16>
-    %RHS_4 = IE.FakeQuantize(%WEIGHTS, %IN_PARAM, %IN_PARAM, %OUT_PARAM, %OUT_PARAM) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 16 : i64} : tensor<1x128x4096xf16>, tensor<1x1x1xf16>, tensor<1x1x1xf16>, tensor<1x1x4096xf16>, tensor<1x1x4096xf16> -> tensor<1x128x4096xf16>
-    %RHS_5 = IE.FakeQuantize(%WEIGHTS, %IN_PARAM, %IN_PARAM, %OUT_PARAM, %OUT_PARAM) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 16 : i64} : tensor<1x128x4096xf16>, tensor<1x1x1xf16>, tensor<1x1x1xf16>, tensor<1x1x4096xf16>, tensor<1x1x4096xf16> -> tensor<1x128x4096xf16>
-    %RHS_6 = IE.FakeQuantize(%WEIGHTS, %IN_PARAM, %IN_PARAM, %OUT_PARAM, %OUT_PARAM) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 16 : i64} : tensor<1x128x4096xf16>, tensor<1x1x1xf16>, tensor<1x1x1xf16>, tensor<1x1x4096xf16>, tensor<1x1x4096xf16> -> tensor<1x128x4096xf16>
-    %RHS_7 = IE.FakeQuantize(%WEIGHTS, %IN_PARAM, %IN_PARAM, %OUT_PARAM, %OUT_PARAM) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 16 : i64} : tensor<1x128x4096xf16>, tensor<1x1x1xf16>, tensor<1x1x1xf16>, tensor<1x1x4096xf16>, tensor<1x1x4096xf16> -> tensor<1x128x4096xf16>
-    %RHS_8 = IE.FakeQuantize(%WEIGHTS, %IN_PARAM, %IN_PARAM, %OUT_PARAM, %OUT_PARAM) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 16 : i64} : tensor<1x128x4096xf16>, tensor<1x1x1xf16>, tensor<1x1x1xf16>, tensor<1x1x4096xf16>, tensor<1x1x4096xf16> -> tensor<1x128x4096xf16>
-
-    %CONCAT_RHS = IE.Concat(%RHS_1, %RHS_2, %RHS_3, %RHS_4, %RHS_5, %RHS_6, %RHS_7, %RHS_8) {per_axis = #IE.Concat<axis = 0 : i64>} : tensor<1x128x4096xf16>, tensor<1x128x4096xf16>, tensor<1x128x4096xf16>, tensor<1x128x4096xf16>, tensor<1x128x4096xf16>, tensor<1x128x4096xf16>, tensor<1x128x4096xf16>, tensor<1x128x4096xf16> -> tensor<8x128x4096xf16>
-    %TRANSPOSE_RHS = IE.Transpose(%CONCAT_RHS) {order_value = #map} : tensor<8x128x4096xf16> -> tensor<4096x8x128xf16>
-    %RESHAPE_RHS = IE.AffineReshape(%TRANSPOSE_RHS) {dim_mapping = [[0], [1], [1]], shape_value = [4096, 1024]} : tensor<4096x8x128xf16> -> tensor<4096x1024xf16>
-    %GEMM = IE.FullyConnected(%LHS, %RESHAPE_RHS) : tensor<16x1024xf16>, tensor<4096x1024xf16> -> tensor<16x4096xf16>
-    return %GEMM : tensor<16x4096xf16>
-
-    // CHECK-COUNT-8:   IE.FakeQuantize
-    // CHECK-COUNT-8:   IE.Reshape({{%.+}}) {shape_value = [128, 4096]} : tensor<1x128x4096xf16> -> tensor<128x4096xf16>
-    // CHECK-COUNT-8:   IE.Slice [[LHS]] {{.+}} [16, 128] : tensor<16x1024xf16> to tensor<16x128xf16>
-    // CHECK-COUNT-8:   IE.FullyConnected({{%.+}}, {{%.+}}) : tensor<16x128xf16>, tensor<4096x128xf16> -> tensor<16x4096xf16>
-    // CHECK:   [[CONCAT:%.+]] = IE.Concat({{.+}}) {per_axis = #IE.Concat<axis = 1 : i64>} : {{.+}} -> tensor<1x8x16x4096xf16>
-    // CHECK:   [[REDUCE_SUM:%.+]] = IE.ReduceSum([[CONCAT]]) {axes_value = [1]} : tensor<1x8x16x4096xf16> -> tensor<1x16x4096xf16>
-    // CHECK:   IE.Reshape([[REDUCE_SUM]]) {shape_value = [16, 4096]} : tensor<1x16x4096xf16> -> tensor<16x4096xf16>
-    // CHECK-NOT:   IE.Add
     // CHECK:   return
 }
 

@@ -29,6 +29,7 @@ std::unique_ptr<mlir::Pass> createAddNetworkMetadataPass(Logger log = Logger::gl
 std::unique_ptr<mlir::Pass> createAddCompatibilityStringPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createUpdateELFSectionFlagsPass(Logger log = Logger::global(),
                                                             bool enableShaveDDRAccess = true);
+std::unique_ptr<mlir::Pass> createRemoveRedundantRegisterSectionsPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createRemoveEmptyELFSectionsPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createHandleAlignmentRequirementsPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createAddABIVersionPass(Logger log = Logger::global());

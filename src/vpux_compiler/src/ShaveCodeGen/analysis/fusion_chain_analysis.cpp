@@ -1,5 +1,5 @@
 //
-// Copyright (C) 2025 Intel Corporation
+// Copyright (C) 2025-2026 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -159,7 +159,7 @@ void extendChain(mlir::Operation* head, std::vector<mlir::Operation*>& currChain
             // Safe as in this branch both scgUserCount & genericUserCount == 1
             currOp = *(currOp->getUsers().begin());
 
-            bool hasExternalDeps = llvm::any_of(currOp->getOperands(), [&prevOp](mlir::Value val) {
+            bool hasExternalDeps = llvm::any_of(currOp->getOperands(), [prevOp](mlir::Value val) {
                 auto definingOp = val.getDefiningOp();
                 if (definingOp) {
                     return definingOp != prevOp;

@@ -219,3 +219,68 @@ func.func @UnrollMaxPool8DistributedOpsWithTiling() -> !OutputDistributed {
     // CHECK-NEXT:    }
 
 }
+
+// -----
+
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+module @VPU.SW {
+  func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"}
+  func.func @generated_info_0(%V15: index, %V15_0: index, %V15_1: index, %V15_2: index) -> (index, index, index, index, index, index, index, index) {
+    %c1 = arith.constant 1 : index
+    %c0 = arith.constant 0 : index
+    return
+      %c1, %c1, %V15, %V15_0,
+        %c0, %c0, %V15_1, %V15_2 : index, index, index, index, index, index, index, index
+  }
+  func.func nested @generated_0(%V15: memref<1x1x?x?xi32>, %V15_1: memref<1x1x?x?xi32>, %V15_2: index, %V15_3: index, %V15_4: index, %V15_5: index) attributes {kernelInfo = #VPU.KernelInfo<tilingInfoFunc = @generated_info_0, tilingAxes = [2, 3], numSlicedInputs = 1 : i64, numTensorInputs = 1 : i64, numAuxBuffers = 0 : i64, inputSegmentationAxes = [array<i64: 2>, array<i64: 3>]>} {
+    return
+  }
+}
+
+!Distributed = !VPUIP.DistributedBuffer<
+  1x1x256x56xsi32, #NCHW, @CMX_NN,
+  {mode = "SEGMENTED", num_tiles = [1, 1, 3, 1], num_clusters = 3 : i64, uniform_distributed_segments,
+   compute_shapes = [[1, 1, 86, 56], [1, 1, 85, 56], [1, 1, 85, 56]],
+   compute_offsets = [[0, 0, 0, 0], [0, 0, 86, 0], [0, 0, 171, 0]],
+   memory_shapes = [[1, 1, 86, 56], [1, 1, 85, 56], [1, 1, 85, 56]],
+   memory_offsets = [[0, 0, 0, 0], [0, 0, 86, 0], [0, 0, 171, 0]]}
+>
+
+// CHECK-LABEL: @UnrollDistributedJitKernel
+func.func @UnrollDistributedJitKernel() -> !Distributed {
+  %0 = VPURT.DeclareBuffer <CMX_NN> <0> -> !Distributed
+  %1 = VPURT.DeclareBuffer <CMX_NN> <19264> -> !Distributed
+  VPURT.Task {
+    %results = VPUIP.SW.Kernel {resultSegmentSizes = array<i32: 1, 0, 0>} @VPU.SW::@generated_0
+      inputs(%0 as %arg0: !Distributed)
+      outputs(%1 as %arg1: !Distributed) on tile 0 list 0 -> !Distributed {
+      VPUIP.SW.Kernel.run {attrs = [256, 56, 0, 0]}(%arg0, %arg1) : !Distributed, !Distributed
+    }
+  }
+  return %1 : !Distributed
+
+  // CHECK:      [[IN_0:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x1x86x56xsi32, [@CMX_NN, 0]>
+  // CHECK:      [[IN_1:%.+]] = VPURT.DeclareBuffer <CMX_NN> [1] <0> -> memref<1x1x85x56xsi32, [@CMX_NN, 1]>
+  // CHECK:      [[IN_2:%.+]] = VPURT.DeclareBuffer <CMX_NN> [2] <0> -> memref<1x1x85x56xsi32, [@CMX_NN, 2]>
+  // CHECK:      [[OUT_0:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <19264> -> memref<1x1x86x56xsi32, [@CMX_NN, 0]>
+  // CHECK:      [[OUT_1:%.+]] = VPURT.DeclareBuffer <CMX_NN> [1] <19264> -> memref<1x1x85x56xsi32, [@CMX_NN, 1]>
+  // CHECK:      [[OUT_2:%.+]] = VPURT.DeclareBuffer <CMX_NN> [2] <19264> -> memref<1x1x85x56xsi32, [@CMX_NN, 2]>
+
+  // CHECK:      VPURT.Task
+  // CHECK-NEXT:   [[RESULTS_0:%.+]] = VPUIP.SW.Kernel {resultSegmentSizes = array<i32: 1, 0, 0>} @VPU.SW::@generated_0
+  // CHECK-SAME:     inputs([[IN_0]] as [[INNER_INPUT_0:%.+]]: memref<1x1x86x56xsi32, [@CMX_NN, 0]>) outputs([[OUT_0]] as [[INNER_OUTPUT_0:%.+]]: memref<1x1x86x56xsi32, [@CMX_NN, 0]>)
+  // CHECK-SAME:     on tile 0
+  // CHECK-NEXT:     VPUIP.SW.Kernel.run {attrs = [86, 56, 0, 0]}([[INNER_INPUT_0]], [[INNER_OUTPUT_0]])
+
+  // CHECK:      VPURT.Task
+  // CHECK-NEXT:   [[RESULTS_1:%.+]] = VPUIP.SW.Kernel {resultSegmentSizes = array<i32: 1, 0, 0>} @VPU.SW::@generated_0
+  // CHECK-SAME:     inputs([[IN_1]] as [[INNER_INPUT_1:%.+]]: memref<1x1x85x56xsi32, [@CMX_NN, 1]>) outputs([[OUT_1]] as [[INNER_OUTPUT_1:%.+]]: memref<1x1x85x56xsi32, [@CMX_NN, 1]>)
+  // CHECK-SAME:     on tile 1
+  // CHECK-NEXT:     VPUIP.SW.Kernel.run {attrs = [85, 56, 86, 0]}([[INNER_INPUT_1]], [[INNER_OUTPUT_1]])
+
+  // CHECK:      VPURT.Task
+  // CHECK-NEXT:   [[RESULTS_2:%.+]] = VPUIP.SW.Kernel {resultSegmentSizes = array<i32: 1, 0, 0>} @VPU.SW::@generated_0
+  // CHECK-SAME:     inputs([[IN_2]] as [[INNER_INPUT_2:%.+]]: memref<1x1x85x56xsi32, [@CMX_NN, 2]>) outputs([[OUT_2]] as [[INNER_OUTPUT_2:%.+]]: memref<1x1x85x56xsi32, [@CMX_NN, 2]>)
+  // CHECK-SAME:     on tile 2
+  // CHECK-NEXT:     VPUIP.SW.Kernel.run {attrs = [85, 56, 171, 0]}([[INNER_INPUT_2]], [[INNER_OUTPUT_2]])
+}

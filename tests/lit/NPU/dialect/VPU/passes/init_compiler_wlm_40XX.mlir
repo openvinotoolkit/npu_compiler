@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-// RUN: vpux-opt --init-compiler="platform=%platform% compilation-mode=ReferenceSW workload-management-enable=true" %s | FileCheck %s --strict-whitespace
+// RUN: vpux-opt --init-compiler="platform=%platform% compilation-mode=ReferenceSW" %s | FileCheck %s --strict-whitespace
 // REQUIRES: platform-NPU4000
 
 // CHECK: module @test attributes {config.compilationMode = #config.compilation_mode<ReferenceSW>, config.elf_version = #config.version<1 : 2 : 2>, config.platform = #config.platform<NPU4000>, config.revisionID = #config.revision_id<REVISION_NONE>} {
@@ -17,7 +17,6 @@ module @test {
 // CHECK-DAG:    {{  }}}
 
 // CHECK-DAG:    {{  }}config.ExecutorResource 2 of @DMA_NN
-// CHECK-DAG:    {{  }}config.ExecutorResource 1 of @M2I
 // CHECK-DAG:    {{  }}config.Resources 6 of @NCE at 1.850000e+03 MHz {
 // CHECK-DAG:    {{    }}config.ExecutorResource 2 of @SHAVE_ACT
 // CHECK-DAG:    {{    }}config.ExecutorResource 1 of @DPU

@@ -7,6 +7,7 @@
 #include "vpux/compiler/dialect/const/ops.hpp"
 #include "vpux/compiler/dialect/core/IR/dynamic_attrs.hpp"
 #include "vpux/compiler/dialect/core/IR/tensor_attr.hpp"
+#include "vpux/compiler/utils/error.hpp"
 #include "vpux/compiler/utils/infer_output_shape.hpp"
 
 #include <mlir/IR/PatternMatch.h>
@@ -59,6 +60,9 @@ mlir::LogicalResult vpux::IE::NonMaxSuppressionOp::inferReturnTypeComponents(
 
     const auto inScoresType = mlir::cast<vpux::NDTypeInterface>(nms.getInBoxScores().getType());
     const auto inScoresShapeInfo = ShapeInfo::fromNDType(inScoresType);
+    if (inScoresShapeInfo.isUnbounded()) {
+        return errorAt(loc, "NonMaxSuppression scores '{0}' have a dimension without an upper bound", inScoresType);
+    }
     const auto hasBounds = inScoresShapeInfo.isDynamic();
     const auto& sizeSource = hasBounds ? inScoresShapeInfo.bounds : inScoresShapeInfo.shape;
     const auto numBatches = sizeSource[0];

@@ -223,7 +223,7 @@ void addPredefinedEnqusForTasksWithFetch(VPUMI40XX::MappedInferenceOp mpi, const
             VPURegMapped::TaskOpInterface taskOp = mlir::cast<VPURegMapped::TaskOpInterface>(startVal.getDefiningOp());
             do {
                 auto filteredRange = to_small_vector(
-                        taskOp.getResult().getUsers() | vpux::filtered([&secondary](mlir::Operation* op) {
+                        taskOp.getResult().getUsers() | vpux::filtered([secondary](mlir::Operation* op) {
                             // filter out the usages that are of the secondaryType
                             auto taskOp = mlir::dyn_cast<VPURegMapped::TaskOpInterface>(op);
                             return taskOp && taskOp.getTaskType() == secondary;

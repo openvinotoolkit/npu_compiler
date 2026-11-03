@@ -13,6 +13,7 @@
 #include "vpux/compiler/dialect/IE/IR/ops/specialized_fwd.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/image_fwd.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops_interfaces.hpp"
+#include "vpux/compiler/dialect/core/interfaces/ops_interfaces.hpp"
 #include "vpux/compiler/utils/asm.hpp"
 
 #include <mlir/Dialect/SCF/IR/SCF.h>

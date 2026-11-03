@@ -27,14 +27,33 @@ using namespace vpux;
 
 namespace {
 
-using BoundaryKind = VPUIP::EdgeBoundary::Kind;
-using EdgeType = VPUIP::EdgeType;
+using BoundaryKind = VPUIP::DmaOptimization::EdgeBoundary::Kind;
+using EdgeType = VPUIP::DmaOptimization::EdgeType;
 
-void expectEdgeShape(const VPUIP::Edge& edge, EdgeType type, size_t sources, size_t targets, size_t nodes) {
+void expectEdgeShape(const VPUIP::DmaOptimization::Edge& edge, EdgeType type, size_t sources, size_t targets,
+                     size_t nodes) {
     EXPECT_EQ(edge.type, type);
     ASSERT_EQ(edge.sources.size(), sources);
     ASSERT_EQ(edge.targets.size(), targets);
     ASSERT_EQ(edge.nodes.size(), nodes);
+}
+
+void expectLoopDomain(const VPUIP::DmaOptimization::LoopRegionInfo& info, VPUIP::DmaOptimization::LoopRegionKind kind,
+                      int64_t loopIndex, int64_t tileIndex = -1) {
+    EXPECT_TRUE(info.isValid());
+    EXPECT_EQ(info.kind, kind);
+    EXPECT_EQ(info.loopIndex, loopIndex);
+    if (tileIndex >= 0) {
+        EXPECT_EQ(info.tileIndex, tileIndex);
+    }
+}
+
+bool hasTargetLoopDomain(const VPUIP::DmaOptimization::Edge& edge, VPUIP::DmaOptimization::LoopRegionKind kind,
+                         int64_t loopIndex, int64_t tileIndex) {
+    return llvm::any_of(edge.targets, [&](const VPUIP::DmaOptimization::EdgeBoundary& target) {
+        const auto& info = target.loopRegionInfo;
+        return info.kind == kind && info.loopIndex == loopIndex && info.tileIndex == tileIndex;
+    });
 }
 
 class MLIR_EdgeCollector : public MLIR_UnitBase {
@@ -55,30 +74,52 @@ protected:
     }
 
     mlir::func::FuncOp lookupMainFunction(mlir::ModuleOp module) {
+        if (module == nullptr) {
+            return nullptr;
+        }
         auto mainFunction = module.lookupSymbol<mlir::func::FuncOp>("main");
         EXPECT_NE(mainFunction, nullptr) << "Module has no @main function";
         return mainFunction;
     }
 
-    VPUIP::EdgeCollection collectEdges(mlir::func::FuncOp func) {
-        VPUIP::EdgeCollector collector(_log);
+    VPUIP::DmaOptimization::EdgeCollection collectEdges(mlir::func::FuncOp func) {
+        if (func == nullptr) {
+            return {};
+        }
+        VPUIP::DmaOptimization::EdgeCollector collector(_log);
         return collector.collect(func);
     }
 
-    VPUIP::EdgeCollection collectEdges(mlir::func::FuncOp func, const VPUIP::LoopRegionBoundaryInfo& boundaries) {
-        VPUIP::EdgeCollector collector(_log);
+    VPUIP::DmaOptimization::EdgeCollection collectEdges(
+            mlir::func::FuncOp func, const VPUIP::DmaOptimization::LoopRegionBoundaryInfo& boundaries) {
+        if (func == nullptr) {
+            return {};
+        }
+        VPUIP::DmaOptimization::EdgeCollector collector(_log);
         return collector.collect(func, boundaries);
     }
 
-    VPUIP::EdgeCollection collectMainEdges(mlir::ModuleOp module) {
+    VPUIP::DmaOptimization::EdgeCollection collectMainEdges(mlir::ModuleOp module) {
         return collectEdges(lookupMainFunction(module));
     }
 
-    VPUIP::EdgeCollection collectMainEdges(mlir::ModuleOp module, const VPUIP::LoopRegionBoundaryInfo& boundaries) {
+    VPUIP::DmaOptimization::EdgeCollection collectMainEdges(
+            mlir::ModuleOp module, const VPUIP::DmaOptimization::LoopRegionBoundaryInfo& boundaries) {
         return collectEdges(lookupMainFunction(module), boundaries);
     }
 
-    static size_t countBoundariesOfKind(llvm::ArrayRef<VPUIP::EdgeBoundary> boundaries, BoundaryKind kind) {
+    VPUIP::DmaOptimization::EdgeCollection collectMainEdgesWithLoopRegionInfo(mlir::ModuleOp module) {
+        auto main = lookupMainFunction(module);
+        if (main == nullptr) {
+            return {};
+        }
+        VPUIP::DmaOptimization::LoopRegionBuilder builder(_log);
+        const auto boundaries = builder.build(main);
+        return collectEdges(main, boundaries);
+    }
+
+    static size_t countBoundariesOfKind(llvm::ArrayRef<VPUIP::DmaOptimization::EdgeBoundary> boundaries,
+                                        BoundaryKind kind) {
         size_t count = 0;
         for (const auto& boundary : boundaries) {
             if (boundary.kind == kind) {
@@ -88,15 +129,15 @@ protected:
         return count;
     }
 
-    static size_t countSourcesOfKind(const VPUIP::Edge& edge, BoundaryKind kind) {
+    static size_t countSourcesOfKind(const VPUIP::DmaOptimization::Edge& edge, BoundaryKind kind) {
         return countBoundariesOfKind(edge.sources, kind);
     }
 
-    static size_t countTargetsOfKind(const VPUIP::Edge& edge, BoundaryKind kind) {
+    static size_t countTargetsOfKind(const VPUIP::DmaOptimization::Edge& edge, BoundaryKind kind) {
         return countBoundariesOfKind(edge.targets, kind);
     }
 
-    static size_t countConcatNodes(const VPUIP::Edge& edge) {
+    static size_t countConcatNodes(const VPUIP::DmaOptimization::Edge& edge) {
         size_t count = 0;
         for (const auto& node : edge.nodes) {
             if (node.op != nullptr && mlir::isa<VPUIP::ConcatViewOp>(node.op)) {
@@ -249,197 +290,6 @@ TEST_F(MLIR_EdgeCollector, CopyResultWithoutTarget_DropsIncompleteComponent) {
 
     auto edges = collectMainEdges(module.get());
     EXPECT_TRUE(edges.edges.empty());
-}
-
-//===----------------------------------------------------------------------===//
-// LoopRegion ports are explicit collection boundaries. An internal consumer
-// of a visible Copy result must be represented by a port on that result, so
-// the global edge stops at the LoopRegion input instead of looking inside.
-//
-// Diagram:
-//   source(FuncArg %arg0)
-//          |
-//   edgeNode(Copy %copy)
-//          |
-//   target(LoopRegion input port 0)
-//          |
-//   internal(ShapeCast) -> FuncReturn
-//
-// Note: The real loop region would not only have a ShapeCast inside,
-// but this is enough to test the collector's behavior.
-//===----------------------------------------------------------------------===//
-TEST_F(MLIR_EdgeCollector, LoopRegionInputPort_StopsAtBoundary) {
-    constexpr llvm::StringLiteral IR = R"(
-        func.func @main(%arg0: memref<1x1x16x16xf16, @DDR>,
-                        %dst: memref<1x1x16x16xf16, @DDR>)
-                -> memref<1x1x16x16xf16, @DDR> {
-            %copy = VPUIP.Copy
-                inputs(%arg0 : memref<1x1x16x16xf16, @DDR>)
-                outputs(%dst : memref<1x1x16x16xf16, @DDR>)
-                -> memref<1x1x16x16xf16, @DDR>
-            %shape = VPUIP.ShapeCast {shape = [1, 1, 16, 16]}
-                inputs(%copy : memref<1x1x16x16xf16, @DDR>)
-                -> memref<1x1x16x16xf16, @DDR>
-            return %shape : memref<1x1x16x16xf16, @DDR>
-        }
-    )";
-
-    auto module = parseModule(IR);
-    ASSERT_NE(module.get(), nullptr);
-
-    VPUIP::CopyOp copyOp;
-    VPUIP::ShapeCastOp shapeCast;
-    module->walk([&](VPUIP::CopyOp op) {
-        copyOp = op;
-    });
-    module->walk([&](VPUIP::ShapeCastOp op) {
-        shapeCast = op;
-    });
-    ASSERT_NE(copyOp.getOperation(), nullptr);
-    ASSERT_NE(shapeCast.getOperation(), nullptr);
-
-    VPUIP::LoopRegion loopRegion;
-    VPUIP::LoopRegionBoundaryInfo boundaries;
-    boundaries.internalOps.insert(shapeCast.getOperation());
-    boundaries.valueToPort[copyOp->getResult(0)] = {&loopRegion, 0, VPUIP::LoopRegionPortKind::Input};
-
-    auto edges = collectMainEdges(module.get(), boundaries);
-    ASSERT_EQ(edges.edges.size(), 1u);
-
-    const auto& edge = edges.edges.front();
-    ASSERT_NO_FATAL_FAILURE(expectEdgeShape(edge, EdgeType::Normal, 1u, 1u, 1u));
-
-    EXPECT_EQ(edge.sources[0].kind, BoundaryKind::FuncArg);
-    EXPECT_EQ(edge.targets[0].kind, BoundaryKind::LoopRegion);
-    EXPECT_EQ(edge.targets[0].loopPort.portKind, VPUIP::LoopRegionPortKind::Input);
-    EXPECT_EQ(edge.targets[0].loopPort.portIdx, 0u);
-    EXPECT_TRUE(edge.validate(_log));
-}
-
-//===----------------------------------------------------------------------===//
-// Symmetric source-side case: when a visible edge reads a LoopRegion output
-// value, the source is the LoopRegion output port, not the internal producer.
-//
-// Diagram:
-//   FuncArg -> internal(ShapeCast)
-//                    |
-//   source(LoopRegion output port 0)
-//                    |
-//             edgeNode(Copy)
-//                    |
-//      target(FuncReturn operand 0)
-//===----------------------------------------------------------------------===//
-TEST_F(MLIR_EdgeCollector, LoopRegionOutputPort_StopsAtBoundary) {
-    constexpr llvm::StringLiteral IR = R"(
-        func.func @main(%arg0: memref<1x1x16x16xf16, @DDR>,
-                        %dst: memref<1x1x16x16xf16, @DDR>)
-                -> memref<1x1x16x16xf16, @DDR> {
-            %shape = VPUIP.ShapeCast {shape = [1, 1, 16, 16]}
-                inputs(%arg0 : memref<1x1x16x16xf16, @DDR>)
-                -> memref<1x1x16x16xf16, @DDR>
-            %copy = VPUIP.Copy
-                inputs(%shape : memref<1x1x16x16xf16, @DDR>)
-                outputs(%dst : memref<1x1x16x16xf16, @DDR>)
-                -> memref<1x1x16x16xf16, @DDR>
-            return %copy : memref<1x1x16x16xf16, @DDR>
-        }
-    )";
-
-    auto module = parseModule(IR);
-    ASSERT_NE(module.get(), nullptr);
-
-    VPUIP::ShapeCastOp shapeCast;
-    module->walk([&](VPUIP::ShapeCastOp op) {
-        shapeCast = op;
-    });
-    ASSERT_NE(shapeCast.getOperation(), nullptr);
-
-    VPUIP::LoopRegion loopRegion;
-    VPUIP::LoopRegionBoundaryInfo boundaries;
-    boundaries.internalOps.insert(shapeCast.getOperation());
-    boundaries.valueToPort[shapeCast->getResult(0)] = {&loopRegion, 0, VPUIP::LoopRegionPortKind::Output};
-
-    auto edges = collectMainEdges(module.get(), boundaries);
-    ASSERT_EQ(edges.edges.size(), 1u);
-
-    const auto& edge = edges.edges.front();
-    ASSERT_NO_FATAL_FAILURE(expectEdgeShape(edge, EdgeType::Normal, 1u, 1u, 1u));
-
-    EXPECT_EQ(edge.sources[0].kind, BoundaryKind::LoopRegion);
-    EXPECT_EQ(edge.sources[0].loopPort.portKind, VPUIP::LoopRegionPortKind::Output);
-    EXPECT_EQ(edge.sources[0].loopPort.portIdx, 0u);
-    EXPECT_EQ(edge.targets[0].kind, BoundaryKind::FuncReturn);
-    EXPECT_TRUE(edge.validate(_log));
-}
-
-//===----------------------------------------------------------------------===//
-// LoopRegion output assembly ConcatView can have multiple data operands for
-// the same output port. Those operands must resolve to one target boundary, not
-// one target slot per ConcatView operand.
-//
-// Diagram:
-//             source(FuncArg %arg0)
-//                |                  |
-//   edgeNode(Copy %copy0)    edgeNode(Copy %copy1)
-//                +------------------+
-//              internal(ConcatView)
-//                       |
-//        target(LoopRegion output port 0)
-//   Both ConcatView data operands target the same logical output port.
-//===----------------------------------------------------------------------===//
-TEST_F(MLIR_EdgeCollector, LoopRegionOutputAssembly_DeduplicatesMultiOperandTarget) {
-    constexpr llvm::StringLiteral IR = R"(
-        func.func @main(%arg0: memref<1x1x4x4xf16, @DDR>,
-                        %dst0: memref<1x1x4x4xf16, @DDR>,
-                        %dst1: memref<1x1x4x4xf16, @DDR>,
-                        %head_buf: memref<1x2x4x4xf16, @DDR>)
-                -> memref<1x2x4x4xf16, @DDR> {
-            %copy0 = VPUIP.Copy
-                inputs(%arg0 : memref<1x1x4x4xf16, @DDR>)
-                outputs(%dst0 : memref<1x1x4x4xf16, @DDR>)
-                -> memref<1x1x4x4xf16, @DDR>
-            %copy1 = VPUIP.Copy
-                inputs(%arg0 : memref<1x1x4x4xf16, @DDR>)
-                outputs(%dst1 : memref<1x1x4x4xf16, @DDR>)
-                -> memref<1x1x4x4xf16, @DDR>
-            %concat = VPUIP.ConcatView
-                inputs(%copy0, %copy1 :
-                    memref<1x1x4x4xf16, @DDR>,
-                    memref<1x1x4x4xf16, @DDR>)
-                outputs(%head_buf : memref<1x2x4x4xf16, @DDR>)
-                -> memref<1x2x4x4xf16, @DDR>
-            return %concat : memref<1x2x4x4xf16, @DDR>
-        }
-    )";
-
-    auto module = parseModule(IR);
-    ASSERT_NE(module.get(), nullptr);
-
-    VPUIP::ConcatViewOp concatView;
-    module->walk([&](VPUIP::ConcatViewOp op) {
-        concatView = op;
-    });
-    ASSERT_NE(concatView.getOperation(), nullptr);
-
-    VPUIP::LoopRegion loopRegion;
-    VPUIP::LoopRegionBoundaryInfo boundaries;
-    boundaries.internalOps.insert(concatView.getOperation());
-    boundaries.valueToPort[concatView.getOutput()] = {&loopRegion, 0, VPUIP::LoopRegionPortKind::Output};
-
-    auto edges = collectMainEdges(module.get(), boundaries);
-    ASSERT_EQ(edges.edges.size(), 1u);
-
-    const auto& edge = edges.edges.front();
-    ASSERT_NO_FATAL_FAILURE(expectEdgeShape(edge, EdgeType::Normal, 1u, 1u, 2u));
-
-    EXPECT_EQ(edge.targets[0].kind, BoundaryKind::LoopRegion);
-    EXPECT_EQ(edge.targets[0].loopPort.portKind, VPUIP::LoopRegionPortKind::Output);
-    EXPECT_EQ(edge.targets[0].loopPort.portIdx, 0u);
-    ASSERT_EQ(edge.sourceEntryNodes.size(), 1u);
-    EXPECT_EQ(edge.sourceEntryNodes[0], 0);
-    ASSERT_EQ(edge.targetExitNodes.size(), 1u);
-    EXPECT_EQ(edge.targetExitNodes[0], 1);
-    EXPECT_TRUE(edge.validate(_log));
 }
 
 //===----------------------------------------------------------------------===//
@@ -644,6 +494,230 @@ TEST_F(MLIR_EdgeCollector, Many2Many_ConcatJunctionCollectsAndDistributes) {
 }
 
 //===----------------------------------------------------------------------===//
+// One constant Copy is shared by two compute targets in different tiles
+// of the same VF region. The shared Copy remains one FanOut edge node, while the
+// target boundaries retain their distinct tile domains.
+//
+// Diagram:
+//   source(Constant weight_table)
+//              |
+//       edgeNode(Copy)
+//          +-> target(NCE tile 0)
+//          +-> target(NCE tile 1)
+//===----------------------------------------------------------------------===//
+TEST_F(MLIR_EdgeCollector, FanOut_SharedCopyAcrossVfTiles) {
+    constexpr llvm::StringLiteral IR = R"(
+        #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+        #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+        !In = memref<1x128x64x4xf16, #NHWC, @CMX_NN>
+        !Weights = memref<1024x128x1x1xf16, #NHWC, @CMX_NN>
+        !OutBuffer = memref<1x1024x64x4xf16, #NHWC, @CMX_NN>
+        !LogicalOut = memref<1x2048x64x4xf16, #NHWC, @CMX_NN>
+        !WT = memref<1024x1x1x4xsi32, #NCHW, @CMX_NN>
+
+        func.func @main(%input: !In, %weights: !Weights) -> !LogicalOut {
+            %wt = const.Declare memref<1024x1x1x4xsi32> = dense<1> : tensor<1024x1x1x4xsi32>
+            %wt_alloc = memref.alloc() : !WT
+            %wt_cmx = VPUIP.Copy inputs(%wt : memref<1024x1x1x4xsi32>) outputs(%wt_alloc : !WT) -> !WT
+            %out0_alloc = memref.alloc() : !OutBuffer
+            %out0 = VPUIP.NCEClusterTask {loop_tile_coord = {axes = array<i64: 2>, indices = array<i64: 0>},
+                                          vf_loop_index = 0 : i64, vf_loop_tile_index = 0 : i64} <{
+                    resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>, is_zero_offset_weights_table,
+                    kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
+                    kernel_size = [1, 1], kernel_strides = [1, 1], mpe_engine = #VPU.MPEEngine37XX<mode = <SCL>>, task_type = #VPUIP.nce_task_type<CONV>}>
+                input(%input : !In) weights(%weights : !Weights) weight_table(%wt_cmx : !WT)
+                parent_input(%input : !In) parent_output(%out0_alloc : !OutBuffer) outputs(%out0_alloc : !OutBuffer) -> !OutBuffer
+                variants : {DPUTask {cluster_id = 0 : i64, inEnd = [3, 63, 127], inStart = [0, 0, 0], mpe_mode = #VPU.mpe_mode<CUBOID_4x16>, outEnd = [3, 63, 1023], outStart = [0, 0, 0], pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>}} PPE : {}
+            %out1_alloc = memref.alloc() : !OutBuffer
+            %out1 = VPUIP.NCEClusterTask {loop_tile_coord = {axes = array<i64: 2>, indices = array<i64: 0>},
+                                          vf_loop_index = 0 : i64, vf_loop_tile_index = 1 : i64} <{
+                    resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>, is_zero_offset_weights_table,
+                    kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
+                    kernel_size = [1, 1], kernel_strides = [1, 1], mpe_engine = #VPU.MPEEngine37XX<mode = <SCL>>, task_type = #VPUIP.nce_task_type<CONV>}>
+                input(%input : !In) weights(%weights : !Weights) weight_table(%wt_cmx : !WT)
+                parent_input(%input : !In) parent_output(%out1_alloc : !OutBuffer) outputs(%out1_alloc : !OutBuffer) -> !OutBuffer
+                variants : {DPUTask {cluster_id = 0 : i64, inEnd = [3, 63, 127], inStart = [0, 0, 0], mpe_mode = #VPU.mpe_mode<CUBOID_4x16>, outEnd = [3, 63, 1023], outStart = [0, 0, 0], pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>}} PPE : {}
+            %concat_buf = memref.alloc() : !LogicalOut
+            %concat = VPUIP.ConcatView inputs(%out0, %out1 : !OutBuffer, !OutBuffer) outputs(%concat_buf : !LogicalOut) -> !LogicalOut
+            return %concat : !LogicalOut
+        }
+    )";
+
+    auto module = parseModule(IR);
+    ASSERT_NE(module.get(), nullptr);
+    auto edges = collectMainEdgesWithLoopRegionInfo(module.get());
+
+    const auto fanOutIt = llvm::find_if(edges.edges, [](const VPUIP::DmaOptimization::Edge& edge) {
+        return edge.type == EdgeType::FanOut && edge.sources.size() == 1 &&
+               edge.sources.front().kind == BoundaryKind::Constant;
+    });
+    ASSERT_NE(fanOutIt, edges.edges.end());
+    const auto& edge = *fanOutIt;
+    ASSERT_NO_FATAL_FAILURE(expectEdgeShape(edge, EdgeType::FanOut, 1u, 2u, 1u));
+    EXPECT_EQ(edge.sources[0].kind, BoundaryKind::Constant);
+    EXPECT_TRUE(hasTargetLoopDomain(edge, VPUIP::DmaOptimization::LoopRegionKind::VF, 0, 0));
+    EXPECT_TRUE(hasTargetLoopDomain(edge, VPUIP::DmaOptimization::LoopRegionKind::VF, 0, 1));
+    EXPECT_TRUE(edge.validate(_log));
+}
+
+//===----------------------------------------------------------------------===//
+// Two sibling Copies read one external value and feed compute targets in
+// different tiles of the same VF region. Shared-source component merging makes
+// this one FanOut edge with two Copy nodes and two tile-aware targets.
+//
+// Diagram:
+//                      source(FuncArg shared_value)
+//                         +-> edgeNode(Copy 0) -> target(SW tile 0)
+//                         +-> edgeNode(Copy 1) -> target(SW tile 1)
+//===----------------------------------------------------------------------===//
+TEST_F(MLIR_EdgeCollector, FanOut_SiblingCopiesAcrossVfTiles) {
+    constexpr llvm::StringLiteral IR = R"(
+        #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+        func.func @main(%activation0: memref<1x1x1x64xf16, #NCHW, [@CMX_NN, 0]>,
+                        %activation1: memref<1x1x1x64xf16, #NCHW, [@CMX_NN, 0]>,
+                        %weight_table_ddr: memref<64x1x1x4xsi32, #NCHW, @DDR>)
+            -> memref<1x1x1x128xf16, #NCHW, [@CMX_NN, 0]> {
+            %wt_cmx0 = memref.alloc() : memref<64x1x1x4xsi32, #NCHW, [@CMX_NN, 0]>
+            %wt_copy0 = VPUIP.Copy inputs(%weight_table_ddr : memref<64x1x1x4xsi32, #NCHW, @DDR>)
+                                  outputs(%wt_cmx0 : memref<64x1x1x4xsi32, #NCHW, [@CMX_NN, 0]>)
+                         -> memref<64x1x1x4xsi32, #NCHW, [@CMX_NN, 0]>
+            %wt_cmx1 = memref.alloc() : memref<64x1x1x4xsi32, #NCHW, [@CMX_NN, 0]>
+            %wt_copy1 = VPUIP.Copy inputs(%weight_table_ddr : memref<64x1x1x4xsi32, #NCHW, @DDR>)
+                                  outputs(%wt_cmx1 : memref<64x1x1x4xsi32, #NCHW, [@CMX_NN, 0]>)
+                         -> memref<64x1x1x4xsi32, #NCHW, [@CMX_NN, 0]>
+
+            %out0 = memref.alloc() : memref<1x1x1x64xf16, #NCHW, [@CMX_NN, 0]>
+            %consumer0 = VPUIP.SW.Kernel {loop_tile_coord = {axes = array<i64: 2>, indices = array<i64: 0>}, resultSegmentSizes = array<i32: 1, 0, 0>, vf_loop_index = 0 : i64, vf_loop_tile_index = 0 : i64} @VPU.SW::@builtin_Gather
+                inputs(%activation0 as %act0: memref<1x1x1x64xf16, #NCHW, [@CMX_NN, 0]>, %wt_copy0 as %table0: memref<64x1x1x4xsi32, #NCHW, [@CMX_NN, 0]>)
+                outputs(%out0 as %res0: memref<1x1x1x64xf16, #NCHW, [@CMX_NN, 0]>)
+                on tile 0 -> memref<1x1x1x64xf16, #NCHW, [@CMX_NN, 0]> {
+                    VPUIP.SW.Kernel.run {attrs = [1, 0]}(%act0, %table0, %res0) : memref<1x1x1x64xf16, #NCHW, [@CMX_NN, 0]>, memref<64x1x1x4xsi32, #NCHW, [@CMX_NN, 0]>, memref<1x1x1x64xf16, #NCHW, [@CMX_NN, 0]>
+                }
+            %out1 = memref.alloc() : memref<1x1x1x64xf16, #NCHW, [@CMX_NN, 0]>
+            %consumer1 = VPUIP.SW.Kernel {loop_tile_coord = {axes = array<i64: 2>, indices = array<i64: 0>}, resultSegmentSizes = array<i32: 1, 0, 0>, vf_loop_index = 0 : i64, vf_loop_tile_index = 1 : i64} @VPU.SW::@builtin_Gather
+                inputs(%activation1 as %act1: memref<1x1x1x64xf16, #NCHW, [@CMX_NN, 0]>, %wt_copy1 as %table1: memref<64x1x1x4xsi32, #NCHW, [@CMX_NN, 0]>)
+                outputs(%out1 as %res1: memref<1x1x1x64xf16, #NCHW, [@CMX_NN, 0]>)
+                on tile 0 -> memref<1x1x1x64xf16, #NCHW, [@CMX_NN, 0]> {
+                    VPUIP.SW.Kernel.run {attrs = [1, 0]}(%act1, %table1, %res1) : memref<1x1x1x64xf16, #NCHW, [@CMX_NN, 0]>, memref<64x1x1x4xsi32, #NCHW, [@CMX_NN, 0]>, memref<1x1x1x64xf16, #NCHW, [@CMX_NN, 0]>
+                }
+            %concat_buf = memref.alloc() : memref<1x1x1x128xf16, #NCHW, [@CMX_NN, 0]>
+            %concat = VPUIP.ConcatView inputs(%consumer0, %consumer1 :
+                    memref<1x1x1x64xf16, #NCHW, [@CMX_NN, 0]>,
+                    memref<1x1x1x64xf16, #NCHW, [@CMX_NN, 0]>)
+                outputs(%concat_buf : memref<1x1x1x128xf16, #NCHW, [@CMX_NN, 0]>)
+                -> memref<1x1x1x128xf16, #NCHW, [@CMX_NN, 0]>
+            return %concat : memref<1x1x1x128xf16, #NCHW, [@CMX_NN, 0]>
+        }
+    )";
+
+    auto module = parseModule(IR);
+    ASSERT_NE(module.get(), nullptr);
+    auto edges = collectMainEdgesWithLoopRegionInfo(module.get());
+
+    const auto fanOutIt = llvm::find_if(edges.edges, [](const VPUIP::DmaOptimization::Edge& edge) {
+        return edge.type == EdgeType::FanOut && edge.sources.size() == 1 &&
+               edge.sources.front().kind == BoundaryKind::FuncArg;
+    });
+    ASSERT_NE(fanOutIt, edges.edges.end());
+    const auto& edge = *fanOutIt;
+    ASSERT_NO_FATAL_FAILURE(expectEdgeShape(edge, EdgeType::FanOut, 1u, 2u, 2u));
+    EXPECT_EQ(edge.sources[0].kind, BoundaryKind::FuncArg);
+    expectLoopDomain(edge.targets[0].loopRegionInfo, VPUIP::DmaOptimization::LoopRegionKind::VF, 0, 0);
+    expectLoopDomain(edge.targets[1].loopRegionInfo, VPUIP::DmaOptimization::LoopRegionKind::VF, 0, 1);
+    EXPECT_TRUE(edge.validate(_log));
+}
+
+//===----------------------------------------------------------------------===//
+// Two VF producers write ConcatView slots, then two slices of the assembled
+// buffer are copied to VF consumers. The result is a Many2Many edge whose
+// source and target boundaries preserve their producer/consumer tile domains.
+//
+// Diagram:
+//   source(Compute tile 5) -> edgeNode(Copy 0) --+
+//   source(Compute tile 5) -> edgeNode(Copy 1) --+-> edgeNode(ConcatView)
+//   source(Alloc concat_buffer) -> edgeNode(SubViews)    |          |
+//                                                   SubView 0   SubView 1
+//                                                       |          |
+//                                                    Copy 0     Copy 1
+//                                                       |          |
+//                                             target(tile 5) target(tile 6)
+//===----------------------------------------------------------------------===//
+TEST_F(MLIR_EdgeCollector, ManyToMany_VfTilePairingThroughConcat) {
+    constexpr llvm::StringLiteral IR = R"(
+        #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+        func.func @main(%input0: memref<1x4x1x1xf16, #NCHW, @CMX_NN>,
+                        %input1: memref<1x4x1x1xf16, #NCHW, @CMX_NN>)
+            -> memref<1x8x1x1xf16, #NCHW, @CMX_NN> {
+            %src0_buf = memref.alloc() : memref<1x4x1x1xf16, #NCHW, @CMX_NN>
+            %src0 = VPUIP.SW.Kernel {loop_tile_coord = {axes = array<i64: 2>, indices = array<i64: 0>}, resultSegmentSizes = array<i32: 1, 0, 0>, vf_loop_index = 8 : i64, vf_loop_tile_index = 5 : i64} @VPU.SW::@builtin_LogSoftmax
+                inputs(%input0 as %src0_input: memref<1x4x1x1xf16, #NCHW, @CMX_NN>) outputs(%src0_buf as %src0_output: memref<1x4x1x1xf16, #NCHW, @CMX_NN>)
+                on tile 0 -> memref<1x4x1x1xf16, #NCHW, @CMX_NN> { VPUIP.SW.Kernel.run {attrs = [0, 0]}(%src0_input, %src0_output) : memref<1x4x1x1xf16, #NCHW, @CMX_NN>, memref<1x4x1x1xf16, #NCHW, @CMX_NN> }
+            %src1_buf = memref.alloc() : memref<1x4x1x1xf16, #NCHW, @CMX_NN>
+            %src1 = VPUIP.SW.Kernel {loop_tile_coord = {axes = array<i64: 2>, indices = array<i64: 0>}, resultSegmentSizes = array<i32: 1, 0, 0>, vf_loop_index = 8 : i64, vf_loop_tile_index = 5 : i64} @VPU.SW::@builtin_LogSoftmax
+                inputs(%input1 as %src1_input: memref<1x4x1x1xf16, #NCHW, @CMX_NN>) outputs(%src1_buf as %src1_output: memref<1x4x1x1xf16, #NCHW, @CMX_NN>)
+                on tile 0 -> memref<1x4x1x1xf16, #NCHW, @CMX_NN> { VPUIP.SW.Kernel.run {attrs = [0, 0]}(%src1_input, %src1_output) : memref<1x4x1x1xf16, #NCHW, @CMX_NN>, memref<1x4x1x1xf16, #NCHW, @CMX_NN> }
+
+            %concat_buf = memref.alloc() : memref<1x8x1x1xf16, #NCHW, @DDR>
+            %sv0 = VPUIP.SubView %concat_buf [0, 0, 0, 0] [1, 4, 1, 1]
+                : memref<1x8x1x1xf16, #NCHW, @DDR> to memref<1x4x1x1xf16, {order = #NCHW, strides = [8, 1, 1, 1]}, @DDR>
+            %sv1 = VPUIP.SubView %concat_buf [0, 4, 0, 0] [1, 4, 1, 1]
+                : memref<1x8x1x1xf16, #NCHW, @DDR> to memref<1x4x1x1xf16, {order = #NCHW, strides = [8, 1, 1, 1]}, @DDR>
+            %copy0 = VPUIP.Copy inputs(%src0 : memref<1x4x1x1xf16, #NCHW, @CMX_NN>) outputs(%sv0 : memref<1x4x1x1xf16, {order = #NCHW, strides = [8, 1, 1, 1]}, @DDR>) -> memref<1x4x1x1xf16, {order = #NCHW, strides = [8, 1, 1, 1]}, @DDR>
+            %copy1 = VPUIP.Copy inputs(%src1 : memref<1x4x1x1xf16, #NCHW, @CMX_NN>) outputs(%sv1 : memref<1x4x1x1xf16, {order = #NCHW, strides = [8, 1, 1, 1]}, @DDR>) -> memref<1x4x1x1xf16, {order = #NCHW, strides = [8, 1, 1, 1]}, @DDR>
+            %concat = VPUIP.ConcatView inputs(%copy0, %copy1 : memref<1x4x1x1xf16, {order = #NCHW, strides = [8, 1, 1, 1]}, @DDR>, memref<1x4x1x1xf16, {order = #NCHW, strides = [8, 1, 1, 1]}, @DDR>) outputs(%concat_buf : memref<1x8x1x1xf16, #NCHW, @DDR>) -> memref<1x8x1x1xf16, #NCHW, @DDR>
+            %out_slot0 = VPUIP.SubView %concat [0, 0, 0, 0] [1, 4, 1, 1] : memref<1x8x1x1xf16, #NCHW, @DDR> to memref<1x4x1x1xf16, {order = #NCHW, strides = [8, 1, 1, 1]}, @DDR>
+            %out_slot1 = VPUIP.SubView %concat [0, 4, 0, 0] [1, 4, 1, 1] : memref<1x8x1x1xf16, #NCHW, @DDR> to memref<1x4x1x1xf16, {order = #NCHW, strides = [8, 1, 1, 1]}, @DDR>
+            %consumer0_in = memref.alloc() : memref<1x4x1x1xf16, #NCHW, @CMX_NN>
+            %out_copy0 = VPUIP.Copy inputs(%out_slot0 : memref<1x4x1x1xf16, {order = #NCHW, strides = [8, 1, 1, 1]}, @DDR>) outputs(%consumer0_in : memref<1x4x1x1xf16, #NCHW, @CMX_NN>) -> memref<1x4x1x1xf16, #NCHW, @CMX_NN>
+            %consumer1_in = memref.alloc() : memref<1x4x1x1xf16, #NCHW, @CMX_NN>
+            %out_copy1 = VPUIP.Copy inputs(%out_slot1 : memref<1x4x1x1xf16, {order = #NCHW, strides = [8, 1, 1, 1]}, @DDR>) outputs(%consumer1_in : memref<1x4x1x1xf16, #NCHW, @CMX_NN>) -> memref<1x4x1x1xf16, #NCHW, @CMX_NN>
+
+            %consumer0_buf = memref.alloc() : memref<1x4x1x1xf16, #NCHW, @CMX_NN>
+            %consumer0 = VPUIP.SW.Kernel {loop_tile_coord = {axes = array<i64: 2>, indices = array<i64: 0>}, resultSegmentSizes = array<i32: 1, 0, 0>, vf_loop_index = 8 : i64, vf_loop_tile_index = 5 : i64} @VPU.SW::@builtin_LogSoftmax
+                inputs(%out_copy0 as %consumer0_input: memref<1x4x1x1xf16, #NCHW, @CMX_NN>) outputs(%consumer0_buf as %consumer0_output: memref<1x4x1x1xf16, #NCHW, @CMX_NN>)
+                on tile 0 -> memref<1x4x1x1xf16, #NCHW, @CMX_NN> { VPUIP.SW.Kernel.run {attrs = [0, 0]}(%consumer0_input, %consumer0_output) : memref<1x4x1x1xf16, #NCHW, @CMX_NN>, memref<1x4x1x1xf16, #NCHW, @CMX_NN> }
+            %consumer1_buf = memref.alloc() : memref<1x4x1x1xf16, #NCHW, @CMX_NN>
+            %consumer1 = VPUIP.SW.Kernel {loop_tile_coord = {axes = array<i64: 2>, indices = array<i64: 0>}, resultSegmentSizes = array<i32: 1, 0, 0>, vf_loop_index = 8 : i64, vf_loop_tile_index = 6 : i64} @VPU.SW::@builtin_LogSoftmax
+                inputs(%out_copy1 as %consumer1_input: memref<1x4x1x1xf16, #NCHW, @CMX_NN>) outputs(%consumer1_buf as %consumer1_output: memref<1x4x1x1xf16, #NCHW, @CMX_NN>)
+                on tile 0 -> memref<1x4x1x1xf16, #NCHW, @CMX_NN> { VPUIP.SW.Kernel.run {attrs = [0, 0]}(%consumer1_input, %consumer1_output) : memref<1x4x1x1xf16, #NCHW, @CMX_NN>, memref<1x4x1x1xf16, #NCHW, @CMX_NN> }
+
+            %consumer_concat_buf = memref.alloc() : memref<1x8x1x1xf16, #NCHW, @CMX_NN>
+            %consumer_concat = VPUIP.ConcatView inputs(%consumer0, %consumer1 :
+                    memref<1x4x1x1xf16, #NCHW, @CMX_NN>,
+                    memref<1x4x1x1xf16, #NCHW, @CMX_NN>)
+                outputs(%consumer_concat_buf : memref<1x8x1x1xf16, #NCHW, @CMX_NN>)
+                -> memref<1x8x1x1xf16, #NCHW, @CMX_NN>
+            return %consumer_concat : memref<1x8x1x1xf16, #NCHW, @CMX_NN>
+        }
+    )";
+
+    auto module = parseModule(IR);
+    ASSERT_NE(module.get(), nullptr);
+    auto edges = collectMainEdgesWithLoopRegionInfo(module.get());
+
+    const auto manyIt = llvm::find_if(edges.edges, [](const VPUIP::DmaOptimization::Edge& edge) {
+        return edge.type == EdgeType::Many2Many;
+    });
+    ASSERT_NE(manyIt, edges.edges.end());
+    EXPECT_TRUE(manyIt->hasConcatNode());
+    const auto concatNodeIt = llvm::find_if(manyIt->nodes, [](const VPUIP::DmaOptimization::EdgeNode& node) {
+        return mlir::isa<VPUIP::ConcatViewOp>(node.op);
+    });
+    ASSERT_NE(concatNodeIt, manyIt->nodes.end());
+    EXPECT_FALSE(concatNodeIt->loopRegionInfo.hasPort &&
+                 concatNodeIt->loopRegionInfo.portKind == VPUIP::DmaOptimization::LoopRegionPortKind::Output);
+    EXPECT_TRUE(llvm::any_of(manyIt->sources, [](const VPUIP::DmaOptimization::EdgeBoundary& source) {
+        return source.loopRegionInfo.kind == VPUIP::DmaOptimization::LoopRegionKind::VF &&
+               source.loopRegionInfo.loopIndex == 8 && source.loopRegionInfo.tileIndex == 5;
+    }));
+    EXPECT_TRUE(llvm::any_of(manyIt->targets, [](const VPUIP::DmaOptimization::EdgeBoundary& target) {
+        return target.loopRegionInfo.kind == VPUIP::DmaOptimization::LoopRegionKind::VF &&
+               target.loopRegionInfo.loopIndex == 8 && target.loopRegionInfo.tileIndex == 6;
+    }));
+    EXPECT_TRUE(manyIt->isLoopRegion());
+}
+
+//===----------------------------------------------------------------------===//
 // Boundary-only IR: ConvertDMA is a ComputeOp boundary, not an EdgeOp. With no
 // Copy/SubView/ConcatView/view-like node to collect, the collector emits no
 // edge even though the ConvertDMA reads an allocated buffer.
@@ -677,203 +751,6 @@ TEST_F(MLIR_EdgeCollector, BoundaryOnlyConvertDMA_ProducesNoEdge) {
     // No EdgeOps (Copy / SubView / ConcatView / view-like) in this IR. The
     // ConvertDMA is a boundary. The collector therefore produces no edges.
     EXPECT_TRUE(edges.edges.empty());
-}
-
-//===----------------------------------------------------------------------===//
-// Constant source: StorageElementTable is an attribute-backed declaration that
-// later becomes a real constant. It is a source boundary for DMA edges even
-// though the op itself does not currently carry the ConstantLike trait.
-//
-// Diagram:
-//   source(Constant StorageElementTable)
-//          |
-//   edgeNode(Copy)
-//          |
-//   target(FuncReturn operand 0)
-//===----------------------------------------------------------------------===//
-TEST_F(MLIR_EdgeCollector, StorageElementTableSource_FeedsFuncReturn) {
-    constexpr llvm::StringLiteral IR = R"(
-        #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
-        func.func @main(%dst: memref<1x1x4x4xi32, {order = #NHWC}>)
-                -> memref<1x1x4x4xi32, {order = #NHWC}> {
-            %se_table = VPUIP.StorageElementTable {
-                    dataElemType = f16,
-                    dataShape = [1, 16, 4, 4],
-                    seDepth = 1 : i64,
-                    seSize = [16]
-                } -> memref<1x1x4x4xi32, {order = #NHWC}>
-            %copy = VPUIP.Copy
-                inputs(%se_table : memref<1x1x4x4xi32, {order = #NHWC}>)
-                outputs(%dst : memref<1x1x4x4xi32, {order = #NHWC}>)
-                -> memref<1x1x4x4xi32, {order = #NHWC}>
-            return %copy : memref<1x1x4x4xi32, {order = #NHWC}>
-        }
-    )";
-
-    auto module = parseModule(IR);
-    ASSERT_NE(module.get(), nullptr);
-
-    auto edges = collectMainEdges(module.get());
-    ASSERT_EQ(edges.edges.size(), 1u);
-
-    const auto& edge = edges.edges.front();
-    ASSERT_NO_FATAL_FAILURE(expectEdgeShape(edge, EdgeType::Normal, 1u, 1u, 1u));
-
-    EXPECT_EQ(edge.sources[0].kind, BoundaryKind::Constant);
-    EXPECT_EQ(edge.targets[0].kind, BoundaryKind::FuncReturn);
-    EXPECT_TRUE(edge.validate(_log));
-}
-
-//===----------------------------------------------------------------------===//
-// Stub target: operation stubbing uses VPUIP.Stub as a placeholder for the
-// original compute op, so it must terminate the DMA edge as a ComputeOp
-// boundary instead of being treated as an unknown or transparent view.
-//
-// Diagram:
-//   source(FuncArg %arg0)
-//          |
-//   edgeNode(Copy)
-//          |
-//   target(ComputeOp Stub)
-//   FuncReturn consumes the Stub result, not the Copy result.
-//===----------------------------------------------------------------------===//
-TEST_F(MLIR_EdgeCollector, StubOpTarget_TreatedAsComputeBoundary) {
-    constexpr llvm::StringLiteral IR = R"(
-        func.func @main(%arg0: memref<1x1x16x16xf16, @DDR>,
-                        %dst: memref<1x1x16x16xf16, @DDR>)
-                -> memref<1x1x16x16xf16, @DDR> {
-            %copy = VPUIP.Copy
-                inputs(%arg0 : memref<1x1x16x16xf16, @DDR>)
-                outputs(%dst : memref<1x1x16x16xf16, @DDR>)
-                -> memref<1x1x16x16xf16, @DDR>
-            %stub = VPUIP.Stub
-                inputs(%copy : memref<1x1x16x16xf16, @DDR>)
-                -> memref<1x1x16x16xf16, @DDR>
-            return %stub : memref<1x1x16x16xf16, @DDR>
-        }
-    )";
-
-    auto module = parseModule(IR);
-    ASSERT_NE(module.get(), nullptr);
-
-    auto edges = collectMainEdges(module.get());
-    ASSERT_EQ(edges.edges.size(), 1u);
-
-    const auto& edge = edges.edges.front();
-    ASSERT_NO_FATAL_FAILURE(expectEdgeShape(edge, EdgeType::Normal, 1u, 1u, 1u));
-
-    EXPECT_EQ(edge.sources[0].kind, BoundaryKind::FuncArg);
-    EXPECT_EQ(edge.targets[0].kind, BoundaryKind::ComputeOp);
-    EXPECT_TRUE(edge.validate(_log));
-}
-
-//===----------------------------------------------------------------------===//
-// SW.Kernel target: all read-side SW operands can terminate a DMA edge. Output
-// buffers are excluded by the LayerOpInterface input/output split.
-//
-// Diagram:
-//   source(FuncArg %arg0)
-//          |
-//   edgeNode(Copy)
-//          |
-//   target(ComputeOp SW.Kernel input)
-//   SW.Kernel output buffer is not a data-flow successor of the Copy result.
-//===----------------------------------------------------------------------===//
-TEST_F(MLIR_EdgeCollector, SwKernelReadOperand_TreatedAsComputeBoundary) {
-    constexpr llvm::StringLiteral IR = R"(
-        func.func @main(%arg0: memref<1x1x16x16xf16, @DDR>,
-                        %copy_dst: memref<1x1x16x16xf16, [@CMX_NN, 0]>,
-                        %sw_out: memref<1x1x16x16xf16, [@CMX_NN, 0]>)
-                -> memref<1x1x16x16xf16, [@CMX_NN, 0]> {
-            %copy = VPUIP.Copy
-                inputs(%arg0 : memref<1x1x16x16xf16, @DDR>)
-                outputs(%copy_dst : memref<1x1x16x16xf16, [@CMX_NN, 0]>)
-                -> memref<1x1x16x16xf16, [@CMX_NN, 0]>
-            %sw = VPUIP.SW.Kernel {resultSegmentSizes = array<i32: 1, 0, 0>}
-                    @VPU.SW::@builtin_relu
-                    inputs(%copy as %sw_in: memref<1x1x16x16xf16, [@CMX_NN, 0]>)
-                    outputs(%sw_out as %sw_out_arg: memref<1x1x16x16xf16, [@CMX_NN, 0]>)
-                    on tile 0 -> memref<1x1x16x16xf16, [@CMX_NN, 0]> {
-                VPUIP.SW.Kernel.run(%sw_in, %sw_out_arg)
-                    : memref<1x1x16x16xf16, [@CMX_NN, 0]>,
-                      memref<1x1x16x16xf16, [@CMX_NN, 0]>
-            }
-            return %sw : memref<1x1x16x16xf16, [@CMX_NN, 0]>
-        }
-    )";
-
-    auto module = parseModule(IR);
-    ASSERT_NE(module.get(), nullptr);
-
-    auto edges = collectMainEdges(module.get());
-    ASSERT_EQ(edges.edges.size(), 1u);
-
-    const auto& edge = edges.edges.front();
-    ASSERT_NO_FATAL_FAILURE(expectEdgeShape(edge, EdgeType::Normal, 1u, 1u, 1u));
-
-    EXPECT_EQ(edge.sources[0].kind, BoundaryKind::FuncArg);
-    EXPECT_EQ(edge.targets[0].kind, BoundaryKind::ComputeOp);
-    EXPECT_TRUE(edge.validate(_log));
-}
-
-//===----------------------------------------------------------------------===//
-// NCE target: activation, weights, and weight_table operands can terminate DMA
-// edges. The weight_table path is accepted regardless of zero-offset status.
-//
-// Diagram:
-//   source(FuncArg %weight_table_src)
-//          |
-//   edgeNode(Copy %weight_table_copy)
-//          |
-//   target(ComputeOp NCEClusterTask weight_table)
-//===----------------------------------------------------------------------===//
-TEST_F(MLIR_EdgeCollector, NceWeightTableReadOperand_TreatedAsComputeBoundary) {
-    constexpr llvm::StringLiteral IR = R"(
-        #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
-        func.func @main(%input: memref<1x16x8x8xf16, {order = #NHWC}, [@CMX_NN, 0]>,
-                        %weights: memref<16x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>,
-                        %weight_table_src: memref<16x1x1x4xsi32, @DDR>,
-                        %weight_table_cmx: memref<16x1x1x4xsi32, [@CMX_NN, 0]>,
-                        %out: memref<1x16x8x8xf16, {order = #NHWC}, [@CMX_NN, 0]>)
-                -> memref<1x16x8x8xf16, {order = #NHWC}, [@CMX_NN, 0]> {
-            %weight_table_copy = VPUIP.Copy
-                inputs(%weight_table_src : memref<16x1x1x4xsi32, @DDR>)
-                outputs(%weight_table_cmx : memref<16x1x1x4xsi32, [@CMX_NN, 0]>)
-                -> memref<16x1x1x4xsi32, [@CMX_NN, 0]>
-            %conv = VPUIP.NCEClusterTask <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>,
-                    kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
-                    kernel_size = [1, 1],
-                    kernel_strides = [1, 1],
-                    task_type = #VPUIP.nce_task_type<CONV>}>
-                input(%input : memref<1x16x8x8xf16, {order = #NHWC}, [@CMX_NN, 0]>)
-                weights(%weights : memref<16x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>)
-                weight_table(%weight_table_copy : memref<16x1x1x4xsi32, [@CMX_NN, 0]>)
-                parent_input(%input : memref<1x16x8x8xf16, {order = #NHWC}, [@CMX_NN, 0]>)
-                parent_output(%out : memref<1x16x8x8xf16, {order = #NHWC}, [@CMX_NN, 0]>)
-                outputs(%out : memref<1x16x8x8xf16, {order = #NHWC}, [@CMX_NN, 0]>)
-                -> memref<1x16x8x8xf16, {order = #NHWC}, [@CMX_NN, 0]> variants : {
-                    DPUTask {cluster_id = 0 : i64, inEnd = [0, 0, 15], inStart = [0, 0, 0],
-                             mpe_mode = #VPU.mpe_mode<CUBOID_4x16>, outEnd = [0, 0, 15], outStart = [0, 0, 0],
-                             pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>}
-                } PPE : {
-                    PPETask {ppe = #VPU.PPEStub<>}
-                }
-            return %conv : memref<1x16x8x8xf16, {order = #NHWC}, [@CMX_NN, 0]>
-        }
-    )";
-
-    auto module = parseModule(IR);
-    ASSERT_NE(module.get(), nullptr);
-
-    auto edges = collectMainEdges(module.get());
-    ASSERT_EQ(edges.edges.size(), 1u);
-
-    const auto& edge = edges.edges.front();
-    ASSERT_NO_FATAL_FAILURE(expectEdgeShape(edge, EdgeType::Normal, 1u, 1u, 1u));
-
-    EXPECT_EQ(edge.sources[0].kind, BoundaryKind::FuncArg);
-    EXPECT_EQ(edge.targets[0].kind, BoundaryKind::ComputeOp);
-    EXPECT_TRUE(edge.validate(_log));
 }
 
 //===----------------------------------------------------------------------===//

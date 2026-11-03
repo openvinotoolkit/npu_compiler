@@ -30,14 +30,14 @@ func.func @AdjustQKVTransposeForUnrollSDPA(%input: tensor<1x577x768xf32>) -> ten
 
   %508 = IE.Multiply(%input, %norm_mul) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x577x768xf32>, tensor<1x1x768xf32> -> tensor<1x577x768xf32>
   %509 = IE.Add(%508, %norm_add) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x577x768xf32>, tensor<1x1x768xf32> -> tensor<1x577x768xf32>
-  %510 = IE.FakeQuantize(%509, %input_fq_low, %input_fq_high, %input_fq_low, %input_fq_high) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i64} : tensor<1x577x768xf32>, tensor<1x1x1xf32>, tensor<1x1x1xf32>, tensor<1x1x1xf32>, tensor<1x1x1xf32> -> tensor<1x577x768xf32>
+  %510 = IE.FakeQuantize(%509, %input_fq_low, %input_fq_high, %input_fq_low, %input_fq_high) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256 : i64} : tensor<1x577x768xf32>, tensor<1x1x1xf32>, tensor<1x1x1xf32>, tensor<1x1x1xf32>, tensor<1x1x1xf32> -> tensor<1x577x768xf32>
   %511 = IE.AffineReshape(%510) {dim_mapping = [[0], [0], [1]], shape_value = [577, 768]} : tensor<1x577x768xf32> -> tensor<577x768xf32>
   %512 = IE.FullyConnected(%511, %3) : tensor<577x768xf32>, tensor<2304x768xf32> -> tensor<577x2304xf32>
   %513 = IE.AffineReshape(%512) {dim_mapping = [[0, 1], [2]], shape_value = [1, 577, 2304]} : tensor<577x2304xf32> -> tensor<1x577x2304xf32>
   %514 = IE.Add(%513, %cst_44) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x577x2304xf32>, tensor<1x1x2304xf32> -> tensor<1x577x2304xf32>
   %515 = IE.AffineReshape(%514) {dim_mapping = [[0], [1], [2, 3, 4]], shape_value = [1, 577, 3, 12, 64]} : tensor<1x577x2304xf32> -> tensor<1x577x3x12x64xf32>
   %516 = IE.Transpose(%515) {order_value = #map1} : tensor<1x577x3x12x64xf32> -> tensor<3x1x12x577x64xf32>
-  %517 = IE.FakeQuantize(%516, %cst_358, %cst_359, %cst_360, %cst_361) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i64} : tensor<3x1x12x577x64xf32>, tensor<1x1x1x1x1xf32>, tensor<1x1x1x1x1xf32>, tensor<1x1x1x1x1xf32>, tensor<1x1x1x1x1xf32> -> tensor<3x1x12x577x64xf32>
+  %517 = IE.FakeQuantize(%516, %cst_358, %cst_359, %cst_360, %cst_361) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256 : i64} : tensor<3x1x12x577x64xf32>, tensor<1x1x1x1x1xf32>, tensor<1x1x1x1x1xf32>, tensor<1x1x1x1x1xf32>, tensor<1x1x1x1x1xf32> -> tensor<3x1x12x577x64xf32>
   %518 = IE.Gather(%517, %cst_62) {axis_value = 0 : i64, batch_dims = 0 : i64, indices_rank = 0 : i64} : tensor<3x1x12x577x64xf32>, tensor<1xsi64> -> tensor<1x12x577x64xf32>
   %519 = IE.Gather(%517, %cst_63) {axis_value = 0 : i64, batch_dims = 0 : i64, indices_rank = 0 : i64} : tensor<3x1x12x577x64xf32>, tensor<1xsi64> -> tensor<1x12x577x64xf32>
   %520 = IE.Gather(%516, %cst_64) {axis_value = 0 : i64, batch_dims = 0 : i64, indices_rank = 0 : i64} : tensor<3x1x12x577x64xf32>, tensor<1xsi64> -> tensor<1x12x577x64xf32>
@@ -113,7 +113,7 @@ func.func @AdjustQKVTransposeForUnrollSDPAWithDynDeqWeightsAndZp(%input: tensor<
   %add = IE.Add(%reshape_fc, %bias) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x577x2304xf32>, tensor<1x1x2304xf32> -> tensor<1x577x2304xf32>
   %reshape = IE.AffineReshape(%add) {dim_mapping = [[0], [1], [2, 3, 4]], shape_value = [1, 577, 3, 12, 64]} : tensor<1x577x2304xf32> -> tensor<1x577x3x12x64xf32>
   %transpose = IE.Transpose(%reshape) {order_value = #map1} : tensor<1x577x3x12x64xf32> -> tensor<3x1x12x577x64xf32>
-  %fq = IE.FakeQuantize(%transpose, %fq_low, %fq_high, %fq_low, %fq_high) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i64} : tensor<3x1x12x577x64xf32>, tensor<1x1x1x1x1xf32>, tensor<1x1x1x1x1xf32>, tensor<1x1x1x1x1xf32>, tensor<1x1x1x1x1xf32> -> tensor<3x1x12x577x64xf32>
+  %fq = IE.FakeQuantize(%transpose, %fq_low, %fq_high, %fq_low, %fq_high) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256 : i64} : tensor<3x1x12x577x64xf32>, tensor<1x1x1x1x1xf32>, tensor<1x1x1x1x1xf32>, tensor<1x1x1x1x1xf32>, tensor<1x1x1x1x1xf32> -> tensor<3x1x12x577x64xf32>
   %q = IE.Gather(%fq, %q_idx) {axis_value = 0 : i64, batch_dims = 0 : i64, indices_rank = 0 : i64} : tensor<3x1x12x577x64xf32>, tensor<1xsi64> -> tensor<1x12x577x64xf32>
   %k = IE.Gather(%fq, %k_idx) {axis_value = 0 : i64, batch_dims = 0 : i64, indices_rank = 0 : i64} : tensor<3x1x12x577x64xf32>, tensor<1xsi64> -> tensor<1x12x577x64xf32>
   %v = IE.Gather(%transpose, %v_idx) {axis_value = 0 : i64, batch_dims = 0 : i64, indices_rank = 0 : i64} : tensor<3x1x12x577x64xf32>, tensor<1xsi64> -> tensor<1x12x577x64xf32>
@@ -189,7 +189,7 @@ func.func @AdjustQKVTransposeForUnrollSDPAWithDynDeqWeights(%input: tensor<577x7
   %add = IE.Add(%reshape_fc, %bias) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x577x2304xf32>, tensor<1x1x2304xf32> -> tensor<1x577x2304xf32>
   %reshape = IE.AffineReshape(%add) {dim_mapping = [[0], [1], [2, 3, 4]], shape_value = [1, 577, 3, 12, 64]} : tensor<1x577x2304xf32> -> tensor<1x577x3x12x64xf32>
   %transpose = IE.Transpose(%reshape) {order_value = #map1} : tensor<1x577x3x12x64xf32> -> tensor<3x1x12x577x64xf32>
-  %fq = IE.FakeQuantize(%transpose, %fq_low, %fq_high, %fq_low, %fq_high) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i64} : tensor<3x1x12x577x64xf32>, tensor<1x1x1x1x1xf32>, tensor<1x1x1x1x1xf32>, tensor<1x1x1x1x1xf32>, tensor<1x1x1x1x1xf32> -> tensor<3x1x12x577x64xf32>
+  %fq = IE.FakeQuantize(%transpose, %fq_low, %fq_high, %fq_low, %fq_high) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256 : i64} : tensor<3x1x12x577x64xf32>, tensor<1x1x1x1x1xf32>, tensor<1x1x1x1x1xf32>, tensor<1x1x1x1x1xf32>, tensor<1x1x1x1x1xf32> -> tensor<3x1x12x577x64xf32>
   %q = IE.Gather(%fq, %q_idx) {axis_value = 0 : i64, batch_dims = 0 : i64, indices_rank = 0 : i64} : tensor<3x1x12x577x64xf32>, tensor<1xsi64> -> tensor<1x12x577x64xf32>
   %k = IE.Gather(%fq, %k_idx) {axis_value = 0 : i64, batch_dims = 0 : i64, indices_rank = 0 : i64} : tensor<3x1x12x577x64xf32>, tensor<1xsi64> -> tensor<1x12x577x64xf32>
   %v = IE.Gather(%transpose, %v_idx) {axis_value = 0 : i64, batch_dims = 0 : i64, indices_rank = 0 : i64} : tensor<3x1x12x577x64xf32>, tensor<1xsi64> -> tensor<1x12x577x64xf32>
@@ -259,7 +259,7 @@ func.func @DontAdjustQKVTransposeWithNonConstWeights(%input: tensor<5x8xf32>, %w
   %add = IE.Add(%reshape_fc, %bias) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x5x24xf32>, tensor<1x1x24xf32> -> tensor<1x5x24xf32>
   %reshape = IE.AffineReshape(%add) {dim_mapping = [[0], [1], [2, 3, 4]], shape_value = [1, 5, 3, 2, 4]} : tensor<1x5x24xf32> -> tensor<1x5x3x2x4xf32>
   %transpose = IE.Transpose(%reshape) {order_value = #map1} : tensor<1x5x3x2x4xf32> -> tensor<3x1x2x5x4xf32>
-  %fq = IE.FakeQuantize(%transpose, %fq_low, %fq_high, %fq_low, %fq_high) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i64} : tensor<3x1x2x5x4xf32>, tensor<1x1x1x1x1xf32>, tensor<1x1x1x1x1xf32>, tensor<1x1x1x1x1xf32>, tensor<1x1x1x1x1xf32> -> tensor<3x1x2x5x4xf32>
+  %fq = IE.FakeQuantize(%transpose, %fq_low, %fq_high, %fq_low, %fq_high) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256 : i64} : tensor<3x1x2x5x4xf32>, tensor<1x1x1x1x1xf32>, tensor<1x1x1x1x1xf32>, tensor<1x1x1x1x1xf32>, tensor<1x1x1x1x1xf32> -> tensor<3x1x2x5x4xf32>
   %q = IE.Gather(%fq, %q_idx) {axis_value = 0 : i64, batch_dims = 0 : i64, indices_rank = 0 : i64} : tensor<3x1x2x5x4xf32>, tensor<1xsi64> -> tensor<1x2x5x4xf32>
   %k = IE.Gather(%fq, %k_idx) {axis_value = 0 : i64, batch_dims = 0 : i64, indices_rank = 0 : i64} : tensor<3x1x2x5x4xf32>, tensor<1xsi64> -> tensor<1x2x5x4xf32>
   %v = IE.Gather(%transpose, %v_idx) {axis_value = 0 : i64, batch_dims = 0 : i64, indices_rank = 0 : i64} : tensor<3x1x2x5x4xf32>, tensor<1xsi64> -> tensor<1x2x5x4xf32>
@@ -297,7 +297,7 @@ func.func @DontAdjustQKVTransposeWithGatherWithNonConstParam(%input: tensor<5x8x
   %add = IE.Add(%reshape_fc, %bias) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x5x24xf32>, tensor<1x1x24xf32> -> tensor<1x5x24xf32>
   %reshape = IE.AffineReshape(%add) {dim_mapping = [[0], [1], [2, 3, 4]], shape_value = [1, 5, 3, 2, 4]} : tensor<1x5x24xf32> -> tensor<1x5x3x2x4xf32>
   %transpose = IE.Transpose(%reshape) {order_value = #map1} : tensor<1x5x3x2x4xf32> -> tensor<3x1x2x5x4xf32>
-  %fq = IE.FakeQuantize(%transpose, %fq_low, %fq_high, %fq_low, %fq_high) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i64} : tensor<3x1x2x5x4xf32>, tensor<1x1x1x1x1xf32>, tensor<1x1x1x1x1xf32>, tensor<1x1x1x1x1xf32>, tensor<1x1x1x1x1xf32> -> tensor<3x1x2x5x4xf32>
+  %fq = IE.FakeQuantize(%transpose, %fq_low, %fq_high, %fq_low, %fq_high) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256 : i64} : tensor<3x1x2x5x4xf32>, tensor<1x1x1x1x1xf32>, tensor<1x1x1x1x1xf32>, tensor<1x1x1x1x1xf32>, tensor<1x1x1x1x1xf32> -> tensor<3x1x2x5x4xf32>
   %q = IE.Gather(%fq, %q_idx) {axis_value = 0 : i64, batch_dims = 0 : i64, indices_rank = 0 : i64} : tensor<3x1x2x5x4xf32>, tensor<1xsi64> -> tensor<1x2x5x4xf32>
   %k = IE.Gather(%fq, %k_idx) {axis_value = 0 : i64, batch_dims = 0 : i64, indices_rank = 0 : i64} : tensor<3x1x2x5x4xf32>, tensor<1xsi64> -> tensor<1x2x5x4xf32>
   %v = IE.Gather(%transpose, %v_idx) {axis_value = 0 : i64, batch_dims = 0 : i64, indices_rank = 0 : i64} : tensor<3x1x2x5x4xf32>, tensor<1xsi64> -> tensor<1x2x5x4xf32>
@@ -337,7 +337,7 @@ func.func @DontAdjustQKVTransposeWithNonPerTensorBranchFQ(%input: tensor<5x8xf32
   %add = IE.Add(%reshape_fc, %bias) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x5x24xf32>, tensor<1x1x24xf32> -> tensor<1x5x24xf32>
   %reshape = IE.AffineReshape(%add) {dim_mapping = [[0], [1], [2, 3, 4]], shape_value = [1, 5, 3, 2, 4]} : tensor<1x5x24xf32> -> tensor<1x5x3x2x4xf32>
   %transpose = IE.Transpose(%reshape) {order_value = #map1} : tensor<1x5x3x2x4xf32> -> tensor<3x1x2x5x4xf32>
-  %fq = IE.FakeQuantize(%transpose, %fq_low, %fq_high, %fq_low, %fq_high) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i64} : tensor<3x1x2x5x4xf32>, tensor<3x1x1x1x1xf32>, tensor<3x1x1x1x1xf32>, tensor<3x1x1x1x1xf32>, tensor<3x1x1x1x1xf32> -> tensor<3x1x2x5x4xf32>
+  %fq = IE.FakeQuantize(%transpose, %fq_low, %fq_high, %fq_low, %fq_high) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256 : i64} : tensor<3x1x2x5x4xf32>, tensor<3x1x1x1x1xf32>, tensor<3x1x1x1x1xf32>, tensor<3x1x1x1x1xf32>, tensor<3x1x1x1x1xf32> -> tensor<3x1x2x5x4xf32>
   %q = IE.Gather(%fq, %q_idx) {axis_value = 0 : i64, batch_dims = 0 : i64, indices_rank = 0 : i64} : tensor<3x1x2x5x4xf32>, tensor<1xsi64> -> tensor<1x2x5x4xf32>
   %k = IE.Gather(%fq, %k_idx) {axis_value = 0 : i64, batch_dims = 0 : i64, indices_rank = 0 : i64} : tensor<3x1x2x5x4xf32>, tensor<1xsi64> -> tensor<1x2x5x4xf32>
   %v = IE.Gather(%transpose, %v_idx) {axis_value = 0 : i64, batch_dims = 0 : i64, indices_rank = 0 : i64} : tensor<3x1x2x5x4xf32>, tensor<1xsi64> -> tensor<1x2x5x4xf32>

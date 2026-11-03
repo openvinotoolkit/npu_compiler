@@ -444,7 +444,7 @@ func.func @OptimizeGatherDMAWithSubview(
                             -> !IndicesDistBufferType
 
     %gather_dma_alloc = VPURT.AllocDistributed -> !GatherOutputType
-    %gather_dma = VPUIP.GatherDMA <{addressingMode = 1 : i64, elementSize = 0 : i64, padding = 0 : i64, port = 0 : i64}>
+    %gather_dma = VPUIP.GatherDMA <{addressingMode = #VPUIP.gather_addressing_mode<INDEXED>, elementSize = 0 : i64, padding = 0 : i64, port = 0 : i64}>
                         inputs(%arg0 : memref<184320x2880x1x1x!qElemType, @DDR>)
                         indices(%indices_copy : !IndicesDistBufferType)
                         outputs(%gather_dma_alloc : !GatherOutputType)
@@ -496,7 +496,7 @@ func.func @OptimizeGatherDMAWithSubview(
     // CHECK-SAME{LITERAL}:      compute_shapes = [[320, 2880, 1, 1], [320, 2880, 1, 1], [320, 2880, 1, 1]], compute_offsets = [[0, 0, 0, 0], [320, 0, 0, 0], [640, 0, 0, 0]],
     // CHECK-SAME{LITERAL}:      memory_shapes = [[320, 2880, 1, 1], [320, 2880, 1, 1], [320, 2880, 1, 1]], memory_offsets = [[0, 0, 0, 0], [320, 0, 0, 0], [640, 0, 0, 0]]}>
 
-    // CHECK:   [[GATHER_DMA:%.+]] = VPUIP.GatherDMA <{addressingMode = 1 : i64, elementSize = 0 : i64, padding = 0 : i64, port = 0 : i64}>
+    // CHECK:   [[GATHER_DMA:%.+]] = VPUIP.GatherDMA <{addressingMode = #VPUIP.gather_addressing_mode<INDEXED>, elementSize = 0 : i64, padding = 0 : i64, port = 0 : i64}>
     // CHECK-SAME:     inputs([[INPUT]] : memref<184320x2880x1x1x!qElemType, @DDR>)
     // CHECK-SAME:     indices([[COPY_SUB_INDICES]] : !VPUIP.DistributedBuffer<960x1x1x1xi64, #NCHW, @CMX_NN,
     // CHECK-SAME{LITERAL}:         {mode = "SEGMENTED", num_tiles = [3, 1, 1, 1], num_clusters = 3 : i64, alignment = [16, 1, 1, 1], uniform_distributed_segments,
@@ -590,7 +590,7 @@ func.func @NotOptimizeGatherDMAWithSubviewOnDimC(
                             -> !IndicesDistBufferType
 
     %gather_dma_alloc = VPURT.AllocDistributed -> !GatherOutputType
-    %gather_dma = VPUIP.GatherDMA <{addressingMode = 1 : i64, elementSize = 0 : i64, padding = 0 : i64, port = 0 : i64}>
+    %gather_dma = VPUIP.GatherDMA <{addressingMode = #VPUIP.gather_addressing_mode<INDEXED>, elementSize = 0 : i64, padding = 0 : i64, port = 0 : i64}>
                         inputs(%arg0 : memref<184320x2880x1x1x!qElemType, @DDR>)
                         indices(%indices_copy : !IndicesDistBufferType)
                         outputs(%gather_dma_alloc : !GatherOutputType)
@@ -805,7 +805,7 @@ func.func @OptimizeGatherDMAWithSubviewNoIndicesCopy(
     %indices_alloc = VPURT.AllocDistributed -> !IndicesDistBufferType
 
     %gather_dma_alloc = VPURT.AllocDistributed -> !GatherOutputType
-    %gather_dma = VPUIP.GatherDMA <{addressingMode = 1 : i64, elementSize = 0 : i64, padding = 0 : i64, port = 0 : i64}>
+    %gather_dma = VPUIP.GatherDMA <{addressingMode = #VPUIP.gather_addressing_mode<INDEXED>, elementSize = 0 : i64, padding = 0 : i64, port = 0 : i64}>
                         inputs(%arg0 : memref<184320x2880x1x1x!qElemType, @DDR>)
                         indices(%indices_alloc : !IndicesDistBufferType)
                         outputs(%gather_dma_alloc : !GatherOutputType)
@@ -868,7 +868,7 @@ func.func @OptimizeGatherDMAWithSubviewNoIndicesCopy(
     // CHECK-SAME{LITERAL}:      compute_shapes = [[320, 2880, 1, 1], [320, 2880, 1, 1], [320, 2880, 1, 1]], compute_offsets = [[0, 0, 0, 0], [320, 0, 0, 0], [640, 0, 0, 0]],
     // CHECK-SAME{LITERAL}:      memory_shapes = [[320, 2880, 1, 1], [320, 2880, 1, 1], [320, 2880, 1, 1]], memory_offsets = [[0, 0, 0, 0], [320, 0, 0, 0], [640, 0, 0, 0]]}>
 
-    // CHECK:   [[GATHER_DMA:%.+]] = VPUIP.GatherDMA <{addressingMode = 1 : i64, elementSize = 0 : i64, padding = 0 : i64, port = 0 : i64}>
+    // CHECK:   [[GATHER_DMA:%.+]] = VPUIP.GatherDMA <{addressingMode = #VPUIP.gather_addressing_mode<INDEXED>, elementSize = 0 : i64, padding = 0 : i64, port = 0 : i64}>
     // CHECK-SAME:     inputs([[INPUT]] : memref<184320x2880x1x1x!qElemType, @DDR>)
     // CHECK-SAME:     indices([[COPY_SUB_INDICES]] : !VPUIP.DistributedBuffer<960x1x1x1xi64, #NCHW, @CMX_NN,
     // CHECK-SAME{LITERAL}:         {mode = "SEGMENTED", num_tiles = [3, 1, 1, 1], num_clusters = 3 : i64, alignment = [16, 1, 1, 1], uniform_distributed_segments,
@@ -972,7 +972,7 @@ func.func @OptimizeGatherDMAWithSubviewAlignedOutput(
                             -> !IndicesDistType
 
     %gather_alloc = VPURT.AllocDistributed -> !GatherOutType
-    %gather = VPUIP.GatherDMA <{addressingMode = 1 : i64, elementSize = 0 : i64, padding = 0 : i64, port = 0 : i64}>
+    %gather = VPUIP.GatherDMA <{addressingMode = #VPUIP.gather_addressing_mode<INDEXED>, elementSize = 0 : i64, padding = 0 : i64, port = 0 : i64}>
                         inputs(%arg0 : memref<262144x768x1x1x!qElemType, @DDR>)
                         indices(%indices_copy : !IndicesDistType)
                         outputs(%gather_alloc : !GatherOutType)
@@ -1021,7 +1021,7 @@ func.func @OptimizeGatherDMAWithSubviewAlignedOutput(
     // CHECK-SAME{LITERAL}:      compute_shapes = [[688, 768, 1, 1], [688, 768, 1, 1], [672, 768, 1, 1]], compute_offsets = [[0, 0, 0, 0], [688, 0, 0, 0], [1376, 0, 0, 0]],
     // CHECK-SAME{LITERAL}:      memory_shapes = [[688, 768, 1, 1], [688, 768, 1, 1], [672, 768, 1, 1]], memory_offsets = [[0, 0, 0, 0], [688, 0, 0, 0], [1376, 0, 0, 0]]}>
 
-    // CHECK:   [[NEW_GATHER:%.+]] = VPUIP.GatherDMA <{addressingMode = 1 : i64, elementSize = 0 : i64, padding = 0 : i64, port = 0 : i64}>
+    // CHECK:   [[NEW_GATHER:%.+]] = VPUIP.GatherDMA <{addressingMode = #VPUIP.gather_addressing_mode<INDEXED>, elementSize = 0 : i64, padding = 0 : i64, port = 0 : i64}>
     // CHECK-SAME:     inputs([[INPUT]] : memref<262144x768x1x1x!qElemType, @DDR>)
     // CHECK-SAME:     indices([[IDX_COPY]] : !VPUIP.DistributedBuffer<2048x1x1x1xi64, #NCHW, @CMX_NN,
     // CHECK-SAME{LITERAL}:         {mode = "SEGMENTED", num_tiles = [3, 1, 1, 1], num_clusters = 3 : i64, alignment = [16, 1, 1, 1], uniform_distributed_segments,
@@ -1227,7 +1227,7 @@ func.func @OptimizeGatherDMAWithSubviewCombineCase(
                             -> !IndicesDistType
 
     %gather_alloc = VPURT.AllocDistributed -> !GatherOutputType
-    %gather = VPUIP.GatherDMA <{addressingMode = 1 : i64, elementSize = 0 : i64, padding = 0 : i64, port = 0 : i64}>
+    %gather = VPUIP.GatherDMA <{addressingMode = #VPUIP.gather_addressing_mode<INDEXED>, elementSize = 0 : i64, padding = 0 : i64, port = 0 : i64}>
                         inputs(%arg0 : memref<90112x2816x1x1x!qElemType, @DDR>)
                         indices(%indices_copy : !IndicesDistType)
                         outputs(%gather_alloc : !GatherOutputType)
@@ -1272,7 +1272,7 @@ func.func @OptimizeGatherDMAWithSubviewCombineCase(
     // CHECK-SAME{LITERAL}:     {mode = "SEGMENTED", num_tiles = [3, 1, 1, 1], num_clusters = 3 : i64, alignment = [16, 1, 1, 1], uniform_distributed_segments,
     // CHECK-SAME{LITERAL}:      compute_shapes = [[80, 2816, 1, 1], [80, 2816, 1, 1], [80, 2816, 1, 1]], compute_offsets = [[0, 0, 0, 0], [80, 0, 0, 0], [160, 0, 0, 0]],
     // CHECK-SAME{LITERAL}:      memory_shapes = [[80, 2816, 1, 1], [80, 2816, 1, 1], [80, 2816, 1, 1]], memory_offsets = [[0, 0, 0, 0], [80, 0, 0, 0], [160, 0, 0, 0]]}>
-    // CHECK:   [[GATHER_SUB:%.+]] = VPUIP.GatherDMA <{addressingMode = 1 : i64, elementSize = 0 : i64, padding = 0 : i64, port = 0 : i64}>
+    // CHECK:   [[GATHER_SUB:%.+]] = VPUIP.GatherDMA <{addressingMode = #VPUIP.gather_addressing_mode<INDEXED>, elementSize = 0 : i64, padding = 0 : i64, port = 0 : i64}>
     // CHECK-SAME:     inputs([[INPUT]] :
     // CHECK-SAME:     indices([[COPY_SUB_IDX]] :
     // CHECK:   [[PERMUTE_SUB:%.+]] = VPUIP.PermuteCast {dst_order = #NHWC, mem_perm = #NHWC}
@@ -1296,7 +1296,7 @@ func.func @OptimizeGatherDMAWithSubviewCombineCase(
     // CHECK-SAME{LITERAL}:     {mode = "SEGMENTED", num_tiles = [3, 1, 1, 1], num_clusters = 3 : i64, alignment = [16, 1, 1, 1], uniform_distributed_segments,
     // CHECK-SAME{LITERAL}:      compute_shapes = [[240, 2816, 1, 1], [240, 2816, 1, 1], [224, 2816, 1, 1]], compute_offsets = [[0, 0, 0, 0], [240, 0, 0, 0], [480, 0, 0, 0]],
     // CHECK-SAME{LITERAL}:      memory_shapes = [[240, 2816, 1, 1], [240, 2816, 1, 1], [224, 2816, 1, 1]], memory_offsets = [[0, 0, 0, 0], [240, 0, 0, 0], [480, 0, 0, 0]]}>
-    // CHECK:   [[GATHER_DIRECT:%.+]] = VPUIP.GatherDMA <{addressingMode = 1 : i64, elementSize = 0 : i64, padding = 0 : i64, port = 0 : i64}>
+    // CHECK:   [[GATHER_DIRECT:%.+]] = VPUIP.GatherDMA <{addressingMode = #VPUIP.gather_addressing_mode<INDEXED>, elementSize = 0 : i64, padding = 0 : i64, port = 0 : i64}>
     // CHECK-SAME:     inputs([[INPUT]] :
     // CHECK-SAME:     indices([[COPY_DIRECT_IDX]] :
     // CHECK:   [[PERMUTE_DIRECT:%.+]] = VPUIP.PermuteCast {dst_order = #NHWC, mem_perm = #NHWC}

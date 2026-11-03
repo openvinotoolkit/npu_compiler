@@ -30,7 +30,7 @@ func.func @MergeVFWithGenericVFPipelining(
    return %1 : tensor<1x4096x1024x4xf16, {order = #NHWC}>
 
    // CHECK: [[VF0:%.+]] = VPU.VerticalFusion
-   // CHECK-SAME: scenario = #VPU.vf_scenario<VF_PIPELINING>
+   // CHECK-SAME: scenario = #VPU.vf_scenario<VF_DPU_SHV_DOUBLE_BUFFERING>
    // CHECK: [[CONV0:%.+]] = VPU.NCE.Convolution
    // CHECK-NEXT: [[SOFTMAX:%.+]] = VPU.SoftMax
    // CHECK: return [[VF0]] : tensor<1x4096x1024x4xf16, {order = #NHWC}>
@@ -95,7 +95,7 @@ func.func @MergeVFWithViewOpAndGenericVFPipelining(
    return %1 : tensor<1x4096x1024x4xf16, {order = #NHWC}>
 
    // CHECK: [[VF0:%.+]] = VPU.VerticalFusion
-   // CHECK-SAME: scenario = #VPU.vf_scenario<VF_PIPELINING>
+   // CHECK-SAME: scenario = #VPU.vf_scenario<VF_DPU_SHV_DOUBLE_BUFFERING>
    // CHECK: [[CAST:%.+]] = VPU.QuantizeCast
    // CHECK: [[CONV0:%.+]] = VPU.NCE.Convolution
    // CHECK-NEXT: [[SOFTMAX:%.+]] = VPU.SoftMax
@@ -205,7 +205,7 @@ func.func @MergeSubgraphsWithSoftMaxPermuteCastAffineReshapeConv(
 
 
     //CHECK: [[VF:%.+]] = VPU.VerticalFusion
-    //CHECK-SAME: attributes {scenario = #VPU.vf_scenario<VF_PIPELINING>, tilingStrategy = [1, 1, 24, 1]}
+    //CHECK-SAME: attributes {scenario = #VPU.vf_scenario<VF_DPU_SHV_DOUBLE_BUFFERING>, tilingStrategy = [1, 1, 24, 1]}
     //CHECK: [[SOFTMAX:%.+]] = VPU.SoftMax
     //CHECK: [[PERMUTE1:%.+]] = VPU.PermuteCast([[SOFTMAX]]
     //CHECK: [[RESHAPE1:%.+]] = VPU.AffineReshape([[PERMUTE1]]

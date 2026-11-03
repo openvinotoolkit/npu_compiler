@@ -51,7 +51,7 @@ bool isCompatibleWithMultiClusterNNDMA(VPU::SpaceToDepthOp op, vpux::ShapeRef nu
         auto userOutputType = mlir::cast<vpux::NDTypeInterface>(userOp->getResult(0).getType());
         auto numClusters = VPU::getOptimalNumClusters(userOp, userOutputType.getShape(), userStrategy.value());
         auto userInputDistType = mlir::dyn_cast<vpux::VPU::DistributedTensorType>(getDistributedActivationTypeFromOp(
-                userClusteredOp, userOp->getOperand(0), userInputType, numClusters, userStrategy.value()));
+                userClusteredOp, userOp->getOpOperand(0), userInputType, numClusters, userStrategy.value()));
         if (userInputDistType == nullptr) {
             return false;
         }
@@ -100,6 +100,10 @@ mlir::LogicalResult vpux::VPU::SpaceToDepthOp::inferReturnTypes(
         return errorAt(loc, "SpaceToDepth only supports FP16, FP32, U8 or Quantized input data type");
     }
 
+    if (inputType.getShape().isDynamic()) {
+        return errorAt(loc, "SpaceToDepth doesn't support dynamic shapes");
+    }
+
     const auto inputShape = inputType.getShape().raw();
     const auto block_size = spd.getBlockSize();
 
@@ -125,7 +129,10 @@ mlir::LogicalResult vpux::VPU::SpaceToDepthOp::inferReturnTypes(
 
     SmallVector<int64_t> outShape{outN, outC, outH, outW};
 
-    auto outType = mlir::RankedTensorType::get(outShape, elementType, createTensorAttrFromType(inputType));
+    // Output layout is the same as input here. Target-specific layout choices (e.g. NCHW->NHWC on NPU37XX)
+    // are made by layout assignment on IE and carried over by the IE->VPU conversion via an explicit result type.
+    auto outType = mlir::RankedTensorType::get(
+            outShape, elementType, vpux::getTensorAttr(ctx, inputType.getDimsOrder(), inputType.getMemSpace()));
 
     inferredReturnTypes.push_back(outType);
 

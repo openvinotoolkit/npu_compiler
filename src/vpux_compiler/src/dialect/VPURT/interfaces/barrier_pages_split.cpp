@@ -2884,95 +2884,106 @@ void vpux::VPURT::BarrierPagesSplitHandler::createInitialDelayDpuEnqueueAfterShv
 void vpux::VPURT::BarrierPagesSplitHandler::updateDelayedDpuEnqPositionToNotImpactEnqOfPrevDpu(
         size_t taskInd, VPURT::TaskQueueType queueType, const VPURT::TaskQueueType& enqueueDmaQueueType,
         const DenseMap<VPURT::TaskQueueType, std::optional<size_t>>& previousTaskIndOptPerQueue,
+        size_t shvTasksWithDpuVecInd,
         std::map<VPURT::TaskQueueType, SmallVector<EnqueueDmaData>>& enqDmaDataVecPerQueue) {
     auto& lastEnqDmaData = enqDmaDataVecPerQueue[queueType].back();
     auto prevTask = previousTaskIndOptPerQueue.lookup(queueType).value();
+    auto shvTaskInd = _shvTasksWithDpuPerTile[queueType.id][shvTasksWithDpuVecInd];
+
+    // If previous DPU is before the SHV task with DPU, then there is no need to update the enqueue position
+    // as previous DPU will not be impacted by current DPU enqueue
+    if (prevTask < shvTaskInd) {
+        return;
+    }
 
     auto closestDmaTaskIndOpt = _barrierInfo.getPrevTaskOnQueue(prevTask, enqueueDmaQueueType);
-    while (closestDmaTaskIndOpt.has_value() && !isDepFromTaskAToTaskB(closestDmaTaskIndOpt.value(), prevTask)) {
+    while (closestDmaTaskIndOpt.has_value() && (closestDmaTaskIndOpt.value() > shvTaskInd) &&
+           !isDepFromTaskAToTaskB(closestDmaTaskIndOpt.value(), prevTask)) {
         closestDmaTaskIndOpt = getPrevTaskOnSameQueueIfQueueOrderEnabled(closestDmaTaskIndOpt.value());
     }
 
     VPUX_THROW_WHEN(!closestDmaTaskIndOpt.has_value(), "Cannot be enqueued safely with dpuFromShave execution");
 
     auto closestDmaTaskInd = closestDmaTaskIndOpt.value();
-    if (lastEnqDmaData.insertBefore <= closestDmaTaskInd) {
-        _log.nest().trace("DMA {0} (page {1}) is the closest task for prev DPU {2} (page {3})", closestDmaTaskInd,
-                          _taskPageAssignment[closestDmaTaskInd], prevTask, _taskPageAssignment[prevTask]);
-        auto newInsertBefore = closestDmaTaskInd + 1;
-        _log.nest().trace("Change enqueue insertion position from {0} to {1}", lastEnqDmaData.insertBefore,
-                          newInsertBefore);
+    if (lastEnqDmaData.insertBefore > closestDmaTaskInd) {
+        return;
+    }
 
-        lastEnqDmaData.insertBefore = newInsertBefore;
+    _log.nest().trace("DMA {0} (page {1}) is the closest task for prev DPU {2} (page {3})", closestDmaTaskInd,
+                      _taskPageAssignment[closestDmaTaskInd], prevTask, _taskPageAssignment[prevTask]);
+    auto newInsertBefore = closestDmaTaskInd + 1;
+    _log.nest().trace("Change enqueue insertion position from {0} to {1}", lastEnqDmaData.insertBefore,
+                      newInsertBefore);
 
-        auto closestDmaTaskPage = _taskPageAssignment[closestDmaTaskInd];
-        if (closestDmaTaskPage > lastEnqDmaData.pageInd) {
-            _log.nest().trace("Enqueue DMA changed page from {0} to {1}. Identified wait bars "
-                              "are no longer valid",
-                              lastEnqDmaData.pageInd, closestDmaTaskPage);
-            lastEnqDmaData.pageInd = closestDmaTaskPage;
+    lastEnqDmaData.insertBefore = newInsertBefore;
 
-            BarrierInfo::TaskSet newWaitBars;
-            // Since now Enqueue DMA is in different page its wait barrier needs to be modified
-            // as it can no longer wait on barrier from previous page. For each already
-            // identified Enqueue DMA wait barrier check if there is already dependency to new
-            // Enqueue DMA position (which is after closestDmaTaskInd)
-            bool isWaitBarrierNeeded = false;
-            for (auto enqWaitBar : lastEnqDmaData.waitBars) {
-                _log.nest().trace("Check if there is dependency from enqueue wait bar {0} to "
-                                  "previous DMA {1}",
-                                  enqWaitBar, closestDmaTaskInd);
-                if (isDepFromBarrierToTask(enqWaitBar, closestDmaTaskInd)) {
+    auto closestDmaTaskPage = _taskPageAssignment[closestDmaTaskInd];
+    if (closestDmaTaskPage > lastEnqDmaData.pageInd) {
+        _log.nest().trace("Enqueue DMA changed page from {0} to {1}. Identified wait bars "
+                          "are no longer valid",
+                          lastEnqDmaData.pageInd, closestDmaTaskPage);
+        lastEnqDmaData.pageInd = closestDmaTaskPage;
+
+        BarrierInfo::TaskSet newWaitBars;
+        // Since now Enqueue DMA is in different page its wait barrier needs to be modified
+        // as it can no longer wait on barrier from previous page. For each already
+        // identified Enqueue DMA wait barrier check if there is already dependency to new
+        // Enqueue DMA position (which is after closestDmaTaskInd)
+        bool isWaitBarrierNeeded = false;
+        for (auto enqWaitBar : lastEnqDmaData.waitBars) {
+            _log.nest().trace("Check if there is dependency from enqueue wait bar {0} to "
+                              "previous DMA {1}",
+                              enqWaitBar, closestDmaTaskInd);
+            if (isDepFromBarrierToTask(enqWaitBar, closestDmaTaskInd)) {
+                continue;
+            }
+            isWaitBarrierNeeded = true;
+            _log.nest(2).trace("No dependency. Need to find new wait bars");
+
+            bool foundNewWaitBar = false;
+            // Find a suitable barrier in new page that guarantees dependency to previous
+            // wait barrier
+            auto firstBarrierInNewPage = _firstBarrierInPage[closestDmaTaskPage];
+            size_t barSearchLimit = ((closestDmaTaskPage + 1) < _pageCount)
+                                            ? _firstBarrierInPage[closestDmaTaskPage + 1]
+                                            : _barrierInfo.getNumOfBarrierOps();
+            for (auto barInd = firstBarrierInNewPage; barInd < barSearchLimit; barInd++) {
+                _log.nest().trace("Check barrier {0} in new page {1} as candidate for "
+                                  "enqueue DMA wait barrier",
+                                  barInd, closestDmaTaskPage);
+
+                if (!isDepFromBarAToBarB(enqWaitBar, barInd)) {
+                    _log.nest(2).trace("Barrier {0} is not suitable because there is no "
+                                       "dependency from previous wait barrier {1}",
+                                       barInd, enqWaitBar);
                     continue;
                 }
-                isWaitBarrierNeeded = true;
-                _log.nest(2).trace("No dependency. Need to find new wait bars");
 
-                bool foundNewWaitBar = false;
-                // Find a suitable barrier in new page that guarantees dependency to previous
-                // wait barrier
-                auto firstBarrierInNewPage = _firstBarrierInPage[closestDmaTaskPage];
-                size_t barSearchLimit = ((closestDmaTaskPage + 1) < _pageCount)
-                                                ? _firstBarrierInPage[closestDmaTaskPage + 1]
-                                                : _barrierInfo.getNumOfBarrierOps();
-                for (auto barInd = firstBarrierInNewPage; barInd < barSearchLimit; barInd++) {
-                    _log.nest().trace("Check barrier {0} in new page {1} as candidate for "
-                                      "enqueue DMA wait barrier",
-                                      barInd, closestDmaTaskPage);
-
-                    if (!isDepFromBarAToBarB(enqWaitBar, barInd)) {
-                        _log.nest(2).trace("Barrier {0} is not suitable because there is no "
-                                           "dependency from previous wait barrier {1}",
-                                           barInd, enqWaitBar);
-                        continue;
-                    }
-
-                    newWaitBars.insert(barInd);
-                    _log.nest(2).trace("Barrier {0} is suitable. Add it to new wait bars", barInd);
-                    foundNewWaitBar = true;
-                    break;
-                }
-                VPUX_THROW_WHEN(!foundNewWaitBar,
-                                "Cannot find suitable wait barrier in page {0} for previous "
-                                "wait barrier {1}",
-                                closestDmaTaskPage, enqWaitBar);
+                newWaitBars.insert(barInd);
+                _log.nest(2).trace("Barrier {0} is suitable. Add it to new wait bars", barInd);
+                foundNewWaitBar = true;
+                break;
             }
-
-            VPUX_THROW_WHEN(isWaitBarrierNeeded && newWaitBars.empty(),
-                            "Cannot find suitable wait barrier for enqueue DMA after SHV with "
-                            "DPU for task {0}",
-                            taskInd);
-            // After finding new wait barriers update insertion point
-            auto latestProducerPosition = _barrierInfo.getBarriersLatestProducer(newWaitBars);
-            if (latestProducerPosition >= lastEnqDmaData.insertBefore) {
-                _log.nest().trace("Update enqueue DMA insertion point from {0} to {1} to be "
-                                  "after latest producer of new wait barriers",
-                                  lastEnqDmaData.insertBefore, latestProducerPosition + 1);
-                lastEnqDmaData.insertBefore = latestProducerPosition + 1;
-            }
-
-            lastEnqDmaData.waitBars = to_small_vector(newWaitBars);
+            VPUX_THROW_WHEN(!foundNewWaitBar,
+                            "Cannot find suitable wait barrier in page {0} for previous "
+                            "wait barrier {1}",
+                            closestDmaTaskPage, enqWaitBar);
         }
+
+        VPUX_THROW_WHEN(isWaitBarrierNeeded && newWaitBars.empty(),
+                        "Cannot find suitable wait barrier for enqueue DMA after SHV with "
+                        "DPU for task {0}",
+                        taskInd);
+        // After finding new wait barriers update insertion point
+        auto latestProducerPosition = _barrierInfo.getBarriersLatestProducer(newWaitBars);
+        if (latestProducerPosition >= lastEnqDmaData.insertBefore) {
+            _log.nest().trace("Update enqueue DMA insertion point from {0} to {1} to be "
+                              "after latest producer of new wait barriers",
+                              lastEnqDmaData.insertBefore, latestProducerPosition + 1);
+            lastEnqDmaData.insertBefore = latestProducerPosition + 1;
+        }
+
+        lastEnqDmaData.waitBars = to_small_vector(newWaitBars);
     }
 }
 
@@ -3373,8 +3384,9 @@ SmallVector<VPURT::BarrierPagesSplitHandler::EnqueueDmaData> vpux::VPURT::Barrie
                 isDpuDelayedAfterShv = true;
 
                 if (previousTaskIndOptPerQueue[queueType].has_value()) {
-                    updateDelayedDpuEnqPositionToNotImpactEnqOfPrevDpu(
-                            taskInd, queueType, enqueueDmaQueueType, previousTaskIndOptPerQueue, enqDmaDataVecPerQueue);
+                    updateDelayedDpuEnqPositionToNotImpactEnqOfPrevDpu(taskInd, queueType, enqueueDmaQueueType,
+                                                                       previousTaskIndOptPerQueue,
+                                                                       shvTasksWithDpuVecInd, enqDmaDataVecPerQueue);
                 }
                 updateDpuEnqPositionToAccountForControlBlockSyncTask(taskInd, queueType, enqueueDmaQueueType,
                                                                      enqDmaDataVecPerQueue);

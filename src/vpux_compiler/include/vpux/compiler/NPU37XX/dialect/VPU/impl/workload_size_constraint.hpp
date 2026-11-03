@@ -10,7 +10,7 @@
 namespace vpux::VPU::arch37xx {
 
 struct WorkloadSizeConstraint final {
-    bool doesDWOperationNeedWorkloadSplit(mlir::Operation* op) const;
+    bool doesDWOperationNeedWorkloadSplit(mlir::Operation* op, ShapeRef inputShapeOverride) const;
     bool checkDWOperationWorkloadLimit(mlir::Operation* op, const OutputTiling& tiles) const;
     SmallVector<int64_t> getChannelsSupportedBySmallSpatialComputeDwOp(ArrayRef<int64_t> workloadsChannels) const;
 };

@@ -8,10 +8,13 @@
 #include "vpux/compiler/core/attributes/dim.hpp"
 #include "vpux/compiler/core/tiling.hpp"
 #include "vpux/compiler/dialect/IE/utils/dynamic_shape_utils.hpp"
+#include "vpux/compiler/dialect/Shave/IR/ops/meta-ops.hpp"
+#include "vpux/compiler/dialect/Shave/IR/ops_interfaces.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/dpu.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/internal.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/normalization.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/recurrent.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops_interfaces.hpp"
 #include "vpux/compiler/dialect/VPU/utils/cost_model/cost_model.hpp"
 #include "vpux/compiler/dialect/VPU/utils/dilated_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/distributed_tensor_utils.hpp"
@@ -318,8 +321,19 @@ mlir::Operation* getParentComputeOp(mlir::Operation* op) {
         }
         parentOp = parentOp->getOperand(0).getDefiningOp();
     }
-    // check the last op
-    return (parentOp == nullptr || hasMultiBranches(parentOp)) ? nullptr : parentOp;
+
+    auto isInvalidParentOp = [](mlir::Operation* op) {
+        if (op == nullptr || hasMultiBranches(op)) {
+            return true;
+        }
+        // Reject such ops from the prefetch tiling logic - their I/O always sits in DDR
+        if (mlir::isa<Shave::RepeatedExternalKernelOp, VPU::SwIoDmaOpInterface>(op)) {
+            return true;
+        }
+        return false;
+    };
+
+    return isInvalidParentOp(parentOp) ? nullptr : parentOp;
 }
 
 bool prefetchTilingConditionSatisfied(mlir::Operation* op, Logger log) {
@@ -523,6 +537,15 @@ bool largeFilterPipelineConditionSatisfied(mlir::Operation* op, Logger log) {
     return false;
 }
 
+bool fitsWithoutTiling(VPU::TilingInfoOpInterface iface, Logger log) {
+    auto op = iface.getOperation();
+    log.trace("Check: '{0}' at '{1}'", op->getName(), op->getLoc());
+    TileInfo outputTile(getBoundedShape(op->getResult(0)));
+    // Mark the output tile as completed so that the inferred input shape contains the whole input
+    outputTile.isCompletedTile = true;
+    return iface.isSupportedTiling({std::move(outputTile)}, TilingMode::ISOLATED, log.nest());
+}
+
 std::optional<std::pair<TilingMode, bool>> getTilingMode(mlir::Operation* op, bool enablePrefetchTiling,
                                                          const std::unique_ptr<VPU::LayerVPUNNCost>& layerCost,
                                                          Logger log) {
@@ -548,19 +571,13 @@ std::optional<std::pair<TilingMode, bool>> getTilingMode(mlir::Operation* op, bo
     if (iface == nullptr) {
         return std::nullopt;
     }
-    log.trace("Check: '{0}' at '{1}'", op->getName(), op->getLoc());
-    const auto resType = mlir::cast<vpux::NDTypeInterface>(op->getResult(0).getType());
-    Shape resShape = resType.getShape().toValues();
-    // TODO(E#113258): getShape needs to return shape based on upper bounds to avoid parsing bounds
-    if (auto boundedType = mlir::dyn_cast<Core::BoundedTensorType>(op->getResult(0).getType())) {
-        resShape = Shape(boundedType.getBounds().raw());
-    }
-    TileInfo outputTile(resShape);
-    // Mark the output tile as completed so that the inferred input shape contains the whole input
-    outputTile.isCompletedTile = true;
-    auto isolatedTilingSupported = iface.isSupportedTiling({std::move(outputTile)}, TilingMode::ISOLATED, log.nest());
+    auto isolatedTilingSupported = fitsWithoutTiling(iface, log);
+    const auto minNumTiles = getMinNumTiles(op);
+    const auto minNumTilesRequiresTiling = llvm::any_of(minNumTiles, [](int64_t numTiles) {
+        return numTiles > 1;
+    });
 
-    if (!isolatedTilingSupported) {
+    if (!isolatedTilingSupported || minNumTilesRequiresTiling) {
         // outputTile with complete outputShape(tilingStrategy=[1, 1, 1, 1]) can't be tiled, PIPELINING mode preferred
         if (enablePrefetchTiling && iface.isPipeliningTilingSupported()) {
             return std::make_pair(TilingMode::PIPELINING, false);
@@ -717,7 +734,7 @@ bool doesNCEOpChannelSatisfyWorkload(mlir::Operation* nceOp, const TileInfo& out
         if (isSEPDWConvOp) {
             // for SEP DWConv, per cluster workload's channel must be supported
             // because of compiler implementation for now, only 1 workload per cluster is supported
-            auto allChannelsSupported = llvm::all_of(perClusterShapes, [supportedChannels](Shape perClusterShape) {
+            auto allChannelsSupported = llvm::all_of(perClusterShapes, [&supportedChannels](Shape perClusterShape) {
                 return llvm::find(supportedChannels, perClusterShape[Dims4D::Act::C]) != supportedChannels.end();
             });
             if (!allChannelsSupported) {

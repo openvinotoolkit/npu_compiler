@@ -95,9 +95,7 @@ mlir::LogicalResult ConcatOpConverter::matchAndRewrite(IE::ConcatOp origOp, mlir
         _log.nest().trace("Concat axis does not match FakeQuantize axis.");
         return mlir::failure();
     }
-
-    const auto levels = firstFq.getLevels();
-    const auto lowFpType = firstFq.getLowFpType();
+    const auto levelsOrLowFpType = firstFq.getLevelsOrLowFpTypeAttr();
     const auto autoBroadcast = firstFq.getAutoBroadcast();
     std::vector<float> totalInLo;
     std::vector<float> totalInHi;
@@ -108,9 +106,8 @@ mlir::LogicalResult ConcatOpConverter::matchAndRewrite(IE::ConcatOp origOp, mlir
         auto fqOp = concatInput.getDefiningOp<IE::FakeQuantizeOp>();
         auto curFqAxis = getFQAxisIndex(fqOp, _log);
 
-        if (levels != fqOp.getLevels() || lowFpType != fqOp.getLowFpType() ||
-            autoBroadcast != fqOp.getAutoBroadcast() || !curFqAxis.has_value() ||
-            curFqAxis.value() != firstFqAxis.value()) {
+        if (levelsOrLowFpType != fqOp.getLevelsOrLowFpTypeAttr() || autoBroadcast != fqOp.getAutoBroadcast() ||
+            !curFqAxis.has_value() || curFqAxis.value() != firstFqAxis.value()) {
             _log.nest().trace("Got FQs with different levels, lowFpTypes, fqAxis or autobroadcasts.");
             return mlir::failure();
         }
@@ -129,12 +126,8 @@ mlir::LogicalResult ConcatOpConverter::matchAndRewrite(IE::ConcatOp origOp, mlir
     auto outLowOp = createFqTensor(takeOpLoc(origOp, "out_low"), totalOutLo, rewriter);
     auto outHighOp = createFqTensor(takeOpLoc(origOp, "out_high"), totalOutHi, rewriter);
 
-    auto levelsAttr = levels.has_value() ? getIntAttr(origOp.getContext(), *levels) : nullptr;
-    auto lowFpTypeAttr = lowFpType.has_value() ? mlir::TypeAttr::get(*lowFpType) : nullptr;
-
-    auto fqOp =
-            rewriter.replaceOpWithNewOp<IE::FakeQuantizeOp>(origOp, concatOp.getOutput(), inLowOp, inHighOp, outLowOp,
-                                                            outHighOp, levelsAttr, lowFpTypeAttr, autoBroadcast);
+    auto fqOp = rewriter.replaceOpWithNewOp<IE::FakeQuantizeOp>(origOp, concatOp.getOutput(), inLowOp, inHighOp,
+                                                                outLowOp, outHighOp, levelsOrLowFpType, autoBroadcast);
     extendOpLoc(fqOp, "common_fq");
 
     return mlir::success();

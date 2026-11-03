@@ -446,6 +446,35 @@ func.func @ApplyTilingSpaceToDepth(%arg0: tensor<1x48x160x80xf16>) -> tensor<1x7
 
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
+// CHECK-LABEL:   func.func @ApplyTilingSpaceToDepthNCHWToNHWC
+// CHECK-SAME: ([[ARG_0:%[^:]+]]: tensor<1x48x160x80xf16>)
+func.func @ApplyTilingSpaceToDepthNCHWToNHWC(%arg0: tensor<1x48x160x80xf16>) -> tensor<1x768x40x20xf16, {order = #NHWC}> {
+    %0 = VPU.SpaceToDepthOp(%arg0) {
+        block_size = 4 : i64,
+        mode = #IE.space_to_depth_mode<DEPTH_FIRST>,
+        tilingStrategy = [1, 1, 1, 2]
+    } : tensor<1x48x160x80xf16> -> tensor<1x768x40x20xf16, {order = #NHWC}>
+    return %0 : tensor<1x768x40x20xf16, {order = #NHWC}>
+
+    // CHECK:           [[SLICE0:%.+]] = VPU.Slice [[ARG_0]] [0, 0, 0, 0] [1, 48, 160, 40] : tensor<1x48x160x80xf16> to tensor<1x48x160x40xf16>
+    // CHECK:           [[S2D0:%.+]] = VPU.SpaceToDepthOp([[SLICE0]])
+    // CHECK-SAME:              mode = #IE.space_to_depth_mode<DEPTH_FIRST>
+    // CHECK-SAME:          : tensor<1x48x160x40xf16> -> tensor<1x768x40x10xf16, {order = #NHWC}>
+
+    // CHECK:           [[SLICE1:%.+]] = VPU.Slice [[ARG_0]] [0, 0, 0, 40] [1, 48, 160, 40] : tensor<1x48x160x80xf16> to tensor<1x48x160x40xf16>
+    // CHECK:           [[S2D1:%.+]] = VPU.SpaceToDepthOp([[SLICE1]])
+    // CHECK-SAME:              mode = #IE.space_to_depth_mode<DEPTH_FIRST>
+    // CHECK-SAME:          : tensor<1x48x160x40xf16> -> tensor<1x768x40x10xf16, {order = #NHWC}>
+
+    // CHECK:           [[CONCAT:%.+]] = VPU.Concat([[S2D0]], [[S2D1]])
+    // CHECK-SAME:          -> tensor<1x768x40x20xf16, {order = #NHWC}>
+    // CHECK:           return [[CONCAT]] : tensor<1x768x40x20xf16, {order = #NHWC}>
+}
+
+// -----
+
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+
 // CHECK-LABEL: @ApplyTilingConvert
 // CHECK-SAME:      [[INPUT:%arg[0-9]]]: tensor<1x2x80x3000xui8, {order = #NHWC}>
 func.func @ApplyTilingConvert(%arg0: tensor<1x2x80x3000xui8, {order = #NHWC}>) -> tensor<1x2x80x3000xf32, {order = #NHWC}> {

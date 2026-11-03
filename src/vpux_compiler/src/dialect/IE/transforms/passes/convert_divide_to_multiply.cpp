@@ -64,7 +64,7 @@ mlir::Value createNewFQ(mlir::PatternRewriter& rewriter, IE::FakeQuantizeOp orig
 
     auto newFakeQuantizeOp = IE::FakeQuantizeOp::create(
             rewriter, origFqOp->getLoc(), origFqOp.getType(), input, newInLowConst, newInHighConst, newOutLowConst,
-            newOutHighConst, origFqOp.getLevelsAttr(), origFqOp.getLowFpTypeAttr(), origFqOp.getAutoBroadcastAttr());
+            newOutHighConst, origFqOp.getLevelsOrLowFpTypeAttr(), origFqOp.getAutoBroadcastAttr());
 
     // We replace the old FakeQuantize op with the new one only for Divide users
     // if their second input is the old FakeQuantize

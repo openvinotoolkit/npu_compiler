@@ -3,10 +3,6 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 
-if(ENABLE_LTO)
-    set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RELEASE ON)
-endif()
-
 if(ENABLE_PREBUILT_LLVM_MLIR_LIBS)
     find_package(MLIR REQUIRED CONFIG)
 endif()
@@ -47,6 +43,8 @@ list(APPEND SOURCES
 )
 
 add_library(${TARGET_NAME} STATIC ${SOURCES})
+
+enable_lto_if_possible(${TARGET_NAME})
 set_target_properties(${TARGET_NAME} PROPERTIES FOLDER "src")
 
 enable_warnings_as_errors(${TARGET_NAME} WIN_STRICT)

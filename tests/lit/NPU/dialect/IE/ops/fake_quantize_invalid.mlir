@@ -13,7 +13,7 @@ func.func @MissingBothLevelsAndLowFpType(%arg0: tensor<1x3x30x30xf32>) -> tensor
     %output_low = const.Declare tensor<1x1x1x1xf32> = dense<0.0> : tensor<1x1x1x1xf32>
     %output_high = const.Declare tensor<1x1x1x1xf32> = dense<255.0> : tensor<1x1x1x1xf32>
 
-    // expected-error@+1 {{Missing both levels and low precision floating type}}
+    // expected-error@+1 {{requires attribute 'levels_or_low_fp_type'}}
     %0 = IE.FakeQuantize(%arg0, %input_low, %input_high, %output_low, %output_high)
         { auto_broadcast = #IE.auto_broadcast_type<NUMPY> } :
         tensor<1x3x30x30xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32> -> tensor<1x3x30x30xf32>
@@ -32,7 +32,7 @@ func.func @UnsupportedLowFpType(%arg0: tensor<1x3x30x30xf32>) -> tensor<1x3x30x3
 
     // expected-error@+1 {{Unsupported low floating point type f16}}
     %0 = IE.FakeQuantize(%arg0, %input_low, %input_high, %output_low, %output_high)
-        { auto_broadcast = #IE.auto_broadcast_type<NUMPY>, low_fp_type = f16 } :
+        { auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = f16 } :
         tensor<1x3x30x30xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32> -> tensor<1x3x30x30xf32>
 
     return %0 : tensor<1x3x30x30xf32>
@@ -47,9 +47,9 @@ func.func @ConflictingLevelsAndLowFpType(%arg0: tensor<1x3x30x30xf32>) -> tensor
     %output_low = const.Declare tensor<1x1x1x1xf32> = dense<0.0> : tensor<1x1x1x1xf32>
     %output_high = const.Declare tensor<1x1x1x1xf32> = dense<255.0> : tensor<1x1x1x1xf32>
 
-    // expected-error@+1 {{Contradicting attributes, both levels and low precision floating type were provided}}
+    // expected-error@+2 {{duplicate key 'levels_or_low_fp_type' in dictionary attribute}}
     %0 = IE.FakeQuantize(%arg0, %input_low, %input_high, %output_low, %output_high)
-        { auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256, low_fp_type = f8E4M3FN } :
+        { auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256, levels_or_low_fp_type = f8E4M3FN } :
         tensor<1x3x30x30xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32> -> tensor<1x3x30x30xf32>
 
     return %0 : tensor<1x3x30x30xf32>

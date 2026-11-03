@@ -129,6 +129,22 @@ bool traverseNestedForLoops(mlir::scf::ForOp forOp, VPU::ViewLikeOpInterface vie
     return movedViewOp;
 }
 
+// If the queried dimension does not change, folding the view-like op does not affect the shape observed
+// by tensor.dim, so moving the view-like value from outside the loop into the loop remains safe
+bool canSafelyFoldViewLikeOp(mlir::Operation* user, NDTypeInterface origType, NDTypeInterface newType) {
+    auto dimOp = mlir::dyn_cast<mlir::tensor::DimOp>(user);
+    if (dimOp == nullptr) {
+        return false;
+    }
+
+    const auto dimIdx = dimOp.getConstantIndex();
+    if (!dimIdx.has_value() || *dimIdx >= checked_cast<int64_t>(origType.getShape().size())) {
+        return false;
+    }
+    const auto dim = Dim(*dimIdx);
+    return origType.getShape()[dim] == newType.getShape()[dim];
+}
+
 void SCFFuseLastViewLikeOpPass::safeRunOnFunc() {
     auto func = getOperation();
 
@@ -143,8 +159,10 @@ void SCFFuseLastViewLikeOpPass::safeRunOnFunc() {
         const auto& nestedLog = _log.nest();
         _log.trace("Got '{0}' at '{1}'", viewLikeOp->getName(), viewLikeOp->getLoc());
 
-        mlir::Operation* user = *viewLikeOp->getResult(0).getUsers().begin();
-        if (!mlir::isa<mlir::func::ReturnOp, VPU::ViewLikeOpInterface>(user)) {
+        const auto allUsersAllowed = llvm::all_of(viewLikeOp->getResult(0).getUsers(), [](mlir::Operation* user) {
+            return mlir::isa<mlir::func::ReturnOp, VPU::ViewLikeOpInterface, mlir::tensor::ExtractSliceOp>(user);
+        });
+        if (!allUsersAllowed) {
             nestedLog.trace("Not used by a return or another view-like op");
             return;
         }
@@ -155,7 +173,13 @@ void SCFFuseLastViewLikeOpPass::safeRunOnFunc() {
             return;
         }
 
-        if (!forOp->getResult(0).hasOneUse()) {
+        auto forOpResult = forOp->getResult(0);
+        auto forOpResultType = mlir::cast<NDTypeInterface>(forOpResult.getType());
+        auto viewLikeOutType = mlir::cast<NDTypeInterface>(viewLikeOp->getResult(0).getType());
+        const auto forOpResultSafelyUsed = llvm::all_of(forOpResult.getUsers(), [&](mlir::Operation* forUser) {
+            return forUser == op || canSafelyFoldViewLikeOp(forUser, forOpResultType, viewLikeOutType);
+        });
+        if (!forOpResultSafelyUsed) {
             nestedLog.trace("scf::ForOp output has more than one use.");
             return;
         }

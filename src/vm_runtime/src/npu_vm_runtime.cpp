@@ -4,14 +4,15 @@
 //
 
 #include "vm_runtime/npu_vm_runtime.hpp"
+#include <ze_command_queue_npu_ext.h>
+#include <openvino/core/type/element_type.hpp>
+#include "intel_npu/config/config.hpp"
 #include "npu_bytecode_utils/logger.hpp"
 #include "npu_bytecode_utils/network_description.hpp"
 #include "utils/network_metadata.hpp"
 #include "utils/parameters.hpp"
 #include "vm_runtime/virtual_machine.h"
-
-#include <ze_command_queue_npu_ext.h>
-#include <openvino/core/type/element_type.hpp>
+#include "vpux/utils/ov/options.hpp"
 
 #include <ze_graph_ext.h>
 #include "intel_npu/utils/zero/zero_utils.hpp"
@@ -198,6 +199,23 @@ ze_result_t configCmdQueue(npu_vm_runtime_handle_t hRuntime, const npu_vm_runtim
     return ZE_RESULT_SUCCESS;
 }
 
+/// The standardized platform a PCI device ID belongs to, or an empty view for an unknown ID.
+[[maybe_unused]] std::optional<std::string_view> platformForDeviceID(uint32_t deviceID) {
+    switch (deviceID) {
+    case 0x7D1D:  // MeteorLake (MTL-P, MTL-H)
+    case 0xAD1D:  // ArrowLake (ARL)
+        return vpux::OV::Platform::NPU3720;
+    case 0x643E:  // LunarLake (LNL)
+        return vpux::OV::Platform::NPU4000;
+    case 0xB03E:  // PantherLake Mobile (PTL-P)
+        return vpux::OV::Platform::NPU5010;
+    case 0xFD3E:  // Wildcatlake (WCL)
+        return vpux::OV::Platform::NPU5020;
+    default:
+        return {};
+    }
+}
+
 }  // namespace
 
 #ifdef __cplusplus
@@ -288,20 +306,32 @@ DLLEXPORT npu_vm_runtime_result_t NPU_VM_RUNTIME_APICALL npuVMRuntimeDestroy(npu
     if (hRuntime == nullptr) {
         return NPU_VM_RUNTIME_RESULT_ERROR_INVALID_NULL_POINTER;
     }
+
+    auto result = NPU_VM_RUNTIME_RESULT_SUCCESS;
     if (hRuntime->module != nullptr) {
-        npu_vm_destroy_module(hRuntime->module);
+        if (npu_vm_destroy_module(hRuntime->module) != NPU_VM_SUCCESS) {
+            NPU_VM_LOG_ERROR("Failed to destroy module");
+            result = NPU_VM_RUNTIME_RESULT_ERROR_UNKNOWN;
+        } else {
+            hRuntime->module = nullptr;
+        }
     }
 
     for (auto& commandQueue : hRuntime->commandQueues) {
         if (commandQueue != nullptr) {
-            ::zeCommandQueueDestroy(commandQueue);
-            commandQueue = nullptr;
+            auto cmdQueueDestroyResult = zeCommandQueueDestroy(commandQueue);
+            if (cmdQueueDestroyResult != ZE_RESULT_SUCCESS) {
+                NPU_VM_LOG_ERROR("Failed to destroy command queue: {}", cmdQueueDestroyResult);
+                result = NPU_VM_RUNTIME_RESULT_ERROR_UNKNOWN;
+            } else {
+                commandQueue = nullptr;
+            }
         }
     }
 
     // NOLINTNEXTLINE(cppcoreguidelines-owning-memory)
     delete hRuntime;
-    return NPU_VM_RUNTIME_RESULT_SUCCESS;
+    return result;
 }
 
 DLLEXPORT npu_vm_runtime_result_t NPU_VM_RUNTIME_APICALL npuVMRuntimeGetMetadata(
@@ -720,13 +750,14 @@ npuVMRuntimeCreate2(const npu_vm_runtime_blob_desc_t* desc, const npu_vm_runtime
 DLLEXPORT npu_vm_runtime_result_t NPU_VM_RUNTIME_APICALL npuVMRuntimeCreateExecutionContext2(
         npu_vm_runtime_handle_t hRuntime, npu_vm_runtime_create_execution_context_params_t* pParams,
         npu_vm_runtime_execution_context_handle_t* phExecutionHandle) {
-    if (hRuntime == nullptr || hRuntime->module == nullptr || phExecutionHandle == nullptr) {
+    if (hRuntime == nullptr || hRuntime->module == nullptr || pParams == nullptr || phExecutionHandle == nullptr) {
         return NPU_VM_RUNTIME_RESULT_ERROR_INVALID_NULL_POINTER;
     }
 
     hRuntime->device = pParams->device;
     hRuntime->context = pParams->ctx;
     hRuntime->commandQueueDdiTableExt = pParams->commandQueueDdiTableExt;
+
     if (pParams->commandQueue == nullptr && hRuntime->commandQueue == nullptr) {
         std::lock_guard<std::mutex> lock(hRuntime->mutex);
         // check if command queue was created again
@@ -757,18 +788,26 @@ DLLEXPORT npu_vm_runtime_result_t NPU_VM_RUNTIME_APICALL npuVMRuntimeCreateExecu
     // The reason for checking numStream != 0, there was a bug to set numStream to 0 in the metadata,
     // which is not correct. The correct value should be 1 for single tile and >1 for multi-tile.
     if (hRuntime->metadata.numStreams != 0) {
-        // Checkes whether a blob is compiled for single tile.
+        // Checks whether a blob is compiled for single tile.
         ze_device_properties_t deviceProperties{};
         zeDeviceGetProperties(pParams->device, &deviceProperties);
-        if (deviceProperties.numSlices > 1 && hRuntime->metadata.numStreams == 1) {
-            // The blob is compiled for single tile, but the device has multiple slices.
-            // In this case, we need to set the number of tiles to concurrentJobCount
-            // for concurrent execution.
-            module_load_params.concurrentJobCount = deviceProperties.numSlices;
+    }
 
-            NPU_VM_LOG_INFO("Concurrent job count: {}", module_load_params.concurrentJobCount);
+    bool counterBasedEventSupported = false;
+    // The counter based event is supported only on Windows platform for now.
+    // Once all function calls replaced with openvino::zero_loader functions,
+    // the counter based event will be supported on Linux platform as well.
+#if defined(_WIN32)
+    auto graphDdiTableExt = pParams->graphDdiTableExt;
+    if (ZE_GRAPH_EXT_VERSION_CURRENT >= ZE_GRAPH_EXT_VERSION_1_19) {
+        if (graphDdiTableExt != nullptr && graphDdiTableExt->pfnCompilerIsOptionSupported != nullptr) {
+            counterBasedEventSupported = graphDdiTableExt->pfnCompilerIsOptionSupported(
+                                                 pParams->device, ZE_NPU_DRIVER_OPTIONS, "COUNTER_BASED_EVENTS",
+                                                 nullptr) == ZE_RESULT_SUCCESS;
         }
     }
+#endif
+    module_load_params.counterBasedEventSupported = counterBasedEventSupported;
 
     if (pParams->commandQueue == nullptr) {
         // need to use an internally created command queue.
@@ -807,7 +846,7 @@ npuVMRuntimeExecute2(npu_vm_runtime_handle_t hRuntime, npu_vm_runtime_execute_pa
         const bool useInternalCmdQueue = pParams->commandQueue == nullptr;
         if (useInternalCmdQueue) {
             if (pParams->pConfig) {
-                // update configuration of an internal command qeueue
+                // update configuration of an internal command queue
                 configCmdQueue(hRuntime, pParams->pConfig);
             }
 
@@ -819,23 +858,32 @@ npuVMRuntimeExecute2(npu_vm_runtime_handle_t hRuntime, npu_vm_runtime_execute_pa
         // If the command list is already recorded, we can skip the recording step
         // and directly submit the recorded command list for execution.
         recordingRequired = npu_vm_host_code_execution_required(engine, pParams);
+        auto result = NPU_VM_RUNTIME_RESULT_SUCCESS;
         if (recordingRequired) {
-            if (npu_vm_reset_state(engine, /*resetExecutionContext=*/true) != NPU_VM_SUCCESS) {
+            if (npu_vm_reset_state(engine, /*resetExecutionContext=*/true) == NPU_VM_SUCCESS) {
+                if (npu_vm_infer2(engine, pParams) != NPU_VM_SUCCESS) {
+                    NPU_VM_LOG_ERROR("Inference failed for the given parameters");
+                    result = NPU_VM_RUNTIME_RESULT_ERROR_UNKNOWN;
+                }
+            } else {
                 NPU_VM_LOG_ERROR("Failed to reset engine state before inference");
-                return NPU_VM_RUNTIME_RESULT_ERROR_UNKNOWN;
-            }
-            if (npu_vm_infer2(engine, pParams) != NPU_VM_SUCCESS) {
-                NPU_VM_LOG_ERROR("Inference failed for the given parameters");
-                return NPU_VM_RUNTIME_RESULT_ERROR_UNKNOWN;
+                result = NPU_VM_RUNTIME_RESULT_ERROR_UNKNOWN;
             }
         } else {
             // submit recorded command lists
-            npu_vm_submit_recorded_command_lists(engine, pParams);
+            if (npu_vm_submit_recorded_command_lists(engine, pParams) != NPU_VM_SUCCESS) {
+                NPU_VM_LOG_ERROR("Failed to submit recorded command lists for the given parameters");
+                result = NPU_VM_RUNTIME_RESULT_ERROR_UNKNOWN;
+            }
         }
 
         if (useInternalCmdQueue) {
             // reset command queue handle
             pParams->commandQueue = nullptr;
+        }
+
+        if (result != NPU_VM_RUNTIME_RESULT_SUCCESS) {
+            return result;
         }
     } catch (const std::exception& e) {
         NPU_VM_LOG_ERROR("Exception while executing model: {}", e.what());
@@ -866,7 +914,13 @@ npuVMRuntimeHostSync(npu_vm_runtime_handle_t hRuntime, npu_vm_runtime_execute_pa
     }
 
     auto engine = reinterpret_cast<npu_vm_engine*>(pParams->executionContext);
-    npu_vm_host_sync(engine);
+
+    const auto result = npu_vm_host_sync(engine);
+    if (result != NPU_VM_SUCCESS) {
+        NPU_VM_LOG_ERROR("Host sync failed for the given parameters: {}", result);
+        return NPU_VM_RUNTIME_RESULT_ERROR_UNKNOWN;
+    }
+
     return NPU_VM_RUNTIME_RESULT_SUCCESS;
 }
 

@@ -72,8 +72,8 @@ ELF::SymbolSignature ELF::LogicalSectionOp::getSymbolSignature() {
 
         // Use the ELF utils helper to compute IO buffer size, which handles both static and dynamic
         // memrefs by querying declared upper bounds from net::NetworkInfoOp when needed
-        auto computeBindingSize = [&moduleOp, &index](VPUASM::DeclareBufferOp ioBuffer,
-                                                      VPURT::BufferSection bufSection) -> size_t {
+        auto computeBindingSize = [moduleOp, index](VPUASM::DeclareBufferOp ioBuffer,
+                                                    VPURT::BufferSection bufSection) -> size_t {
             auto memrefType = ioBuffer.getBufferType().getMemref();
             // getBufferBinarySize handles dynamic IO buffers by looking up bounds in NetworkInfo;
             // falls back to getTotalAllocSize for static memrefs or non-IO sections
@@ -84,7 +84,7 @@ ELF::SymbolSignature ELF::LogicalSectionOp::getSymbolSignature() {
         auto inputBindings = VPUASM::InputBindingsOp::getFromModule(moduleOp);
         assert(inputBindings != nullptr);
 
-        inputBindings.walk([&symSize, &section, &index, &computeBindingSize](VPUASM::DeclareBufferOp ioBuffer) {
+        inputBindings.walk([&symSize, section, index, computeBindingSize](VPUASM::DeclareBufferOp ioBuffer) {
             auto ioBuffLoc = ioBuffer.getBufferType().getLocation();
             if (ioBuffLoc.getSection() == section && ioBuffLoc.getSectionIndex() == index) {
                 symSize = computeBindingSize(ioBuffer, VPURT::BufferSection::NetworkInput);
@@ -94,7 +94,7 @@ ELF::SymbolSignature ELF::LogicalSectionOp::getSymbolSignature() {
         auto outputBindings = VPUASM::OutputBindingsOp::getFromModule(moduleOp);
         assert(outputBindings != nullptr);
 
-        outputBindings.walk([&symSize, &section, &index, &computeBindingSize](VPUASM::DeclareBufferOp ioBuffer) {
+        outputBindings.walk([&symSize, section, index, computeBindingSize](VPUASM::DeclareBufferOp ioBuffer) {
             auto ioBuffLoc = ioBuffer.getBufferType().getLocation();
             if (ioBuffLoc.getSection() == section && ioBuffLoc.getSectionIndex() == index) {
                 symSize = computeBindingSize(ioBuffer, VPURT::BufferSection::NetworkOutput);
@@ -104,7 +104,7 @@ ELF::SymbolSignature ELF::LogicalSectionOp::getSymbolSignature() {
         auto profilingBindings = VPUASM::ProfilingBindingsOp::getFromModule(moduleOp);
         assert(profilingBindings != nullptr);
 
-        profilingBindings.walk([&symSize, &section, &index, &computeBindingSize](VPUASM::DeclareBufferOp ioBuffer) {
+        profilingBindings.walk([&symSize, section, index, computeBindingSize](VPUASM::DeclareBufferOp ioBuffer) {
             auto ioBuffLoc = ioBuffer.getBufferType().getLocation();
             if (ioBuffLoc.getSection() == section && ioBuffLoc.getSectionIndex() == index) {
                 symSize = computeBindingSize(ioBuffer, VPURT::BufferSection::ProfilingOutput);

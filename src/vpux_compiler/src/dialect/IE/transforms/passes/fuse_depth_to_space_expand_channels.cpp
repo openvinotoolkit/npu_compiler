@@ -8,6 +8,7 @@
 #include "vpux/compiler/dialect/IE/IR/ops/data_movement.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
+#include "vpux/compiler/utils/rewriter.hpp"
 #include "vpux/utils/core/checked_cast.hpp"
 #include "vpux/utils/core/small_vector.hpp"
 #include "vpux/utils/logger/logger.hpp"
@@ -95,8 +96,8 @@ mlir::LogicalResult fuseDepthToSpaceWithExpand(mlir::MLIRContext* ctx, IE::Depth
     // Create new DepthToSpaceOp with padded output channels
     builder.setInsertionPointAfter(origOp);
     auto newDepthToSpaceOp =
-            IE::DepthToSpaceOp::create(builder, origOp->getLoc(), origOp.getInput(), origOp.getBlockSizeAttr(),
-                                       origOp.getModeAttr(), paddedChannelsAttr);
+            IE::DepthToSpaceOp::create(builder, takeOpLoc(origOp, "fused_with_expand"), origOp.getInput(),
+                                       origOp.getBlockSizeAttr(), origOp.getModeAttr(), paddedChannelsAttr);
 
     // replace DepthToSpaceOp->Expand chain with new DepthToSpaceOp
     expandOp->replaceAllUsesWith(newDepthToSpaceOp->getResults());

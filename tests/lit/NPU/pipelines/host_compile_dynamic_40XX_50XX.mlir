@@ -43,7 +43,7 @@ module @EltwiseNHWCDynamic {
 
     // CHECK: func.func @main_func0_static([[func0_ARG0:%.+]]: memref<1x[[STEP:.+]]x1000x16xf16, strided<[?, ?, ?, ?], offset: ?>>, [[func0_ARG1:%.+]]: memref<1x[[STEP]]x1000x16xf16, strided<[?, ?, ?, ?], offset: ?>>, [[func0_ARG2:%.+]]: memref<1x[[STEP]]x1000x16xf16, strided<[?, ?, ?, ?], offset: ?>>) -> memref<1x[[STEP]]x1000x16xf16, strided<[?, ?, ?, ?], offset: ?>> {
 
-    // CHECK-NPU4000-COUNT-6: VPUIP.NCEClusterTask
+    // CHECK-NPU4000-COUNT-5: VPUIP.NCEClusterTask
     // CHECK-NPU5010-COUNT-3: VPUIP.NCEClusterTask
     // CHECK-NPU5020-COUNT-1: VPUIP.NCEClusterTask
     // CHECK-NOT: IE.Add

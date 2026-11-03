@@ -21,6 +21,8 @@
 #include <openvino/runtime/properties.hpp>
 #include <vpux/utils/core/error.hpp>
 
+#include <optional>
+
 using namespace vpux;
 
 namespace {
@@ -58,7 +60,7 @@ std::unique_ptr<DefaultHWOptionsBase> getCompilerSetupOptions(const vpux::OV::Co
     } else if (arch == config::ArchKind::NPU50XX) {
         return parseAllOptions<DefaultHWOptions50XX>(config);
     } else {
-        return nullptr;
+        VPUX_THROW("Unknown architecture");
     }
 }
 
@@ -91,13 +93,18 @@ int getMaxDPUClusterNum(const vpux::OV::Config& config) {
     return maxArchTiles;
 }
 
+bool isOfflineCompilation(const vpux::OV::Config& config) {
+    // NPU_MAX_TILES is only available in on-device compilation
+    return !config.has<vpux::OV::MAX_TILES>();
+}
+
 std::optional<std::string> getPerformanceHintOverride(const vpux::OV::Config& config) {
     const auto options = getCompilerSetupOptions(config);
     if (options == nullptr) {
         return std::nullopt;
     }
     auto& perfHint = options->performanceHintOverride;
-    VPUX_THROW_WHEN(perfHint.hasValue() && !config.has<vpux::OV::MAX_TILES>(),
+    VPUX_THROW_WHEN(perfHint.hasValue() && isOfflineCompilation(config),
                     "performance-hint-override is not supported in offline compilation");
     return perfHint;
 }
@@ -123,24 +130,37 @@ DpuGroupsPolicy getDpuGroupsPolicyByPlatform(const std::string& platform, const 
     return {/*latency=*/maxTiles, /*throughput=*/1, /*efficiency=*/maxTiles, /*fallback=*/maxTiles};
 }
 
+NPUPerformanceMode mapLatencyModeOverride(const vpux::OV::Config& config) {
+    const auto performanceHintOverride = getPerformanceHintOverride(config);  // validate options
+    if (isOfflineCompilation(config)) {
+        // Use efficiency mode for compatibility in offline compilation scenario
+        return NPUPerformanceMode::EFFICIENCY;
+    }
+
+    // Default to latency mode (max tiles)
+    if (!performanceHintOverride.has_value()) {
+        return NPUPerformanceMode::LATENCY;
+    }
+
+    if (performanceHintOverride.value() == "efficiency") {
+        return NPUPerformanceMode::EFFICIENCY;
+    } else if (performanceHintOverride.value() == "latency") {
+        return NPUPerformanceMode::LATENCY;
+    } else {
+        VPUX_THROW("Invalid performance-hint-override value. Possible values: `latency`, `efficiency`.");
+    }
+}
+
 NPUPerformanceMode getRequestedPerformanceMode(const vpux::OV::Config& config) {
-    const auto performanceHintOverride = getPerformanceHintOverride(config);
     switch (config.get<vpux::OV::PERFORMANCE_HINT>()) {
     case vpux::OV::PerformanceMode::LATENCY:
-        VPUX_THROW_WHEN(!performanceHintOverride.has_value(), "performance-hint-override does not hold a value.");
-        if (performanceHintOverride.value() == "efficiency") {
-            return NPUPerformanceMode::EFFICIENCY;
-        }
-        if (performanceHintOverride.value() == "latency") {
-            return NPUPerformanceMode::LATENCY;
-        }
-        VPUX_THROW("Unknown value `{0}` for performance-hint-override. Possible values: `latency`, `efficiency`",
-                   performanceHintOverride.value());
+        return mapLatencyModeOverride(config);
     case vpux::OV::PerformanceMode::THROUGHPUT:
-    default:
-        break;
+        return NPUPerformanceMode::THROUGHPUT;
+    case vpux::OV::PerformanceMode::CUMULATIVE_THROUGHPUT:
+        return NPUPerformanceMode::CUMULATIVE_THROUGHPUT;
     }
-    return static_cast<NPUPerformanceMode>(config.get<vpux::OV::PERFORMANCE_HINT>());
+    VPUX_THROW("Invalid PERFORMANCE_HINT value.");
 }
 
 int getNumberOfDPUGroupsUnchecked(const vpux::OV::Config& config) {
@@ -225,7 +245,7 @@ std::optional<int> getRevisionID(const vpux::OV::Config& config) {
 // getNumberOfDPUGroups
 //
 
-std::optional<int> getNumberOfDPUGroups(const vpux::OV::Config& config) {
+int getNumberOfDPUGroups(const vpux::OV::Config& config) {
     if (config.has<vpux::OV::TILES>()) {
         int requestedNpuTiles = checked_cast<int>(config.get<vpux::OV::TILES>());
         int maxTiles = getMaxDPUClusterNum(config);
@@ -255,20 +275,19 @@ std::optional<int> getNumberOfDPUGroups(const vpux::OV::Config& config) {
 // getNumberOfDMAEngines
 //
 
-std::optional<int> getNumberOfDMAEngines(const vpux::OV::Config& config) {
+std::optional<int> getNumberOfDMAEngines(const vpux::OV::Config& config, int numOfDpuGroups) {
     if (config.has<vpux::OV::DMA_ENGINES>()) {
         return checked_cast<int>(config.get<vpux::OV::DMA_ENGINES>());
     }
 
     auto archKind = vpux::getArchKind(config);
-    auto numOfDpuGroups = getNumberOfDPUGroups(config);
     int maxDmaPorts = VPU::getMaxDMAPorts(getPlatform(config));
     const std::string platform = vpux::OV::Platform::standardize(config.get<vpux::OV::PLATFORM>());
 
     if (archKind == config::ArchKind::NPU37XX || archKind == config::ArchKind::NPU40XX) {
         // Without FWLM we do not support the case in which the number of DMA engines is greater than number of DPU
         // groups
-        return std::min(maxDmaPorts, numOfDpuGroups.value_or(maxDmaPorts));
+        return std::min(maxDmaPorts, numOfDpuGroups);
     } else {
         return maxDmaPorts;
     }
@@ -362,6 +381,17 @@ std::optional<bool> getEnableDecomposeSDPA(const vpux::OV::Config& config) {
     return options->enableDecomposeSDPA;
 }
 
+// Reads the internal "convert-nms-to-static" switch (E#223694).
+// The caller (compiler.cpp) applies kDefaultConvertNMSToStatic when no parsed options are available.
+std::optional<bool> getEnableConvertNMSToStatic(const vpux::OV::Config& config) {
+    const auto options = getCompilerSetupOptions(config);
+    if (options == nullptr) {
+        return std::nullopt;
+    }
+
+    return options->enableConvertNMSToStatic;
+}
+
 std::set<std::string> getIoWithDynamicStrides(const vpux::OV::Config& config) {
     if (getArchKind(config) == config::ArchKind::NPU37XX && config.has<vpux::OV::ENABLE_STRIDES_FOR>()) {
         VPUX_THROW("ENABLE_STRIDES_FOR not supported on NPU3720");
@@ -384,6 +414,13 @@ std::optional<bool> getEnablePipelinedCmdListRecording(const vpux::OV::Config& c
     }
 
     return options->enablePipelinedCmdListRecording;
+}
+
+std::optional<bool> getPowerOptimized(const vpux::OV::Config& config) {
+    if (config.has<vpux::OV::POWER_OPTIMIZED>()) {
+        return config.get<vpux::OV::POWER_OPTIMIZED>();
+    }
+    return std::nullopt;
 }
 
 std::optional<std::string> getCustomKernelConfigPath(const vpux::OV::Config& config) {

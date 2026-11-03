@@ -204,10 +204,7 @@ public:
     }
 
     void validate() override {
-        std::vector<ov::Tensor> actualOutputs;
-        if (envConfig.IE_NPU_TESTS_RUN_INFER) {
-            actualOutputs = get_plugin_outputs();
-        }
+        const auto actualOutputs = get_plugin_outputs();
 
         // Compare NPU outputs from the dedicated internal op against CPU outputs from the decomposed reference graph.
         auto referenceCompiledModel = core->compile_model(_decomposedReferenceFunction, "CPU");
@@ -288,6 +285,12 @@ const std::vector<InternalDQParams> positiveCases = {
         {{1, 4, 8}, ov::element::f32, ov::element::u8, ov::element::f32, {WHOLE_DIM, WHOLE_DIM, WHOLE_DIM}},
         {{1, 4, 8}, ov::element::f32, ov::element::i8, ov::element::f32, {WHOLE_DIM, WHOLE_DIM, WHOLE_DIM}},
         {{1, 4, 8}, ov::element::f16, ov::element::i8, ov::element::f16, {1, 1, 8}},
+        {{1, 32, 96, 1}, ov::element::f32, ov::element::i8, ov::element::f32, {1, 1, 96, 1}},
+        {{1, 32, 1, 96}, ov::element::f32, ov::element::i8, ov::element::f32, {1, 1, 1, 96}},
+        {{1, 32, 96, 1}, ov::element::f32, ov::element::u8, ov::element::f32, {1, 1, 96, 1}},
+        {{1, 32, 1, 96}, ov::element::f32, ov::element::u8, ov::element::f32, {1, 1, 1, 96}},
+        {{1, 32, 1, 95}, ov::element::f32, ov::element::i8, ov::element::f32, {1, 1, 1, 95}},
+        {{1, 32, 1, 95}, ov::element::f32, ov::element::u8, ov::element::f32, {1, 1, 1, 95}},
 };
 
 const std::vector<NegativeInternalDQParams> negativeCases = [] {

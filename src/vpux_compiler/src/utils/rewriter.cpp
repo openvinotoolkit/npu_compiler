@@ -173,7 +173,7 @@ mlir::bufferization::BufferLikeType tensorToBuffer(mlir::RankedTensorType tensor
     const auto elemType = type.getElementType();
     const auto order = type.getDimsOrder();
     const auto memSpace = type.getMemSpace();
-    const auto strides = type.getStrides();
+    const auto strides = getStridesUnlessUnbounded(type);
     const auto bounds = getBounds(tensorType);
     return mlir::cast<mlir::bufferization::BufferLikeType>(
             getMemRefType(shape, elemType, order, memSpace, strides, bounds));

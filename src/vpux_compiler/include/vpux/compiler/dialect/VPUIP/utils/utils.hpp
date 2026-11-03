@@ -7,6 +7,7 @@
 
 #include "vpux/compiler/dialect/VPU/utils/distributed_tensor_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/explicit_distribution_utils.hpp"
+#include "vpux/compiler/dialect/VPU/utils/odu_utils.hpp"
 #include "vpux/compiler/dialect/VPUIP/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPURT/IR/ops.hpp"
 #include "vpux/compiler/dialect/config/IR/ops.hpp"
@@ -20,8 +21,7 @@
 #include <mlir/IR/Location.h>
 #include <mlir/IR/Value.h>
 
-namespace vpux {
-namespace VPUIP {
+namespace vpux::VPUIP {
 
 //
 // Profiling
@@ -743,6 +743,14 @@ bool isOnlyPadOverIC(const Const::ContentAttr& content);
 bool canWeightsBeCompressed(VPUIP::NCEClusterTaskOp op);
 bool canTilingWeightsBeCompressed(VPUIP::NCEClusterTaskOp op);
 
+//
+// ODU S2D/D2S utility
+//
+
+// NCEClusterTaskOp does not implement VPU::NCEOpInterface, so its ODU S2D/D2S scaling cannot be
+// derived via VPU::getODUScaling(); read the op's own s2dd2s_config attribute directly instead.
+int64_t getPreODUOutputChannels(VPUIP::NCEClusterTaskOp nceOp);
+
 // Copy Utilities
 
 bool isChannelOffsetsAndTileDimCompatibleWithDistributedCopy(SmallVector<int64_t> offsets, int32_t tileIndexVal,
@@ -825,7 +833,10 @@ int64_t getMaximalSWKernelPrefetchDataSize(mlir::ModuleOp module);
 // NNDMA split utils
 //
 
-std::pair<int64_t, int64_t> getSplitPartSizes(NDTypeInterface bufferType, vpux::Dim tileDim);
+bool isByteAlignedSplit(NDTypeInterface bufferType, vpux::Dim tileDim, llvm::ArrayRef<int64_t> partSizes);
+llvm::SmallVector<int64_t> getSplitPartSizes(NDTypeInterface inputType, NDTypeInterface outputType, vpux::Dim tileDim,
+                                             int64_t partsNumber);
+std::pair<int64_t, int64_t> getSplitPartSizes(NDTypeInterface inputType, NDTypeInterface outputType, vpux::Dim tileDim);
 
 //
 // Check user utils
@@ -889,5 +900,4 @@ mlir::SmallVector<mlir::Value> getInputsSanitized(VPUIP::LayerOpInterface layerO
 
 bool hasOneDistinctUser(mlir::Operation* op);
 
-}  // namespace VPUIP
-}  // namespace vpux
+}  // namespace vpux::VPUIP

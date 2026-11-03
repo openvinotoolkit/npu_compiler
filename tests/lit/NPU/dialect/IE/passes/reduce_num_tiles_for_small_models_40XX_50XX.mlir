@@ -126,3 +126,111 @@ module @BigShapesNumClustersRemained {
 
 // CHECK: config.Resources 6 of @NCE
 // CHECK: config.ExecutorResource 2 of @DMA_NN
+
+// -----
+
+// Only view-like ops: nothing to measure, the tile count is kept.
+
+// CHECK-LABEL: @NothingToMeasureNumClustersRemained
+module @NothingToMeasureNumClustersRemained {
+    config.Resources 6 of @NCE at 1.850000e+03 MHz {
+        config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
+        config.ExecutorResource 2 of @SHAVE_ACT
+        config.ExecutorResource 1 of @DPU
+    }
+    config.Resources 1 of @global {
+        config.ExecutorResource 2 of @DMA_NN
+    }
+    net.NetworkInfo entryPoint : @main
+    inputsInfo : {
+        DataInfo "input" : tensor<1x1x55x55xf16>
+    } outputsInfo : {
+        DataInfo "output" : tensor<1x55x55xf16>
+    }
+
+    func.func @main(%input: tensor<1x1x55x55xf16>) -> tensor<1x55x55xf16> {
+        %flatten = IE.Reshape(%input) {shape_value = [1, 3025]} : tensor<1x1x55x55xf16> -> tensor<1x3025xf16>
+        %reshape = IE.Reshape(%flatten) {shape_value = [1, 55, 55]} : tensor<1x3025xf16> -> tensor<1x55x55xf16>
+        return %reshape : tensor<1x55x55xf16>
+    }
+}
+
+// CHECK: config.Resources 6 of @NCE
+// CHECK: config.ExecutorResource 2 of @DMA_NN
+
+// -----
+
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+
+!DynInType = tensor<1x1x?x55xf16, {order = #NCHW}>
+!DynOutType = tensor<1x1x?x128xf16, {order = #NCHW}>
+
+// Unbounded operands are not measured, the tile count is kept.
+
+// CHECK-LABEL: @DynamicShapeNumClustersRemained
+module @DynamicShapeNumClustersRemained {
+    config.Resources 6 of @NCE at 1.850000e+03 MHz {
+        config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
+        config.ExecutorResource 2 of @SHAVE_ACT
+        config.ExecutorResource 1 of @DPU
+    }
+    config.Resources 1 of @global {
+        config.ExecutorResource 2 of @DMA_NN
+    }
+    net.NetworkInfo entryPoint : @main
+    inputsInfo : {
+        DataInfo "input" : tensor<1x1x55x55xf16>
+        DataInfo "scale" : tensor<1x1x55x128xf16>
+    } outputsInfo : {
+        DataInfo "output" : tensor<1x1x55x128xf16>
+    }
+
+    func.func @main(%input: !DynInType, %scale: !DynOutType) -> !DynOutType {
+        %weights = const.Declare tensor<1x1x128x55xf16> = dense<1.0> : tensor<1x1x128x55xf16>
+        %matmul = IE.MatMul(%input, %weights) {transpose_b} : !DynInType, tensor<1x1x128x55xf16> -> !DynOutType
+        %multiply = IE.Multiply(%matmul, %scale) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : !DynOutType, !DynOutType -> !DynOutType
+        %softmax = IE.SoftMax(%multiply) {axisInd = 3 : i64} : !DynOutType -> !DynOutType
+        return %softmax : !DynOutType
+    }
+}
+
+// CHECK: config.Resources 6 of @NCE
+// CHECK: config.ExecutorResource 2 of @DMA_NN
+
+// -----
+
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+
+!BoundedInType = tensor<1x1x?x55xf16, {bounds = #const.OpaqueI64Elements<[1, 1, 55, 55]> : tensor<4xsi64>, order = #NCHW}>
+!BoundedOutType = tensor<1x1x?x128xf16, {bounds = #const.OpaqueI64Elements<[1, 1, 55, 128]> : tensor<4xsi64>, order = #NCHW}>
+
+// Bounded operands are measured by their bounds, the tile count is reduced.
+
+// CHECK-LABEL: @BoundedDynamicShapeNumClustersReduced
+module @BoundedDynamicShapeNumClustersReduced {
+    config.Resources 6 of @NCE at 1.850000e+03 MHz {
+        config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
+        config.ExecutorResource 2 of @SHAVE_ACT
+        config.ExecutorResource 1 of @DPU
+    }
+    config.Resources 1 of @global {
+        config.ExecutorResource 2 of @DMA_NN
+    }
+    net.NetworkInfo entryPoint : @main
+    inputsInfo : {
+        DataInfo "input" : tensor<1x1x55x55xf16>
+        DataInfo "scale" : tensor<1x1x55x128xf16>
+    } outputsInfo : {
+        DataInfo "output" : tensor<1x1x55x128xf16>
+    }
+
+    func.func @main(%input: !BoundedInType, %scale: !BoundedOutType) -> !BoundedOutType {
+        %weights = const.Declare tensor<1x1x128x55xf16> = dense<1.0> : tensor<1x1x128x55xf16>
+        %matmul = IE.MatMul(%input, %weights) {transpose_b} : !BoundedInType, tensor<1x1x128x55xf16> -> !BoundedOutType
+        %multiply = IE.Multiply(%matmul, %scale) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : !BoundedOutType, !BoundedOutType -> !BoundedOutType
+        %softmax = IE.SoftMax(%multiply) {axisInd = 3 : i64} : !BoundedOutType -> !BoundedOutType
+        return %softmax : !BoundedOutType
+    }
+}
+
+// CHECK: config.Resources 1 of @NCE

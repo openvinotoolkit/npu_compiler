@@ -33,7 +33,7 @@ module @Depth2SpaceToTransConv {
 
         %fq1 = IE.FakeQuantize(%input, %lowFq, %highFq, %lowFq, %highFq) {
             auto_broadcast = #IE.auto_broadcast_type<NUMPY>,
-            levels = 256 : i64
+            levels_or_low_fp_type = 256 : i64
         } :
             tensor<1x256x16x16xf16>,
             tensor<1x1x1x1xf16>,
@@ -49,7 +49,7 @@ module @Depth2SpaceToTransConv {
 
         %fq2 = IE.FakeQuantize(%d2s, %lowFq, %highFq, %lowFq, %highFq) {
             auto_broadcast = #IE.auto_broadcast_type<NUMPY>,
-            levels = 256 : i64
+            levels_or_low_fp_type = 256 : i64
         } :
             tensor<1x64x32x32xf16>,
             tensor<1x1x1x1xf16>,
@@ -281,5 +281,142 @@ net.NetworkInfo entryPoint : @main
         // CHECK:       [[OUT:%.+]] = IE.PermuteCast([[GROUPCONV]]) {dst_order = #NCHW, mem_perm = #NHWC}
         // CHECK-SAME:      -> tensor<1x2048x1026x1xf16>
         // CHECK:       return [[OUT]] : tensor<1x2048x1026x1xf16>
+    }
+}
+
+// -----
+
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+#NCWH = affine_map<(d0, d1, d2, d3) -> (d0, d1, d3, d2)>
+#NHCW = affine_map<(d0, d1, d2, d3) -> (d0, d2, d1, d3)>
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+#NWCH = affine_map<(d0, d1, d2, d3) -> (d0, d3, d1, d2)>
+#map = affine_map<(d0, d1, d2, d3) -> (d2, d0, d3, d1)>
+#map1 = affine_map<(d0, d1, d2, d3) -> (d1, d3, d0, d2)>
+
+// gate_up_proj SwiGLU MLP block with int4 AWQ-quantized weights (Convert(si4->f16) -> Multiply(per-row scale)
+// -> Convert(f16->f32) feeding a MatMul on a runtime (block-arg) weight tensor). Weights are not const.Declare,
+// so ConsolidateWeightsDequantization/IE.DynamicDequantize does not apply here; the per-row scale Multiply is
+// instead lowered to IE.GroupConvolution (depthwise) via PermuteQuantize/PermuteCast, MatMul lowers to
+// IE.Convolution, and VariadicSplit lowers to a pair of IE.Slice ops.
+
+#loc100 = loc("input")
+#loc101 = loc("weights")
+#loc102 = loc("scale")
+#loc103 = loc("awq_scale")
+#loc104 = loc("weights_scale_mul")
+#loc105 = loc("awq_scale_mul")
+#loc110 = loc(fused<{name = "input", type = "Parameter"}>[#loc100])
+#loc111 = loc(fused<{name = "weights", type = "Parameter"}>[#loc101])
+#loc112 = loc(fused<{name = "scale", type = "Parameter"}>[#loc102])
+#loc113 = loc(fused<{name = "awq_scale", type = "Parameter"}>[#loc103])
+#loc114 = loc(fused<{name = "weights_scale_mul", type = "Multiply"}>[#loc104])
+#loc115 = loc(fused<{name = "awq_scale_mul", type = "Multiply"}>[#loc105])
+
+// CHECK-LABEL: @GateUpProjSwiGluWithInt4Weights
+module @GateUpProjSwiGluWithInt4Weights {
+    net.NetworkInfo entryPoint : @main
+    inputsInfo : {
+        DataInfo "input" : tensor<1x128x16xf32> loc(#loc110)
+        DataInfo "weights" : tensor<32x16xsi4> loc(#loc111)
+        DataInfo "scale" : tensor<32x1xf16> loc(#loc112)
+        DataInfo "awq_scale" : tensor<1x1x16xf32> loc(#loc113)
+    } outputsInfo : {
+        DataInfo "output" : tensor<1x128x16xf32>
+    }
+
+    config.PipelineOptions @Options {
+        config.Option @config.SprLUTEnabled : true
+    }
+
+    // CHECK: func.func @main([[INPUT:%.+]]: tensor<1x128x16xf32>, [[WEIGHTS:%.+]]: tensor<32x16xsi4>, [[SCALE:%.+]]: tensor<32x1xf16>, [[AWQ_SCALE:%.+]]: tensor<1x1x16xf32>) -> tensor<1x128x16xf32> {
+    func.func @main(%arg0: tensor<1x128x16xf32> loc(#loc110), %arg1: tensor<32x16xsi4> loc(#loc111), %arg2: tensor<32x1xf16> loc(#loc112), %arg3: tensor<1x1x16xf32> loc(#loc113)) -> tensor<1x128x16xf32> {
+        %0 = IE.Convert(%arg1) {dstElemType = f16} : tensor<32x16xsi4> -> tensor<32x16xf16>
+        %1 = IE.Multiply(%0, %arg2) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<32x16xf16>, tensor<32x1xf16>
+                -> tensor<32x16xf16> loc(#loc114)
+        %2 = IE.Convert(%1) {dstElemType = f32} : tensor<32x16xf16> -> tensor<32x16xf32>
+        %3 = IE.MatMul(%arg0, %2) {transpose_b} : tensor<1x128x16xf32>, tensor<32x16xf32> -> tensor<1x128x32xf32>
+        %4:2 = IE.VariadicSplit(%3) {axis = -1 : i64, split_lengths = [16, -1]} : tensor<1x128x32xf32>
+                -> tensor<1x128x16xf32>, tensor<1x128x16xf32>
+        %5 = IE.Swish(%4#0) : tensor<1x128x16xf32> -> tensor<1x128x16xf32>
+        %6 = IE.Multiply(%5, %arg3) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x128x16xf32>, tensor<1x1x16xf32>
+                -> tensor<1x128x16xf32> loc(#loc115)
+        %7 = IE.Multiply(%4#1, %6) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x128x16xf32>, tensor<1x128x16xf32>
+                -> tensor<1x128x16xf32>
+        return %7 : tensor<1x128x16xf32>
+
+        // CHECK:       [[RESHAPE_AWQ:%.+]] = IE.AffineReshape([[AWQ_SCALE]])
+        // CHECK-SAME:      tensor<1x1x16xf32> -> tensor<1x1x1x16xf32>
+        // CHECK:       [[RESHAPE_IN:%.+]] = IE.AffineReshape([[INPUT]])
+        // CHECK-SAME:      tensor<1x128x16xf32> -> tensor<1x1x128x16xf32>
+        // CHECK:       [[RESHAPE_WT:%.+]] = IE.AffineReshape([[WEIGHTS]])
+        // CHECK-SAME:      tensor<32x16xsi4> -> tensor<1x1x32x16xsi4>
+        // CHECK:       [[CONVERT_WT:%.+]] = IE.Convert([[RESHAPE_WT]]) {dstElemType = f16}
+        // CHECK-SAME:      tensor<1x1x32x16xsi4> -> tensor<1x1x32x16xf16>
+        // CHECK:       [[RESHAPE_WT_0:%.+]] = IE.AffineReshape([[CONVERT_WT]])
+        // CHECK-SAME:      tensor<1x1x32x16xf16> -> tensor<1x32x1x16xf16>
+        // CHECK:       [[RESHAPE_SCALE:%.+]] = IE.AffineReshape([[SCALE]])
+        // CHECK-SAME:      tensor<32x1xf16> -> tensor<32x1x1x1xf16>
+        // CHECK:       [[PERMQUANT_WT:%.+]] = IE.PermuteQuantize([[RESHAPE_WT_0]]) {dstElemType = f16, dst_order = #NHWC, mem_perm = #NHWC, pads_begin = [0, 0, 0, 0], pads_end = [0, 0, 0, 0]}
+        // CHECK-SAME:      tensor<1x32x1x16xf16> -> tensor<1x32x1x16xf16, {order = #NHWC}>
+        // CHECK:       [[PERMCAST_SCALE:%.+]] = IE.PermuteCast([[RESHAPE_SCALE]]) {dst_order = #NHWC, mem_perm = #NHWC}
+        // CHECK-SAME:      tensor<32x1x1x1xf16> -> tensor<32x1x1x1xf16, {order = #NHWC}>
+        // CHECK:       [[PERMCAST_WT:%.+]] = IE.PermuteCast([[PERMQUANT_WT]]) {dst_order = #NHWC, mem_perm = #NHCW}
+        // CHECK-SAME:      tensor<1x32x1x16xf16, {order = #NHWC}> -> tensor<1x32x16x1xf16, {order = #NHWC}>
+        // CHECK:       [[GROUPCONV_WT:%.+]] = IE.GroupConvolution([[PERMCAST_WT]], [[PERMCAST_SCALE]]) {dilations = [1, 1], groups = 32 : i64, pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]}
+        // CHECK-SAME:      tensor<1x32x16x1xf16, {order = #NHWC}>, tensor<32x1x1x1xf16, {order = #NHWC}> -> tensor<1x32x16x1xf16, {order = #NCWH}>
+        // CHECK:       [[PERMCAST_WT_0:%.+]] = IE.PermuteCast([[GROUPCONV_WT]]) {dst_order = #NCHW, mem_perm = #NCHW}
+        // CHECK-SAME:      tensor<1x32x16x1xf16, {order = #NCWH}> -> tensor<1x32x1x16xf16>
+        // CHECK:       [[RESHAPE_WT_1:%.+]] = IE.AffineReshape([[PERMCAST_WT_0]])
+        // CHECK-SAME:      tensor<1x32x1x16xf16> -> tensor<32x16x1x1xf16>
+        // CHECK:       [[PERMCAST_WT_1:%.+]] = IE.PermuteCast([[RESHAPE_WT_1]]) {dst_order = #NHWC, mem_perm = #NHWC}
+        // CHECK-SAME:      tensor<32x16x1x1xf16> -> tensor<32x16x1x1xf16, {order = #NHWC}>
+        // CHECK:       [[SLICE_UP_WT:%.+]] = IE.Slice [[PERMCAST_WT_1]] [16, 0, 0, 0] [16, 16, 1, 1]
+        // CHECK-SAME:      tensor<32x16x1x1xf16, {order = #NHWC}> to tensor<16x16x1x1xf16, {order = #NHWC}>
+        // CHECK:       [[SLICE_GATE_WT:%.+]] = IE.Slice [[PERMCAST_WT_1]] [0, 0, 0, 0] [16, 16, 1, 1]
+        // CHECK-SAME:      tensor<32x16x1x1xf16, {order = #NHWC}> to tensor<16x16x1x1xf16, {order = #NHWC}>
+        // CHECK:       [[CONVERT_IN:%.+]] = IE.Convert([[RESHAPE_IN]]) {dstElemType = f16}
+        // CHECK-SAME:      tensor<1x1x128x16xf32> -> tensor<1x1x128x16xf16>
+        // CHECK:       [[RESHAPE_IN_0:%.+]] = IE.AffineReshape([[CONVERT_IN]])
+        // CHECK-SAME:      tensor<1x1x128x16xf16> -> tensor<128x16x1x1xf16>
+        // CHECK:       [[PERMCAST_IN:%.+]] = IE.PermuteCast([[RESHAPE_IN_0]]) {dst_order = #NHWC, mem_perm = #map}
+        // CHECK-SAME:      tensor<128x16x1x1xf16> -> tensor<1x16x128x1xf16, {order = #NHWC}>
+        // CHECK:       [[RESHAPE_IN_1:%.+]] = IE.AffineReshape([[PERMCAST_IN]])
+        // CHECK-SAME:      tensor<1x16x128x1xf16, {order = #NHWC}> -> tensor<1x16x16x8xf16, {order = #NHWC}>
+        // CHECK:       [[CONV_UP:%.+]] = IE.Convolution([[RESHAPE_IN_1]], [[SLICE_UP_WT]]) {dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]}
+        // CHECK-SAME:      tensor<1x16x16x8xf16, {order = #NHWC}>, tensor<16x16x1x1xf16, {order = #NHWC}> -> tensor<1x16x16x8xf16, {order = #NHWC}>
+        // CHECK:       [[RESHAPE_UP:%.+]] = IE.AffineReshape([[CONV_UP]])
+        // CHECK-SAME:      tensor<1x16x16x8xf16, {order = #NHWC}> -> tensor<1x16x128x1xf16, {order = #NHWC}>
+        // CHECK:       [[PERMCAST_UP:%.+]] = IE.PermuteCast([[RESHAPE_UP]]) {dst_order = #NCHW, mem_perm = #map1}
+        // CHECK-SAME:      tensor<1x16x128x1xf16, {order = #NHWC}> -> tensor<128x16x1x1xf16>
+        // CHECK:       [[CONV_GATE:%.+]] = IE.Convolution([[RESHAPE_IN_1]], [[SLICE_GATE_WT]]) {dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], post_op = #IE.Swish<beta = 1.000000e+00 : f64>, strides = [1, 1]}
+        // CHECK-SAME:      tensor<1x16x16x8xf16, {order = #NHWC}>, tensor<16x16x1x1xf16, {order = #NHWC}> -> tensor<1x16x16x8xf16, {order = #NHWC}>
+        // CHECK:       [[CONVERT_AWQ:%.+]] = IE.Convert([[RESHAPE_AWQ]]) {dstElemType = f16}
+        // CHECK-SAME:      tensor<1x1x1x16xf32> -> tensor<1x1x1x16xf16>
+        // CHECK:       [[RESHAPE_AWQ_0:%.+]] = IE.AffineReshape([[CONVERT_AWQ]])
+        // CHECK-SAME:      tensor<1x1x1x16xf16> -> tensor<16x1x1x1xf16>
+        // CHECK:       [[PERMCAST_AWQ:%.+]] = IE.PermuteCast([[RESHAPE_AWQ_0]]) {dst_order = #NHWC, mem_perm = #NHWC}
+        // CHECK-SAME:      tensor<16x1x1x1xf16> -> tensor<16x1x1x1xf16, {order = #NHWC}>
+        // CHECK:       [[GROUPCONV_AWQ:%.+]] = IE.GroupConvolution([[CONV_GATE]], [[PERMCAST_AWQ]]) {dilations = [1, 1], groups = 16 : i64, pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]}
+        // CHECK-SAME:      tensor<1x16x16x8xf16, {order = #NHWC}>, tensor<16x1x1x1xf16, {order = #NHWC}> -> tensor<1x16x16x8xf16, {order = #NHWC}>
+        // CHECK:       [[RESHAPE_GATE:%.+]] = IE.AffineReshape([[GROUPCONV_AWQ]])
+        // CHECK-SAME:      tensor<1x16x16x8xf16, {order = #NHWC}> -> tensor<1x16x128x1xf16, {order = #NHWC}>
+        // CHECK:       [[PERMCAST_GATE:%.+]] = IE.PermuteCast([[RESHAPE_GATE]]) {dst_order = #NCHW, mem_perm = #NCWH}
+        // CHECK-SAME:      tensor<1x16x128x1xf16, {order = #NHWC}> -> tensor<1x128x16x1xf16>
+        // CHECK:       [[RESHAPE_UP_0:%.+]] = IE.AffineReshape([[PERMCAST_UP]])
+        // CHECK-SAME:      tensor<128x16x1x1xf16> -> tensor<1x128x1x16xf16>
+        // CHECK:       [[RESHAPE_GATE_0:%.+]] = IE.AffineReshape([[PERMCAST_GATE]])
+        // CHECK-SAME:      tensor<1x128x16x1xf16> -> tensor<1x128x1x16xf16>
+        // CHECK:       [[SWIGLU_MUL:%.+]] = IE.Multiply([[RESHAPE_UP_0]], [[RESHAPE_GATE_0]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>}
+        // CHECK-SAME:      tensor<1x128x1x16xf16>, tensor<1x128x1x16xf16> -> tensor<1x128x1x16xf16>
+        // CHECK:       [[LAYOUTCAST_IN:%.+]] = IE.LayoutCast([[SWIGLU_MUL]]) {dst_order = #NHWC}
+        // CHECK-SAME:      tensor<1x128x1x16xf16> -> tensor<1x128x1x16xf16, {order = #NHWC}>
+        // CHECK:       [[AVGPOOL:%.+]] = IE.AvgPool([[LAYOUTCAST_IN]]) {exclude_pads, kernel_size = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], rounding_type = #IE.rounding_type<FLOOR>, strides = [1, 1]}
+        // CHECK-SAME:      tensor<1x128x1x16xf16, {order = #NHWC}> -> tensor<1x128x1x16xf32, {order = #NHWC}>
+        // CHECK:       [[LAYOUTCAST_OUT:%.+]] = IE.LayoutCast([[AVGPOOL]]) {dst_order = #NCHW}
+        // CHECK-SAME:      tensor<1x128x1x16xf32, {order = #NHWC}> -> tensor<1x128x1x16xf32>
+        // CHECK:       [[RESHAPE_OUT:%.+]] = IE.AffineReshape([[LAYOUTCAST_OUT]])
+        // CHECK-SAME:      tensor<1x128x1x16xf32> -> tensor<1x128x16xf32>
+        // CHECK:       return [[RESHAPE_OUT]] : tensor<1x128x16xf32>
     }
 }

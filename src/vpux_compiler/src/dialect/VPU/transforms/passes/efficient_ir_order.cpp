@@ -69,7 +69,7 @@ mlir::LogicalResult EfficientIROrderPass::initialize(mlir::MLIRContext* ctx) {
 // safeRunOnModule
 //
 
-void reorderOperationsInVFBlock(VPU::VerticalFusionOp vfOp) {
+void reorderOperationsInVFBlock(VPU::VerticalFusionOp vfOp, Logger log) {
     SmallVector<mlir::Operation*, 4> computeOpsInBlock;
 
     for (auto& op : vfOp.getBody()->without_terminator()) {
@@ -77,6 +77,8 @@ void reorderOperationsInVFBlock(VPU::VerticalFusionOp vfOp) {
             computeOpsInBlock.push_back(&op);
         }
     }
+
+    log.trace("VF block at '{0}' has {1} compute op(s) to reorder", vfOp->getLoc(), computeOpsInBlock.size());
 
     const auto hasMultipleComputeOpsInputs = [](mlir::Operation* op) {
         int computeOpCount = 0;
@@ -103,6 +105,8 @@ void reorderOperationsInVFBlock(VPU::VerticalFusionOp vfOp) {
                 llvm::sort(parents, [](auto* lhs, auto* rhs) {
                     return lhs->isBeforeInBlock(rhs);
                 });
+                log.nest().trace("Op '{0}' at '{1}' has multiple compute op inputs; moving after last parent '{2}'",
+                                 origOp->getName(), origOp->getLoc(), parents.back()->getLoc());
                 origOp->moveAfter(parents.back());
             }
 
@@ -123,6 +127,8 @@ void reorderOperationsInVFBlock(VPU::VerticalFusionOp vfOp) {
             }
         }
         if (firstUser != nullptr) {
+            log.nest().trace("Op '{0}' at '{1}' has a single compute op input; moving before first user '{2}'",
+                             origOp->getName(), origOp->getLoc(), firstUser->getLoc());
             origOp->moveBefore(firstUser);
         }
     }
@@ -143,7 +149,7 @@ void reorderOperationsInVFBlock(VPU::VerticalFusionOp vfOp) {
  */
 using VFOpMoveAfter = std::pair<mlir::Operation*, VPU::VerticalFusionOp>;
 
-void collectVfOpsToMoveBeforeSDPA(SmallVector<VFOpMoveAfter>& sdpaMoveOps, VPU::VerticalFusionOp vfOp) {
+void collectVfOpsToMoveBeforeSDPA(SmallVector<VFOpMoveAfter>& sdpaMoveOps, VPU::VerticalFusionOp vfOp, Logger log) {
     if (vfOp->hasOneUse()) {
         return;
     }
@@ -197,11 +203,11 @@ void collectVfOpsToMoveBeforeSDPA(SmallVector<VFOpMoveAfter>& sdpaMoveOps, VPU::
         bool hasSoftMax = false;
         bool hasVMatMul = false;
         for (auto* op : innerOps) {
-            if (mlir::isa<VPU::NCEConvolutionOp>(op) && hasQKMatMul == false) {
+            if (mlir::isa<VPU::NCEConvolutionOp>(op) && !hasQKMatMul) {
                 hasQKMatMul = true;
             } else if (mlir::isa<VPU::SoftMaxOp>(op)) {
                 hasSoftMax = true;
-            } else if (mlir::isa<VPU::NCEConvolutionOp>(op) && hasQKMatMul == true) {
+            } else if (mlir::isa<VPU::NCEConvolutionOp>(op) && hasQKMatMul) {
                 hasVMatMul = true;
             }
         }
@@ -245,8 +251,12 @@ void collectVfOpsToMoveBeforeSDPA(SmallVector<VFOpMoveAfter>& sdpaMoveOps, VPU::
         llvm::sort(consumers, [](mlir::Operation* lhs, mlir::Operation* rhs) {
             return lhs->isBeforeInBlock(rhs);
         });
+        log.trace("VF block at '{0}' has {1} SDPA consumer(s); scheduling them to move after it", vfOp->getLoc(),
+                  consumers.size());
         // Record consumers in reverse move order.
         for (auto consumer : consumers | reversed) {
+            log.nest().trace("SDPA consumer VF block at '{0}' will be moved after producer '{1}'", consumer->getLoc(),
+                             vfOp->getLoc());
             sdpaMoveOps.push_back({consumer, vfOp});
         }
     }
@@ -275,13 +285,16 @@ bool hasVFBlock(mlir::func::FuncOp& func) {
 //        \           /
 //         \   ...   /
 //            Concat
-void reorderConcatBranches(VPU::ConcatOp concatOp) {
+void reorderConcatBranches(VPU::ConcatOp concatOp, Logger log) {
     SmallVector<mlir::Operation*> parents;
     for (auto operand : concatOp.getOperands()) {
         if (auto parentOp = operand.getDefiningOp()) {
             parents.push_back(parentOp);
         }
     }
+
+    log.trace("Analyzing ConcatOp at '{0}' with {1} branch(es) for potential reordering", concatOp->getLoc(),
+              parents.size());
 
     auto totalAvailableCMXSize = getTotalCMXSize(concatOp).count();
     SmallVector<SmallVector<mlir::Operation*>> patternOps(parents.size());
@@ -301,6 +314,10 @@ void reorderConcatBranches(VPU::ConcatOp concatOp) {
                 // SoftMax(2).
                 // requiredCMXSize * 1.5: The minimum CMX size required for SoftMax(2) and NCEOp(4).
                 if (requiredCMXSize.count() * 1.5 < totalAvailableCMXSize) {
+                    log.nest().trace(
+                            "Branch {0}: CMX space is sufficient at '{1}'; stop walking up to keep parallelism with "
+                            "NCEOp",
+                            index, softMaxOp->getLoc());
                     break;
                 }
             }
@@ -347,6 +364,7 @@ void reorderConcatBranches(VPU::ConcatOp concatOp) {
     }();
 
     if (!isSymmetricConcat) {
+        log.nest().trace("Branches are not symmetric; skip reordering ConcatOp at '{0}'", concatOp->getLoc());
         return;
     }
 
@@ -373,20 +391,20 @@ void reorderConcatBranches(VPU::ConcatOp concatOp) {
             }
             return false;
         });
-        if (hasDynamicWeightsFromOtherBranch) {
-            return false;
-        }
-
-        return true;
+        return !hasDynamicWeightsFromOtherBranch;
     }();
 
     if (!isBeneficialToReorder) {
+        log.nest().trace("Reordering is not beneficial; skip reordering ConcatOp at '{0}'", concatOp->getLoc());
         return;
     }
 
     llvm::sort(patternOps, [](const SmallVector<mlir::Operation*>& lhs, const SmallVector<mlir::Operation*>& rhs) {
         return lhs.back()->isBeforeInBlock(rhs.back());
     });
+
+    log.nest().trace("Reordering {0} branch(es) in execution order before ConcatOp at '{1}'", patternOps.size(),
+                     concatOp->getLoc());
 
     for (const auto& branch : patternOps) {
         auto postOp = concatOp.getOperation();
@@ -397,7 +415,7 @@ void reorderConcatBranches(VPU::ConcatOp concatOp) {
     }
 }
 
-void reordeNCEOpAsWeightScaleTable(VPU::NCEOpInterface nceOp) {
+void reordeNCEOpAsWeightScaleTable(VPU::NCEOpInterface nceOp, Logger log) {
     auto weightTableScale = nceOp.getWeightTableScaleOperand();
     if (weightTableScale == nullptr || mlir::isa<mlir::BlockArgument>(weightTableScale)) {
         return;
@@ -433,6 +451,9 @@ void reordeNCEOpAsWeightScaleTable(VPU::NCEOpInterface nceOp) {
         return;
     }
 
+    log.trace("Moving weight/scale-table producer '{0}' right before its consumer NCEOp '{1}'", currentOp->getLoc(),
+              consumerOp->getLoc());
+
     auto postOp = consumerOp;
     for (auto op : viewLikeOps) {
         op->moveBefore(postOp);
@@ -446,16 +467,20 @@ void EfficientIROrderPass::safeRunOnFunc() {
     auto func = getOperation();
 
     if (hasVFBlock(func)) {
+        _log.trace("Function contains VerticalFusion block(s); reordering intra-block ops and SDPA producers");
+
         SmallVector<VFOpMoveAfter> sdpaMoveOps;
 
         // Reorder operations in every VF block for efficient execution
         func->walk([&](VPU::VerticalFusionOp vfOp) {
-            reorderOperationsInVFBlock(vfOp);
-            collectVfOpsToMoveBeforeSDPA(sdpaMoveOps, vfOp);
+            reorderOperationsInVFBlock(vfOp, _log.nest());
+            collectVfOpsToMoveBeforeSDPA(sdpaMoveOps, vfOp, _log.nest());
         });
 
         // Reorder operations before SDPA pattern for better scheduling
         for (auto& [consumer, vfOp] : sdpaMoveOps) {
+            _log.trace("Moving consumer VF block '{0}' after producer VF block '{1}' for SDPA scheduling",
+                       consumer->getLoc(), vfOp->getLoc());
             consumer->moveAfter(vfOp);
         }
 
@@ -463,8 +488,9 @@ void EfficientIROrderPass::safeRunOnFunc() {
     }
 
     if (_enableReorderConcatBranches) {
+        _log.trace("ReorderConcatBranches option is enabled; walking ConcatOps for reordering");
         func->walk([&](VPU::ConcatOp concatOp) {
-            reorderConcatBranches(concatOp);
+            reorderConcatBranches(concatOp, _log.nest());
         });
     }
 
@@ -472,11 +498,12 @@ void EfficientIROrderPass::safeRunOnFunc() {
             to_small_vector(func.getOps<VPU::NCEOpInterface>() | transformed([](VPU::NCEOpInterface op) {
                                 return op.getOperation();
                             }));
-    VPU::reorderOperations(operationsInBlock);
+    _log.trace("Reordering NCEOp(s) in the main block.");
+    VPU::reorderOperations(operationsInBlock, _log.nest());
 
     // Reorder MaxPool as scale table
     for (auto nceOp : func.getOps<VPU::NCEOpInterface>()) {
-        reordeNCEOpAsWeightScaleTable(nceOp);
+        reordeNCEOpAsWeightScaleTable(nceOp, _log.nest());
     }
 }
 

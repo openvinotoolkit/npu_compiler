@@ -21,7 +21,6 @@ constexpr StringRef TASK_BINARY_SIZE_DPU_INVARIANT_ATTR = "config.TaskBinarySize
 constexpr StringRef TASK_BINARY_SIZE_DPU_VARIANT_ATTR = "config.TaskBinarySizeDPUVariant";
 constexpr StringRef TASK_BINARY_SIZE_ACT_KERNEL_INVOCATION_ATTR = "config.TaskBinarySizeActKernelInvocation";
 constexpr StringRef TASK_BINARY_SIZE_ACT_KERNEL_RANGE_ATTR = "config.TaskBinarySizeActKernelRange";
-constexpr StringRef TASK_BINARY_SIZE_M2I_ATTR = "config.TaskBinarySizeM2I";
 constexpr StringRef TASK_BINARY_SIZE_DMA_ATTR = "config.TaskBinarySizeDMA";
 
 //

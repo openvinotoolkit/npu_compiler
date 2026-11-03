@@ -3,8 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-// RUN: vpux-opt --split-input-file --init-compiler="platform=%platform% compilation-mode=DefaultHW  allow-custom-values=true" \
-// RUN:     --default-hw-mode-vpu="enable-shave-code-gen=true" %s | FileCheck %s
+// RUN: vpux-opt --split-input-file --init-compiler="platform=%platform% compilation-mode=DefaultHW  allow-custom-values=true" --default-hw-mode-vpu="enable-shave-code-gen=true" %s | FileCheck %s
 // REQUIRES: platform-NPU4000 || platform-NPU5010
 
 #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
@@ -46,11 +45,9 @@ module @Eltwise attributes {config.compilationMode = #config.compilation_mode<De
       // CHECK-NEXT:            [[ADD:%.+]] = arith.addf [[IN0]], [[IN1]] : f16
       // CHECK-NEXT:            linalg.yield [[ADD]] : f16
       // CHECK-NEXT:         }
-      // CHECK-NEXT:         [[ARG2_DEST_SLICE:%.+]] = memref.subview [[CARG2]][[[IT]]] [1] [1]
-      // CHECK-SAME:            to memref<1xf16, strided<[1], offset: ?>
-      // CHECK-NEXT:         memref.copy [[ARG2_SLICE]], [[ARG2_DEST_SLICE]]
       // CHECK-NEXT:     }
-      // CHECK-NEXT:     return
+      // CHECK-NOT:      memref.copy
+      // CHECK:          return
     }
   }
 

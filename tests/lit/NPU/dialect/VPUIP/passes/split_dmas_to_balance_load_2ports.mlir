@@ -555,28 +555,29 @@ func.func @SplitBufferSourceDuplicatedNNDMA(%arg0: !DummyT) -> !DummyT {
 
 !DummyT = memref<1x3x224x224xf16, @DDR>
 
+// H sized so reach-based getTotalAllocSize exceeds MIN_DMA_SIZE_FOR_SPLIT (128B); split alignment=2 yields asymmetric parts [510, 512].
 // CHECK-LABEL: @SplitSubByteStridedBuffer2BufferDma
 func.func @SplitSubByteStridedBuffer2BufferDma(%arg0: !DummyT) -> !DummyT {
     %0 = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
     %1 = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
-    %2 = VPURT.DeclareBuffer <DDR> <0> -> memref<1x1x170x1xui4, {order = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>, strides = [512, 512, 1, 1]}, @DDR>
-    %3 = VPURT.DeclareBuffer <CMX_NN> [2] <0> -> memref<1x1x170x1xui4, [@CMX_NN, 2]>
-    // CHECK:       [[BUFFER_DDR_0:%.+]] = VPURT.DeclareBuffer <DDR> <0> -> memref<1x1x84x1xui4, {order = #NCHW, strides = [512, 512, 1, 1]}, @DDR>
-    // CHECK:       [[BUFFER_DDR_1:%.+]] = VPURT.DeclareBuffer <DDR> <42> -> memref<1x1x86x1xui4, {order = #NCHW, strides = [512, 512, 1, 1]}, @DDR>
+    %2 = VPURT.DeclareBuffer <DDR> <0> -> memref<1x1x1022x1xui4, {order = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>, strides = [2048, 2048, 1, 1]}, @DDR>
+    %3 = VPURT.DeclareBuffer <CMX_NN> [2] <0> -> memref<1x1x1022x1xui4, [@CMX_NN, 2]>
+    // CHECK:       [[BUFFER_DDR_0:%.+]] = VPURT.DeclareBuffer <DDR> <0> -> memref<1x1x510x1xui4, {order = #NCHW, strides = [2048, 2048, 1, 1]}, @DDR>
+    // CHECK:       [[BUFFER_DDR_1:%.+]] = VPURT.DeclareBuffer <DDR> <255> -> memref<1x1x512x1xui4, {order = #NCHW, strides = [2048, 2048, 1, 1]}, @DDR>
 
-    // CHECK:       [[BUFFER_CMX_0:%.+]] = VPURT.DeclareBuffer <CMX_NN> [2] <0> -> memref<1x1x84x1xui4, {order = #NCHW, strides = [170, 170, 1, 1]}, [@CMX_NN, 2]>
-    // CHECK:       [[BUFFER_CMX_1:%.+]] = VPURT.DeclareBuffer <CMX_NN> [2] <42> -> memref<1x1x86x1xui4, {order = #NCHW, strides = [170, 170, 1, 1]}, [@CMX_NN, 2]>
+    // CHECK:       [[BUFFER_CMX_0:%.+]] = VPURT.DeclareBuffer <CMX_NN> [2] <0> -> memref<1x1x510x1xui4, {order = #NCHW, strides = [1022, 1022, 1, 1]}, [@CMX_NN, 2]>
+    // CHECK:       [[BUFFER_CMX_1:%.+]] = VPURT.DeclareBuffer <CMX_NN> [2] <255> -> memref<1x1x512x1xui4, {order = #NCHW, strides = [1022, 1022, 1, 1]}, [@CMX_NN, 2]>
 
     VPURT.Task waits(%0 : !VPURT.Barrier) updates(%1 : !VPURT.Barrier) {
-      %4 = VPUIP.NNDMA <{port = 0 : i64, split_candidate = true}> inputs(%2 : memref<1x1x170x1xui4, {order = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>, strides = [512, 512, 1, 1]}, @DDR>) outputs(%3 : memref<1x1x170x1xui4, [@CMX_NN, 2]>) -> memref<1x1x170x1xui4, [@CMX_NN, 2]>
+      %4 = VPUIP.NNDMA <{port = 0 : i64, split_candidate = true}> inputs(%2 : memref<1x1x1022x1xui4, {order = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>, strides = [2048, 2048, 1, 1]}, @DDR>) outputs(%3 : memref<1x1x1022x1xui4, [@CMX_NN, 2]>) -> memref<1x1x1022x1xui4, [@CMX_NN, 2]>
     }
-    // CHECK:       [[NNDMA_0:%.+]] = VPUIP.NNDMA <{port = 0 : i64}> inputs([[BUFFER_DDR_0]] : memref<1x1x84x1xui4, {order = #NCHW, strides = [512, 512, 1, 1]}, @DDR>)
-    // CHECK-SAME:         outputs([[BUFFER_CMX_0]] : memref<1x1x84x1xui4, {order = #NCHW, strides = [170, 170, 1, 1]}, [@CMX_NN, 2]>)
-    // CHECK-SAME:          -> memref<1x1x84x1xui4, {order = #NCHW, strides = [170, 170, 1, 1]}, [@CMX_NN, 2]>
+    // CHECK:       [[NNDMA_0:%.+]] = VPUIP.NNDMA <{port = 0 : i64}> inputs([[BUFFER_DDR_0]] : memref<1x1x510x1xui4, {order = #NCHW, strides = [2048, 2048, 1, 1]}, @DDR>)
+    // CHECK-SAME:         outputs([[BUFFER_CMX_0]] : memref<1x1x510x1xui4, {order = #NCHW, strides = [1022, 1022, 1, 1]}, [@CMX_NN, 2]>)
+    // CHECK-SAME:          -> memref<1x1x510x1xui4, {order = #NCHW, strides = [1022, 1022, 1, 1]}, [@CMX_NN, 2]>
 
-    // CHECK:       [[NNDMA_1:%.+]] = VPUIP.NNDMA <{port = 1 : i64}> inputs([[BUFFER_DDR_1]] : memref<1x1x86x1xui4, {order = #NCHW, strides = [512, 512, 1, 1]}, @DDR>)
-    // CHECK-SAME:         outputs([[BUFFER_CMX_1]] : memref<1x1x86x1xui4, {order = #NCHW, strides = [170, 170, 1, 1]}, [@CMX_NN, 2]>)
-    // CHECK-SAME:          -> memref<1x1x86x1xui4, {order = #NCHW, strides = [170, 170, 1, 1]}, [@CMX_NN, 2]>
+    // CHECK:       [[NNDMA_1:%.+]] = VPUIP.NNDMA <{port = 1 : i64}> inputs([[BUFFER_DDR_1]] : memref<1x1x512x1xui4, {order = #NCHW, strides = [2048, 2048, 1, 1]}, @DDR>)
+    // CHECK-SAME:         outputs([[BUFFER_CMX_1]] : memref<1x1x512x1xui4, {order = #NCHW, strides = [1022, 1022, 1, 1]}, [@CMX_NN, 2]>)
+    // CHECK-SAME:          -> memref<1x1x512x1xui4, {order = #NCHW, strides = [1022, 1022, 1, 1]}, [@CMX_NN, 2]>
 
     return %arg0 : !DummyT
 }

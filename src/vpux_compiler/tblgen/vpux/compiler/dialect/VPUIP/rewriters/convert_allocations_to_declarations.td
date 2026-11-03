@@ -17,7 +17,7 @@ include "mlir/IR/PatternBase.td"
 
 def createDeclareDDRTensorOp :
         NativeCodeCall<[{
-            $_builder.create<vpux::VPURT::DeclareBufferOp>(
+            vpux::VPURT::DeclareBufferOp::create($_builder,
                 $_loc, mlir::cast<mlir::MemRefType>($0.getType()),
                 vpux::VPURT::BufferSection::DDR,
                 $1.getInt()
@@ -26,7 +26,7 @@ def createDeclareDDRTensorOp :
 
 def createDeclareCMXTensorOp :
         NativeCodeCall<[{
-            $_builder.create<vpux::VPURT::DeclareBufferOp>(
+            vpux::VPURT::DeclareBufferOp::create($_builder,
                 $_loc, mlir::cast<mlir::MemRefType>($0.getType()),
                 vpux::VPURT::BufferSection::CMX_NN, mlir::cast<vpux::NDTypeInterface>($0.getType()).getMemSpace().getIndex().value(),
                 $1.getInt()

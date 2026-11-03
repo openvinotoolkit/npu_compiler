@@ -220,8 +220,6 @@ mlir::StringRef getTaskBinarySizeKey(VPURegMapped::TaskType taskType) {
         return TASK_BINARY_SIZE_ACT_KERNEL_RANGE_ATTR;
     case VPURegMapped::TaskType::ActKernelInvocation:
         return TASK_BINARY_SIZE_ACT_KERNEL_INVOCATION_ATTR;
-    case VPURegMapped::TaskType::M2I:
-        return TASK_BINARY_SIZE_M2I_ATTR;
     case VPURegMapped::TaskType::DMA:
         return TASK_BINARY_SIZE_DMA_ATTR;
     default:

@@ -16,6 +16,8 @@
 
 namespace vpux::VPUIP {
 
+// A DDR buffer type with a dimension without an upper bound gets a VPURT.Alloc placeholder with no size.
+// FuseLastCopy may replace it with a network output; otherwise the DDR StaticAllocation pass rejects it.
 SmallVector<mlir::Value> allocateBuffersOfType(const Logger& log, mlir::Location loc, mlir::OpBuilder& builder,
                                                mlir::Type bufferType, bool individualBuffers = false);
 

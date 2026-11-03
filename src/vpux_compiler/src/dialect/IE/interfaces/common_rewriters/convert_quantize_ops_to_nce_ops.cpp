@@ -15,11 +15,6 @@
 
 namespace vpux::IE {
 
-bool isSignedInt8QuantizedElemType(mlir::Type elemType) {
-    auto quantType = mlir::cast<mlir::quant::QuantizedType>(elemType);
-    return quantType.isSigned() && quantType.getStorageTypeIntegralWidth() == 8;
-}
-
 //
 // QuantizeToDwRewriterImpl
 //
@@ -69,7 +64,7 @@ mlir::LogicalResult DequantizeToDwRewriter::matchAndRewrite(IE::DequantizeOp ori
     const auto input = originOp.getInput();
     const auto origType = mlir::cast<vpux::NDTypeInterface>(input.getType());
     const auto inElemType = origType.getElementType();
-    if (isSignedInt8QuantizedElemType(inElemType)) {
+    if (vpux::isInt8Quantized(inElemType)) {
         _log.trace("SI8 Dequantize conversion to NCE is not supported.");
         return mlir::failure();
     }
@@ -115,7 +110,7 @@ mlir::LogicalResult DequantizeToAddRewriter::matchAndRewrite(IE::DequantizeOp or
     const auto input = originOp.getInput();
     const auto inNDType = mlir::cast<vpux::NDTypeInterface>(input.getType());
     const auto inElemType = inNDType.getElementType();
-    if (isSignedInt8QuantizedElemType(inElemType)) {
+    if (vpux::isInt8Quantized(inElemType)) {
         _log.trace("SI8 Dequantize conversion to NCE is not supported.");
         return mlir::failure();
     }
@@ -193,7 +188,7 @@ mlir::LogicalResult DequantizeToConvRewriter::matchAndRewrite(IE::DequantizeOp o
     const auto input = originOp.getInput();
     const auto inNDType = mlir::cast<vpux::NDTypeInterface>(input.getType());
     const auto inElemType = inNDType.getElementType();
-    if (isSignedInt8QuantizedElemType(inElemType)) {
+    if (vpux::isInt8Quantized(inElemType)) {
         _log.trace("SI8 Dequantize conversion to NCE is not supported.");
         return mlir::failure();
     }

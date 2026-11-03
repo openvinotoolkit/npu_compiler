@@ -14,6 +14,7 @@
 
 #include <llvm/Support/raw_ostream.h>
 #include <mlir/IR/BuiltinAttributes.h>
+#include <mlir/Support/LogicalResult.h>
 
 #include <utility>
 
@@ -522,6 +523,13 @@ SmallVector<int64_t> alignShape(ArrayRef<int64_t> shape, std::optional<ArrayRef<
     std::transform(shape.begin(), shape.end(), alignment.value().begin(), alignedShape.begin(), alignFunc);
     return alignedShape;
 }
+// Non-throwing counterpart of adaptStrides(). Returns failure instead of throwing when a dimension is both
+// tiled and strided, i.e. its stride ratio does not match the parent shape, which leaves the adapted stride
+// ambiguous. Intended for callers that must fall back on such a shape rather than abort, e.g. cost queries.
+// `logCb` receives the same diagnostic adaptStrides() throws.
+mlir::FailureOr<SmallVector<Strides>> adaptStridesOrFailure(ShapeRef origShape, StridesRef origStrides,
+                                                            ArrayRef<Shape> adaptedShapes, const DimsOrder& dimsOrder,
+                                                            LogCb logCb = emptyLogCb);
 SmallVector<Strides> adaptStrides(ShapeRef origShape, StridesRef origStrides, ArrayRef<Shape> adaptedShapes,
                                   const DimsOrder& dimsOrder);
 
@@ -530,6 +538,9 @@ SmallVector<int64_t> getMinNumTiles(mlir::Operation* op);
 // Returns the packing granularity for sub-byte element types used by the op. For example, 4-bit elements require
 // tile sizes to keep at least two packed values per byte, so the returned factor is 2.
 int64_t getSubByteAlignmentFactor(mlir::Operation* op);
+
+int64_t getByteAddressableTileAlignment(mlir::Value value, Dim tileDim);
+
 void adjustMaxNumTilesForSubByteAlignment(SmallVector<int64_t>& maxNumTiles, ShapeRef outputShape,
                                           int64_t subByteAlignmentFactor);
 void updateTilingSizeForOpAlignment(mlir::Operation* op, ShapeRef outputShape, int64_t& minChannelSize,
@@ -634,6 +645,27 @@ std::pair<Dim, int64_t> getAlignDimAndSize(mlir::Operation* op);
 SmallVector<int64_t> getAlignment(mlir::Operation* op, ShapeRef divisors, ShapeRef shape,
                                   bool canUseDynamicAlignment = true, const bool enableSWOptimizationAlignment = true,
                                   const bool efficientWorkloadAlign = false);
+
+// YuvToRgb VF tiling caps: the largest H/W tile size getAlignment() will allow for the
+// dynamic/bounded-shape VF split
+// This logic will be removed once unbounded dynamism support is implemented for lower bounds
+// Track number: E#224866
+inline constexpr int64_t MAX_YUV_TO_RGB_TILE_HEIGHT = 180;
+inline constexpr int64_t MAX_YUV_TO_RGB_TILE_WIDTH = 320;
+
+// The upper bounds of the height and the width of a tile of the operation with the dynamic dim, if the dynamic dim
+// alignment is enabled
+inline constexpr int64_t MAX_DYNAMIC_ALIGNED_TILE_HEIGHT = 180;
+inline constexpr int64_t MAX_DYNAMIC_ALIGNED_TILE_WIDTH = 320;
+
+/*
+ * Gets the minimal number of tiles of the dynamic height or width for the size of the tile not to exceed
+ * MAX_DYNAMIC_ALIGNED_TILE_HEIGHT / MAX_DYNAMIC_ALIGNED_TILE_WIDTH, 1 if it is not limited: the dynamic dim alignment
+ * is disabled, the dim is not H or W, or it is not dynamic in the output. The tile is aligned up to the alignment of
+ * the operation, so the limit is rounded down to it for the aligned tile to be kept under the limit. If the alignment
+ * is larger than the limit, the limit cannot be kept and it is ignored
+ */
+int64_t getMinNumTilesForMaxDynamicTileSize(mlir::Operation* op, ShapeRef boundedOutputShape, Dim dim);
 
 /*
  * Check if the shape size is divisible with alignment

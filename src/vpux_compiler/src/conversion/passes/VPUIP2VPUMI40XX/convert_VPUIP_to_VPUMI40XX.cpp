@@ -433,7 +433,6 @@ void createMappedInferenceOp(mlir::func::FuncOp funcOp, AllocateDDRStackFrames a
                      actKernRangesTasksArgLength),  // llvm::ArrayRef<::mlir::ValueRange> actKernelRanges
             ArrayRef(actKernelInvocationsArgs.data(),
                      actKernInvocationsTasksArgLength),  // llvm::ArrayRef<::mlir::ValueRange> actKernelInvocations
-            nullptr,                                     // mlir::Value mediaTasks
             barrierTasks,                                // mlir::Value barrierTasks
             nullptr,                                     // mlir::Value workItemTasks
             nullptr,                                     // mlir::Value bootstrapBarriers
@@ -446,7 +445,6 @@ void createMappedInferenceOp(mlir::func::FuncOp funcOp, AllocateDDRStackFrames a
             builderFunc.getI64ArrayAttr(ArrayRef(taskInfo.variantCount)),    // mlir::ArrayAttr variantCount
             getIntArrayOfArray(ctx, taskInfo.rangeCount),                    // mlir::ArrayAttr actKernelRangesCount
             getIntArrayOfArray(ctx, taskInfo.invocationCount),  // mlir::ArrayAttr actKernelInvocationsCount
-            0,                                                  // mlir::IntegerAttr mediaCount
             barrierCount,                                       // mlir::IntegerAttr barrierCount
             nullptr,                                            // mlir::IntegerAttr workItemCount
             nullptr,                                            // mlir::IntegerAttr bootstrapBarriersCount

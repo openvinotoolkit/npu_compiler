@@ -115,7 +115,7 @@ func.func @UpstreamStridedSlice(%arg0: tensor<1x16x64x4xf16>, %arg1: tensor<1x16
 func.func @UpstreamSliceFakeQuantizeDifferentAxis(%arg0: tensor<4x4x5x5xf16>) -> tensor<4x4x3x3xf16> {
     %cst = const.Declare tensor<4x4x1x1xf16> = dense<[[[[0.227172852]], [[0.158569336]], [[0.136474609]], [[0.226318359]]], [[[0.198608398]], [[0.166625977]], [[0.126342773]], [[0.18359375]]], [[[0.154541016]], [[0.25390625]], [[0.42578125]], [[0.231689453]]], [[[0.130615234]], [[0.235107422]], [[0.141723633]], [[0.139892578]]]]> : tensor<4x4x1x1xf32>, [#const.CastElemType<f16>]
     %cst_0 = const.Declare tensor<4x4x1x1xf16> = dense<[[[[-0.145141602]], [[-0.189819336]], [[-0.168823242]], [[-0.149536133]]], [[[-0.128173828]], [[-0.174438477]], [[-0.159912109]], [[-0.163330078]]], [[[-0.850585938]], [[-0.151855469]], [[-0.0876464843]], [[-0.23059082]]], [[[-0.225708008]], [[-0.207641602]], [[-0.211303711]], [[-0.249389648]]]]> : tensor<4x4x1x1xf32>, [#const.CastElemType<f16>]
-    %0 = IE.FakeQuantize(%arg0, %cst_0, %cst, %cst_0, %cst) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 255 : i64} : tensor<4x4x5x5xf16>, tensor<4x4x1x1xf16>, tensor<4x4x1x1xf16>, tensor<4x4x1x1xf16>, tensor<4x4x1x1xf16> -> tensor<4x4x5x5xf16>
+    %0 = IE.FakeQuantize(%arg0, %cst_0, %cst, %cst_0, %cst) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 255 : i64} : tensor<4x4x5x5xf16>, tensor<4x4x1x1xf16>, tensor<4x4x1x1xf16>, tensor<4x4x1x1xf16>, tensor<4x4x1x1xf16> -> tensor<4x4x5x5xf16>
     %1 = IE.Slice %0 [0, 0, 0, 0] [4, 4, 3, 3] : tensor<4x4x5x5xf16> to tensor<4x4x3x3xf16>
 
     return %1 : tensor<4x4x3x3xf16>
@@ -125,7 +125,7 @@ func.func @UpstreamSliceFakeQuantizeDifferentAxis(%arg0: tensor<4x4x5x5xf16>) ->
     // CHECK-DAG:   [[CST0:%.+]] = const.Declare tensor<4x4x1x1xf16> =
     // CHECK-SAME{LITERAL}:      dense<[[[[-0.145141602]], [[-0.189819336]], [[-0.168823242]], [[-0.149536133]]], [[[-0.128173828]], [[-0.174438477]], [[-0.159912109]], [[-0.163330078]]], [[[-0.850585938]], [[-0.151855469]], [[-0.0876464843]], [[-0.23059082]]], [[[-0.225708008]], [[-0.207641602]], [[-0.211303711]], [[-0.249389648]]]]> : tensor<4x4x1x1xf32>, [#const.CastElemType<f16>]
     // CHECK:       [[SLICE:%.+]] = IE.Slice [[ARG_0]] [0, 0, 0, 0] [4, 4, 3, 3] : tensor<4x4x5x5xf16> to tensor<4x4x3x3xf16>
-    // CHECK:       [[FQ:%.+]] = IE.FakeQuantize([[SLICE]], [[CST0]], [[CST]], [[CST0]], [[CST]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 255 : i64} : tensor<4x4x3x3xf16>, tensor<4x4x1x1xf16>, tensor<4x4x1x1xf16>, tensor<4x4x1x1xf16>, tensor<4x4x1x1xf16> -> tensor<4x4x3x3xf16>
+    // CHECK:       [[FQ:%.+]] = IE.FakeQuantize([[SLICE]], [[CST0]], [[CST]], [[CST0]], [[CST]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 255 : i64} : tensor<4x4x3x3xf16>, tensor<4x4x1x1xf16>, tensor<4x4x1x1xf16>, tensor<4x4x1x1xf16>, tensor<4x4x1x1xf16> -> tensor<4x4x3x3xf16>
 
     // CHECK: return [[FQ]] : tensor<4x4x3x3xf16>
 }
@@ -137,7 +137,7 @@ func.func @UpstreamSliceFakeQuantizeDifferentAxis(%arg0: tensor<4x4x5x5xf16>) ->
 func.func @DoNotUpstreamSliceFakeQuantizeSameAxis(%arg0: tensor<1x16x5x5xf16>) -> tensor<1x8x5x5xf16> {
     %cst = const.Declare tensor<1x16x1x1xf16> = dense<[[[[0.227172852]], [[0.158569336]], [[0.136474609]], [[0.226318359]], [[0.198608398]], [[0.166625977]], [[0.126342773]], [[0.18359375]], [[0.154541016]], [[0.25390625]], [[0.42578125]], [[0.231689453]], [[0.130615234]], [[0.235107422]], [[0.141723633]], [[0.139892578]]]]> : tensor<1x16x1x1xf32>, [#const.CastElemType<f16>]
     %cst_0 = const.Declare tensor<1x16x1x1xf16> = dense<[[[[-0.145141602]], [[-0.189819336]], [[-0.168823242]], [[-0.149536133]], [[-0.128173828]], [[-0.174438477]], [[-0.159912109]], [[-0.163330078]], [[-0.850585938]], [[-0.151855469]], [[-0.0876464843]], [[-0.23059082]], [[-0.225708008]], [[-0.207641602]], [[-0.211303711]], [[-0.249389648]]]]> : tensor<1x16x1x1xf32>, [#const.CastElemType<f16>]
-    %0 = IE.FakeQuantize(%arg0, %cst_0, %cst, %cst_0, %cst) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 255 : i64} : tensor<1x16x5x5xf16>, tensor<1x16x1x1xf16>, tensor<1x16x1x1xf16>, tensor<1x16x1x1xf16>, tensor<1x16x1x1xf16> -> tensor<1x16x5x5xf16>
+    %0 = IE.FakeQuantize(%arg0, %cst_0, %cst, %cst_0, %cst) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 255 : i64} : tensor<1x16x5x5xf16>, tensor<1x16x1x1xf16>, tensor<1x16x1x1xf16>, tensor<1x16x1x1xf16>, tensor<1x16x1x1xf16> -> tensor<1x16x5x5xf16>
     %1 = IE.Slice %0 [0, 0, 0, 0] [1, 8, 5, 5] : tensor<1x16x5x5xf16> to tensor<1x8x5x5xf16>
 
     return %1 : tensor<1x8x5x5xf16>
@@ -146,7 +146,7 @@ func.func @DoNotUpstreamSliceFakeQuantizeSameAxis(%arg0: tensor<1x16x5x5xf16>) -
     // CHECK-SAME{LITERAL}:      dense<[[[[0.227172852]], [[0.158569336]], [[0.136474609]], [[0.226318359]], [[0.198608398]], [[0.166625977]], [[0.126342773]], [[0.18359375]], [[0.154541016]], [[0.25390625]], [[0.42578125]], [[0.231689453]], [[0.130615234]], [[0.235107422]], [[0.141723633]], [[0.139892578]]]]> : tensor<1x16x1x1xf32>, [#const.CastElemType<f16>]
     // CHECK-DAG:   [[CST0:%.+]] = const.Declare tensor<1x16x1x1xf16> =
     // CHECK-SAME{LITERAL}:      dense<[[[[-0.145141602]], [[-0.189819336]], [[-0.168823242]], [[-0.149536133]], [[-0.128173828]], [[-0.174438477]], [[-0.159912109]], [[-0.163330078]], [[-0.850585938]], [[-0.151855469]], [[-0.0876464843]], [[-0.23059082]], [[-0.225708008]], [[-0.207641602]], [[-0.211303711]], [[-0.249389648]]]]> : tensor<1x16x1x1xf32>, [#const.CastElemType<f16>]
-    // CHECK:       [[FQ:%.+]] = IE.FakeQuantize([[ARG_0]], [[CST0]], [[CST]], [[CST0]], [[CST]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 255 : i64} : tensor<1x16x5x5xf16>, tensor<1x16x1x1xf16>, tensor<1x16x1x1xf16>, tensor<1x16x1x1xf16>, tensor<1x16x1x1xf16> -> tensor<1x16x5x5xf16>
+    // CHECK:       [[FQ:%.+]] = IE.FakeQuantize([[ARG_0]], [[CST0]], [[CST]], [[CST0]], [[CST]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 255 : i64} : tensor<1x16x5x5xf16>, tensor<1x16x1x1xf16>, tensor<1x16x1x1xf16>, tensor<1x16x1x1xf16>, tensor<1x16x1x1xf16> -> tensor<1x16x5x5xf16>
     // CHECK:       [[SLICE:%.+]] = IE.Slice [[FQ]] [0, 0, 0, 0] [1, 8, 5, 5] : tensor<1x16x5x5xf16> to tensor<1x8x5x5xf16>
 
     // CHECK:       return [[SLICE]] : tensor<1x8x5x5xf16>

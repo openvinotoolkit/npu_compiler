@@ -832,7 +832,7 @@ net.NetworkInfo entryPoint : @DynamicStridesIncompatibleReadDmas inputsInfo : {
 func.func @DynamicStridesIncompatibleReadDmas(%arg: !DDRType) -> !DDRType {
     %cmx = memref.alloc() : !CMXType
     %indices = memref.alloc() : memref<1xi64, @CMX_NN>
-    %0 = VPUIP.GatherDMA <{addressingMode = 1 : i64,
+    %0 = VPUIP.GatherDMA <{addressingMode = #VPUIP.gather_addressing_mode<INDEXED>,
                         port = 0 : i64, elementSize = 16, padding = 0}>
             inputs(%arg : !DDRType)
             indices(%indices : memref<1xi64, @CMX_NN>)
@@ -918,4 +918,69 @@ func.func @DynamicStridesQuantSubViewPermuteInput(%arg0: !InputType) -> !InputTy
     // CHECK: VPUIP.NNDMA {stridedInput} inputs([[PERMUTE]] : memref<256x4351x1x1x!{{[^,>]+}}, {order = #NHWC}, @DDR>) outputs([[ALLOC]] : memref<256x4351x1x1x!{{[^,>]+}}, {order = #NHWC, strides = [4352, 1, 4352, 4352]}, [@CMX_NN, 0]>) -> memref<256x4351x1x1x!{{[^,>]+}}, {order = #NHWC, strides = [4352, 1, 4352, 4352]}, [@CMX_NN, 0]>
 
     return %arg0 : !InputType
+}
+
+// -----
+
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+
+!DDRType = memref<1x4x64x320xsi4, @DDR>
+!CMXType = memref<1x4x64x320xsi4, @CMX_NN>
+
+// Sub-byte (< 8 bit) element type arguments are always unconditionally legalized,
+// as dynamic-strides DMAs cannot express a non-byte-aligned innermost stride.
+net.NetworkInfo entryPoint : @DynamicStridesSubByteInput inputsInfo : {
+    DataInfo "Parameter_233593" : tensor<1x4x64x320xsi4> {dynamicStrides}
+} outputsInfo : {
+    DataInfo "Add_233595" friendlyName = "Result_233596" : tensor<1x4x64x320xsi4>
+}
+
+// CHECK-LABEL: func.func @DynamicStridesSubByteInput
+// CHECK-SAME: [[ARG_0:%[^:]+]]: memref<1x4x64x320xsi4, @DDR>
+func.func @DynamicStridesSubByteInput(%arg0: !DDRType, %arg1: !DDRType) -> !DDRType {
+    %0 = memref.alloc() : !CMXType
+    %1 = VPUIP.NNDMA inputs(%arg0 : !DDRType) outputs(%0 : !CMXType) -> !CMXType
+
+    return %arg1 : !DDRType
+
+    // CHECK: [[ALLOC:%.+]] = memref.alloc() : memref<1x4x64x320xsi4, @DDR>
+    // CHECK-NEXT: VPUIP.NNDMA {stridedInput} inputs([[ARG_0]] : memref<1x4x64x320xsi4, @DDR>)
+    // CHECK-SAME:                            outputs([[ALLOC]] : memref<1x4x64x320xsi4, @DDR>)
+}
+
+// -----
+
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+
+!DDRType = memref<1x4x64x320xsi4, @DDR>
+!CMXType = memref<1x4x64x320xsi4, @CMX_NN>
+
+// Sub-byte element type output is legalized even though the view chain (a trivial
+// reshape-free direct DMA) would otherwise be considered compatible for byte-sized types.
+net.NetworkInfo entryPoint : @DynamicStridesSubByteOutput inputsInfo : {
+} outputsInfo : {
+    DataInfo "Add_233595" friendlyName = "Result_233596" : tensor<1x4x64x320xsi4> {dynamicStrides}
+}
+
+// CHECK-LABEL: func.func @DynamicStridesSubByteOutput
+// CHECK-SAME: [[ARG_0:%[^:]+]]: memref<1x4x64x320xsi4, @DDR>
+func.func @DynamicStridesSubByteOutput(%arg0: !DDRType) -> !DDRType {
+    %0 = memref.alloc() : !CMXType
+    %1 = VPUIP.NNDMA inputs(%arg0 : !DDRType) outputs(%0 : !CMXType) -> !CMXType
+    %2 = VPUIP.NNDMA inputs(%1 : !CMXType) outputs(%arg0 : !DDRType) -> !DDRType
+
+    return %arg0 : !DDRType
+
+    // CHECK: [[ALLOC:%.+]] = memref.alloc() : memref<1x4x64x320xsi4, @DDR>
+    // CHECK-NEXT: [[LEGALIZED_IN:%.+]] = VPUIP.NNDMA {stridedInput} inputs([[ARG_0]] : memref<1x4x64x320xsi4, @DDR>)
+    // CHECK-SAME:                                                   outputs([[ALLOC]] : memref<1x4x64x320xsi4, @DDR>)
+    // CHECK: [[ALLOC_CMX:%.+]] = memref.alloc() : memref<1x4x64x320xsi4, @CMX_NN>
+    // CHECK-NEXT: [[READ_DMA:%.+]] = VPUIP.NNDMA inputs([[LEGALIZED_IN]] : memref<1x4x64x320xsi4, @DDR>)
+    // CHECK-SAME:                                outputs([[ALLOC_CMX]] : memref<1x4x64x320xsi4, @CMX_NN>)
+    // CHECK-NEXT: [[INCOMPATIBLE_DMA:%.+]] = VPUIP.NNDMA inputs([[READ_DMA]] : memref<1x4x64x320xsi4, @CMX_NN>)
+    // CHECK-SAME:                                        outputs([[LEGALIZED_IN]] : memref<1x4x64x320xsi4, @DDR>)
+    // CHECK-NEXT: [[CONCAT:%.+]] = VPUIP.ConcatView inputs({{.*}}[[INCOMPATIBLE_DMA]]
+    // CHECK-SAME:                                          outputs([[ALLOC]]
+    // CHECK-NEXT: VPUIP.NNDMA {stridedOutput} inputs([[CONCAT]] : memref<1x4x64x320xsi4, @DDR>)
+    // CHECK-SAME:                             outputs([[ARG_0]] : memref<1x4x64x320xsi4, @DDR>)
 }

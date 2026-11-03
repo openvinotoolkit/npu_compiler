@@ -20,14 +20,6 @@ namespace vpux {
 namespace VPURT {
 
 //
-// Barrier Legalization Pipeline
-//
-
-void buildBarrierLegalizationPipeline(mlir::OpPassManager& pm,
-                                      std::optional<bool> workloadManagementEnabled = std::nullopt,
-                                      const bool unevenVariantSplitFlag = false, Logger log = Logger::global());
-
-//
 // Passes
 //
 
@@ -51,9 +43,9 @@ std::unique_ptr<mlir::Pass> createAddFinalBarrierPass(
         std::optional<WorkloadManagementMode> workloadManagementMode = std::nullopt, Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createSplitControlGraphPass(
         const int controlGraphSplitBlockSize = CONTROL_GRAPH_SPLIT_BLOCK_SIZE, Logger log = Logger::global());
-std::unique_ptr<mlir::Pass> createSimplifySchedulePass(
-        const bool reduceParallelControlFlowsFlag = true,
-        std::optional<WorkloadManagementMode> workloadManagementMode = std::nullopt, Logger log = Logger::global());
+std::unique_ptr<mlir::Pass> createSimplifySchedulePass(const bool reduceParallelControlFlowsFlag = true,
+                                                       bool shareWaitAndUpdateBarriers = false,
+                                                       Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createSplitExceedingBarrierSlotCountPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createReduceExceedingActiveCountBarriersPass(const bool unevenVariantSplitFlag = false,
                                                                          Logger log = Logger::global());
@@ -72,7 +64,6 @@ std::unique_ptr<mlir::Pass> createInsertBarrierToMarkTheEndOfDescriptorGroupPass
 // Registration
 //
 
-void registerVPURTPipelines();
 void registerPasses();
 
 }  // namespace VPURT

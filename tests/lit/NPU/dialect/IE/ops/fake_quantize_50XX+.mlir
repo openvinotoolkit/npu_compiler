@@ -14,11 +14,11 @@ func.func @FuseFQuantF8E4M3FN(%input: tensor<1x3x16x16xf16>) -> tensor<1x3x16x16
     %high = const.Declare tensor<f32> = dense<4.480000e+02> : tensor<f32>
 
     %0 = IE.FakeQuantize(%input, %low, %high, %low, %high) {
-        auto_broadcast = #IE.auto_broadcast_type<NUMPY>, low_fp_type = f8E4M3FN
+        auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = f8E4M3FN
     } : tensor<1x3x16x16xf16>, tensor<f32>, tensor<f32>, tensor<f32>, tensor<f32> -> tensor<1x3x16x16xf16>
 
     %1 = IE.FakeQuantize(%0, %low, %high, %low, %high) {
-        auto_broadcast = #IE.auto_broadcast_type<NUMPY>, low_fp_type = f8E4M3FN
+        auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = f8E4M3FN
     } : tensor<1x3x16x16xf16>, tensor<f32>, tensor<f32>, tensor<f32>, tensor<f32> -> tensor<1x3x16x16xf16>
 
     return %1 : tensor<1x3x16x16xf16>
@@ -27,7 +27,7 @@ func.func @FuseFQuantF8E4M3FN(%input: tensor<1x3x16x16xf16>) -> tensor<1x3x16x16
     // CHECK:    [[HIGH:%.+]] = const.Declare tensor<f32> = dense<4.480000e+02> : tensor<f32>
 
     // CHECK:    [[FQ:%.+]] = IE.FakeQuantize([[INPUT]], [[LOW]], [[HIGH]], [[LOW]], [[HIGH]])
-    // CHECK-SAME:  {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, low_fp_type = f8E4M3FN} : tensor<1x3x16x16xf16>, tensor<f32>, tensor<f32>, tensor<f32>, tensor<f32> -> tensor<1x3x16x16xf16>
+    // CHECK-SAME:  {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = f8E4M3FN} : tensor<1x3x16x16xf16>, tensor<f32>, tensor<f32>, tensor<f32>, tensor<f32> -> tensor<1x3x16x16xf16>
 
     // CHECK:    return [[FQ]] : tensor<1x3x16x16xf16>
 }
@@ -46,7 +46,7 @@ func.func @TransposeGroupsF8E5M2() -> tensor<1280x20x128xf32> {
     %out_high = const.Declare tensor<1280x20x1xf32> = dense<2.0>  : tensor<1280x20x1xf32>
 
     %0 = IE.FakeQuantize(%weights, %in_low, %in_high, %out_low, %out_high) {
-        auto_broadcast = #IE.auto_broadcast_type<NUMPY>, low_fp_type = f8E5M2
+        auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = f8E5M2
     } : tensor<1280x20x128xf32>, tensor<1x1x1xf32>, tensor<1x1x1xf32>, tensor<1280x20x1xf32>, tensor<1280x20x1xf32> -> tensor<1280x20x128xf32>
 
     return %0 : tensor<1280x20x128xf32>
@@ -58,7 +58,7 @@ func.func @TransposeGroupsF8E5M2() -> tensor<1280x20x128xf32> {
     // CHECK-DAG:    [[OUT_HIGH:%.+]] = const.Declare tensor<1x1280x20xf32> = dense<2.000000e+00> : tensor<1280x20x1xf32>, [#const.Transpose<#map>]
 
     // CHECK:    [[FQ:%.+]] = IE.FakeQuantize([[WEIGHTS]], [[IN_LOW]], [[IN_HIGH]], [[OUT_LOW]], [[OUT_HIGH]])
-    // CHECK-DAG:  {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, low_fp_type = f8E5M2} : tensor<128x1280x20xf32>, tensor<1x1x1xf32>, tensor<1x1x1xf32>, tensor<1x1280x20xf32>, tensor<1x1280x20xf32> -> tensor<128x1280x20xf32>
+    // CHECK-DAG:  {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = f8E5M2} : tensor<128x1280x20xf32>, tensor<1x1x1xf32>, tensor<1x1x1xf32>, tensor<1x1280x20xf32>, tensor<1x1280x20xf32> -> tensor<128x1280x20xf32>
 
     // CHECK:    [[TRANS:%.+]] = IE.Transpose([[FQ]]) {order_value = #HWC} : tensor<128x1280x20xf32> -> tensor<1280x20x128xf32>
 

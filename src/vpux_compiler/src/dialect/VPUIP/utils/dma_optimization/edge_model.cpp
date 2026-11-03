@@ -5,11 +5,13 @@
 
 #include "vpux/compiler/dialect/VPUIP/utils/dma_optimization/edge_model.hpp"
 
+#include "vpux/compiler/dialect/VPUIP/IR/ops.hpp"
+
 #include <llvm/ADT/ArrayRef.h>
 #include <mlir/IR/Operation.h>
+#include <mlir/IR/OperationSupport.h>
 
-namespace vpux {
-namespace VPUIP {
+namespace vpux::VPUIP::DmaOptimization {
 
 namespace {
 
@@ -51,51 +53,6 @@ bool isConsumerBoundaryKind(EdgeBoundary::Kind kind) {
     }
 }
 
-const char* stringifyBoundaryKind(EdgeBoundary::Kind kind) {
-    switch (kind) {
-    case EdgeBoundary::Kind::None:
-        return "None";
-    case EdgeBoundary::Kind::ComputeOp:
-        return "ComputeOp";
-    case EdgeBoundary::Kind::FuncArg:
-        return "FuncArg";
-    case EdgeBoundary::Kind::Constant:
-        return "Constant";
-    case EdgeBoundary::Kind::AllocBuffer:
-        return "AllocBuffer";
-    case EdgeBoundary::Kind::FuncReturn:
-        return "FuncReturn";
-    case EdgeBoundary::Kind::LoopRegion:
-        return "LoopRegion";
-    }
-    return "?";
-}
-
-const char* stringifyEdgeType(EdgeType type) {
-    switch (type) {
-    case EdgeType::Normal:
-        return "Normal";
-    case EdgeType::FanOut:
-        return "FanOut";
-    case EdgeType::FanIn:
-        return "FanIn";
-    case EdgeType::Many2Many:
-        return "Many2Many";
-    case EdgeType::LoopRegion:
-        return "LoopRegion";
-    }
-    return "?";
-}
-
-bool containsLoopRegionBoundary(llvm::ArrayRef<EdgeBoundary> boundaries) {
-    for (const auto& boundary : boundaries) {
-        if (boundary.kind == EdgeBoundary::Kind::LoopRegion) {
-            return true;
-        }
-    }
-    return false;
-}
-
 bool validateEdgeBoundaries(Logger log, const char* callerName, EdgeType type, llvm::ArrayRef<EdgeBoundary> sources,
                             llvm::ArrayRef<EdgeBoundary> targets) {
     if (sources.empty()) {
@@ -109,7 +66,12 @@ bool validateEdgeBoundaries(Logger log, const char* callerName, EdgeType type, l
         const auto& source = sources[sourceIndex];
         if (!isProducerBoundaryKind(source.kind)) {
             return validationError(log, "{0} {1}: sources[{2}] has producer-illegal kind {3}", callerName,
-                                   stringifyEdgeType(type), sourceIndex, stringifyBoundaryKind(source.kind));
+                                   stringifyEdgeType(type), sourceIndex, stringifyEdgeBoundaryKind(source.kind));
+        }
+        if (source.kind == EdgeBoundary::Kind::LoopRegion &&
+            (!source.loopRegionInfo.isValid() || !source.loopRegionInfo.hasPort)) {
+            return validationError(log, "{0} {1}: sources[{2}] has an invalid synthetic LoopRegion port", callerName,
+                                   stringifyEdgeType(type), sourceIndex);
         }
     }
 
@@ -117,22 +79,19 @@ bool validateEdgeBoundaries(Logger log, const char* callerName, EdgeType type, l
         const auto& target = targets[targetIndex];
         if (!isConsumerBoundaryKind(target.kind)) {
             return validationError(log, "{0} {1}: targets[{2}] has consumer-illegal kind {3}", callerName,
-                                   stringifyEdgeType(type), targetIndex, stringifyBoundaryKind(target.kind));
+                                   stringifyEdgeType(type), targetIndex, stringifyEdgeBoundaryKind(target.kind));
         }
-    }
-
-    if (type == EdgeType::LoopRegion && !containsLoopRegionBoundary(sources) && !containsLoopRegionBoundary(targets)) {
-        return validationError(log, "{0} LoopRegion: expected at least one LoopRegion boundary", callerName);
+        if (target.kind == EdgeBoundary::Kind::LoopRegion &&
+            (!target.loopRegionInfo.isValid() || !target.loopRegionInfo.hasPort)) {
+            return validationError(log, "{0} {1}: targets[{2}] has an invalid synthetic LoopRegion port", callerName,
+                                   stringifyEdgeType(type), targetIndex);
+        }
     }
 
     return true;
 }
 
 bool validateEdgeType(Logger log, const char* callerName, EdgeType type, size_t sourceCount, size_t targetCount) {
-    if (type == EdgeType::LoopRegion) {
-        return true;
-    }
-
     if (sourceCount == 0 || targetCount == 0) {
         return false;
     }
@@ -260,6 +219,40 @@ bool validateBoundaryTouchConsistency(Logger log, const char* listName, llvm::Ar
 
 }  // namespace
 
+StringRef stringifyEdgeBoundaryKind(EdgeBoundary::Kind kind) {
+    switch (kind) {
+    case EdgeBoundary::Kind::None:
+        return "None";
+    case EdgeBoundary::Kind::ComputeOp:
+        return "ComputeOp";
+    case EdgeBoundary::Kind::FuncArg:
+        return "FuncArg";
+    case EdgeBoundary::Kind::Constant:
+        return "Constant";
+    case EdgeBoundary::Kind::AllocBuffer:
+        return "AllocBuffer";
+    case EdgeBoundary::Kind::FuncReturn:
+        return "FuncReturn";
+    case EdgeBoundary::Kind::LoopRegion:
+        return "LoopRegion";
+    }
+    return "Unknown";
+}
+
+StringRef stringifyEdgeType(EdgeType type) {
+    switch (type) {
+    case EdgeType::Normal:
+        return "Normal";
+    case EdgeType::FanOut:
+        return "FanOut";
+    case EdgeType::FanIn:
+        return "FanIn";
+    case EdgeType::Many2Many:
+        return "Many2Many";
+    }
+    return "Unknown";
+}
+
 EdgeType inferEdgeTypeFromBoundaryCounts(size_t sourceCount, size_t targetCount) {
     if (sourceCount == 1 && targetCount == 1) {
         return EdgeType::Normal;
@@ -271,7 +264,6 @@ EdgeType inferEdgeTypeFromBoundaryCounts(size_t sourceCount, size_t targetCount)
         return EdgeType::FanIn;
     }
     return EdgeType::Many2Many;
-    // LoopRegion edges are inferred from the presence of LoopRegion boundaries, not counts.
 }
 
 //
@@ -329,17 +321,6 @@ EdgeBoundary EdgeBoundary::funcReturn(mlir::Operation* op, uint32_t operandIdx) 
     return boundary;
 }
 
-EdgeBoundary EdgeBoundary::loopRegion(LoopRegionPortLocation location) {
-    EdgeBoundary boundary;
-    boundary.kind = Kind::LoopRegion;
-    boundary.loopPort = location;
-    return boundary;
-}
-
-EdgeBoundary EdgeBoundary::loopRegion(const VPUIP::LoopRegion* region, uint32_t portIdx, LoopRegionPortKind portKind) {
-    return loopRegion({region, portIdx, portKind});
-}
-
 //
 // NodeDetails
 //
@@ -353,6 +334,35 @@ bool NodeDetails::isViewOp() const {
 
 bool NodeDetails::isSlice() const {
     return kind == Kind::Slice;
+}
+
+// Checks if the input view chain of this node is equivalent to that of another node.
+// Used to support detecting when two copy operations have equivalent input view chains.
+// Buffer0 -> ViewOp -> ... -> Slice -> Copy0
+//         -> ViewOp -> ... -> Slice -> Copy1
+bool NodeDetails::hasEquivalentInputViewChain(const NodeDetails& other) const {
+    if (!inputViewChain.has_value() || !other.inputViewChain.has_value()) {
+        return false;
+    }
+
+    const auto& lhs = *inputViewChain;
+    const auto& rhs = *other.inputViewChain;
+    if (lhs.source != rhs.source) {
+        return false;
+    }
+
+    const auto areEquivalentViewOps = [](mlir::Operation* lhs, mlir::Operation* rhs) {
+        return lhs != nullptr && rhs != nullptr && lhs->getNumOperands() == 1 && rhs->getNumOperands() == 1 &&
+               lhs->getNumResults() == 1 && rhs->getNumResults() == 1 &&
+               mlir::OperationEquivalence::isEquivalentTo(lhs, rhs, mlir::OperationEquivalence::ignoreValueEquivalence,
+                                                          nullptr, mlir::OperationEquivalence::IgnoreLocations);
+    };
+
+    if (lhs.views.size() != rhs.views.size()) {
+        return false;
+    }
+
+    return llvm::equal(lhs.views, rhs.views, areEquivalentViewOps);
 }
 
 //
@@ -375,7 +385,7 @@ bool Edge::isMany2Many() const {
 }
 
 bool Edge::isLoopRegion() const {
-    return type == EdgeType::LoopRegion;
+    return !loopRegionInfos.empty();
 }
 
 bool Edge::hasConcatNode() const {
@@ -444,5 +454,4 @@ bool Edge::validate(Logger log) const {
     return true;
 }
 
-}  // namespace VPUIP
-}  // namespace vpux
+}  // namespace vpux::VPUIP::DmaOptimization

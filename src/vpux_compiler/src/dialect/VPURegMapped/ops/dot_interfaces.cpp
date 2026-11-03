@@ -34,7 +34,7 @@ bool VPURegMapped::FetchTaskOp::printAttributes(llvm::raw_ostream& os, llvm::Str
 DOT::EdgeDir VPURegMapped::FetchTaskOp::getEdgeDirection(mlir::Operation* source) {
     if (source->getNumResults() > 0) {
         auto it = llvm::find_if(source->getResults(), [this](mlir::Value val) {
-            return this->getPreviousTask() == val;
+            return getPreviousTask() == val;
         });
         if (it != source->getResults().end()) {
             return DOT::EdgeDir::EDGE_NORMAL;

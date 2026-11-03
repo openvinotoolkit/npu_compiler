@@ -32,6 +32,7 @@ add_npu_library(${TARGET_NAME}
         npu_compiler_dialect_shave
         npu_ov_utils
         openvino::core::dev
-        openvino::npu_al
         openvino::xml_util
 )
+enable_lto_if_possible(${TARGET_NAME})
+

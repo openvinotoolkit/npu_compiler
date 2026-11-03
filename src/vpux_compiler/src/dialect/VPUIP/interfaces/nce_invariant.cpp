@@ -484,6 +484,12 @@ mlir::LogicalResult vpux::VPUIP::NCEInvariant::verifyChannels(VPU::NCEMatMulOp, 
     return mlir::success();
 }
 
+mlir::LogicalResult vpux::VPUIP::NCEInvariant::verifyChannels(IE::FullyConnectedOp, Logger) {
+    // FullyConnected never lowers to NCE directly; it is converted to Convolution before scheduling,
+    // so it carries no NCE channel invariants of its own.
+    return mlir::success();
+}
+
 Byte getCMXSizeForTiling(mlir::ModuleOp module) {
     return vpux::VPU::getTotalCMXSize(module);
 }

@@ -9,8 +9,10 @@
 using namespace vpux;
 
 // No further workload split is needed for depthwise operation
-bool VPU::arch37xx::WorkloadSizeConstraint::doesDWOperationNeedWorkloadSplit(mlir::Operation* op) const {
+bool VPU::arch37xx::WorkloadSizeConstraint::doesDWOperationNeedWorkloadSplit(mlir::Operation* op,
+                                                                             ShapeRef inputShapeOverride) const {
     VPUX_UNUSED(op);
+    VPUX_UNUSED(inputShapeOverride);
     return false;
 }
 

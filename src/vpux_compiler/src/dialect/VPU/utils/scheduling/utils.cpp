@@ -19,7 +19,7 @@ vpux::AddressType vpux::getPackedPersistentSize(llvm::ArrayRef<size_t> order,
     vpux::AddressType offset = 0;
     for (size_t idx : order) {
         const auto& bufferInfo = buffers[idx];
-        offset = vpux::alignValUp(offset, bufferInfo.alignment);
+        offset = vpux::alignValUp(offset, bufferInfo.offsetAlignment);
         offset += bufferInfo.size;
     }
     return offset;
@@ -30,9 +30,9 @@ bool vpux::haveSameAlignment(llvm::ArrayRef<size_t> order, llvm::ArrayRef<Persis
         return true;
     }
 
-    const auto alignment = buffers[order.front()].alignment;
+    const auto alignment = buffers[order.front()].offsetAlignment;
     for (size_t idx : order) {
-        if (buffers[idx].alignment != alignment) {
+        if (buffers[idx].offsetAlignment != alignment) {
             return false;
         }
     }

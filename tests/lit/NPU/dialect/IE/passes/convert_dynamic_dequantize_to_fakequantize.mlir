@@ -15,14 +15,14 @@ func.func @WeightsImportDynDeqQuantI8ToFakeQuantize() -> tensor<4x4xf32> {
   %0 = IE.DynamicDequantize(%weights, %scale) {dstElemType = f32, vpux.weights_import_dyn_dequant} : tensor<4x4x!qElemType>, tensor<4x1xf32> -> tensor<4x4xf32>
   return %0 : tensor<4x4xf32>
 
-  // CHECK-DAG:  [[WT:%.+]] = const.Declare tensor<4x4xf32> = dense<3> : tensor<4x4xsi8>, [#const.CastElemType<f32>, #const.CastElemType<!qElemType>, #const.CastElemType<f32>]
+  // CHECK-DAG:  [[WT:%.+]] = const.Declare tensor<4x4xf32> = dense<3> : tensor<4x4xsi8>, [#const.CastElemType<f32>]
   // CHECK-DAG:  [[IN_LOW:%.+]] = const.Declare tensor<1x1xf32> = dense<-1.280000e+02>
   // CHECK-DAG:  [[IN_HIGH:%.+]] = const.Declare tensor<1x1xf32> = dense<1.270000e+02>
   // CHECK-DAG:  [[OUT_LOW:%.+]] = const.Declare tensor<4x1xf32> = dense<-2.560000e+02>
   // CHECK-DAG:  [[OUT_HIGH:%.+]] = const.Declare tensor<4x1xf32> = dense<2.540000e+02>
 
   // CHECK:      [[FQ:%.+]] = IE.FakeQuantize([[WT]], [[IN_LOW]], [[IN_HIGH]], [[OUT_LOW]], [[OUT_HIGH]])
-  // CHECK-SAME:   {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i64,
+  // CHECK-SAME:   {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256 : i64,
   // CHECK-SAME:    vpux.fq_precise_scales = array<f32: 2.000000e+00, 2.000000e+00, 2.000000e+00, 2.000000e+00>, vpux.fq_precise_zero_points = array<i32: 0, 0, 0, 0>}
   // CHECK-SAME:   -> tensor<4x4xf32>
   // CHECK-NOT:  IE.DynamicDequantize
@@ -45,7 +45,35 @@ func.func @WeightsImportDynDeqRawI8ToFakeQuantize() -> tensor<4x4xf32> {
   // CHECK-DAG:  [[OUT_HIGH:%.+]] = const.Declare tensor<4x1xf32> = dense<2.540000e+02>
 
   // CHECK:      [[FQ:%.+]] = IE.FakeQuantize([[WT]], [[IN_LOW]], [[IN_HIGH]], [[OUT_LOW]], [[OUT_HIGH]])
-  // CHECK-SAME:   {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i64
+  // CHECK-SAME:   {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256 : i64
+  // CHECK-SAME:    vpux.fq_precise_scales = array<f32: 2.000000e+00, 2.000000e+00, 2.000000e+00, 2.000000e+00>, vpux.fq_precise_zero_points = array<i32: 0, 0, 0, 0>}
+  // CHECK-SAME:   -> tensor<4x4xf32>
+  // CHECK-NOT:  IE.DynamicDequantize
+  // CHECK:      return [[FQ]]
+}
+
+// -----
+
+!qElemType = !quant.uniform<i8:f32, 1.000000e+00>
+
+// Simulates the identity IE.QuantizeCast that ConvertDQRawDataTypeToQuantizedPass inserts on a raw-typed
+// constant input before this pass runs; the constant must still be recognized as the static-weights case.
+// CHECK-LABEL: @WeightsImportDynDeqQuantCastOverRawI8ToFakeQuantize
+func.func @WeightsImportDynDeqQuantCastOverRawI8ToFakeQuantize() -> tensor<4x4xf32> {
+  %weights = const.Declare tensor<4x4xsi8> = dense<3> : tensor<4x4xsi8>, [#const.CastElemType<f32>, #const.CastElemType<si8>]
+  %quant_cast = IE.QuantizeCast(%weights) {dstElemType = !qElemType} : tensor<4x4xsi8> -> tensor<4x4x!qElemType>
+  %scale = const.Declare tensor<4x1xf32> = dense<2.000000e+00> : tensor<4x1xf32>
+  %0 = IE.DynamicDequantize(%quant_cast, %scale) {dstElemType = f32, vpux.weights_import_dyn_dequant} : tensor<4x4x!qElemType>, tensor<4x1xf32> -> tensor<4x4xf32>
+  return %0 : tensor<4x4xf32>
+
+  // CHECK-DAG:  [[WT:%.+]] = const.Declare tensor<4x4xf32> = dense<3> : tensor<4x4xsi8>, [#const.CastElemType<f32>]
+  // CHECK-DAG:  [[IN_LOW:%.+]] = const.Declare tensor<1x1xf32> = dense<-1.280000e+02>
+  // CHECK-DAG:  [[IN_HIGH:%.+]] = const.Declare tensor<1x1xf32> = dense<1.270000e+02>
+  // CHECK-DAG:  [[OUT_LOW:%.+]] = const.Declare tensor<4x1xf32> = dense<-2.560000e+02>
+  // CHECK-DAG:  [[OUT_HIGH:%.+]] = const.Declare tensor<4x1xf32> = dense<2.540000e+02>
+
+  // CHECK:      [[FQ:%.+]] = IE.FakeQuantize([[WT]], [[IN_LOW]], [[IN_HIGH]], [[OUT_LOW]], [[OUT_HIGH]])
+  // CHECK-SAME:   {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256 : i64,
   // CHECK-SAME:    vpux.fq_precise_scales = array<f32: 2.000000e+00, 2.000000e+00, 2.000000e+00, 2.000000e+00>, vpux.fq_precise_zero_points = array<i32: 0, 0, 0, 0>}
   // CHECK-SAME:   -> tensor<4x4xf32>
   // CHECK-NOT:  IE.DynamicDequantize
@@ -68,7 +96,7 @@ func.func @WeightsImportDynDeqBlockArgToFakeQuantize(%arg0: tensor<4x8xf32>, %we
 
   // CHECK:      [[WT:%.+]] = IE.Convert([[WEIGHTS]]) {dstElemType = f32} : tensor<4x8xsi8> -> tensor<4x8xf32>
   // CHECK:      [[FQ:%.+]] = IE.FakeQuantize([[WT]], [[IN_LOW]], [[IN_HIGH]], [[OUT_LOW]], [[OUT_HIGH]])
-  // CHECK-SAME:   {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i64
+  // CHECK-SAME:   {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256 : i64
   // CHECK-SAME:    vpux.fq_precise_scales = array<f32: 2.000000e+00, 2.000000e+00, 2.000000e+00, 2.000000e+00>, vpux.fq_precise_zero_points = array<i32: 0, 0, 0, 0>}
   // CHECK-SAME:   -> tensor<4x8xf32>
   // CHECK-NOT:  IE.DynamicDequantize
@@ -76,6 +104,48 @@ func.func @WeightsImportDynDeqBlockArgToFakeQuantize(%arg0: tensor<4x8xf32>, %we
 }
 
 // -----
+
+  !qElemType = !quant.uniform<u4:f16, 1.000000e+00>
+
+  // ConvertDQRawDataTypeToQuantized inserts an identity QuantizeCast around raw weights before the bridge runs.
+  // The bridge must rebuild the floating-point FQ input from the raw block argument, not from the quantized wrapper.
+  // CHECK-LABEL: @WeightsImportDynDeqQuantCastOverBlockArgU4ToFakeQuantize
+  // CHECK-SAME:      ([[WEIGHTS:%.+]]: tensor<2x4x8xui4>)
+  func.func @WeightsImportDynDeqQuantCastOverBlockArgU4ToFakeQuantize(%weights: tensor<2x4x8xui4>) -> tensor<2x4x8xf16> {
+    %quant_cast = IE.QuantizeCast(%weights) {dstElemType = !qElemType} : tensor<2x4x8xui4> -> tensor<2x4x8x!qElemType>
+    %scale = const.Declare tensor<2x4x1xf16> = dense<1.000000e+00> : tensor<2x4x1xf16>
+    %zp = const.Declare tensor<2x4x1xui4> = dense<1> : tensor<2x4x1xui4>
+    %0 = IE.DynamicDequantize(%quant_cast, %scale, %zp) {dstElemType = f16, vpux.weights_import_dyn_dequant}
+        : tensor<2x4x8x!qElemType>, tensor<2x4x1xf16>, tensor<2x4x1xui4> -> tensor<2x4x8xf16>
+    return %0 : tensor<2x4x8xf16>
+
+    // CHECK:      [[FLOAT_WEIGHTS:%.+]] = IE.Convert([[WEIGHTS]]) {dstElemType = f16} : tensor<2x4x8xui4> -> tensor<2x4x8xf16>
+    // CHECK:      [[FQ:%.+]] = IE.FakeQuantize([[FLOAT_WEIGHTS]], {{.*}})
+    // CHECK-NOT:  IE.DynamicDequantize
+    // CHECK:      return [[FQ]]
+  }
+
+  // -----
+
+  !qElemType = !quant.uniform<u2:f16, 1.000000e+00>
+
+  // CHECK-LABEL: @WeightsImportDynDeqQuantCastOverBlockArgU2ToFakeQuantize
+  // CHECK-SAME:      ([[WEIGHTS:%.+]]: tensor<2x4x8xui2>)
+  func.func @WeightsImportDynDeqQuantCastOverBlockArgU2ToFakeQuantize(%weights: tensor<2x4x8xui2>) -> tensor<2x4x8xf16> {
+    %quant_cast = IE.QuantizeCast(%weights) {dstElemType = !qElemType} : tensor<2x4x8xui2> -> tensor<2x4x8x!qElemType>
+    %scale = const.Declare tensor<2x4x1xf16> = dense<1.000000e+00> : tensor<2x4x1xf16>
+    %zp = const.Declare tensor<2x4x1xui2> = dense<1> : tensor<2x4x1xui2>
+    %0 = IE.DynamicDequantize(%quant_cast, %scale, %zp) {dstElemType = f16, vpux.weights_import_dyn_dequant}
+        : tensor<2x4x8x!qElemType>, tensor<2x4x1xf16>, tensor<2x4x1xui2> -> tensor<2x4x8xf16>
+    return %0 : tensor<2x4x8xf16>
+
+    // CHECK:      [[FLOAT_WEIGHTS:%.+]] = IE.Convert([[WEIGHTS]]) {dstElemType = f16} : tensor<2x4x8xui2> -> tensor<2x4x8xf16>
+    // CHECK:      [[FQ:%.+]] = IE.FakeQuantize([[FLOAT_WEIGHTS]], {{.*}})
+    // CHECK-NOT:  IE.DynamicDequantize
+    // CHECK:      return [[FQ]]
+  }
+
+  // -----
 
 // CHECK-LABEL: @WeightsImportDynDeqRawI8WithZPToFakeQuantize
 func.func @WeightsImportDynDeqRawI8WithZPToFakeQuantize() -> tensor<4x4xf32> {
@@ -92,7 +162,7 @@ func.func @WeightsImportDynDeqRawI8WithZPToFakeQuantize() -> tensor<4x4xf32> {
   // CHECK-DAG:  [[OUT_HIGH:%.+]] = const.Declare tensor<4x1xf32> = dense<2.340000e+02>
 
   // CHECK:      [[FQ:%.+]] = IE.FakeQuantize([[WT]], [[IN_LOW]], [[IN_HIGH]], [[OUT_LOW]], [[OUT_HIGH]])
-  // CHECK-SAME:   {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i64
+  // CHECK-SAME:   {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256 : i64
   // CHECK-SAME:    vpux.fq_precise_scales = array<f32: 2.000000e+00, 2.000000e+00, 2.000000e+00, 2.000000e+00>, vpux.fq_precise_zero_points = array<i32: 10, 10, 10, 10>}
   // CHECK-SAME:   -> tensor<4x4xf32>
   // CHECK-NOT:  IE.DynamicDequantize
@@ -110,14 +180,14 @@ func.func @WeightsImportDynDeqI4ToFakeQuantize() -> tensor<4x8xf32> {
   %0 = IE.DynamicDequantize(%weights, %scale) {dstElemType = f32, vpux.weights_import_dyn_dequant} : tensor<4x8x!qElemType>, tensor<4x1xf32> -> tensor<4x8xf32>
   return %0 : tensor<4x8xf32>
 
-  // CHECK-DAG:  [[WT:%.+]] = const.Declare tensor<4x8xf32> = dense<1> : tensor<4x8xsi4>, [#const.CastElemType<f32>, #const.CastElemType<!qElemType>, #const.CastElemType<f32>]
+  // CHECK-DAG:  [[WT:%.+]] = const.Declare tensor<4x8xf32> = dense<1> : tensor<4x8xsi4>, [#const.CastElemType<f32>]
   // CHECK-DAG:  [[IN_LOW:%.+]] = const.Declare tensor<1x1xf32> = dense<-8.000000e+00>
   // CHECK-DAG:  [[IN_HIGH:%.+]] = const.Declare tensor<1x1xf32> = dense<7.000000e+00>
   // CHECK-DAG:  [[OUT_LOW:%.+]] = const.Declare tensor<4x1xf32> = dense<-1.200000e+01>
   // CHECK-DAG:  [[OUT_HIGH:%.+]] = const.Declare tensor<4x1xf32> = dense<1.050000e+01>
 
   // CHECK:      [[FQ:%.+]] = IE.FakeQuantize([[WT]], [[IN_LOW]], [[IN_HIGH]], [[OUT_LOW]], [[OUT_HIGH]])
-  // CHECK-SAME:   {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 16 : i64,
+  // CHECK-SAME:   {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 16 : i64,
   // CHECK-SAME:   vpux.fq_precise_scales = array<f32: 1.500000e+00, 1.500000e+00, 1.500000e+00, 1.500000e+00>, vpux.fq_precise_zero_points = array<i32: 0, 0, 0, 0>}
   // CHECK-NOT:  IE.DynamicDequantize
   // CHECK:      return [[FQ]]
@@ -170,7 +240,7 @@ func.func @WeightsImportDynDeqRawU2ToFakeQuantize() -> tensor<4x8xf32> {
   // CHECK-DAG:  [[OUT_LOW:%.+]] = const.Declare tensor<4x1xf32> = dense<0.000000e+00>
   // CHECK-DAG:  [[OUT_HIGH:%.+]] = const.Declare tensor<4x1xf32> = dense<6.000000e+00>
   // CHECK:      [[FQ:%.+]] = IE.FakeQuantize([[WT]], [[IN_LOW]], [[IN_HIGH]], [[OUT_LOW]], [[OUT_HIGH]])
-  // CHECK-SAME:   {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 4 : i64
+  // CHECK-SAME:   {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 4 : i64
   // CHECK-SAME:   vpux.fq_precise_scales = array<f32: 2.000000e+00, 2.000000e+00, 2.000000e+00, 2.000000e+00>, vpux.fq_precise_zero_points = array<i32: 0, 0, 0, 0>}
   // CHECK-NOT:  IE.DynamicDequantize
   // CHECK:      return [[FQ]]
@@ -191,7 +261,7 @@ func.func @WeightsImportDynDeqRawI2ToFakeQuantize() -> tensor<4x8xf32> {
   // CHECK-DAG:  [[OUT_LOW:%.+]] = const.Declare tensor<4x1xf32> = dense<-4.000000e+00>
   // CHECK-DAG:  [[OUT_HIGH:%.+]] = const.Declare tensor<4x1xf32> = dense<2.000000e+00>
   // CHECK:      [[FQ:%.+]] = IE.FakeQuantize([[WT]], [[IN_LOW]], [[IN_HIGH]], [[OUT_LOW]], [[OUT_HIGH]])
-  // CHECK-SAME:   {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 4 : i64
+  // CHECK-SAME:   {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 4 : i64
   // CHECK-SAME:   vpux.fq_precise_scales = array<f32: 2.000000e+00, 2.000000e+00, 2.000000e+00, 2.000000e+00>, vpux.fq_precise_zero_points = array<i32: 0, 0, 0, 0>}
   // CHECK-NOT:  IE.DynamicDequantize
   // CHECK:      return [[FQ]]
@@ -213,7 +283,7 @@ func.func @WeightsImportDynDeqRawU2WithZPToFakeQuantize() -> tensor<4x8xf32> {
   // CHECK-DAG:  [[OUT_LOW:%.+]] = const.Declare tensor<4x1xf32> = dense<-2.000000e+00>
   // CHECK-DAG:  [[OUT_HIGH:%.+]] = const.Declare tensor<4x1xf32> = dense<4.000000e+00>
   // CHECK:      [[FQ:%.+]] = IE.FakeQuantize([[WT]], [[IN_LOW]], [[IN_HIGH]], [[OUT_LOW]], [[OUT_HIGH]])
-  // CHECK-SAME:   {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 4 : i64
+  // CHECK-SAME:   {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 4 : i64
   // The unsigned sub-byte ZP operand must be zero-extended, not reinterpreted as signed.
   // CHECK-SAME:   vpux.fq_precise_zero_points = array<i32: 1, 1, 1, 1>}
   // CHECK-NOT:  IE.DynamicDequantize
@@ -236,7 +306,7 @@ func.func @WeightsImportDynDeqSubViewScalePreservesChain() -> tensor<4x4xf32> {
   // CHECK-DAG:  [[OUT_LOW:%.+]] = const.Declare tensor<4x1xf32> = dense<{{\[}}[-1.280000e+02], [-2.560000e+02], [-3.840000e+02], [-5.120000e+02], [-6.400000e+02], [-7.680000e+02], [-8.960000e+02], [-1.024000e+03]]> : tensor<8x1xf32>, [#const.SubView<[4, 0], [4, 1]>]
 
   // CHECK:      [[FQ:%.+]] = IE.FakeQuantize([[WT]], [[IN_LOW]], [[IN_HIGH]], [[OUT_LOW]], [[OUT_HIGH]])
-  // CHECK-SAME:   {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i64,
+  // CHECK-SAME:   {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256 : i64,
   // CHECK-SAME:   vpux.fq_precise_scales = array<f32: 5.000000e+00, 6.000000e+00, 7.000000e+00, 8.000000e+00>,
   // CHECK-SAME:   vpux.fq_precise_zero_points = array<i32: 0, 0, 0, 0>}
   // CHECK-NOT:  IE.DynamicDequantize
@@ -262,7 +332,7 @@ func.func @WeightsImportDynDeqSplatScaleStaysSplat() -> tensor<4x4xf32> {
   // CHECK-DAG:  [[OUT_LOW:%.+]] = const.Declare tensor<4x1xf32> = dense<-2.560000e+02> : tensor<4x1xf32>
 
   // CHECK:      [[FQ:%.+]] = IE.FakeQuantize([[WT]], [[IN_LOW]], [[IN_HIGH]], [[OUT_LOW]], [[OUT_HIGH]])
-  // CHECK-SAME:   {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i64
+  // CHECK-SAME:   {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256 : i64
   // CHECK-SAME:   vpux.fq_precise_scales = array<f32: 2.000000e+00, 2.000000e+00, 2.000000e+00, 2.000000e+00>, vpux.fq_precise_zero_points = array<i32: 0, 0, 0, 0>}
   // CHECK-NOT:  IE.DynamicDequantize
   // CHECK:      return [[FQ]]
@@ -286,7 +356,7 @@ func.func @WeightsImportDynDeqNonCommutingScaleChainIsFolded() -> tensor<4x4xf32
   // The re-attached chain must be gone -- bounds are fully materialized.
   // CHECK-NOT:  #const.Add
   // CHECK:      [[FQ:%.+]] = IE.FakeQuantize([[WT]], [[IN_LOW]], [[IN_HIGH]], [[OUT_LOW]], [[OUT_HIGH]])
-  // CHECK-SAME:   {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i64
+  // CHECK-SAME:   {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256 : i64
   // CHECK-SAME:   vpux.fq_precise_scales = array<f32: 2.000000e+00, 3.000000e+00, 4.000000e+00, 5.000000e+00>, vpux.fq_precise_zero_points = array<i32: 0, 0, 0, 0>}
   // CHECK-NOT:  IE.DynamicDequantize
   // CHECK:      return [[FQ]]
@@ -311,7 +381,7 @@ func.func @WeightsImportDynDeqNonF32ScaleBaseIsFolded() -> tensor<4x4xf32> {
   // CHECK-DAG:  [[OUT_HIGH:%.+]] = const.Declare tensor<4x1xf32> = dense<{{\[}}[1.270000e+02], [2.540000e+02], [3.810000e+02], [5.080000e+02]]> : tensor<4x1xf32>
 
   // CHECK:      [[FQ:%.+]] = IE.FakeQuantize([[WT]], [[IN_LOW]], [[IN_HIGH]], [[OUT_LOW]], [[OUT_HIGH]])
-  // CHECK-SAME:   {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i64
+  // CHECK-SAME:   {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256 : i64
   // The f16 scale base is read through the storage-type conversion, not reinterpreted as f32.
   // CHECK-SAME:   vpux.fq_precise_scales = array<f32: 1.000000e+00, 2.000000e+00, 3.000000e+00, 4.000000e+00>
   // CHECK-NOT:  IE.DynamicDequantize
@@ -339,7 +409,7 @@ func.func @WeightsImportDynDeqPerChannelZPIsFolded() -> tensor<4x4xf32> {
   // CHECK-DAG:  [[OUT_HIGH:%.+]] = const.Declare tensor<4x1xf32> = dense<{{\[}}[1.260000e+02], [2.500000e+02], [3.720000e+02], [4.920000e+02]]> : tensor<4x1xf32>
 
   // CHECK:      [[FQ:%.+]] = IE.FakeQuantize([[WT]], [[IN_LOW]], [[IN_HIGH]], [[OUT_LOW]], [[OUT_HIGH]])
-  // CHECK-SAME:   {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i64
+  // CHECK-SAME:   {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256 : i64
   // CHECK-SAME:   vpux.fq_precise_scales = array<f32: 1.000000e+00, 2.000000e+00, 3.000000e+00, 4.000000e+00>, vpux.fq_precise_zero_points = array<i32: 1, 2, 3, 4>}
   // CHECK-NOT:  IE.DynamicDequantize
   // CHECK:      return [[FQ]]
@@ -365,7 +435,7 @@ func.func @WeightsImportDynDeqPerTensorZPIsBroadcastToScales() -> tensor<4x4xf32
   // CHECK-DAG:  [[OUT_HIGH:%.+]] = const.Declare tensor<4x1xf32> = dense<{{\[}}[1.170000e+02], [2.340000e+02], [3.510000e+02], [4.680000e+02]]> : tensor<4x1xf32>
 
   // CHECK:      [[FQ:%.+]] = IE.FakeQuantize([[WT]], [[IN_LOW]], [[IN_HIGH]], [[OUT_LOW]], [[OUT_HIGH]])
-  // CHECK-SAME:   {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i64
+  // CHECK-SAME:   {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256 : i64
   // CHECK-SAME:   vpux.fq_precise_scales = array<f32: 1.000000e+00, 2.000000e+00, 3.000000e+00, 4.000000e+00>, vpux.fq_precise_zero_points = array<i32: 10, 10, 10, 10>}
   // CHECK-NOT:  IE.DynamicDequantize
   // CHECK:      return [[FQ]]
@@ -390,7 +460,7 @@ func.func @WeightsImportDynDeqPerTensorScaleIsBroadcastToZPs() -> tensor<4x4xf32
   // CHECK-DAG:  [[OUT_HIGH:%.+]] = const.Declare tensor<4x1xf32> = dense<{{\[}}[2.520000e+02], [2.500000e+02], [2.480000e+02], [2.460000e+02]]> : tensor<4x1xf32>
 
   // CHECK:      [[FQ:%.+]] = IE.FakeQuantize([[WT]], [[IN_LOW]], [[IN_HIGH]], [[OUT_LOW]], [[OUT_HIGH]])
-  // CHECK-SAME:   {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i64
+  // CHECK-SAME:   {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256 : i64
   // CHECK-SAME:   vpux.fq_precise_scales = array<f32: 2.000000e+00, 2.000000e+00, 2.000000e+00, 2.000000e+00>, vpux.fq_precise_zero_points = array<i32: 1, 2, 3, 4>}
   // CHECK-NOT:  IE.DynamicDequantize
   // CHECK:      return [[FQ]]

@@ -12,7 +12,7 @@ func.func @WrapNCETiledTask(%arg0: tensor<1x32x256x256xf16, {order = #NHWC}>, %w
        %0 = VPU.NCE.Convolution(%arg0, %weights) rawFilterShape [32, 32, 3, 3] {resultSegmentSizes = array<i32: 1, 0, 0, 0>, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
                 pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
                 ppe = #VPU.PPEStub<>,
-
+                
                 strides = [1, 1],
                 tilingStrategy = [1, 1, 2, 1]} : tensor<1x32x256x256xf16, {order = #NHWC}>, tensor<32x32x3x3xf16, {order = #NHWC}> -> tensor<1x32x256x256xf16, {order = #NHWC}>
     return %0 : tensor<1x32x256x256xf16, {order = #NHWC}>
@@ -36,7 +36,7 @@ func.func @WrapNCENonTiledTask(%arg0: tensor<1x32x256x256xf16, {order = #NHWC}>,
        %0 = VPU.NCE.Convolution(%arg0, %weights) rawFilterShape [32, 32, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
                 pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
                 ppe = #VPU.PPEStub<>,
-
+                
                 strides = [1, 1]} : tensor<1x32x256x256xf16, {order = #NHWC}>, tensor<32x32x1x1xf16, {order = #NHWC}> -> tensor<1x32x256x256xf16, {order = #NHWC}>
     return %0 : tensor<1x32x256x256xf16, {order = #NHWC}>
 
@@ -195,7 +195,7 @@ func.func @DontWrapMultiDimTiledNCETask(%arg0: tensor<1x32x256x256xf16, {order =
        %0 = VPU.NCE.Convolution(%arg0, %weights) rawFilterShape [32, 32, 3, 3] {resultSegmentSizes = array<i32: 1, 0, 0, 0>, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
                 pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
                 ppe = #VPU.PPEStub<>,
-
+                
                 strides = [1, 1],
                 tilingStrategy = [1, 1, 2, 4]} : tensor<1x32x256x256xf16, {order = #NHWC}>, tensor<32x32x3x3xf16, {order = #NHWC}> -> tensor<1x32x256x256xf16, {order = #NHWC}>
     return %0 : tensor<1x32x256x256xf16, {order = #NHWC}>
@@ -392,4 +392,117 @@ func.func @WrapRound(%arg0: tensor<1x16x448x392xf16, {order = #NHWC}>) -> tensor
     // CHECK:  VPU.VerticalFusion ([[INPUT]] as [[INNER_ARG1:[^:]+]]: tensor<1x16x448x392xf16, {order = #NHWC}>) attributes {tilingStrategy = [1, 1, 2, 1]} -> tensor<1x16x448x392xf16, {order = #NHWC}> {
     // CHECK:    VPU.Round([[INNER_ARG1]]) {mode = #IE.round_mode<HALF_TO_EVEN>, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>} : tensor<1x16x448x392xf16, {order = #NHWC}> -> tensor<1x16x448x392xf16, {order = #NHWC}>
     // CHECK:    VPU.Yield
+}
+
+// -----
+
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+
+module @VPU.SW {
+  func.func nested @generated_info_0(%arg0: index, %arg1: index, %arg2: index, %arg3: index) -> (index, index, index, index, index, index, index, index, index, index, index, index, index, index, index, index)
+  func.func nested @generated_0(tensor<1x1x?x?xf16>, tensor<1x1x1x?xf16>, index, index, index, index) -> tensor<1x1x?x?xf16> attributes {kernelInfo = #VPU.KernelInfo<tilingInfoFunc = @generated_info_0, tilingAxes = [2, 3], numSlicedInputs = 2 : i64, numTensorInputs = 2 : i64, numAuxBuffers = 0 : i64, inputSegmentationAxes = [array<i64: 2, -1>, array<i64: 3, 3>]>}
+}
+
+// CHECK-LABEL: @WrapGenericSwLayer
+// CHECK-SAME:       [[INPUT0:%.+]]: tensor<1x960x1x640xf16, {order = #NHWC}>, [[INPUT1:%.+]]: tensor<1x960x1x1xf16, {order = #NHWC}>)
+func.func @WrapGenericSwLayer(%arg0: tensor<1x960x1x640xf16, {order = #NHWC}>, %arg1: tensor<1x960x1x1xf16, {order = #NHWC}>) -> tensor<1x960x1x640xf16, {order = #NHWC}> {
+  %0 = VPU.GenericSwLayer(%arg0, %arg1 : tensor<1x960x1x640xf16, {order = #NHWC}>, tensor<1x960x1x1xf16, {order = #NHWC}>) @VPU.SW::@generated_0 tiling(sizes = [640, 960], offsets = [0, 0]) {multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>, tilingStrategy = [1, 2, 1, 1]} -> tensor<1x960x1x640xf16, {order = #NHWC}>
+  return %0 : tensor<1x960x1x640xf16, {order = #NHWC}>
+
+    // CHECK: VPU.VerticalFusion ([[INPUT0]] as [[ARG0:%.+]]: tensor<1x960x1x640xf16, {order = #NHWC}>, [[INPUT1]] as [[ARG1:%.+]]: tensor<1x960x1x1xf16, {order = #NHWC}>) attributes {tilingStrategy = [1, 2, 1, 1]} -> tensor<1x960x1x640xf16, {order = #NHWC}> {
+    // CHECK:      [[OP:%.+]] = VPU.GenericSwLayer([[ARG0]], [[ARG1]] : tensor<1x960x1x640xf16, {order = #NHWC}>, tensor<1x960x1x1xf16, {order = #NHWC}>)
+    // CHECK-SAME:     @VPU.SW::@generated_0 tiling(sizes = [640, 960], offsets = [0, 0])
+    // CHECK-SAME:     {multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>}
+    // CHECK-SAME:     -> tensor<1x960x1x640xf16, {order = #NHWC}>
+    // CHECK:      VPU.Yield [[OP]]
+}
+
+// -----
+
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+
+// Fusion needs the inputs to be classified, so a kernel whose inputs have not been classified at
+// all is not wrapped.
+
+module @VPU.SW {
+  func.func nested @generated_info_0(%arg0: index, %arg1: index, %arg2: index, %arg3: index) -> (index, index, index, index, index, index, index, index, index, index, index, index, index, index, index, index)
+  func.func nested @generated_0(tensor<1x1x?x?xf16>, tensor<1x1x1x?xf16>, index, index, index, index) -> tensor<1x1x?x?xf16> attributes {kernelInfo = #VPU.KernelInfo<tilingInfoFunc = @generated_info_0, tilingAxes = [2, 3], numSlicedInputs = 2 : i64, numTensorInputs = 2 : i64, numAuxBuffers = 0 : i64, inputSegmentationAxes = []>}
+}
+
+// CHECK-LABEL: @DoNotWrapGenericSwLayerWithoutSegmentationAxes
+func.func @DoNotWrapGenericSwLayerWithoutSegmentationAxes(%arg0: tensor<1x960x1x640xf16, {order = #NHWC}>, %arg1: tensor<1x960x1x1xf16, {order = #NHWC}>) -> tensor<1x960x1x640xf16, {order = #NHWC}> {
+  %0 = VPU.GenericSwLayer(%arg0, %arg1 : tensor<1x960x1x640xf16, {order = #NHWC}>, tensor<1x960x1x1xf16, {order = #NHWC}>) @VPU.SW::@generated_0 tiling(sizes = [640, 960], offsets = [0, 0]) {multiClusterStrategy = #VPU.multi_cluster_strategy<Clustering>, tilingStrategy = [1, 2, 1, 1]} -> tensor<1x960x1x640xf16, {order = #NHWC}>
+  return %0 : tensor<1x960x1x640xf16, {order = #NHWC}>
+
+    // CHECK-NOT:  VPU.VerticalFusion
+    // CHECK:      VPU.GenericSwLayer
+    // CHECK-SAME:     multiClusterStrategy = #VPU.multi_cluster_strategy<Clustering>
+}
+
+// -----
+
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+
+module @VPU.SW {
+  func.func nested @generated_info_0(%arg0: index, %arg1: index, %arg2: index, %arg3: index) -> (index, index, index, index, index, index, index, index, index, index, index, index, index, index, index, index)
+  func.func nested @generated_0(tensor<1x1x?x?xf16>, tensor<1x1x1x?xf16>, index, index, index, index) -> tensor<1x1x?x?xf16> attributes {kernelInfo = #VPU.KernelInfo<tilingInfoFunc = @generated_info_0, tilingAxes = [2, 3], numSlicedInputs = 2 : i64, numTensorInputs = 2 : i64, numAuxBuffers = 0 : i64, inputSegmentationAxes = [array<i64: 2, -1>, array<i64: -2, 3>]>}
+}
+
+// CHECK-LABEL: @WrapGenericSwLayerWithUnknownTensorInputOnOneAxis
+// CHECK-SAME:       [[INPUT0:%.+]]: tensor<1x960x1x640xf16, {order = #NHWC}>, [[INPUT1:%.+]]: tensor<1x960x1x1xf16, {order = #NHWC}>)
+func.func @WrapGenericSwLayerWithUnknownTensorInputOnOneAxis(%arg0: tensor<1x960x1x640xf16, {order = #NHWC}>, %arg1: tensor<1x960x1x1xf16, {order = #NHWC}>) -> tensor<1x960x1x640xf16, {order = #NHWC}> {
+  %0 = VPU.GenericSwLayer(%arg0, %arg1 : tensor<1x960x1x640xf16, {order = #NHWC}>, tensor<1x960x1x1xf16, {order = #NHWC}>) @VPU.SW::@generated_0 tiling(sizes = [640, 960], offsets = [0, 0]) {multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>, tilingStrategy = [1, 2, 1, 1]} -> tensor<1x960x1x640xf16, {order = #NHWC}>
+  return %0 : tensor<1x960x1x640xf16, {order = #NHWC}>
+
+    // CHECK: VPU.VerticalFusion ([[INPUT0]] as [[ARG0:%.+]]: tensor<1x960x1x640xf16, {order = #NHWC}>, [[INPUT1]] as [[ARG1:%.+]]: tensor<1x960x1x1xf16, {order = #NHWC}>) attributes {tilingStrategy = [1, 2, 1, 1]} -> tensor<1x960x1x640xf16, {order = #NHWC}> {
+    // CHECK:      [[OP:%.+]] = VPU.GenericSwLayer([[ARG0]], [[ARG1]] : tensor<1x960x1x640xf16, {order = #NHWC}>, tensor<1x960x1x1xf16, {order = #NHWC}>)
+    // CHECK-SAME:     @VPU.SW::@generated_0 tiling(sizes = [640, 960], offsets = [0, 0])
+    // CHECK-SAME:     {multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>}
+    // CHECK-SAME:     -> tensor<1x960x1x640xf16, {order = #NHWC}>
+    // CHECK:      VPU.Yield [[OP]]
+}
+
+// -----
+
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+
+// Input 0 is unclassified on both tiling axes, so no axis is left to fuse on and the layer is
+// not wrapped.
+
+module @VPU.SW {
+  func.func nested @generated_info_0(%arg0: index, %arg1: index, %arg2: index, %arg3: index) -> (index, index, index, index, index, index, index, index, index, index, index, index, index, index, index, index)
+  func.func nested @generated_0(tensor<1x1x?x?xf16>, tensor<1x1x1x?xf16>, index, index, index, index) -> tensor<1x1x?x?xf16> attributes {kernelInfo = #VPU.KernelInfo<tilingInfoFunc = @generated_info_0, tilingAxes = [2, 3], numSlicedInputs = 2 : i64, numTensorInputs = 2 : i64, numAuxBuffers = 0 : i64, inputSegmentationAxes = [array<i64: -2, -1>, array<i64: -2, 3>]>}
+}
+
+// CHECK-LABEL: @DoNotWrapGenericSwLayerWithUnknownTensorInput
+func.func @DoNotWrapGenericSwLayerWithUnknownTensorInput(%arg0: tensor<1x960x1x640xf16, {order = #NHWC}>, %arg1: tensor<1x960x1x1xf16, {order = #NHWC}>) -> tensor<1x960x1x640xf16, {order = #NHWC}> {
+  %0 = VPU.GenericSwLayer(%arg0, %arg1 : tensor<1x960x1x640xf16, {order = #NHWC}>, tensor<1x960x1x1xf16, {order = #NHWC}>) @VPU.SW::@generated_0 tiling(sizes = [640, 960], offsets = [0, 0]) {multiClusterStrategy = #VPU.multi_cluster_strategy<Clustering>, tilingStrategy = [1, 2, 1, 1]} -> tensor<1x960x1x640xf16, {order = #NHWC}>
+  return %0 : tensor<1x960x1x640xf16, {order = #NHWC}>
+
+    // CHECK-NOT:  VPU.VerticalFusion
+    // CHECK:      VPU.GenericSwLayer
+    // CHECK-SAME:     multiClusterStrategy = #VPU.multi_cluster_strategy<Clustering>
+}
+
+// -----
+
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+
+module @VPU.SW {
+  func.func nested @generated_info_0(%arg0: index, %arg1: index, %arg2: index, %arg3: index) -> (index, index, index, index, index, index, index, index, index, index, index, index, index, index, index, index)
+  func.func nested @generated_0(tensor<1x1x?x?xf16>, tensor<1x1x1x?xf16>, tensor<1x1x?x?xf16>, index, index, index, index) -> tensor<1x1x?x?xf16> attributes {kernelInfo = #VPU.KernelInfo<tilingInfoFunc = @generated_info_0, tilingAxes = [2, 3], numSlicedInputs = 1 : i64, numTensorInputs = 2 : i64, numAuxBuffers = 1 : i64, inputSegmentationAxes = [array<i64: -2, -1, -2>, array<i64: 3, 3, -2>]>}
+}
+
+// CHECK-LABEL: @WrapGenericSwLayerWithUnknownScratch
+func.func @WrapGenericSwLayerWithUnknownScratch(%arg0: tensor<1x960x1x640xf16, {order = #NHWC}>, %arg1: tensor<1x960x1x1xf16, {order = #NHWC}>) -> tensor<1x960x1x640xf16, {order = #NHWC}> {
+  %scratch = VPU.Empty : tensor<1x960x1x640xf16, {order = #NHWC}>
+  %0 = VPU.GenericSwLayer(%arg0, %arg1 : tensor<1x960x1x640xf16, {order = #NHWC}>, tensor<1x960x1x1xf16, {order = #NHWC}>) scratch(%scratch : tensor<1x960x1x640xf16, {order = #NHWC}>) @VPU.SW::@generated_0 tiling(sizes = [640, 960], offsets = [0, 0]) {multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>, tilingStrategy = [1, 2, 1, 1]} -> tensor<1x960x1x640xf16, {order = #NHWC}>
+  return %0 : tensor<1x960x1x640xf16, {order = #NHWC}>
+
+    // CHECK:      VPU.VerticalFusion (
+    // CHECK-SAME:     attributes {tilingStrategy = [1, 2, 1, 1]}
+    // CHECK:      [[OP:%.+]] = VPU.GenericSwLayer(
+    // CHECK-SAME:     scratch(
+    // CHECK-SAME:     {multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>}
+    // CHECK:      VPU.Yield [[OP]]
 }

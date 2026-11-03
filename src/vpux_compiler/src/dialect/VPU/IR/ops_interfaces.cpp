@@ -5,6 +5,7 @@
 
 #include "vpux/compiler/dialect/VPU/IR/ops_interfaces.hpp"
 #include "vpux/compiler/NPU40XX/utils.hpp"
+#include "vpux/compiler/core/tiling.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops_interfaces.hpp"
 #include "vpux/compiler/dialect/config/utils/config_option_utils.hpp"
 #include "vpux/compiler/utils/options.hpp"
@@ -41,6 +42,7 @@
 #include "vpux/compiler/utils/rewriter.hpp"
 
 #include <llvm/ADT/TypeSwitch.h>
+#include <mlir/Dialect/Quant/IR/QuantTypes.h>
 
 using namespace vpux;
 
@@ -350,6 +352,9 @@ bool vpux::VPU::supportSwOpLoweringAsDMA(mlir::Operation* op) {
             .Case<VPU::ConvertOp>([](auto convertOp) {
                 return isConvertSupportedOnDMA<VPU::ConvertOp>(convertOp);
             })
+            .Case<VPU::MemPermuteOp>([](auto memPermuteOp) {
+                return VPUIP::isLegalAndBeneficialConvertToDMA(memPermuteOp.getOperation());
+            })
             .Default([](mlir::Operation*) {
                 return false;
             });
@@ -365,12 +370,84 @@ bool vpux::VPU::isPureViewOp(mlir::Operation* op) {
 }
 
 //
+// Heuristics of the greedy vertical fusion
+//
+
+bool vpux::VPU::isQuantizeAvgPoolOp(mlir::Operation* op) {
+    auto avgPoolOp = mlir::dyn_cast_or_null<VPU::NCEAveragePoolOp>(op);
+    if (avgPoolOp == nullptr) {
+        return false;
+    }
+
+    const auto inElemType = mlir::cast<vpux::NDTypeInterface>(avgPoolOp.getInput().getType()).getElementType();
+    const auto outElemType = mlir::cast<vpux::NDTypeInterface>(avgPoolOp.getOutput().getType()).getElementType();
+    const auto outQuantType = mlir::dyn_cast<mlir::quant::QuantizedType>(outElemType);
+    return inElemType.isF16() && outQuantType != nullptr && !outQuantType.isSigned() &&
+           outQuantType.getStorageTypeIntegralWidth() == 8;
+}
+
+bool vpux::VPU::isSliceOfQuantizeAvgPoolOp(mlir::Operation* op) {
+    auto sliceOp = mlir::dyn_cast<VPU::SliceOp>(op);
+    return sliceOp != nullptr && isQuantizeAvgPoolOp(sliceOp.getSource().getDefiningOp());
+}
+
+bool vpux::VPU::canFuseQuantizeAvgPoolOp(mlir::Operation* op) {
+    return !isQuantizeAvgPoolOp(op) || llvm::all_of(op->getUsers(), [](mlir::Operation* user) {
+        return mlir::isa<VPU::SliceOp>(user);
+    });
+}
+
+//
 // TilingInfoOpInterface for SW
 //
 
 template <class MainOpType>
 class SwLayerTilingInfoOpModel final :
         public SwLayerTilingInfoOpModelBase<SwLayerTilingInfoOpModel<MainOpType>, MainOpType> {};
+
+class YuvToRgbTilingInfoOpModel final :
+        public SwLayerTilingInfoOpModelBase<YuvToRgbTilingInfoOpModel, VPU::YuvToRgbOp> {
+public:
+    // This is not a HW/SW constraint, but a solution for E#236664 that aimed to support smaller user inputs
+    // Remove this workaround once the issue is resolved by a more straightforward algorithm
+    bool isSupportedTiling(mlir::Operation* op, const OutputTiling& tiles, TilingMode tilingMode, Logger log) const {
+        using namespace Dims4D::Act;
+
+        const auto outputType = mlir::cast<mlir::ShapedType>(op->getResult(0).getType());
+        const bool isHDynamic = outputType.isDynamicDim(H.ind());
+        const bool isWDynamic = outputType.isDynamicDim(W.ind());
+
+        using Base = SwLayerTilingInfoOpModelBase<YuvToRgbTilingInfoOpModel, VPU::YuvToRgbOp>;
+        if (!isHDynamic && !isWDynamic) {
+            return Base::isSupportedTiling(op, tiles, tilingMode, log);
+        }
+
+        const auto withinTileSizeCaps = llvm::all_of(tiles, [&](const TileInfo& tile) {
+            if (isHDynamic && tile.shape[H] > MAX_YUV_TO_RGB_TILE_HEIGHT) {
+                return false;
+            }
+            if (isWDynamic && tile.shape[W] > MAX_YUV_TO_RGB_TILE_WIDTH) {
+                return false;
+            }
+            return true;
+        });
+        if (!withinTileSizeCaps) {
+            log.trace("YuvToRgb tile exceeds per-dimension size limits");
+            return false;
+        }
+
+        return Base::isSupportedTiling(op, tiles, tilingMode, log);
+    }
+};
+
+template <>
+class SwLayerTilingInfoOpModel<VPU::GenericSwLayerOp> final :
+        public SwLayerTilingInfoOpModelBase<SwLayerTilingInfoOpModel<VPU::GenericSwLayerOp>, VPU::GenericSwLayerOp> {
+public:
+    bool requiresAllBuffersInCMX(mlir::Operation*) const {
+        return false;
+    }
+};
 
 // Register all tiling-supported SW op here
 // Common interface for all archKinds
@@ -447,6 +524,7 @@ void vpux::VPU::registerSWTilingInfoOpInterfaceCommon(mlir::DialectRegistry& reg
         VPU::SinOp::attachInterface<SwLayerTilingInfoOpModel<VPU::SinOp>>(*ctx);
         VPU::SinhOp::attachInterface<SwLayerTilingInfoOpModel<VPU::SinhOp>>(*ctx);
         VPU::SignOp::attachInterface<SwLayerTilingInfoOpModel<VPU::SignOp>>(*ctx);
+        VPU::OneHotOp::attachInterface<SwLayerTilingInfoOpModel<VPU::OneHotOp>>(*ctx);
         VPU::CoshOp::attachInterface<SwLayerTilingInfoOpModel<VPU::CoshOp>>(*ctx);
         VPU::TanOp::attachInterface<SwLayerTilingInfoOpModel<VPU::TanOp>>(*ctx);
         VPU::ReduceL1Op::attachInterface<SwLayerTilingInfoOpModel<VPU::ReduceL1Op>>(*ctx);
@@ -477,7 +555,7 @@ void vpux::VPU::registerSWTilingInfoOpInterfaceCommon(mlir::DialectRegistry& reg
         VPU::DynamicTileOp::attachInterface<SwLayerTilingInfoOpModel<VPU::DynamicTileOp>>(*ctx);
         VPU::NormalizeL2Op::attachInterface<SwLayerTilingInfoOpModel<VPU::NormalizeL2Op>>(*ctx);
         VPU::LRNOp::attachInterface<SwLayerTilingInfoOpModel<VPU::LRNOp>>(*ctx);
-        VPU::YuvToRgbOp::attachInterface<SwLayerTilingInfoOpModel<VPU::YuvToRgbOp>>(*ctx);
+        VPU::YuvToRgbOp::attachInterface<YuvToRgbTilingInfoOpModel>(*ctx);
         VPU::SquaredDifferenceOp::attachInterface<SwLayerTilingInfoOpModel<VPU::SquaredDifferenceOp>>(*ctx);
         VPU::GeluOp::attachInterface<SwLayerTilingInfoOpModel<VPU::GeluOp>>(*ctx);
         VPU::GRUSequenceOp::attachInterface<SwLayerTilingInfoOpModel<VPU::GRUSequenceOp>>(*ctx);

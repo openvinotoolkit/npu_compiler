@@ -437,3 +437,4 @@ func.func @DiamondGraph(%arg0: tensor<1x1x1x1000xf32>) -> tensor<1x1x1x1000xf32>
 // CHECK:         Shave.KernelRegion.Yield [[GEN3B]] : tensor<1x1x1x1000xf32>
 // CHECK:     IE.CGCYield [[KERNEL3]] : tensor<1x1x1x1000xf32>
 }
+

@@ -133,7 +133,7 @@ func.func @ConvertDivideWithConstQuantizedDivisor(%arg0: tensor<1x3x768x1152xf16
     %output_high = const.Declare tensor<1x1x1x1xf16> = dense<60.6930428> : tensor<1x1x1xf32>, [#const.Reshape<[1, 1, 1, 1]>, #const.CastElemType<f16>]
 
     %0 = IE.FakeQuantize(%weights, %input_low, %input_high, %output_low, %output_high)
-        {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i64} :
+        {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256 : i64} :
         tensor<1x3x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<1x3x1x1xf16>
 
     %1 = IE.Divide(%arg0, %0)
@@ -148,7 +148,7 @@ func.func @ConvertDivideWithConstQuantizedDivisor(%arg0: tensor<1x3x768x1152xf16
     // CHECK-DAG:       [[IN_HIGH:%.+]] = const.Declare tensor<1x1x1x1xf16> = dense<4.608150e-03> : tensor<1x1x1x1xf16>
     // CHECK-DAG:       [[OUT_HIGH:%.+]] = const.Declare tensor<1x1x1x1xf16> = dense<1.936340e-02> : tensor<1x1x1x1xf16>
     // CHECK:           [[FAKE_QUANTIZE:%.+]] = IE.FakeQuantize([[WEIGHTS]], [[IN_LOW]], [[IN_HIGH]], [[IN_LOW]], [[OUT_HIGH]])
-    // CHECK-SAME:          {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i64}
+    // CHECK-SAME:          {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256 : i64}
     // CHECK:           [[MULTIPLY:%.+]] = IE.Multiply([[ARG]], [[FAKE_QUANTIZE]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>}
     // CHECK:           return [[MULTIPLY]]
 }
@@ -258,7 +258,7 @@ func.func @ConvertMultipleDivideOpsWithConstQuantizedDivisor(%arg0: tensor<1x3x7
     %output_high = const.Declare tensor<1x1x1x1xf16> = dense<60.6930428> : tensor<1x1x1xf32>, [#const.Reshape<[1, 1, 1, 1]>, #const.CastElemType<f16>]
 
     %0 = IE.FakeQuantize(%weights, %input_low, %input_high, %output_low, %output_high)
-        {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i64} :
+        {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256 : i64} :
         tensor<1x3x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<1x3x1x1xf16>
 
     %1 = IE.Divide(%arg0, %0)
@@ -277,7 +277,7 @@ func.func @ConvertMultipleDivideOpsWithConstQuantizedDivisor(%arg0: tensor<1x3x7
     // CHECK-DAG:       [[IN_HIGH:%.+]] = const.Declare tensor<1x1x1x1xf16> = dense<4.608150e-03> : tensor<1x1x1x1xf16>
     // CHECK-DAG:       [[OUT_HIGH:%.+]] = const.Declare tensor<1x1x1x1xf16> = dense<1.936340e-02> : tensor<1x1x1x1xf16>
     // CHECK:           [[FAKE_QUANTIZE:%.+]] = IE.FakeQuantize([[WEIGHTS]], [[IN_LOW]], [[IN_HIGH]], [[IN_LOW]], [[OUT_HIGH]])
-    // CHECK-SAME:          {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i64}
+    // CHECK-SAME:          {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256 : i64}
     // CHECK:           [[MULTIPLY0:%.+]] = IE.Multiply([[ARG0]], [[FAKE_QUANTIZE]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>}
     // CHECK:           [[MULTIPLY1:%.+]] = IE.Multiply([[ARG1]], [[FAKE_QUANTIZE]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>}
     // CHECK:           return [[MULTIPLY0]], [[MULTIPLY1]]
@@ -324,7 +324,7 @@ func.func @ConvertMultipleDivideOpsWithConstQuantizedDivisor_NotOnlyDivideUsers(
     %output_high = const.Declare tensor<1x1x1x1xf16> = dense<60.6930428> : tensor<1x1x1xf32>, [#const.Reshape<[1, 1, 1, 1]>, #const.CastElemType<f16>]
 
     %0 = IE.FakeQuantize(%weights, %input_low, %input_high, %output_low, %output_high)
-        {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i64} :
+        {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256 : i64} :
         tensor<1x3x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<1x3x1x1xf16>
 
     %1 = IE.Add(%arg0, %0)
@@ -351,9 +351,9 @@ func.func @ConvertMultipleDivideOpsWithConstQuantizedDivisor_NotOnlyDivideUsers(
     // CHECK-DAG:       [[OUT_HIGH0:%.+]] = const.Declare tensor<1x1x1x1xf16> = dense<1.936340e-02> : tensor<1x1x1x1xf16>
 
     // CHECK:           [[FAKE_QUANTIZE0:%.+]] = IE.FakeQuantize([[CONST0]], [[IN_LOW0]], [[IN_HIGH0]], [[IN_LOW0]], [[OUT_HIGH0]])
-    // CHECK-SAME:          {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i64}
+    // CHECK-SAME:          {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256 : i64}
     // CHECK:           [[FAKE_QUANTIZE1:%.+]] = IE.FakeQuantize([[CONST1]], [[IN_LOW1]], [[IN_HIGH1]], [[IN_LOW1]], [[OUT_HIGH1]])
-    // CHECK-SAME:          {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i64}
+    // CHECK-SAME:          {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256 : i64}
 
     // CHECK:           [[ADD:%.+]] = IE.Add([[ARG0]], [[FAKE_QUANTIZE1]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>}
     // CHECK:           [[MULTIPLY:%.+]] = IE.Multiply([[ARG1]], [[FAKE_QUANTIZE0]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>}
@@ -403,7 +403,7 @@ func.func @ConvertMultipleDivideOpsWithQuantizedDivisor_NotSecondInput(%arg0: te
     %output_high = const.Declare tensor<1x1x1x1xf16> = dense<60.6930428> : tensor<1x1x1xf32>, [#const.Reshape<[1, 1, 1, 1]>, #const.CastElemType<f16>]
 
     %0 = IE.FakeQuantize(%weights, %input_low, %input_high, %output_low, %output_high)
-        {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i64} :
+        {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256 : i64} :
         tensor<1x3x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<1x3x1x1xf16>
 
     %1 = IE.Divide(%0, %arg0)
@@ -430,9 +430,9 @@ func.func @ConvertMultipleDivideOpsWithQuantizedDivisor_NotSecondInput(%arg0: te
     // CHECK:           [[OUT_HIGH0:%.+]] = const.Declare tensor<1x1x1x1xf16> = dense<1.936340e-02> : tensor<1x1x1x1xf16>
 
     // CHECK:           [[FAKE_QUANTIZE0:%.+]] = IE.FakeQuantize([[CONST0]], [[IN_LOW0]], [[IN_HIGH0]], [[IN_LOW0]], [[OUT_HIGH0]])
-    // CHECK-SAME:          {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i64}
+    // CHECK-SAME:          {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256 : i64}
     // CHECK:           [[FAKE_QUANTIZE1:%.+]] = IE.FakeQuantize([[CONST1]], [[IN_LOW1]], [[IN_HIGH1]], [[IN_LOW1]], [[OUT_HIGH1]])
-    // CHECK-SAME:          {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i64}
+    // CHECK-SAME:          {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256 : i64}
 
     // CHECK:           [[DIVIDE:%.+]] = IE.Divide([[FAKE_QUANTIZE1]], [[ARG0]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>}
     // CHECK:           [[MULTIPLY:%.+]] = IE.Multiply([[ARG1]], [[FAKE_QUANTIZE0]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>}

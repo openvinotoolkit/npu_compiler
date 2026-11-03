@@ -622,7 +622,7 @@ bool vpux::areAllZeroPointsEqual(mlir::quant::UniformQuantizedPerAxisType type) 
         return true;
     }
     const auto firstZeroPoint = zeroPoints[0];
-    return std::all_of(zeroPoints.begin(), zeroPoints.end(), [&firstZeroPoint](const int64_t zp) {
+    return std::all_of(zeroPoints.begin(), zeroPoints.end(), [firstZeroPoint](const int64_t zp) {
         return zp == firstZeroPoint;
     });
 }
@@ -703,7 +703,7 @@ mlir::FailureOr<int64_t> vpux::extractScalarOrUniformZP(mlir::quant::QuantizedTy
     const auto zps = extractScalesAndZeroPoints(quantizedType).second;
     const auto firstZP = zps.front();
 
-    const auto hasNonUniformZp = llvm::any_of(zps, [&firstZP](const auto zp) {
+    const auto hasNonUniformZp = llvm::any_of(zps, [firstZP](const auto zp) {
         return zp != firstZP;
     });
     if (hasNonUniformZp == false) {

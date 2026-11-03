@@ -605,10 +605,11 @@ private:
     // cycle pipeline for every executor. Vector element type is to support multiple instances of
     // same executor type in case where scheduler needs to be aware of it
     // TODO: Currently scheduler supports only multiple DMA executors (ports)
-    std::map<QueueType, SmallVector<size_t>> _executorPipelines = {
-            {{config::ExecutorKind::DMA_NN}, {1}},    {{config::ExecutorKind::DPU}, {1}},
-            {{config::ExecutorKind::NCE}, {1}},       {{config::ExecutorKind::SHAVE_NN}, {1}},
-            {{config::ExecutorKind::SHAVE_ACT}, {1}}, {{config::ExecutorKind::M2I}, {1}}};
+    std::map<QueueType, SmallVector<size_t>> _executorPipelines = {{{config::ExecutorKind::DMA_NN}, {1}},
+                                                                   {{config::ExecutorKind::DPU}, {1}},
+                                                                   {{config::ExecutorKind::NCE}, {1}},
+                                                                   {{config::ExecutorKind::SHAVE_NN}, {1}},
+                                                                   {{config::ExecutorKind::SHAVE_ACT}, {1}}};
 
     // spilled operation cycle cost, keyed by buffer and DMA direction (write/read costs may differ)
     mlir::DenseMap<std::pair<mlir::Value, vpux::DmaDirectionType>, size_t> _spillBufferCycleCost;

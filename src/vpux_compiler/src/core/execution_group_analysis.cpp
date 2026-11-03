@@ -210,7 +210,7 @@ void ExecutionGroupAnalysis::logExecutionGroupTasks(Logger log,
     };
 
     // Function to wrap groups into multiple lines
-    auto logGroupedInfo = [&log, &serializeGroup](const std::string& taskTypeStr, const auto& execGroupLists) {
+    auto logGroupedInfo = [log, serializeGroup](const std::string& taskTypeStr, const auto& execGroupLists) {
         for (const auto& [queueType, groups] : execGroupLists) {
             std::ostringstream groupString;
             groupString << taskTypeStr << queueType.id << " - ";

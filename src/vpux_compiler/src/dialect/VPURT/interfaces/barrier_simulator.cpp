@@ -328,12 +328,6 @@ void vpux::VPURT::BarrierSimulator::parseTasks(mlir::Operation* parentOp) {
             break;
         }
 
-        case config::ExecutorKind::M2I: {
-            _m2iTasks.emplace_back(virtualDep);
-            updateBarrierConfigs(taskOp);
-            break;
-        }
-
         // TODO: Analyze and define executor type for funcOp - E#117624
         // Using DMA is a temporary change
         case config::ExecutorKind::UNKNOWN: {
@@ -451,7 +445,6 @@ mlir::LogicalResult vpux::VPURT::BarrierSimulator::simulateBarriers(Logger log, 
     SmallVector<size_t> dma(_dmaTasks.size(), 0);
     size_t dpu = 0;
     size_t act = 0;
-    size_t m2i = 0;
     bool progressed = false;
 
     log.trace("Simulating barrier flow ({0}) with {1} barries", _isDynamicBarriers ? "assignment" : "validation",
@@ -474,13 +467,10 @@ mlir::LogicalResult vpux::VPURT::BarrierSimulator::simulateBarriers(Logger log, 
         return dmaLog;
     };
 
-    for (; bar < _barriers.size() || isDmaFifoNotComplete() || dpu < _nceTasks.size() || act < _actTasks.size() ||
-           m2i < _m2iTasks.size();
+    for (; bar < _barriers.size() || isDmaFifoNotComplete() || dpu < _nceTasks.size() || act < _actTasks.size();
          progressed = false) {
-        log.nest(1).trace("DMA:{0}; DPU: {1} / {2}; ACT: {3} / {4}; M2I: {5} / "
-                          "{6}; BAR: {7} / {8}",
-                          getDmaProgressLog(), dpu, _nceTasks.size(), act, _actTasks.size(), m2i, _m2iTasks.size(), bar,
-                          _barriers.size());
+        log.nest(1).trace("DMA:{0}; DPU: {1} / {2}; ACT: {3} / {4}; BAR: {5} / {6}", getDmaProgressLog(), dpu,
+                          _nceTasks.size(), act, _actTasks.size(), bar, _barriers.size());
 
         // Static vs dynamic barriers need a different loop exit condition
         const auto hasBarriersToMap = [&]() {
@@ -674,24 +664,6 @@ mlir::LogicalResult vpux::VPURT::BarrierSimulator::simulateBarriers(Logger log, 
             log.nest(3).trace("ACT[{0}]: waits: {1}, posts: {2}", act, dt.waits, dt.posts);
         }
 
-        // Process M2I tasks
-        log.nest(2).trace("Process M2I tasks");
-        for (; m2i < _m2iTasks.size(); ++m2i, progressed = true) {
-            auto& dt = _m2iTasks[m2i];
-
-            const auto status =
-                    processSim(_vdt.dep(dt.virtualDep), dt, dt.count, "M2I", m2i, toVirtual, nextReal, log.nest(3));
-
-            if (status == Status::Fail) {
-                return mlir::failure();
-            }
-            if (status == Status::Skip) {
-                break;
-            }
-
-            log.nest(3).trace("M2I[{0}]: waits: {1}, posts: {2}", m2i, dt.waits, dt.posts);
-        }
-
         if (barrierLegalizationSim) {
             // update progress
             log.nest(1).trace("Barrier Legalization: progressed={0}", progressed);
@@ -757,10 +729,8 @@ mlir::LogicalResult vpux::VPURT::BarrierSimulator::simulateBarriers(Logger log, 
         }
 
         if (!progressed) {
-            log.debug("Barrier simulation blocked at DMA:{0}; DPU: {1} / {2}; ACT: {3} / {4}; "
-                      "M2I: {5} / {6}; BAR: {7} / {8}",
-                      getDmaProgressLog(), dpu, _nceTasks.size(), act, _actTasks.size(), m2i, _m2iTasks.size(), bar,
-                      _barriers.size());
+            log.debug("Barrier simulation blocked at DMA:{0}; DPU: {1} / {2}; ACT: {3} / {4}; BAR: {5} / {6}",
+                      getDmaProgressLog(), dpu, _nceTasks.size(), act, _actTasks.size(), bar, _barriers.size());
 
             for (size_t pid = 0; pid < toVirtual.size(); pid++) {
                 auto vid = toVirtual[pid];

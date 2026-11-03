@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-// RUN: vpux-opt --split-input-file --init-compiler="platform=%platform%" --propagate-transpose %s | FileCheck %s
+// RUN: vpux-opt --split-input-file --init-compiler="platform=%platform% workload-management-mode=FWLM_V1_PAGES" --propagate-transpose %s | FileCheck %s
 // REQUIRES: platform-NPU5010
 
 // These tests verify that MoveThroughScatterUpdate fires when newAxisValue != 0.

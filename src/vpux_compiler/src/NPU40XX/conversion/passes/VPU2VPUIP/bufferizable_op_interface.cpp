@@ -47,6 +47,7 @@ void registerGatherDMAOpBufferizableOpInterfaces(mlir::DialectRegistry& registry
 //
 
 void vpux::arch40xx::registerBufferizableOpInterfaces(mlir::DialectRegistry& registry) {
+    vpux::registerTensorSliceBufferizableOpInterfaces(registry);
     vpux::registerConstDeclareBufferizableOpInterfaces(registry);
     vpux::registerCoreBufferizableOpInterfaces(registry);
     vpux::registerSoftwareLayerBufferizableOpInterfaces(registry);

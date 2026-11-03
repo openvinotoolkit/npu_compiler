@@ -132,7 +132,7 @@ func.func @MergeDequantWithInvalidCost(
 
   // Dequantize has invalid VPUNN cost, while it still can be merged with the convolution user
   // CHECK: [[VF:%.+]] = VPU.VerticalFusion
-  // CHECK-SAME: attributes {scenario = #VPU.vf_scenario<VF_PIPELINING>, tilingStrategy = [1, 128, 1, 1]}
+  // CHECK-SAME: attributes {scenario = #VPU.vf_scenario<VF_DPU_SHV_DOUBLE_BUFFERING>, tilingStrategy = [1, 128, 1, 1]}
   // CHECK: VPU.Dequantize
   // CHECK: [[CONV:%.+]] = VPU.NCE.Convolution
   // CHECK: VPU.Yield

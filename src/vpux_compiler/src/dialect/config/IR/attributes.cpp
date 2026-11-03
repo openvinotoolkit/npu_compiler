@@ -91,8 +91,7 @@ StringLiteral vpux::config::getMemoryBandwidthAttrName() {
 }
 
 bool vpux::config::isHostCompileMode(CompilationMode mode) {
-    return mode == CompilationMode::HostCompile || mode == CompilationMode::HostCompile_JIT ||
-           mode == CompilationMode::HostCompile_Interpreter;
+    return mode == CompilationMode::HostCompile_Interpreter;
 }
 
 bool vpux::config::isHostCompileMode(mlir::Operation* op) {
@@ -187,7 +186,6 @@ void setResources(mlir::ModuleOp module, const Resources& res, const SetResource
     case config::ArchKind::NPU40XX: {
         funcs.addSubExecutor(globalResource, config::ExecutorKind::DMA_NN,
                              getNumOfDMAPortsVal(std::min(numOfDPUGroups, MAX_DMA_PORTS_2)));
-        funcs.addSubExecutor(globalResource, config::ExecutorKind::M2I, 1);
         funcs.addInnerMemoryWithAttrs(globalResource, ddrSymbolAttr, DDR_HEAP_SIZE, 0.6, 64);
         funcs.addSubExecutor(nceCluster, config::ExecutorKind::SHAVE_ACT, MAX_SHAVES_PER_TILE_2);
         funcs.addInnerMemoryWithAttrs(nceCluster, cmxSymbolAttr, workspaceCMXSize, 1.0, 64);
@@ -197,7 +195,6 @@ void setResources(mlir::ModuleOp module, const Resources& res, const SetResource
         funcs.addInnerMemoryWithAttrs(globalResource, ddrSymbolAttr, DDR_HEAP_SIZE, 0.6, 64);
         funcs.addSubExecutor(globalResource, config::ExecutorKind::DMA_NN,
                              getNumOfDMAPortsVal(static_cast<int>(VPU::getMaxDMAPorts(platform))));
-        funcs.addSubExecutor(globalResource, config::ExecutorKind::M2I, 1);
         funcs.addSubExecutor(nceCluster, config::ExecutorKind::SHAVE_ACT, MAX_SHAVES_PER_TILE_2);
         funcs.addInnerMemoryWithAttrs(nceCluster, cmxSymbolAttr, workspaceCMXSize, 1.0, 64);
         break;

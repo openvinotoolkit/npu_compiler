@@ -55,16 +55,13 @@ bool VPU::isOperationSplitOverHeightCompatible(mlir::Operation* op, const vpux::
     }
     // For NCE ops with active ODU transform, also verify the pre-ODU output height is sufficient for SOH.
     if (mlir::isa<VPU::NCEOpInterface>(op)) {
-        const auto scales = VPU::getODUScaling(op);
-        if (!scales.empty()) {
-            const auto preShapeResult = VPU::invertODUScaling(scales, SmallVector<int64_t>(outputShape.raw()));
-            if (mlir::failed(preShapeResult)) {
-                return false;
-            }
-            const auto& preShape = preShapeResult.value();
-            if (!heightCompatibleCheck(ShapeRef(preShape))) {
-                return false;
-            }
+        const auto preShapeResult = VPU::invertODUScaling(VPU::getODUScaling(op), outputShape);
+        if (mlir::failed(preShapeResult)) {
+            return false;
+        }
+        const auto& preShape = preShapeResult.value();
+        if (!heightCompatibleCheck(ShapeRef(preShape))) {
+            return false;
         }
     }
     auto siblingsOpsAnalysis = SiblingOpsAnalysis(op);
@@ -111,7 +108,7 @@ bool VPU::isOperationSplitOverHeightCompatible(mlir::Operation* op, const vpux::
             const auto inputTileType = inputType.extractDenseTile(inputTile.offsets, inputTile.shape);
 
             auto distributions = VPU::getActivationDistributionAttrFromOp(
-                    clusteredOp, clusteredOp->getOperand(0), inputTileType, numClusters, siblingsOpsAnalysis);
+                    clusteredOp, clusteredOp->getOpOperand(0), inputTileType, numClusters, siblingsOpsAnalysis);
             auto distribution =
                     mlir::isa<VPU::SparseTensorType>(inputTileType)
                             ? distributions.at(mlir::cast<vpux::VPU::SparseTensorType>(inputTileType).getData())
@@ -247,16 +244,13 @@ bool VPU::isOperationSplitOverWidthCompatible(mlir::Operation* op, ShapeRef outp
     auto isSOWCompatible = widthCompatibleCheck(outputShape);
     // For NCE ops with active ODU transform, also verify the pre-ODU output width is sufficient for SOW.
     if (mlir::isa<VPU::NCEOpInterface>(op)) {
-        const auto scales = VPU::getODUScaling(op);
-        if (!scales.empty()) {
-            const auto preShapeResult = VPU::invertODUScaling(scales, SmallVector<int64_t>(outputShape.raw()));
-            if (mlir::failed(preShapeResult)) {
-                return false;
-            }
-            const auto preShape = preShapeResult.value();
-            if (!widthCompatibleCheck(ShapeRef(preShape))) {
-                return false;
-            }
+        const auto preShapeResult = VPU::invertODUScaling(VPU::getODUScaling(op), outputShape);
+        if (mlir::failed(preShapeResult)) {
+            return false;
+        }
+        const auto preShape = preShapeResult.value();
+        if (!widthCompatibleCheck(ShapeRef(preShape))) {
+            return false;
         }
     }
     if (arch >= config::ArchKind::NPU40XX) {
@@ -324,18 +318,15 @@ bool VPU::isOperationSplitOverKernelCompatible(mlir::Operation* op, ShapeRef out
     }
 
     // For NCE ops with active ODU transform, also verify the pre-ODU channel count is sufficient for SOK.
-    const auto scales = VPU::getODUScaling(op);
-    if (!scales.empty()) {
-        const auto preShapeResult = VPU::invertODUScaling(scales, SmallVector<int64_t>(outputShape.raw()));
-        if (mlir::failed(preShapeResult)) {
-            return false;
-        }
-        const auto preShape = ShapeRef(preShapeResult.value());
-        VPUX_THROW_WHEN(preShape.size() != outputShape.size(),
-                        "Pre-ODU shape rank does not match output shape rank for op {0}", op->getLoc());
-        if (preShape[Dims4D::Act::C] < minChannelSize) {
-            return false;
-        }
+    const auto preShapeResult = VPU::invertODUScaling(VPU::getODUScaling(op), outputShape);
+    if (mlir::failed(preShapeResult)) {
+        return false;
+    }
+    const auto preShape = ShapeRef(preShapeResult.value());
+    VPUX_THROW_WHEN(preShape.size() != outputShape.size(),
+                    "Pre-ODU shape rank does not match output shape rank for op {0}", op->getLoc());
+    if (preShape[Dims4D::Act::C] < minChannelSize) {
+        return false;
     }
 
     // SOK will split the weights over output channels. If the weights are sparse, it is necessary to make sure that
@@ -497,16 +488,17 @@ bool VPU::doesLayerFitIntoCMX(mlir::Operation* op, VPU::MultiClusterStrategy str
     auto nceOp = mlir::dyn_cast<VPU::NCEOpInterface>(op);
 
     SmallVector<Byte> buffersSize{};
-    for (auto input : op->getOperands()) {
+    for (auto& input : op->getOpOperands()) {
+        const auto inputType = input.get().getType();
         TensorDistributionMap distAttr;
-        if (nceOp != nullptr && isWeightsLikeOperand(nceOp, input)) {
-            distAttr = getFilterDistributionAttrFromOp(nceOp, mlir::cast<vpux::NDTypeInterface>(input.getType()),
-                                                       numClusters, strategy);
+        if (nceOp != nullptr && isWeightsLikeOperand(nceOp, input.get())) {
+            distAttr = getFilterDistributionAttrFromOp(nceOp, mlir::cast<vpux::NDTypeInterface>(inputType), numClusters,
+                                                       strategy);
         } else {
-            distAttr = getActivationDistributionAttrFromOp(clusteredOp, input, input.getType(), numClusters, strategy,
+            distAttr = getActivationDistributionAttrFromOp(clusteredOp, input, inputType, numClusters, strategy,
                                                            siblingsAnalysis);
         }
-        buffersSize.push_back(VPU::getTotalAllocSizeWithDistribution(input.getType(), distAttr));
+        buffersSize.push_back(VPU::getTotalAllocSizeWithDistribution(inputType, distAttr));
     }
     for (auto result : op->getResults()) {
         buffersSize.push_back(VPU::getTotalAllocSizeWithDistribution(

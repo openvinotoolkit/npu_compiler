@@ -16,7 +16,7 @@ func.func @FakeQuantConv2dWithLeakyRelu1Test(%arg0: tensor<1x16x4x4xf16>) -> ten
 
     %quantized_input = IE.FakeQuantize(%arg0, %cst_0, %cst_1, %cst_0, %cst_1) {
         auto_broadcast = #IE.auto_broadcast_type<NUMPY>,
-        levels = 256 : i64
+        levels_or_low_fp_type = 256 : i64
     } : tensor<1x16x4x4xf16>, tensor<f16>, tensor<f16>, tensor<f16>, tensor<f16> -> tensor<1x16x4x4xf16>
 
     %0 = IE.Convolution(%quantized_input, %filters)
@@ -32,7 +32,7 @@ func.func @FakeQuantConv2dWithLeakyRelu1Test(%arg0: tensor<1x16x4x4xf16>) -> ten
 
     %result = IE.FakeQuantize(%1, %cst_0, %cst, %cst_0, %cst) {
         auto_broadcast = #IE.auto_broadcast_type<NUMPY>,
-        levels = 256 : i64
+        levels_or_low_fp_type = 256 : i64
     } : tensor<1x16x3x3xf16>, tensor<f16>, tensor<f16>, tensor<f16>, tensor<f16> -> tensor<1x16x3x3xf16>
 
     return %result : tensor<1x16x3x3xf16>
@@ -56,7 +56,7 @@ func.func @FakeQuantConv2dWithLeakyRelu15Test(%arg0: tensor<1x16x4x4xf16>) -> te
 
     %quantized_input = IE.FakeQuantize(%arg0, %cst_0, %cst_1, %cst_0, %cst_1) {
         auto_broadcast = #IE.auto_broadcast_type<NUMPY>,
-        levels = 256 : i64
+        levels_or_low_fp_type = 256 : i64
     } : tensor<1x16x4x4xf16>, tensor<f16>, tensor<f16>, tensor<f16>, tensor<f16> -> tensor<1x16x4x4xf16>
 
     %0 = IE.Convolution(%quantized_input, %filters)
@@ -72,7 +72,7 @@ func.func @FakeQuantConv2dWithLeakyRelu15Test(%arg0: tensor<1x16x4x4xf16>) -> te
 
     %result = IE.FakeQuantize(%1, %cst_0, %cst, %cst_0, %cst) {
         auto_broadcast = #IE.auto_broadcast_type<NUMPY>,
-        levels = 256 : i64
+        levels_or_low_fp_type = 256 : i64
     } : tensor<1x16x3x3xf16>, tensor<f16>, tensor<f16>, tensor<f16>, tensor<f16> -> tensor<1x16x3x3xf16>
 
     return %result : tensor<1x16x3x3xf16>
@@ -95,11 +95,11 @@ func.func @FakeQuantAddWithLeakyReluFusedTest(%arg0: tensor<1x128x1x8xf16>) -> t
     %cst_2 = const.Declare tensor<1x1x1x1xf16> = dense<-6.000000e+00> : tensor<1x1x1x1xf32>, [#const.CastElemType<f16>]
     %0 = IE.FakeQuantize(%arg0, %cst_2, %cst_1, %cst_2, %cst_1) {
         auto_broadcast = #IE.auto_broadcast_type<NUMPY>,
-        levels = 256 : i64
+        levels_or_low_fp_type = 256 : i64
     } : tensor<1x128x1x8xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<1x128x1x8xf16>
     %1 = IE.FakeQuantize(%arg0, %cst_0, %cst, %cst_0, %cst) {
         auto_broadcast = #IE.auto_broadcast_type<NUMPY>,
-        levels = 256 : i64
+        levels_or_low_fp_type = 256 : i64
     } : tensor<1x128x1x8xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<1x128x1x8xf16>
     %2 = IE.Add(%0, %1) {
             auto_broadcast = #IE.auto_broadcast_type<NUMPY>
@@ -108,7 +108,7 @@ func.func @FakeQuantAddWithLeakyReluFusedTest(%arg0: tensor<1x128x1x8xf16>) -> t
             negative_slope = 0.199951171875 : f64
     } : tensor<1x128x1x8xf16> -> tensor<1x128x1x8xf16>
     %4 = IE.FakeQuantize(%3, %cst_0, %cst, %cst_0, %cst) {
-        auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i64
+        auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256 : i64
     } : tensor<1x128x1x8xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<1x128x1x8xf16>
     return %4 : tensor<1x128x1x8xf16>
 
@@ -161,11 +161,11 @@ func.func @SkipFakeQuantAndOpWithLeakyReluFusedTest(%arg0: tensor<1x128x1x8xf16>
     %cst_2 = const.Declare tensor<1x1x1x1xf16> = dense<-6.000000e+00> : tensor<1x1x1x1xf32>, [#const.CastElemType<f16>]
     %0 = IE.FakeQuantize(%arg0, %cst_2, %cst_1, %cst_2, %cst_1) {
         auto_broadcast = #IE.auto_broadcast_type<NUMPY>,
-        levels = 256 : i64
+        levels_or_low_fp_type = 256 : i64
     } : tensor<1x128x1x8xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<1x128x1x8xf16>
     %1 = IE.FakeQuantize(%arg0, %cst_0, %cst, %cst_0, %cst) {
         auto_broadcast = #IE.auto_broadcast_type<NUMPY>,
-        levels = 256 : i64
+        levels_or_low_fp_type = 256 : i64
     } : tensor<1x128x1x8xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<1x128x1x8xf16>
     %2 = IE.And(%0, %1) {
             auto_broadcast = #IE.auto_broadcast_type<NUMPY>
@@ -174,7 +174,7 @@ func.func @SkipFakeQuantAndOpWithLeakyReluFusedTest(%arg0: tensor<1x128x1x8xf16>
             negative_slope = 1.000000e-01 : f64
     } : tensor<1x128x1x8xf16> -> tensor<1x128x1x8xf16>
     %4 = IE.FakeQuantize(%3, %cst_0, %cst, %cst_0, %cst) {
-        auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i64
+        auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256 : i64
     } : tensor<1x128x1x8xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<1x128x1x8xf16>
     return %4 : tensor<1x128x1x8xf16>
 
@@ -196,11 +196,11 @@ func.func @SkipFakeQuantMultiplyWithLeakyReluFusedTest(%arg0: tensor<1x128x1x8xf
     %cst_2 = const.Declare tensor<1x1x1x1xf16> = dense<-6.000000e+00> : tensor<1x1x1x1xf32>, [#const.CastElemType<f16>]
     %0 = IE.FakeQuantize(%arg0, %cst_2, %cst_1, %cst_2, %cst_1) {
         auto_broadcast = #IE.auto_broadcast_type<NUMPY>,
-        levels = 256 : i64
+        levels_or_low_fp_type = 256 : i64
     } : tensor<1x128x1x8xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<1x128x1x8xf16>
     %1 = IE.FakeQuantize(%arg0, %cst_0, %cst, %cst_0, %cst) {
         auto_broadcast = #IE.auto_broadcast_type<NUMPY>,
-        levels = 256 : i64
+        levels_or_low_fp_type = 256 : i64
     } : tensor<1x128x1x8xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<1x128x1x8xf16>
     %2 = IE.Multiply(%0, %1) {
             auto_broadcast = #IE.auto_broadcast_type<NUMPY>
@@ -209,7 +209,7 @@ func.func @SkipFakeQuantMultiplyWithLeakyReluFusedTest(%arg0: tensor<1x128x1x8xf
             negative_slope = 2.000000e-01 : f64
     } : tensor<1x128x1x8xf16> -> tensor<1x128x1x8xf16>
     %4 = IE.FakeQuantize(%3, %cst_0, %cst, %cst_0, %cst) {
-        auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i64
+        auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256 : i64
     } : tensor<1x128x1x8xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<1x128x1x8xf16>
     return %4 : tensor<1x128x1x8xf16>
 

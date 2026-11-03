@@ -139,10 +139,6 @@ INSTANTIATE_TEST_SUITE_P(smoke_MatMulMixedPrecisionOneICSplitOneOCSplit, MatMulM
 
 class MatMulMixedPrecisionTestOutputQuantized : public MatMulMixedPrecisionTestCommon {
 public:
-    void configure_model() override {
-        configuration[ov::intel_npu::compilation_mode_params.name()] = "fuse-outstanding-dequant=false";
-    }
-
     void SetUp() override {
         const auto inputShape = std::get<0>(GetParam());
         const auto weightsShape = std::get<1>(GetParam());
@@ -202,16 +198,29 @@ public:
     }
 };
 
+class MatMulMixedPrecisionTestOutputQuantizedDisabledFuseOutstandingDequant :
+        public MatMulMixedPrecisionTestOutputQuantized {
+public:
+    // NOTE: MTL/LNL has no HW support for clamps when clamp_low != 0 and non-quantized output.
+    //       A deliberate decision was made to fuse outstanding Dequant without
+    //       clamping as long as it's not ReLUx/Clamp(0, x). This is to prioritise performance over accuracy.
+    //       Some networks don't need clamping, it just depends on how they were quantized.
+    //       Please reference fuse-outstanding-dequant for additional details.
+    void configure_model() override {
+        configuration[ov::intel_npu::compilation_mode_params.name()] = "fuse-outstanding-dequant=false";
+    }
+};
+
 //
 // Platform test definition
 //
 
-TEST_P(MatMulMixedPrecisionTestOutputQuantized, NPU3720_HW) {
+TEST_P(MatMulMixedPrecisionTestOutputQuantizedDisabledFuseOutstandingDequant, NPU3720_HW) {
     setDefaultHardwareMode();
     run(Platform::NPU3720);
 }
 
-TEST_P(MatMulMixedPrecisionTestOutputQuantized, NPU4000_HW) {
+TEST_P(MatMulMixedPrecisionTestOutputQuantizedDisabledFuseOutstandingDequant, NPU4000_HW) {
     setDefaultHardwareMode();
     run(Platform::NPU4000);
 }
@@ -227,6 +236,32 @@ TEST_P(MatMulMixedPrecisionTestOutputQuantized, NPU5020_HW) {
 }
 
 INSTANTIATE_TEST_SUITE_P(smoke_MatMulMixedPrecisionOutputQuantized, MatMulMixedPrecisionTestOutputQuantized,
+                         ::testing::Values(
+                                 MatMulMixedPrecisionTestParams{
+                                         {1, 1, 20000},         // input shape
+                                         {16, 20000},           // weights shape
+                                         QuantType::PER_TENSOR  // output is quantized per tensor
+                                 },
+                                 MatMulMixedPrecisionTestParams{
+                                         {1, 1, 11008},         // input shape
+                                         {16, 11008},           // weights shape
+                                         QuantType::PER_TENSOR  // output is quantized per tensor
+                                 },
+
+                                 MatMulMixedPrecisionTestParams{
+                                         {1, 1, 20000},          // input shape
+                                         {16, 20000},            // weights shape
+                                         QuantType::PER_CHANNEL  // output is quantized per channel
+                                 },
+                                 MatMulMixedPrecisionTestParams{
+                                         {1, 1, 11008},          // input shape
+                                         {16, 11008},            // weights shape
+                                         QuantType::PER_CHANNEL  // output is quantized per channel
+                                 }),
+                         MatMulMixedPrecisionTestOutputQuantized::getTestCaseName);
+
+INSTANTIATE_TEST_SUITE_P(smoke_MatMulMixedPrecisionOutputQuantizedDisabledFuseOutstandingDequant,
+                         MatMulMixedPrecisionTestOutputQuantizedDisabledFuseOutstandingDequant,
                          ::testing::Values(
                                  MatMulMixedPrecisionTestParams{
                                          {1, 1, 20000},         // input shape

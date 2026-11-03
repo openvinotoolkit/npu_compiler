@@ -70,7 +70,11 @@ mlir::func::FuncOp createStaticFuncOp(mlir::func::FuncOp dynFuncOp, SmallVector<
     assert(moduleOp.lookupSymbol<mlir::func::FuncOp>(newFuncName) == nullptr && "static function already exists");
 
     auto newFuncType = mlir::FunctionType::get(moduleOp->getContext(), mlir::TypeRange(newFuncResultTypes), {});
-    return VPU::cloneFuncOp(dynFuncOp, newFuncName, newFuncType);
+    auto newFuncOp = VPU::cloneFuncOp(dynFuncOp, newFuncName, newFuncType);
+    // Static specializations are internal helpers. Keeping them private allows SymbolDCE to remove a specialization
+    // when canonicalization eliminates its call site before nested-module packing.
+    newFuncOp.setPrivate();
+    return newFuncOp;
 }
 
 // Set dynamic shape attributes on function arguments and results. The attributes are used in AddNetInfoToModule pass
@@ -264,8 +268,17 @@ void ConvertDynamicToStaticKernelsPass::safeRunOnModule() {
     auto mainFuncOp = net::getMainFunc(moduleOp);
     mlir::OpBuilder builder(moduleOp.getContext());
 
-    auto forOps = mainFuncOp.getOps<mlir::scf::ForOp>();
-    if (forOps.empty()) {
+    const auto isSubTileFallbackLoop = [](mlir::scf::ForOp forOp) {
+        return forOp->hasAttr(SUB_TILE_FALLBACK_ATTR);
+    };
+    // Loops may be nested inside the scf.if produced by the sub-tile dispatch, so a recursive lookup is required
+    const auto hasLoopsToConvert = mainFuncOp
+                                           .walk([&](mlir::scf::ForOp forOp) {
+                                               return isSubTileFallbackLoop(forOp) ? mlir::WalkResult::advance()
+                                                                                   : mlir::WalkResult::interrupt();
+                                           })
+                                           .wasInterrupted();
+    if (!hasLoopsToConvert) {
         _log.trace("No scf.for operations found in the main function. Skipping convert_dynamic_to_static pass.");
         return;
     }
@@ -310,6 +323,11 @@ void ConvertDynamicToStaticKernelsPass::safeRunOnModule() {
     };
 
     mlir::WalkResult walkResult = mainFuncOp.walk<mlir::WalkOrder::PreOrder>([&](mlir::scf::ForOp forOp) {
+        // The fallback path keeps dynamic kernels on purpose
+        if (isSubTileFallbackLoop(forOp)) {
+            return mlir::WalkResult::skip();
+        }
+
         auto insertSliceOps = forOp.getOps<mlir::tensor::InsertSliceOp>();
         if (insertSliceOps.empty()) {
             return mlir::WalkResult::advance();

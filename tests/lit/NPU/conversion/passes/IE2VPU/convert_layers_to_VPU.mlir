@@ -552,12 +552,12 @@ func.func @Proposal(%class_probs: tensor<7x4x28x28xf16>, %bbox_deltas: tensor<7x
 // -----
 
 // CHECK-LABEL: @OneHot
-// CHECK:     ([[ARG_0:%.+]]: tensor<4xsi32>)
-func.func @OneHot(%arg0: tensor<4xsi32>) -> tensor<4x3xf16> {
-    %0 = IE.OneHot(%arg0) {axis_attr = 1 : i64, depth_attr = 3 : i64, mode = #IE.one_hot_mode<IGNORE_NEGATIVE>, off_value_attr = -1.000000e+00 : f64, on_value_attr = 1.000000e+00 : f64, operandSegmentSizes = array<i32: 1, 0, 0, 0>, outputType = f16} : tensor<4xsi32> -> tensor<4x3xf16>
+// CHECK:     ([[ARG_0:%.+]]: tensor<4x1xsi32>)
+func.func @OneHot(%arg0: tensor<4x1xsi32>) -> tensor<4x3xf16> {
+    %0 = IE.OneHot(%arg0) {axis_attr = 1 : i64, depth_attr = 3 : i64, mode = #IE.one_hot_mode<IGNORE_NEGATIVE>, off_value_attr = -1.000000e+00 : f64, on_value_attr = 1.000000e+00 : f64, operandSegmentSizes = array<i32: 1, 0, 0, 0>, outputType = f16, rank_expanded = true} : tensor<4x1xsi32> -> tensor<4x3xf16>
     return %0 : tensor<4x3xf16>
 
-    // CHECK: [[VAR0:%.+]] = VPU.OneHot([[ARG_0]]) {axis = 1 : i64, depth = 3 : i64, mode = #IE.one_hot_mode<IGNORE_NEGATIVE>, off_value = -1.000000e+00 : f64, on_value = 1.000000e+00 : f64, outputType = f16} : tensor<4xsi32> -> tensor<4x3xf16>
+    // CHECK: [[VAR0:%.+]] = VPU.OneHot([[ARG_0]]) {axis = 1 : i64, depth = 3 : i64, mode = #IE.one_hot_mode<IGNORE_NEGATIVE>, off_value = -1.000000e+00 : f64, on_value = 1.000000e+00 : f64, outputType = f16, rank_expanded = true} : tensor<4x1xsi32> -> tensor<4x3xf16>
     // CHECK: return [[VAR0]] : tensor<4x3xf16>
 }
 
@@ -810,6 +810,26 @@ func.func @TopKWithKConst(%arg0: tensor<1x64x128x128xf32>) -> tensor<1x1x128x128
     // CHECK:       [[VALUES:%.+]], [[SHAPE:%.+]] = VPU.TopK([[INPUT]], [[CST_K]], [[AUX]])
     // CHECK-SAME:         {axis = 1 : i64, element_type = si32, mode = #IE.topk_mode<MAX>, sort = #IE.topk_sort_type<SORT_INDICES>}
     // CHECK-SAME:         : tensor<1x64x128x128xf32>, tensor<si32>, tensor<1x1x1x1024xui8> -> tensor<1x1x128x128xf32>, tensor<1x1x128x128xsi32>
+    // CHECK:       return [[SHAPE]]
+}
+
+// -----
+
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+#BOUNDS = #const.OpaqueI64Elements<[1, 64, 128, 128]> : tensor<4xsi64>
+
+// Dynamic TopK axis: the auxiliary buffer is sized by the axis upper bound (2 * 64 * 2 * max(4, sizeof(f32)) = 1024)
+// CHECK-LABEL: @TopKDynamicAxisRuntimeK
+// CHECK-SAME: ([[INPUT:%.+]]: tensor<1x?x128x128xf32, {{.*}}>, [[K:%.+]]: tensor<si32>)
+func.func @TopKDynamicAxisRuntimeK(%arg0: tensor<1x?x128x128xf32, {bounds = #BOUNDS, order = #NCHW}>, %k: tensor<si32>)
+        -> tensor<1x?x128x128xsi32, {bounds = #BOUNDS, order = #NCHW}> {
+    %output_values, %target_shape = IE.TopK(%arg0, %k) {axis = 1 : i64, element_type = si32, mode = #IE.topk_mode<MAX>, sort = #IE.topk_sort_type<SORT_INDICES>}
+            : tensor<1x?x128x128xf32, {bounds = #BOUNDS, order = #NCHW}>, tensor<si32>
+            -> tensor<1x?x128x128xf32, {bounds = #BOUNDS, order = #NCHW}>, tensor<1x?x128x128xsi32, {bounds = #BOUNDS, order = #NCHW}>
+    return %target_shape : tensor<1x?x128x128xsi32, {bounds = #BOUNDS, order = #NCHW}>
+
+    // CHECK:       [[AUX:%.+]] = VPU.Empty : tensor<1x1x1x1024xui8>
+    // CHECK:       [[VALUES:%.+]], [[SHAPE:%.+]] = VPU.TopK([[INPUT]], [[K]], [[AUX]])
     // CHECK:       return [[SHAPE]]
 }
 

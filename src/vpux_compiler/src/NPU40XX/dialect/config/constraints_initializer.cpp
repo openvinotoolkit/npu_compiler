@@ -21,9 +21,11 @@ void config::ConstraintsInitializer40XX::initialize(mlir::MLIRContext* context) 
 
     constraints.baseElfAbiVersion = config::Version(1, 2, 2);
     constraints.dynamicStridesMinElfAbiVersion = config::Version(1, 3, 0);
+    constraints.dynamicStridesSubByteMinElfAbiVersion = config::Version(1, 4, 0);
 
     constraints.maxKernelSize = arch37xx::DPU_MAX_KERNEL_SIZE;
     constraints.legalRoPEConfigs = getDefaultLegalRoPEConfigs();
 
+    constraints.asymmetricPerTensorZP = arch37xx::ASYMMETRIC_PER_TENSOR_ZP;
     setNPUConstraints(context, constraints);
 }

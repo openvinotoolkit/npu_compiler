@@ -25,7 +25,7 @@ func.func @UnrollHighValues(%arg0: tensor<1x2x16x32xf16>) -> tensor<1x2x16x32xf1
     // CHECK:   [[DATA_1:%.+]] = IE.Slice [[ARG_0]] [0, 1, 0, 0] [1, 1, 16, 32]
     %0 = IE.FakeQuantize(%arg0, %IN_LOW, %IN_HIGH, %OUT_LOW, %OUT_HIGH) {
         auto_broadcast = #IE.auto_broadcast_type<NUMPY>,
-        levels = 256 : i64
+        levels_or_low_fp_type = 256 : i64
     } : tensor<1x2x16x32xf16>,
         tensor<1x1x1x1xf16>,
         tensor<1x1x1x1xf16>,
@@ -34,12 +34,12 @@ func.func @UnrollHighValues(%arg0: tensor<1x2x16x32xf16>) -> tensor<1x2x16x32xf1
 
     // CHECK:   [[FQ_0:%.+]] = IE.FakeQuantize([[DATA_0]], [[IN_LOW]], [[IN_HIGH]], [[OUT_LOW_0]], [[OUT_HIGH_0]]) {
     // CHECK-SAME:      auto_broadcast = #IE.auto_broadcast_type<NUMPY>,
-    // CHECK-SAME:      levels = 256 : i64
+    // CHECK-SAME:      levels_or_low_fp_type = 256 : i64
     // CHECK-SAME:  }
 
     // CHECK:   [[FQ_1:%.+]] = IE.FakeQuantize([[DATA_1]], [[IN_LOW]], [[IN_HIGH]], [[OUT_LOW_1]], [[OUT_HIGH_1]]) {
     // CHECK-SAME:      auto_broadcast = #IE.auto_broadcast_type<NUMPY>,
-    // CHECK-SAME:      levels = 256 : i64
+    // CHECK-SAME:      levels_or_low_fp_type = 256 : i64
     // CHECK-SAME:  }
 
     // CHECK:   [[CONCAT:%.+]] = IE.Concat([[FQ_0]], [[FQ_1]]) {
@@ -72,7 +72,7 @@ func.func @UnrollAllValues(%arg0: tensor<1x2x16x32xf16>) -> tensor<1x2x16x32xf16
     // CHECK:   [[DATA_1:%.+]] = IE.Slice [[ARG_0]] [0, 1, 0, 0] [1, 1, 16, 32]
     %0 = IE.FakeQuantize(%arg0, %IN_LOW, %IN_HIGH, %OUT_LOW, %OUT_HIGH) {
         auto_broadcast = #IE.auto_broadcast_type<NUMPY>,
-        levels = 256 : i64
+        levels_or_low_fp_type = 256 : i64
     } : tensor<1x2x16x32xf16>,
         tensor<1x2x1x32xf16>,
         tensor<1x2x1x32xf16>,
@@ -81,12 +81,12 @@ func.func @UnrollAllValues(%arg0: tensor<1x2x16x32xf16>) -> tensor<1x2x16x32xf16
 
     // CHECK:   [[FQ_0:%.+]] = IE.FakeQuantize([[DATA_0]], [[IN_LOW_0]], [[IN_HIGH_0]], [[OUT_LOW_0]], [[OUT_HIGH_0]]) {
     // CHECK-SAME:      auto_broadcast = #IE.auto_broadcast_type<NUMPY>,
-    // CHECK-SAME:      levels = 256 : i64
+    // CHECK-SAME:      levels_or_low_fp_type = 256 : i64
     // CHECK-SAME:  }
 
     // CHECK:   [[FQ_1:%.+]] = IE.FakeQuantize([[DATA_1]], [[IN_LOW_1]], [[IN_HIGH_1]], [[OUT_LOW_1]], [[OUT_HIGH_1]]) {
     // CHECK-SAME:      auto_broadcast = #IE.auto_broadcast_type<NUMPY>,
-    // CHECK-SAME:      levels = 256 : i64
+    // CHECK-SAME:      levels_or_low_fp_type = 256 : i64
     // CHECK-SAME:  }
 
     // CHECK:   [[CONCAT:%.+]] = IE.Concat([[FQ_0]], [[FQ_1]]) {
@@ -120,7 +120,7 @@ func.func @UnrollLow1x2x1x1(%arg0: tensor<1x2x16x32xf16>) -> tensor<1x2x16x32xf1
 
     %0 = IE.FakeQuantize(%arg0, %IN_LOW, %IN_HIGH, %OUT_LOW, %OUT_HIGH) {
         auto_broadcast = #IE.auto_broadcast_type<NUMPY>,
-        levels = 256 : i64
+        levels_or_low_fp_type = 256 : i64
     } : tensor<1x2x16x32xf16>,
         tensor<1x2x1x1xf16>,
         tensor<1x2x1x1xf16>,
@@ -128,12 +128,12 @@ func.func @UnrollLow1x2x1x1(%arg0: tensor<1x2x16x32xf16>) -> tensor<1x2x16x32xf1
         tensor<1x2x1x32xf16> -> tensor<1x2x16x32xf16>
     // CHECK:   [[FQ_0:%.+]] = IE.FakeQuantize([[DATA_0]], [[IN_LOW_0]], [[IN_HIGH_0]], [[OUT_LOW_0]], [[OUT_HIGH_0]]) {
     // CHECK-SAME:      auto_broadcast = #IE.auto_broadcast_type<NUMPY>,
-    // CHECK-SAME:      levels = 256 : i64
+    // CHECK-SAME:      levels_or_low_fp_type = 256 : i64
     // CHECK-SAME:  }
 
     // CHECK:   [[FQ_1:%.+]] = IE.FakeQuantize([[DATA_1]], [[IN_LOW_1]], [[IN_HIGH_1]], [[OUT_LOW_1]], [[OUT_HIGH_1]]) {
     // CHECK-SAME:      auto_broadcast = #IE.auto_broadcast_type<NUMPY>,
-    // CHECK-SAME:      levels = 256 : i64
+    // CHECK-SAME:      levels_or_low_fp_type = 256 : i64
     // CHECK-SAME:  }
 
     // CHECK:   [[CONCAT:%.+]] = IE.Concat([[FQ_0]], [[FQ_1]]) {
@@ -175,7 +175,7 @@ func.func @UnrollThreeAxes(%arg0: tensor<1x2x2x32xf16>) -> tensor<1x2x2x32xf16> 
 
     %0 = IE.FakeQuantize(%arg0, %IN_LOW, %IN_HIGH, %OUT_LOW, %OUT_HIGH) {
         auto_broadcast = #IE.auto_broadcast_type<NUMPY>,
-        levels = 256 : i64
+        levels_or_low_fp_type = 256 : i64
     } : tensor<1x2x2x32xf16>,
         tensor<1x2x2x32xf16>,
         tensor<1x2x2x32xf16>,
@@ -189,11 +189,11 @@ func.func @UnrollThreeAxes(%arg0: tensor<1x2x2x32xf16>) -> tensor<1x2x2x32xf16> 
 
     // CHECK:   [[FQ_0_0:%.+]] = IE.FakeQuantize([[DATA_0_0]], [[IN_LOW_0_0]], [[IN_HIGH_0_0]], [[OUT_LOW_0_0]], [[OUT_HIGH_0_0]]) {
     // CHECK-SAME:      auto_broadcast = #IE.auto_broadcast_type<NUMPY>,
-    // CHECK-SAME:      levels = 256 : i64
+    // CHECK-SAME:      levels_or_low_fp_type = 256 : i64
     // CHECK-SAME:  }
     // CHECK:   [[FQ_0_1:%.+]] = IE.FakeQuantize([[DATA_0_1]], [[IN_LOW_0_1]], [[IN_HIGH_0_1]], [[OUT_LOW_0_1]], [[OUT_HIGH_0_1]]) {
     // CHECK-SAME:      auto_broadcast = #IE.auto_broadcast_type<NUMPY>,
-    // CHECK-SAME:      levels = 256 : i64
+    // CHECK-SAME:      levels_or_low_fp_type = 256 : i64
     // CHECK-SAME:  }
 
     // CHECK:   [[CONCAT_0:%.+]] = IE.Concat([[FQ_0_0]], [[FQ_0_1]]) {
@@ -205,11 +205,11 @@ func.func @UnrollThreeAxes(%arg0: tensor<1x2x2x32xf16>) -> tensor<1x2x2x32xf16> 
 
     // CHECK:   [[FQ_1_0:%.+]] = IE.FakeQuantize([[DATA_1_0]], [[IN_LOW_1_0]], [[IN_HIGH_1_0]], [[OUT_LOW_1_0]], [[OUT_HIGH_1_0]]) {
     // CHECK-SAME:      auto_broadcast = #IE.auto_broadcast_type<NUMPY>,
-    // CHECK-SAME:      levels = 256 : i64
+    // CHECK-SAME:      levels_or_low_fp_type = 256 : i64
     // CHECK-SAME:  }
     // CHECK:   [[FQ_1_1:%.+]] = IE.FakeQuantize([[DATA_1_1]], [[IN_LOW_1_1]], [[IN_HIGH_1_1]], [[OUT_LOW_1_1]], [[OUT_HIGH_1_1]]) {
     // CHECK-SAME:      auto_broadcast = #IE.auto_broadcast_type<NUMPY>,
-    // CHECK-SAME:      levels = 256 : i64
+    // CHECK-SAME:      levels_or_low_fp_type = 256 : i64
     // CHECK-SAME:  }
 
     // CHECK:   [[CONCAT_1:%.+]] = IE.Concat([[FQ_1_0]], [[FQ_1_1]]) {
@@ -240,7 +240,7 @@ func.func @SkipUnrollWithOneAxis(%arg0: tensor<1x2x16x32xf16>) -> tensor<1x2x16x
 
     %0 = IE.FakeQuantize(%arg0, %IN_LOW, %IN_HIGH, %OUT_LOW, %OUT_HIGH) {
         auto_broadcast = #IE.auto_broadcast_type<NUMPY>,
-        levels = 256 : i64
+        levels_or_low_fp_type = 256 : i64
     } : tensor<1x2x16x32xf16>,
         tensor<1x1x1x32xf16>,
         tensor<1x1x1x32xf16>,
@@ -268,7 +268,7 @@ func.func @SkipUnrollWithNoAxes(%arg0: tensor<1x2x16x32xf16>) -> tensor<1x2x16x3
 
     %0 = IE.FakeQuantize(%arg0, %IN_LOW, %IN_HIGH, %OUT_LOW, %OUT_HIGH) {
         auto_broadcast = #IE.auto_broadcast_type<NUMPY>,
-        levels = 256 : i64
+        levels_or_low_fp_type = 256 : i64
     } : tensor<1x2x16x32xf16>,
         tensor<1x1x1x1xf16>,
         tensor<1x1x1x1xf16>,
@@ -307,7 +307,7 @@ func.func @UnrollFakeQuantAffineReshape(%arg0: tensor<1x2x2x4xf16>) -> tensor<1x
 
     %0 = IE.FakeQuantize(%arg0, %IN_LOW, %IN_HIGH, %OUT_LOW, %OUT_HIGH) {
         auto_broadcast = #IE.auto_broadcast_type<NUMPY>,
-        levels = 256 : i64
+        levels_or_low_fp_type = 256 : i64
     } : tensor<1x2x2x4xf16>,
         tensor<1x2x1x1xf16>,
         tensor<1x2x1x1xf16>,
@@ -316,19 +316,19 @@ func.func @UnrollFakeQuantAffineReshape(%arg0: tensor<1x2x2x4xf16>) -> tensor<1x
 
     // CHECK:   [[FQ_0:%.+]] = IE.FakeQuantize([[DATA_0]], [[IN_LOW]], [[IN_HIGH]], [[OUT_LOW_0]], [[OUT_HIGH_0]]) {
     // CHECK-SAME:      auto_broadcast = #IE.auto_broadcast_type<NUMPY>,
-    // CHECK-SAME:      levels = 256 : i64
+    // CHECK-SAME:      levels_or_low_fp_type = 256 : i64
     // CHECK-SAME:      }
     // CHECK:   [[FQ_1:%.+]] = IE.FakeQuantize([[DATA_1]], [[IN_LOW]], [[IN_HIGH]], [[OUT_LOW_1]], [[OUT_HIGH_1]]) {
     // CHECK-SAME:      auto_broadcast = #IE.auto_broadcast_type<NUMPY>,
-    // CHECK-SAME:      levels = 256 : i64
+    // CHECK-SAME:      levels_or_low_fp_type = 256 : i64
     // CHECK-SAME:      }
     // CHECK:   [[FQ_2:%.+]] = IE.FakeQuantize([[DATA_2]], [[IN_LOW]], [[IN_HIGH]], [[OUT_LOW_2]], [[OUT_HIGH_2]]) {
     // CHECK-SAME:      auto_broadcast = #IE.auto_broadcast_type<NUMPY>,
-    // CHECK-SAME:      levels = 256 : i64
+    // CHECK-SAME:      levels_or_low_fp_type = 256 : i64
     // CHECK-SAME:      }
     // CHECK:   [[FQ_3:%.+]] = IE.FakeQuantize([[DATA_3]], [[IN_LOW]], [[IN_HIGH]], [[OUT_LOW_3]], [[OUT_HIGH_3]]) {
     // CHECK-SAME:      auto_broadcast = #IE.auto_broadcast_type<NUMPY>,
-    // CHECK-SAME:      levels = 256 : i64
+    // CHECK-SAME:      levels_or_low_fp_type = 256 : i64
     // CHECK-SAME:      }
 
     // CHECK:   [[CONCAT:%.+]] = IE.Concat([[FQ_0]], [[FQ_1]], [[FQ_2]], [[FQ_3]]) {
@@ -490,6 +490,7 @@ func.func @UnrollSharedScaleDifferentAxes(%arg0: tensor<2x2x128x!qElemType>, %ar
 // -----
 
 !qElemType = !quant.uniform<i4:f16, 1.000000e+00>
+#HCW = affine_map<(d0, d1, d2) -> (d1, d0, d2)>
 
 // Ensure marker attrs are preserved when DynamicDequantize is unrolled.
 // Downstream bridge passes match on these attrs.
@@ -519,6 +520,38 @@ func.func @UnrollDynamicDequantizePreservesMarkers(%arg0: tensor<2x1536x128x!qEl
     // CHECK-SAME{LITERAL}:       {dim_mapping = [[0], [1], [1]], shape_value = [1536, 256]}
     // CHECK:   [[FC:%.+]] = IE.FullyConnected([[ACT]], [[RS]]) : tensor<1x256xf16>, tensor<1536x256xf16> -> tensor<1x1536xf16>
     // CHECK:   return [[FC]] : tensor<1x1536xf16>
+}
+
+// -----
+
+!qElemType = !quant.uniform<u4:f16, 1.000000e+00>
+
+// A weights-import DynDeq is bridge-bound and must be unrolled even in prefill mode. Otherwise the late bridge
+// creates a multi-axis FakeQuantize after the only group-unroll pass has already run.
+// CHECK-LABEL: @UnrollWeightsImportDynamicDequantizeForPrefill
+// CHECK-SAME:      [[INPUT:%[^:]+]]: tensor<2x4x8xui4>
+// CHECK-SAME:      [[ACT:%[^:]+]]: tensor<17x16xf16>
+func.func @UnrollWeightsImportDynamicDequantizeForPrefill(%arg0: tensor<2x4x8xui4>,
+        %arg1: tensor<17x16xf16>) -> tensor<17x4xf16> {
+    %quant_cast = IE.QuantizeCast(%arg0) {dstElemType = !qElemType}
+        : tensor<2x4x8xui4> -> tensor<2x4x8x!qElemType>
+    %scale = const.Declare tensor<2x4x1xf16> = dense<1.000000e+00> : tensor<2x4x1xf16>
+    %zp = const.Declare tensor<2x4x1xui4> = dense<1> : tensor<2x4x1xui4>
+    %0 = IE.DynamicDequantize(%quant_cast, %scale, %zp) {dstElemType = f16, vpux.weights_import_dyn_dequant}
+        : tensor<2x4x8x!qElemType>, tensor<2x4x1xf16>, tensor<2x4x1xui4> -> tensor<2x4x8xf16>
+    %1 = IE.AffineReshape(%0) {dim_mapping = [[0], [0], [1]], shape_value = [8, 8]}
+        : tensor<2x4x8xf16> -> tensor<8x8xf16>
+    %2 = IE.FullyConnected(%arg1, %1) : tensor<17x16xf16>, tensor<8x8xf16> -> tensor<17x8xf16>
+    %3 = IE.Slice %2 [0, 0] [17, 4] : tensor<17x8xf16> to tensor<17x4xf16>
+    return %3 : tensor<17x4xf16>
+
+    // CHECK:   [[RAW_IN_0:%.+]] = IE.Slice [[INPUT]] [0, 0, 0] [1, 4, 8]
+    // CHECK:   [[RAW_IN_1:%.+]] = IE.Slice [[INPUT]] [1, 0, 0] [1, 4, 8]
+    // CHECK:   [[IN_0:%.+]] = IE.QuantizeCast([[RAW_IN_0]]) {dstElemType = !qElemType}
+    // CHECK:   [[IN_1:%.+]] = IE.QuantizeCast([[RAW_IN_1]]) {dstElemType = !qElemType}
+    // CHECK:   [[DQ_0:%.+]] = IE.DynamicDequantize([[IN_0]], {{.*}}, {{.*}}) {dstElemType = f16, vpux.weights_import_dyn_dequant}
+    // CHECK:   [[DQ_1:%.+]] = IE.DynamicDequantize([[IN_1]], {{.*}}, {{.*}}) {dstElemType = f16, vpux.weights_import_dyn_dequant}
+    // CHECK:   IE.Concat([[DQ_0]], [[DQ_1]]) {per_axis = #IE.Concat<axis = 0 : i64>}
 }
 
 // -----

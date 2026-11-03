@@ -339,10 +339,10 @@ mlir::LogicalResult PropagateFakeQuantize::matchAndRewrite(IE::FakeQuantizeOp or
     for (auto concatInput : concatOp.getInputs() | indexed) {
         auto sliceFQInput = concatInput.value();
 
-        auto sliceFQOp = IE::FakeQuantizeOp::create(
-                rewriter, takeOpLoc(origOp, "slice_{0}", concatInput.index()), sliceFQInput, origOp.getInputLow(),
-                origOp.getInputHigh(), origOp.getOutputLow(), origOp.getOutputHigh(), origOp.getLevelsAttr(),
-                origOp.getLowFpTypeAttr(), origOp.getAutoBroadcastAttr());
+        auto sliceFQOp = IE::FakeQuantizeOp::create(rewriter, takeOpLoc(origOp, "slice_{0}", concatInput.index()),
+                                                    sliceFQInput, origOp.getInputLow(), origOp.getInputHigh(),
+                                                    origOp.getOutputLow(), origOp.getOutputHigh(),
+                                                    origOp.getLevelsOrLowFpTypeAttr(), origOp.getAutoBroadcastAttr());
         concatOp.setOperand(checked_cast<uint32_t>(concatInput.index()), sliceFQOp.getOutput());
     }
 

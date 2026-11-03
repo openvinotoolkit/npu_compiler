@@ -102,6 +102,7 @@ public:
     static mlir::LogicalResult verifyChannels(IE::TransposedConvolutionOp origOp, Logger log = Logger::global());
     static mlir::LogicalResult verifyChannels(IE::PadOp origOp, Logger log = Logger::global());
     static mlir::LogicalResult verifyChannels(IE::MatMulOp origOp, Logger log = Logger::global());
+    static mlir::LogicalResult verifyChannels(IE::FullyConnectedOp origOp, Logger log = Logger::global());
     static mlir::LogicalResult verifyChannels(VPU::NCEMatMulOp origOp, Logger log = Logger::global());
 
 public:

@@ -11,9 +11,13 @@
 #include "vpux/compiler/dialect/VPU/utils/concat_utils.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
 #include "vpux/compiler/dialect/const/utils/utils.hpp"
-#include "vpux/compiler/dialect/net/utils/network_info_utils.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 
+#include <mlir/Dialect/Affine/IR/AffineOps.h>
+#include <mlir/Dialect/Affine/Utils.h>
+#include <mlir/Dialect/SCF/IR/SCF.h>
+#include <mlir/Dialect/Tensor/IR/Tensor.h>
+#include <mlir/IR/IRMapping.h>
 #include <mlir/IR/PatternMatch.h>
 #include <mlir/Transforms/GreedyPatternRewriteDriver.h>
 
@@ -311,16 +315,69 @@ private:
     Logger _log;
 };
 
+namespace {
+
+bool isConsistentReshape(VPU::AffineReshapeOp reshapeOp1, VPU::AffineReshapeOp reshapeOp2) {
+    return llvm::equal(reshapeOp1.getDimMapping(), reshapeOp2.getDimMapping()) &&
+           llvm::equal(reshapeOp1.getShapeValue(), reshapeOp2.getShapeValue());
+}
+
+bool isGatherDMA(mlir::Value input) {
+    return mlir::isa_and_nonnull<VPU::GatherDMAOp>(input.getDefiningOp());
+};
+
+bool remapOffsetsToReshapeInput(VPU::AffineReshapeOp& reshapeOp, SmallVector<SmallVector<int64_t>>& origOpOffsets,
+                                const Logger& log) {
+    const auto outShape = parseIntArrayAttr<int64_t>(reshapeOp.getShapeValue());
+    const auto inShape = getShape(reshapeOp.getInput());
+    for (auto ind : irange(origOpOffsets.size())) {
+        if (inShape.size() > outShape.size() || outShape.size() - inShape.size() > 1) {
+            return false;
+        }
+
+        SmallVector<int64_t> newOrigOpOffsets;
+        // If there is a reshape op between orig Concat and parent Concat we need to recalculate the offsets,
+        // because optimized Concat will have direct GatherDMA inputs and AffineReshape inserted after.
+        // Ex:
+        //     GatherDMA 2D     GatherDMA 2D   GatherDMA 2D
+        //              \           |          /
+        //                       Concat 2D - Offsets : [0, 0], [0, 2], [0, 4]
+        //                          |
+        //                AffineReshape 2D -> 3D
+        //                          |      ..... / ...... / (Here will be same multiple subgraphs)
+        //                      Concat 3D  - Offsets : [0, 0, 0], ....
+        //   ->
+        //     GatherDMA 2D     GatherDMA 2D   GatherDMA 2D
+        //              \           |          /
+        //                       Concat 2D - Offsets : [0, 0], [0, 2], [0, 4] ....
+        //                          |
+        //                AffineReshape 2D -> 3D
+        for (auto dim : parseIntArrayOfArrayAttr<int64_t>(reshapeOp.getDimMapping())) {
+            switch (dim.size()) {
+            case 1:
+                newOrigOpOffsets.push_back(origOpOffsets[ind][dim[0]]);
+                break;
+            case 2:
+                newOrigOpOffsets.push_back(origOpOffsets[ind][dim[0]] * outShape[dim[1]] + origOpOffsets[ind][dim[1]]);
+                break;
+            default: {
+                log.trace("Unsupported AffineReshape operation : {0}", reshapeOp);
+                return false;
+            }
+            }
+        }
+        origOpOffsets[ind] = std::move(newOrigOpOffsets);
+    }
+    return true;
+}
+
+}  // namespace
+
 mlir::LogicalResult FuseMultipleConcatOpsAroundGatherDMA::matchAndRewrite(VPU::ConcatOp origOp,
                                                                           mlir::PatternRewriter& rewriter) const {
     _log.trace("Got ConcatOp at loc '{0}'", origOp.getLoc());
     SmallVector<VPU::ConcatOp> parentConcatOps;
-    mlir::ArrayAttr dimMapping;
     std::optional<VPU::AffineReshapeOp> reshapeOp;
-
-    auto isGatherDMA = [](auto input) {
-        return mlir::isa_and_nonnull<VPU::GatherDMAOp>(input.getDefiningOp());
-    };
 
     auto hasAnotherConcatAsIn = [&](mlir::Operation* op) {
         if (auto concat = mlir::dyn_cast_or_null<VPU::ConcatOp>(op)) {
@@ -336,11 +393,10 @@ mlir::LogicalResult FuseMultipleConcatOpsAroundGatherDMA::matchAndRewrite(VPU::C
                 if (!llvm::all_of(concat.getInputs(), isGatherDMA)) {
                     return false;
                 }
-                if (dimMapping != nullptr && !llvm::equal(dimMapping, reshape.getDimMapping())) {
+                if (reshapeOp.has_value() && !isConsistentReshape(reshape, reshapeOp.value())) {
                     return false;
                 }
                 parentConcatOps.push_back(concat);
-                dimMapping = reshape.getDimMapping();
                 reshapeOp = reshape;
                 return true;
             }
@@ -367,49 +423,8 @@ mlir::LogicalResult FuseMultipleConcatOpsAroundGatherDMA::matchAndRewrite(VPU::C
     SmallVector<SmallVector<int64_t>> origOpOffsets{
             parseIntArrayOfArrayAttr<int64_t>(origOp.getStaticOffsets().value())};
 
-    if (reshapeOp.has_value()) {
-        for (auto ind : irange(origOpOffsets.size())) {
-            auto outShape = parseIntArrayAttr<int64_t>(reshapeOp.value().getShapeValue());
-            if (outShape.size() -
-                        mlir::dyn_cast<NDTypeInterface>(reshapeOp.value().getInput().getType()).getShape().size() >
-                1) {
-                return mlir::failure();
-            }
-
-            SmallVector<int64_t> newOrigOpOffsets;
-            // If there is a reshape op between orig Concat and parent Concat we need to recalculate the offsets,
-            // because optimized Concat will have direct GatherDMA inputs and AffineReshape inserted after.
-            // Ex:
-            //     GatherDMA 2D     GatherDMA 2D   GatherDMA 2D
-            //              \           |          /
-            //                       Concat 2D - Offsets : [0, 0], [0, 2], [0, 4]
-            //                          |
-            //                AffineReshape 2D -> 3D
-            //                          |      ..... / ...... / (Here will be same multiple subgraphs)
-            //                      Concat 3D  - Offsets : [0, 0, 0], ....
-            //   ->
-            //     GatherDMA 2D     GatherDMA 2D   GatherDMA 2D
-            //              \           |          /
-            //                       Concat 2D - Offsets : [0, 0], [0, 2], [0, 4] ....
-            //                          |
-            //                AffineReshape 2D -> 3D
-            for (auto dim : parseIntArrayOfArrayAttr<int64_t>(dimMapping)) {
-                switch (dim.size()) {
-                case 1:
-                    newOrigOpOffsets.push_back(origOpOffsets[ind][dim[0]]);
-                    break;
-                case 2:
-                    newOrigOpOffsets.push_back(origOpOffsets[ind][dim[0]] * outShape[dim[1]] +
-                                               origOpOffsets[ind][dim[1]]);
-                    break;
-                default: {
-                    _log.trace("Unsupported AffineReshape operation : {0}", reshapeOp);
-                    return mlir::failure();
-                }
-                }
-            }
-            origOpOffsets[ind] = std::move(newOrigOpOffsets);
-        }
+    if (reshapeOp.has_value() && !remapOffsetsToReshapeInput(reshapeOp.value(), origOpOffsets, _log)) {
+        return mlir::failure();
     }
 
     for (auto idx : irange(parentConcatOps.size())) {
@@ -431,7 +446,7 @@ mlir::LogicalResult FuseMultipleConcatOpsAroundGatherDMA::matchAndRewrite(VPU::C
 
     if (reshapeOp.has_value()) {
         const auto outShape = getShape(origOp.getOutput()).toValues();
-        rewriter.replaceOpWithNewOp<VPU::AffineReshapeOp>(origOp, newConcat.getOutput(), dimMapping,
+        rewriter.replaceOpWithNewOp<VPU::AffineReshapeOp>(origOp, newConcat.getOutput(), reshapeOp->getDimMapping(),
                                                           getIntArrayAttr(rewriter.getContext(), outShape));
         return mlir::success();
     }
@@ -441,15 +456,255 @@ mlir::LogicalResult FuseMultipleConcatOpsAroundGatherDMA::matchAndRewrite(VPU::C
 }
 
 //
+// AbsorbConcatIntoForOpAroundGatherDMA
+//
+
+/**
+ * Absorbs a VPU.Concat whose inputs are produced by independent `scf.for` loops directly instead of concatenating the
+ * results afterwards. A single `tensor.empty()` is created whose shape matches the Concat's output. The loops then use
+ * this bigger tensor as its iter_arg, with `tensor.insert_slice` destination offset shifted by its position in the
+ * Concat.
+ * This is intended as a generalized replacement for the `FuseMultipleConcatOpsAroundGatherDMA` if DMA tiling is done
+ * with `scf.for` loops.
+ */
+class AbsorbConcatIntoForOpAroundGatherDMA final : public mlir::OpRewritePattern<VPU::ConcatOp> {
+public:
+    AbsorbConcatIntoForOpAroundGatherDMA(mlir::MLIRContext* ctx, Logger log)
+            : mlir::OpRewritePattern<VPU::ConcatOp>(ctx), _log(log) {
+        setDebugName("AbsorbConcatIntoForOpAroundGatherDMA");
+    }
+
+    mlir::LogicalResult matchAndRewrite(VPU::ConcatOp origOp, mlir::PatternRewriter& rewriter) const final;
+
+private:
+    Logger _log;
+};
+
+namespace {
+
+bool canAbsorbConcat(mlir::scf::ForOp forOp) {
+    // We only support 1D tiling: each loop tiles along one axis and maps to one Concat input. 2D tiling (nested loops
+    // producing one Concat input, possibly with a strided concat) is not handled: the outer loop's iter_arg feeds the
+    // nested loop, so the "iter_arg used only by this loop's own insert_slice" check below rejects it, and the offsets
+    // are not accumulated across loops. Revisit if such patterns are generated.
+    if (forOp->getNumResults() != 1 || !forOp->hasOneUse()) {
+        return false;
+    }
+    const auto resultType = mlir::dyn_cast<mlir::RankedTensorType>(forOp.getResult(0).getType());
+    if (resultType == nullptr || !resultType.hasStaticShape()) {
+        return false;
+    }
+    if (auto initArg = forOp.getInitArgs().front()) {
+        if (!mlir::isa_and_nonnull<mlir::tensor::EmptyOp>(initArg.getDefiningOp())) {
+            return false;
+        }
+    }
+
+    // The loop's iter_arg must have at least one use.
+    auto uses = forOp.getRegionIterArg(0).getUses();
+    if (uses.empty()) {
+        return false;
+    }
+
+    // iter_arg must only be used by the loop's own `tensor.insert_slice` in the body, and that slice must come
+    // from a GatherDMA, matching FuseMultipleConcatOpsAroundGatherDMA
+    auto* bodyBlock = forOp.getBody();
+    for (auto& use : uses) {
+        auto insertSlice = mlir::dyn_cast_or_null<mlir::tensor::InsertSliceOp>(use.getOwner());
+        if (insertSlice == nullptr || insertSlice->getBlock() != bodyBlock ||
+            insertSlice.getDest() != forOp.getRegionIterArg(0) || !isGatherDMA(insertSlice.getSource())) {
+            return false;
+        }
+    }
+    return true;
+};
+
+bool tryCollectForOpInput(mlir::Operation* op, SmallVector<mlir::scf::ForOp>& parentForOps,
+                          std::optional<VPU::AffineReshapeOp>& reshapeOp, bool& sawDirectForOpInput) {
+    if (auto forOp = mlir::dyn_cast_or_null<mlir::scf::ForOp>(op)) {
+        // A direct (non-reshaped) input cannot be mixed with reshaped ones
+        if (reshapeOp.has_value()) {
+            return false;
+        }
+        if (canAbsorbConcat(forOp)) {
+            parentForOps.push_back(forOp);
+            sawDirectForOpInput = true;
+            return true;
+        }
+    }
+    // Handle reshape ops.
+    auto reshape = mlir::dyn_cast_or_null<VPU::AffineReshapeOp>(op);
+    if (!reshape) {
+        return false;
+    }
+    if (sawDirectForOpInput || !reshape->hasOneUse()) {
+        return false;
+    }
+    if (auto forOp = mlir::dyn_cast_or_null<mlir::scf::ForOp>(reshape.getInput().getDefiningOp())) {
+        if (reshapeOp.has_value() && !isConsistentReshape(reshapeOp.value(), reshape)) {
+            return false;
+        }
+        if (canAbsorbConcat(forOp)) {
+            parentForOps.push_back(forOp);
+            reshapeOp = reshape;
+            return true;
+        }
+    }
+    return false;
+};
+}  // namespace
+
+mlir::LogicalResult AbsorbConcatIntoForOpAroundGatherDMA::matchAndRewrite(VPU::ConcatOp origOp,
+                                                                          mlir::PatternRewriter& rewriter) const {
+    _log.trace("Got ConcatOp at loc '{0}'", origOp.getLoc());
+    SmallVector<mlir::scf::ForOp> parentForOps;
+    std::optional<VPU::AffineReshapeOp> reshapeOp;
+    bool sawDirectForOpInput = false;
+
+    const auto outputType = mlir::cast<NDTypeInterface>(origOp.getOutput().getType());
+
+    // We only support static shapes for now.
+    if (!outputType.getShape().isStatic()) {
+        return mlir::failure();
+    }
+
+    for (auto input : origOp.getInputs()) {
+        if (!tryCollectForOpInput(input.getDefiningOp(), parentForOps, reshapeOp, sawDirectForOpInput)) {
+            return mlir::failure();
+        }
+    }
+
+    if (parentForOps.empty()) {
+        return mlir::failure();
+    }
+
+    if (!origOp.getStaticOffsets().has_value() || origOp.getStrides().has_value()) {
+        _log.error("ConcatOp at {0} has no static offsets or has strides, cannot absorb into loops", origOp.getLoc());
+        return mlir::failure();
+    }
+
+    SmallVector<SmallVector<int64_t>> concatOffsets{
+            parseIntArrayOfArrayAttr<int64_t>(origOp.getStaticOffsets().value())};
+
+    if (reshapeOp.has_value() && !remapOffsetsToReshapeInput(reshapeOp.value(), concatOffsets, _log)) {
+        return mlir::failure();
+    }
+
+    if (parentForOps.size() != concatOffsets.size()) {
+        return mlir::failure();
+    }
+
+    // Make sure all loops' outputs have the same element type as the Concat's output.
+    const auto hasMismatchedElementTypes = llvm::any_of(parentForOps, [&](auto forOp) {
+        return mlir::cast<NDTypeInterface>(forOp.getResult(0).getType()).getElementType() !=
+               outputType.getElementType();
+    });
+
+    if (hasMismatchedElementTypes) {
+        _log.error("Not all loops' outputs have the same element type as the Concat's output");
+        return mlir::failure();
+    }
+
+    NDTypeInterface sharedDestType;
+    // If reshapeOp is present, set the shared destination type to the maximum shape of all the loops' outputs, shifted
+    // by their offsets
+    if (reshapeOp.has_value()) {
+        sharedDestType = mlir::cast<NDTypeInterface>(parentForOps.front().getResult(0).getType());
+        Shape sharedDestShape(sharedDestType.getShape());
+        for (auto idx : irange(parentForOps.size())) {
+            const auto nativeShape = getShape(parentForOps[idx].getResult(0));
+            for (auto dim : irange(sharedDestShape.size())) {
+                const Dim d(dim);
+                sharedDestShape[d] = std::max(sharedDestShape[d], concatOffsets[idx][dim] + nativeShape[d]);
+            }
+        }
+        sharedDestType = sharedDestType.changeShape(ShapeRef(sharedDestShape));
+    } else {
+        sharedDestType = outputType;
+    }
+
+    auto resultType = mlir::dyn_cast<mlir::RankedTensorType>(sharedDestType);
+    if (resultType == nullptr) {
+        return mlir::failure();
+    }
+
+    rewriter.setInsertionPoint(origOp);
+    mlir::Value fusedResult =
+            mlir::tensor::EmptyOp::create(rewriter, origOp.getLoc(), resultType, /*dynamicSizes*/ mlir::ValueRange{})
+                    .getResult();
+
+    for (auto [ind, forOp] : llvm::enumerate(parentForOps)) {
+        auto newForOp = mlir::scf::ForOp::create(rewriter, forOp.getLoc(), forOp.getLowerBound(), forOp.getUpperBound(),
+                                                 forOp.getStep(), fusedResult);
+        for (auto attr : forOp->getAttrs()) {
+            newForOp->setAttr(attr.getName(), attr.getValue());
+        }
+        // Map original induction variables and operands to those of the fused loop.
+        mlir::IRMapping mapping;
+        mapping.map(forOp.getInductionVar(), newForOp.getInductionVar());
+        mapping.map(forOp.getRegionIterArgs(), newForOp.getRegionIterArgs());
+
+        rewriter.setInsertionPointToStart(newForOp.getBody());
+
+        // Clone the original loop body, except for insert_slice ops.
+        for (mlir::Operation& op : forOp.getBody()->getOperations()) {
+            auto insertSlice = mlir::dyn_cast<mlir::tensor::InsertSliceOp>(op);
+            if (!insertSlice || insertSlice.getDest() != forOp.getRegionIterArg(0)) {
+                rewriter.clone(op, mapping);
+                continue;
+            }
+            auto newOffsets = insertSlice.getMixedOffsets();
+            auto newSizes = insertSlice.getMixedSizes();
+            auto newStrides = insertSlice.getMixedStrides();
+            for (auto* ofrList : {&newOffsets, &newSizes, &newStrides}) {
+                for (auto& ofr : *ofrList) {
+                    if (auto val = ofr.dyn_cast<mlir::Value>()) {
+                        ofr = mapping.lookupOrDefault(val);
+                    }
+                }
+            }
+            // Shift every offset by this loop's position within the Concat along that dim and rebuild the op
+            for (const auto dim : irange(newOffsets.size())) {
+                const int64_t concatOffset = concatOffsets[ind][dim];
+                auto shiftMap =
+                        mlir::AffineMap::get(1, 0, mlir::getAffineDimExpr(0, rewriter.getContext()) + concatOffset);
+                newOffsets[dim] = mlir::affine::makeComposedFoldedAffineApply(rewriter, insertSlice.getLoc(), shiftMap,
+                                                                              {newOffsets[dim]});
+            }
+
+            auto newInsertSlice = mlir::tensor::InsertSliceOp::create(
+                    rewriter, insertSlice.getLoc(), mapping.lookupOrDefault(insertSlice.getSource()),
+                    mapping.lookupOrDefault(insertSlice.getDest()), newOffsets, newSizes, newStrides);
+
+            mapping.map(insertSlice.getResult(), newInsertSlice.getResult());
+        }
+
+        fusedResult = newForOp.getResult(0);
+        rewriter.setInsertionPoint(origOp);
+    }
+
+    if (reshapeOp.has_value()) {
+        const auto outShape = getShape(origOp.getOutput()).toValues();
+        rewriter.replaceOpWithNewOp<VPU::AffineReshapeOp>(origOp, fusedResult, reshapeOp->getDimMapping(),
+                                                          getIntArrayAttr(rewriter.getContext(), outShape));
+        return mlir::success();
+    }
+
+    // Replace ConcatOp with the new loops' results
+    rewriter.replaceOp(origOp, fusedResult);
+
+    return mlir::success();
+}
+
+//
 // OptimizeConcatPass
 //
 
 class OptimizeConcatPass final : public VPU::impl::OptimizeConcatBase<OptimizeConcatPass> {
 public:
-    explicit OptimizeConcatPass(bool optimizeOnlyOuterConcat, bool disablePassOnEntryFunction, Logger log) {
+    explicit OptimizeConcatPass(bool optimizeOnlyOuterConcat, Logger log) {
         Base::initLogger(log, Base::getArgumentName());
         _optimizeOnlyOuterConcat = optimizeOnlyOuterConcat;
-        _disablePassOnEntryFunction = disablePassOnEntryFunction;
     }
 
 private:
@@ -457,7 +712,6 @@ private:
             StringRef options, llvm::function_ref<mlir::LogicalResult(const llvm::Twine&)> errorHandler) final;
     void safeRunOnFunc() final;
     bool _optimizeOnlyOuterConcat = false;
-    bool _disablePassOnEntryFunction = false;
 };
 
 mlir::LogicalResult OptimizeConcatPass::initializeOptions(
@@ -469,12 +723,6 @@ mlir::LogicalResult OptimizeConcatPass::initializeOptions(
         _log.trace("Overloading optimizeOnlyOuterConcat with an MLIR variable {0}", optimizeOnlyOuterConcat.getValue());
         _optimizeOnlyOuterConcat = optimizeOnlyOuterConcat.getValue();
     }
-
-    if (disablePassOnEntryFunction.hasValue()) {
-        _log.trace("Overloading disablePassOnEntryFunction with an MLIR variable {0}",
-                   disablePassOnEntryFunction.getValue());
-        _disablePassOnEntryFunction = disablePassOnEntryFunction.getValue();
-    }
     return mlir::success();
 }
 
@@ -482,16 +730,11 @@ void OptimizeConcatPass::safeRunOnFunc() {
     auto func = getOperation();
     auto& ctx = getContext();
 
-    auto entryPointFunc = vpux::net::findEntryPointFunc(func, _log);
-    if (_disablePassOnEntryFunction && (func == entryPointFunc)) {
-        _log.trace("Skipping function {0} in HostCompile mode", func.getName());
-        return;
-    }
-
     mlir::RewritePatternSet patterns(&ctx);
     patterns.insert<EliminateConcat>(&ctx, _log, _optimizeOnlyOuterConcat);
     patterns.insert<EliminateSameSiblingConcat>(&ctx, _log);
     patterns.insert<FuseMultipleConcatOpsAroundGatherDMA>(&ctx, _log);
+    patterns.insert<AbsorbConcatIntoForOpAroundGatherDMA>(&ctx, _log);
 
     if (mlir::failed(mlir::applyPatternsGreedily(func, std::move(patterns), vpux::getDefaultGreedyRewriteConfig()))) {
         signalPassFailure();
@@ -504,7 +747,6 @@ void OptimizeConcatPass::safeRunOnFunc() {
 // createOptimizeConcatPass
 //
 
-std::unique_ptr<mlir::Pass> vpux::VPU::createOptimizeConcatPass(bool optimizeOnlyOuterConcat,
-                                                                bool disablePassOnEntryFunction, Logger log) {
-    return std::make_unique<OptimizeConcatPass>(optimizeOnlyOuterConcat, disablePassOnEntryFunction, log);
+std::unique_ptr<mlir::Pass> vpux::VPU::createOptimizeConcatPass(bool optimizeOnlyOuterConcat, Logger log) {
+    return std::make_unique<OptimizeConcatPass>(optimizeOnlyOuterConcat, log);
 }

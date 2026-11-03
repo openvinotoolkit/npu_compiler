@@ -155,8 +155,10 @@ module @ScratchBufferWithIndexArg {
      kernelInfo = #VPU.KernelInfo<
        tilingInfoFunc = @generated_info_0,
        tilingAxes = [3],
-       numSlicedInputs = 1 : i64
-     >
+       numSlicedInputs = 1 : i64,
+       numTensorInputs = 1 : i64,
+       numAuxBuffers = 0 : i64,
+       inputSegmentationAxes = []>
    } {
       %c16 = arith.constant 16 : index
       %c1 = arith.constant 1 : index
@@ -174,7 +176,10 @@ module @ScratchBufferWithIndexArg {
 // CHECK-SAME: kernelInfo = #VPU.KernelInfo<
 // CHECK-SAME:   tilingInfoFunc = @generated_info_0,
 // CHECK-SAME:   tilingAxes = [3],
-// CHECK-SAME:   numSlicedInputs = 1 : i64
+// CHECK-SAME:   numSlicedInputs = 1 : i64,
+// CHECK-SAME:   numTensorInputs = 1 : i64,
+// CHECK-SAME:   numAuxBuffers = 1 : i64,
+// CHECK-SAME:   inputSegmentationAxes = []>
 // CHECK-NOT: memref.alloc() {{.+}} : memref<1x1x1x?xf16>
 // CHECK-DAG: [[C16:%.+]] = arith.constant 16 : index
 // CHECK-DAG: [[C1:%.+]] = arith.constant 1 : index
@@ -247,7 +252,10 @@ module @SharedTilingInfoFuncWithScratch {
      kernelInfo = #VPU.KernelInfo<
        tilingInfoFunc = @generated_info_0,
        tilingAxes = [3],
-       numSlicedInputs = 1 : i64
+       numSlicedInputs = 1 : i64,
+       numTensorInputs = 1 : i64,
+       numAuxBuffers = 0 : i64,
+       inputSegmentationAxes = []
      >
    } {
       %c16 = arith.constant 16 : index
@@ -270,7 +278,10 @@ module @SharedTilingInfoFuncWithScratch {
      kernelInfo = #VPU.KernelInfo<
        tilingInfoFunc = @generated_info_0,
        tilingAxes = [3],
-       numSlicedInputs = 1 : i64
+       numSlicedInputs = 1 : i64,
+       numTensorInputs = 1 : i64,
+       numAuxBuffers = 0 : i64,
+       inputSegmentationAxes = []
      >
    } {
       %c16 = arith.constant 16 : index

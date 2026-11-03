@@ -326,7 +326,7 @@ void vpux::VPUIP::GatherDMAOp::build(mlir::OpBuilder& builder, mlir::OperationSt
                        /* port = */ vpux::getIntAttr(builder, port),
                        /* isOutOfOrder = */ false, /* isCritical = */ false, /*split_candidate*/ nullptr,
                        /* DMADescriptor = */ nullptr, /* dmaHwpId = */ nullptr, /* profilingMetadata = */ nullptr,
-                       /* gatherAddressingMode = */ nullptr);
+                       /* gatherAddressingMode = */ nullptr, /* gatherListOOBMode = */ nullptr);
 }
 
 void vpux::VPUIP::GatherDMAOp::build(mlir::OpBuilder& builder, mlir::OperationState& state, mlir::Value input,
@@ -336,7 +336,7 @@ void vpux::VPUIP::GatherDMAOp::build(mlir::OpBuilder& builder, mlir::OperationSt
                        /* port = */ vpux::getIntAttr(builder, port),
                        /* isOutOfOrder = */ false, /* isCritical = */ false, builder.getBoolAttr(split_candidate),
                        /* DMADescriptor = */ nullptr, /* dmaHwpId = */ nullptr, /* profilingMetadata = */ nullptr,
-                       /* gatherAddressingMode = */ nullptr);
+                       /* gatherAddressingMode = */ nullptr, /* gatherListOOBMode = */ nullptr);
 }
 
 void vpux::VPUIP::GatherDMAOp::build(mlir::OpBuilder& builder, mlir::OperationState& state, mlir::Value input,
@@ -347,7 +347,7 @@ void vpux::VPUIP::GatherDMAOp::build(mlir::OpBuilder& builder, mlir::OperationSt
                        /* port = */ vpux::getIntAttr(builder, port),
                        /* isOutOfOrder = */ false, /* isCritical = */ false, /*split_candidate*/ nullptr,
                        /* DMADescriptor = */ nullptr, /* dmaHwpId = */ nullptr, /* profilingMetadata = */ nullptr,
-                       /* gatherAddressingMode = */ nullptr);
+                       /* gatherAddressingMode = */ nullptr, /* gatherListOOBMode = */ nullptr);
 }
 
 void vpux::VPUIP::GatherDMAOp::build(mlir::OpBuilder& builder, mlir::OperationState& state, mlir::Value input,
@@ -359,7 +359,20 @@ void vpux::VPUIP::GatherDMAOp::build(mlir::OpBuilder& builder, mlir::OperationSt
                        /* port = */ vpux::getIntAttr(builder, port),
                        /* isOutOfOrder = */ false, /* isCritical = */ false, /*split_candidate*/ nullptr,
                        /* DMADescriptor = */ nullptr, /* dmaHwpId = */ nullptr, /* profilingMetadata = */ nullptr,
-                       VPUIP::GatherAddressingModeAttr::get(builder.getContext(), addressingMode));
+                       VPUIP::GatherAddressingModeAttr::get(builder.getContext(), addressingMode),
+                       /* gatherListOOBMode = */ nullptr);
+}
+
+void vpux::VPUIP::GatherDMAOp::build(mlir::OpBuilder& builder, mlir::OperationState& state, mlir::Value input,
+                                     mlir::Value indices, mlir::Value outputBuff, int64_t elementSize, int64_t padding,
+                                     int64_t port, GatherAddressingMode addressingMode, GatherListOOBMode listOOBMode) {
+    GatherDMAOp::build(builder, state, input, indices, outputBuff, vpux::getIntAttr(builder, elementSize),
+                       vpux::getIntAttr(builder, padding),
+                       /* port = */ vpux::getIntAttr(builder, port),
+                       /* isOutOfOrder = */ false, /* isCritical = */ false, /*split_candidate*/ nullptr,
+                       /* DMADescriptor = */ nullptr, /* dmaHwpId = */ nullptr, /* profilingMetadata = */ nullptr,
+                       VPUIP::GatherAddressingModeAttr::get(builder.getContext(), addressingMode),
+                       VPUIP::GatherListOOBModeAttr::get(builder.getContext(), listOOBMode));
 }
 
 mlir::LogicalResult vpux::VPUIP::GatherDMAOp::verify() {
@@ -391,6 +404,14 @@ mlir::LogicalResult vpux::VPUIP::GatherDMAOp::verify() {
     if (indicesLength > DMA_MAX_INDICES_LIST_LENGTH_ARCH_BASED) {
         return errorAt(loc, "Number of indices({0}) is greater than max supported({1}) by gather DMA.", indicesLength,
                        DMA_MAX_INDICES_LIST_LENGTH_ARCH_BASED);
+    }
+
+    const auto addressingMode = getAddressingMode();
+    if (addressingMode.has_value() && addressingMode.value() == VPUIP::GatherAddressingMode::SIGNED_INDEX) {
+        const auto listOobMode = getListOOBMode();
+        if (!listOobMode.has_value()) {
+            return errorAt(getLoc(), "Signed GatherDMA requires listOOBMode to be set");
+        }
     }
 
     return verifyTensorSize(config::getArch(getOperation()), loc, getOutput());

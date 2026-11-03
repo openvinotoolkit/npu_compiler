@@ -163,38 +163,6 @@ func.func @NotConvertQuantizeToDwConv(%arg0 : tensor<1x3x16x16xf16>) -> tensor<1
 #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
 
 !qElemType = !quant.uniform<u8:f16, 0.013961060374390846:109>
-!dynType = tensor<1x1x?x2xf16, {bounds = #const.OpaqueI64Elements<[1, 1, 500, 2]> : tensor<4xsi64>, order = #NCHW}>
-!dynQuantType = tensor<1x1x?x2x!qElemType, {bounds = #const.OpaqueI64Elements<[1, 1, 500, 2]> : tensor<4xsi64>, order = #NCHW}>
-
-// CHECK:  !qElemType = !quant.uniform<u8:f16, 0.027922120748781691:109>
-// CHECK:  !qElemType1 = !quant.uniform<u8:f16, 0.013961060374390846:109>
-// CHECK:  !qElemType2 = !quant.uniform<u8:f16, 0.0069805301871954228:109>
-
-// CHECK-LABEL:  func.func @DynamicShapeToAdd
-// CHECK-SAME:    ([[INPUT:%.+]]: tensor<1x1x?x2xf16, {bounds = #const.OpaqueI64Elements<[1, 1, 500, 2]> : tensor<4xsi64>, order = #NCHW}>)
-func.func @DynamicShapeToAdd(%arg0 : !dynType) -> !dynType {
-    %0 = IE.Quantize(%arg0) {dstElemType = !qElemType} : !dynType -> !dynQuantType
-    %1 = IE.Dequantize(%0) {dstElemType = f16} : !dynQuantType -> !dynType
-    return %1 : !dynType
-
-    // CHECK:       [[Q_ADD:%.+]] = IE.Add([[INPUT]], [[INPUT]]) {auto_broadcast = #IE.auto_broadcast_type<NONE_OR_EXPLICIT>} :
-    // CHECK-SAME:    tensor<1x1x?x2xf16, {bounds = #const.OpaqueI64Elements<[1, 1, 500, 2]> : tensor<4xsi64>, order = #NCHW}>, tensor<1x1x?x2xf16, {bounds = #const.OpaqueI64Elements<[1, 1, 500, 2]> : tensor<4xsi64>, order = #NCHW}> -> tensor<1x1x?x2x!qElemType, {bounds = #const.OpaqueI64Elements<[1, 1, 500, 2]> : tensor<4xsi64>, order = #NCHW}>
-    // CHECK:       [[Q_CAST:%.+]] = IE.QuantizeCast([[Q_ADD]]) {dstElemType = !qElemType1} :
-    // CHECK-SAME:    tensor<1x1x?x2x!qElemType, {bounds = #const.OpaqueI64Elements<[1, 1, 500, 2]> : tensor<4xsi64>, order = #NCHW}> -> tensor<1x1x?x2x!qElemType1, {bounds = #const.OpaqueI64Elements<[1, 1, 500, 2]> : tensor<4xsi64>, order = #NCHW}>
-
-    // CHECK:       [[D_CAST:%.+]] = IE.QuantizeCast([[Q_CAST]]) {dstElemType = !qElemType2} :
-    // CHECK-SAME:    tensor<1x1x?x2x!qElemType1, {bounds = #const.OpaqueI64Elements<[1, 1, 500, 2]> : tensor<4xsi64>, order = #NCHW}> -> tensor<1x1x?x2x!qElemType2, {bounds = #const.OpaqueI64Elements<[1, 1, 500, 2]> : tensor<4xsi64>, order = #NCHW}>
-    // CHECK:       [[D_ADD:%.+]] = IE.Add([[D_CAST]], [[D_CAST]]) {auto_broadcast = #IE.auto_broadcast_type<NONE_OR_EXPLICIT>} :
-    // CHECK-SAME:    tensor<1x1x?x2x!qElemType2, {bounds = #const.OpaqueI64Elements<[1, 1, 500, 2]> : tensor<4xsi64>, order = #NCHW}>, tensor<1x1x?x2x!qElemType2, {bounds = #const.OpaqueI64Elements<[1, 1, 500, 2]> : tensor<4xsi64>, order = #NCHW}> -> tensor<1x1x?x2xf16, {bounds = #const.OpaqueI64Elements<[1, 1, 500, 2]> : tensor<4xsi64>, order = #NCHW}>
-
-    // CHECK:  return [[D_ADD]] : tensor<1x1x?x2xf16, {bounds = #const.OpaqueI64Elements<[1, 1, 500, 2]> : tensor<4xsi64>, order = #NCHW}>
-}
-
-// -----
-
-#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
-
-!qElemType = !quant.uniform<u8:f16, 0.013961060374390846:109>
 !dynType = tensor<1x800x?x800xf16, {bounds = #const.OpaqueI64Elements<[1, 800, 500, 800]> : tensor<4xsi64>, order = #NCHW}>
 !dynQuantType = tensor<1x800x?x800x!qElemType, {bounds = #const.OpaqueI64Elements<[1, 800, 500, 800]> : tensor<4xsi64>, order = #NCHW}>
 

@@ -36,22 +36,24 @@ void vpux::buildLowerIE2VPUPipeline(mlir::OpPassManager& pm, Logger log) {
 // LowerVPU2VPUIP
 //
 
-void vpux::buildLowerVPU2VPUIPPipeline(mlir::OpPassManager& pm, bool enableInPlaceBufferization,
-                                       bool useMemrefForHostFunctionBufferization, Logger log) {
+void vpux::buildLowerVPU2VPUIPPipeline(mlir::OpPassManager& pm, const vpux::DefaultHWOptionsBase& options, Logger log) {
     const auto grc = getDefaultGreedyRewriteConfig();
 
-    if (enableInPlaceBufferization) {
+    if (options.enableInPlaceBufferization) {
         pm.addPass(createInPlaceBufferizationAnalyzePass());
     }
     pm.addPass(createOneShotBufferizeVPU2VPUIPPass());
     pm.addPass(VPUIP::createUngroupBoundedBuffersAsFuncArgsPass(log));
     pm.addPass(VPUIP::createConvertDynamicMemrefsToBoundedBuffersPass(log));
-    pm.addPass(createAddBuffersForNetResults(useMemrefForHostFunctionBufferization, log));
+    pm.addPass(createAddBuffersForNetResults(options.useMemrefForHostFunctionBufferization, log));
     // Note: during this VPU -> VPUIP lowering, one can only canonicalize IR
     // *after* add-buffers-for-net-results pass since memory-effects interface,
     // that the canonicalization uses, relies on the fact that VPUIP operations
     // have output buffers as operands. Before this is the case,
     // canonicalization will lead to UB.
+    pm.addPass(mlir::createCanonicalizerPass(grc));
+
+    pm.addPass(VPUIP::createUngroupBoundedBuffersPass(log));
     pm.addPass(mlir::createCanonicalizerPass(grc));
 }
 
@@ -81,29 +83,27 @@ void vpux::ShaveCodeGen::buildShaveCodeGenPipelineIE(mlir::OpPassManager& pm, Lo
     pm.addPass(ShaveCodeGen::createShaveKernelSimplifyPass());
     pm.addPass(mlir::createCanonicalizerPass());
     if (enableShaveCodeGenTiling) {
-        // Don't fold unit dims as that changes tensor ranks making ops
-        // incompatible with tiling due to rank restrictions.
         pm.addPass(ShaveCodeGen::createParametricCapsuleTilingPass(log));
-    } else {
-        pm.addPass(ShaveCodeGen::createFoldUnitDimReshapesPass(log));
     }
 
     pm.addPass(ShaveCodeGen::createWrapInKernelRegionPass(log));
     pm.addPass(ShaveCodeGen::createSplitCodeGenCapsulesPass(log));
 
     pm.addPass(ShaveCodeGen::createOutlineCodeGenCapsulesPass());
+    pm.addPass(ShaveCodeGen::createDeduplicateSwKernelsPass(log));
 }
 
 void vpux::ShaveCodeGen::buildShaveCodeGenPipelineVPU(mlir::OpPassManager& pm, Logger, bool enableShaveCodeGenTiling) {
     const auto grc = getDefaultGreedyRewriteConfig();
-    // Move kernel results to arguments before doing any other
-    // optimizations. This allows us to see a simpler form of the IR
-    // and helps with the empty tensor elimination performed by this pass.
+    pm.addPass(ShaveCodeGen::createRewriteInDestinationStylePass());
+
+    // Move kernel results to arguments early (after the initial destination-style rewrite), but before doing other
+    // optimizations. This allows us to see a simpler form of the IR and helps with the empty tensor elimination
+    // performed by this pass.
     //
-    // In particular, empty tensor elimination needs to walk use-def
-    // chains to find tensor.empty() ops but will refuse to traverse
-    // any reshape-like ops. However these ops are introduced by our
-    // optimization passes (specifically FlattenEltwiseKernel).
+    // In particular, empty tensor elimination needs to walk use-def chains to find tensor.empty() ops but will refuse
+    // to traverse any reshape-like ops. However these ops are introduced by our optimization passes (specifically
+    // FlattenEltwiseKernel).
     pm.addPass(ShaveCodeGen::createMoveKernelResultsToArgumentsPass());
 
     if (!enableShaveCodeGenTiling) {
@@ -117,10 +117,21 @@ void vpux::ShaveCodeGen::buildShaveCodeGenPipelineVPU(mlir::OpPassManager& pm, L
     pm.addPass(mlir::createLinalgGeneralizeNamedOpsPass());
     pm.addPass(mlir::createCanonicalizerPass(grc));
     pm.addPass(ShaveCodeGen::createOneShotBufferizeSWKernelsPass());
+    // Clean up after bufferization in nested modules.
+    // E#191882 should tighten this so that we are guaranteed to run only on the outlined JIT kernels.
+    auto& swPm = pm.nest<mlir::ModuleOp>();
+    swPm.addPass(mlir::createCSEPass());
+    swPm.addPass(mlir::createCanonicalizerPass(grc));
     pm.addPass(ShaveCodeGen::createShaveStackAllocationPass());
+    // Note that ComputeSegmentationAxes must run after
+    // ShaveStackAllocation in order to process the scratch buffers.
+    pm.addPass(ShaveCodeGen::createComputeSegmentationAxesPass());
 }
 
-void vpux::ShaveCodeGen::buildShaveCodeGenPipelineVPUIP(mlir::OpPassManager& pm, Logger) {
+void vpux::ShaveCodeGen::buildShaveCodeGenPipelineVPUIP(mlir::OpPassManager& pm, Logger log) {
+    pm.addPass(ShaveCodeGen::createSpecializeSwKernelsPass(log));
+    // Can produce linalg.generic ops so needs to run before ConvertLinalgToAffineLoops.
+    pm.addPass(ShaveCodeGen::createExpandNonContiguousMemRefCopyPass());
     pm.addPass(
             mlir::createConvertLinalgToAffineLoopsPass());  // E#154403 Analyze the pros/cons & replace Affine with SCF
     pm.addPass(mlir::createSCFToControlFlowPass());
@@ -145,8 +156,7 @@ void vpux::registerConversionPipelines() {
             "lower-VPU-to-VPUIP",
             "Performs full lowering from the VPU Dialect to VPUIP Dialect, SW operations are converted to SWKernelOp",
             [](mlir::OpPassManager& pm, const vpux::DefaultHWOptionsBase& options) {
-                vpux::buildLowerVPU2VPUIPPipeline(pm, options.enableInPlaceBufferization,
-                                                  options.useMemrefForHostFunctionBufferization);
+                vpux::buildLowerVPU2VPUIPPipeline(pm, options);
             });
     mlir::PassPipelineRegistration<>("lower-sw-layers-to-linalg",
                                      "Performs full lowering of compatible SW Layers from IE to Linalg",

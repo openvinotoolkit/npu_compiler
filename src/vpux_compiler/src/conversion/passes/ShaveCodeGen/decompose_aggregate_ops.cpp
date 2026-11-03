@@ -9,6 +9,10 @@
 #include "vpux/compiler/utils/rewriter.hpp"
 #include "vpux/utils/logger/logger.hpp"
 
+#include <mlir/Dialect/Arith/IR/Arith.h>
+#include <mlir/Dialect/Linalg/IR/Linalg.h>
+#include <mlir/Dialect/Math/IR/Math.h>
+#include <mlir/Dialect/Tensor/IR/Tensor.h>
 #include <mlir/IR/PatternMatch.h>
 #include <mlir/Pass/Pass.h>
 #include <mlir/Transforms/DialectConversion.h>
@@ -23,8 +27,7 @@ using namespace vpux;
 
 namespace {
 
-static mlir::Operation* decomposeSoftmax(mlir::linalg::SoftmaxOp op) {
-    mlir::OpBuilder builder(op->getContext());
+static mlir::Operation* decomposeSoftmax(mlir::linalg::SoftmaxOp op, mlir::OpBuilder& builder) {
     builder.setInsertionPoint(op);
     auto ctx = builder.getContext();
     auto loc = op.getLoc();
@@ -151,7 +154,7 @@ public:
     using mlir::OpRewritePattern<mlir::linalg::SoftmaxOp>::OpRewritePattern;
 
     mlir::LogicalResult matchAndRewrite(mlir::linalg::SoftmaxOp op, mlir::PatternRewriter& rewriter) const final {
-        rewriter.replaceOp(op, decomposeSoftmax(op));
+        rewriter.replaceOp(op, decomposeSoftmax(op, rewriter));
         return mlir::success();
     }
 };
@@ -160,6 +163,9 @@ void DecomposeAggregateOpsPass::safeRunOnFunc() {
     auto& ctx = getContext();
 
     mlir::ConversionTarget target(ctx);
+    target.markUnknownOpDynamicallyLegal([](mlir::Operation*) {
+        return true;
+    });
     target.addIllegalOp<mlir::linalg::SoftmaxOp>();
 
     mlir::RewritePatternSet patterns(&ctx);

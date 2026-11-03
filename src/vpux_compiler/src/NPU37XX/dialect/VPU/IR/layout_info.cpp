@@ -229,6 +229,37 @@ public:
 };
 
 //
+// SpaceToDepthLayoutInfoOpModelForSW
+//
+
+class SpaceToDepthLayoutInfoOpModelForSW final :
+        public IE::LayoutInfoOpInterface::FallbackModel<SpaceToDepthLayoutInfoOpModelForSW> {
+public:
+    static void inferLayoutInfo(mlir::Operation* op, IE::LayerLayoutInfo& info) {
+        const auto inputOrder = info.getInput(0);
+        const auto inputShape = mlir::cast<vpux::NDTypeInterface>(op->getOperand(0).getType()).getShape();
+        if (inputOrder.numDims() == 4 && inputShape[Dims4D::Act::N] == 1 &&
+            op->getAttrOfType<IE::SpaceToDepthModeAttr>("mode").getValue() == IE::SpaceToDepthMode::DEPTH_FIRST) {
+            // NCHW->NHWC is the only DEPTH_FIRST pair where a whole block row is contiguous on both sides;
+            // the same-layout pairs move one element per clock. NPU37XX's DMA unroller does not support N > 1.
+            info.setInput(0, DimsOrder::NCHW);
+            info.setOutput(0, DimsOrder::NHWC);
+            return;
+        }
+
+        info.setOutput(0, inputOrder);
+    }
+
+    mlir::LogicalResult verifyLayout(mlir::Operation* origOp) const {
+        return IE::verifyLayout(origOp);
+    }
+
+    IE::LayerLayoutInfo getLayoutInfo(mlir::Operation* origOp) const {
+        return IE::getLayoutInfo(origOp);
+    }
+};
+
+//
 // MVNLayoutInfoOpModelForSW
 //
 
@@ -429,7 +460,7 @@ void redirectLayoutOpInterfacesForVPU(mlir::DialectRegistry& registry) {
     registry.addExtension(+[](mlir::MLIRContext* ctx, VPU::VPUDialect*) {
         VPU::ConvertOp::attachInterface<vpux::VPU::SameAnyDimsOrderOpModelForSW>(*ctx);
         VPU::SoftMaxOp::attachInterface<vpux::VPU::SameAnyDimsOrderOpModelForSW>(*ctx);
-        VPU::SpaceToDepthOp::attachInterface<vpux::VPU::SameAnyDimsOrderOpModelForSW>(*ctx);
+        VPU::SpaceToDepthOp::attachInterface<SpaceToDepthLayoutInfoOpModelForSW>(*ctx);
         VPU::SwishOp::attachInterface<vpux::VPU::SameAnyDimsOrderOpModelForSW>(*ctx);
         VPU::PReluOp::attachInterface<
                 vpux::VPU::SameMultipleInOutDimsOrderOpModelForSW_NCHW_CHW_NCWH_CWH_NHWC_HWC_NWHC_WHC>(*ctx);
@@ -569,7 +600,7 @@ void redirectLayoutOpInterfacesForVPU(mlir::DialectRegistry& registry) {
         VPU::EmbeddingBagPackedSumOp::attachInterface<vpux::VPU::AnyDimsOrderOpModelForSW>(*ctx);
         VPU::BroadcastOp::attachInterface<vpux::VPU::AnyDimsOrderOpModelForSW>(*ctx);
         VPU::ProposalOp::attachInterface<vpux::VPU::AnyDimsOrderOpModelForSW>(*ctx);
-        VPU::YuvToRgbOp::attachInterface<vpux::VPU::AnyDimsOrderOpModelForSW>(*ctx);
+        VPU::YuvToRgbOp::attachInterface<vpux::VPU::YuvToRgbDimsOrderOpModel_NHWC>(*ctx);
         VPU::GRUSequenceOp::attachInterface<vpux::VPU::AnyDimsOrderOpModelForSW>(*ctx);
         VPU::GRUSequenceLastPartOp::attachInterface<vpux::VPU::AnyDimsOrderOpModelForSW>(*ctx);
         VPU::MemPermuteOp::attachInterface<vpux::VPU::AnyDimsOrderOpModelForSW>(*ctx);
@@ -637,10 +668,6 @@ void redirectLayoutOpInterfacesForVPU(mlir::DialectRegistry& registry) {
         VPU::FlashSDPAOp::attachInterface<vpux::VPU::FlashSDPADimsOrderOpModel>(*ctx);
         VPU::ReduceSquareOp::attachInterface<vpux::VPU::SameInOutDefaultDimsOrderOpModelForSW>(*ctx);
     });
-
-    registry.addExtension(+[](mlir::MLIRContext* ctx, Shave::ShaveDialect*) {
-        Shave::ExternalKernelOp::attachInterface<vpux::VPU::SameInOutDimsOrderOpModel_NHWC>(*ctx);
-    });
 }
 
 //
@@ -651,7 +678,7 @@ void redirectLayoutOpInterfacesForIE(mlir::DialectRegistry& registry) {
     registry.addExtension(+[](mlir::MLIRContext* ctx, IE::IEDialect*) {
         IE::ConvertOp::attachInterface<vpux::VPU::SameAnyDimsOrderOpModelForSW>(*ctx);
         IE::SoftMaxOp::attachInterface<vpux::VPU::SameAnyDimsOrderOpModelForSW>(*ctx);
-        IE::SpaceToDepthOp::attachInterface<vpux::VPU::SameAnyDimsOrderOpModelForSW>(*ctx);
+        IE::SpaceToDepthOp::attachInterface<SpaceToDepthLayoutInfoOpModelForSW>(*ctx);
         IE::SwishOp::attachInterface<vpux::VPU::SameAnyDimsOrderOpModelForSW>(*ctx);
         IE::PReluOp::attachInterface<
                 vpux::VPU::SameMultipleInOutDimsOrderOpModelForSW_NCHW_CHW_NCWH_CWH_NHWC_HWC_NWHC_WHC>(*ctx);
@@ -780,7 +807,7 @@ void redirectLayoutOpInterfacesForIE(mlir::DialectRegistry& registry) {
         IE::EmbeddingBagPackedSumOp::attachInterface<vpux::VPU::AnyDimsOrderOpModelForSW>(*ctx);
         IE::BroadcastOp::attachInterface<vpux::VPU::AnyDimsOrderOpModelForSW>(*ctx);
         IE::ProposalOp::attachInterface<vpux::VPU::AnyDimsOrderOpModelForSW>(*ctx);
-        IE::YuvToRgbOp::attachInterface<vpux::VPU::AnyDimsOrderOpModelForSW>(*ctx);
+        IE::YuvToRgbOp::attachInterface<vpux::VPU::YuvToRgbDimsOrderOpModel_NHWC>(*ctx);
         IE::GRUSequenceOp::attachInterface<vpux::VPU::AnyDimsOrderOpModelForSW>(*ctx);
         IE::GRUSequenceLastPartOp::attachInterface<vpux::VPU::AnyDimsOrderOpModelForSW>(*ctx);
         IE::ReorderOp::attachInterface<vpux::VPU::AnyDimsOrderOpModelForSW>(*ctx);
@@ -882,10 +909,6 @@ void redirectLayoutOpInterfacesForIE(mlir::DialectRegistry& registry) {
                 /*FallbackSWImplOpType=*/vpux::VPU::SameInOutDefaultDimsOrderOpModelForSW,
                 /*FallbackHWImplOpType=*/vpux::VPU::RollDimsOrderOpModelForHW>>(*ctx);
         // clang-format on
-    });
-
-    registry.addExtension(+[](mlir::MLIRContext* ctx, Shave::ShaveDialect*) {
-        Shave::ExternalKernelOp::attachInterface<vpux::VPU::SameInOutDimsOrderOpModel_NHWC>(*ctx);
     });
 }
 

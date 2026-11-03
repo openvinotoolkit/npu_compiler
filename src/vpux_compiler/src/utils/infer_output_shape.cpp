@@ -10,6 +10,7 @@
 #include "vpux/compiler/dialect/IE/utils/transposed_convolution_utils.hpp"
 #include "vpux/compiler/dialect/IE/utils/type_padding.hpp"
 #include "vpux/compiler/dialect/VPU/IR/types.hpp"
+#include "vpux/compiler/dialect/const/utils/attributes_utils.hpp"
 #include "vpux/compiler/dialect/core/IR/tensor_attr.hpp"
 #include "vpux/compiler/dialect/core/types.hpp"
 #include "vpux/compiler/utils/error.hpp"
@@ -53,9 +54,13 @@ bool ShapeInfo::isDynamic() const {
     return !bounds.empty();
 }
 
+bool ShapeInfo::isUnbounded() const {
+    return bounds.empty() && llvm::is_contained(shape, mlir::ShapedType::kDynamic);
+}
+
 ShapeInfo ShapeInfo::fromNDType(NDTypeInterface type) {
     // NB: empty bounds means that the shape is static
-    auto boundVals = [&type]() -> SmallVector<int64_t> {
+    auto boundVals = [type]() -> SmallVector<int64_t> {
         using namespace Dims4D::Act;
         if (const auto sparseType = mlir::dyn_cast<VPU::SparseTensorType>(type)) {
             auto boundedData = mlir::dyn_cast<Core::BoundedTensorType>(sparseType.getData());
@@ -96,6 +101,12 @@ ShapeInfo createShapeInfoFromPartialShape(const ov::PartialShape& partialShape) 
                                        }));
 
     if (partialShape.is_dynamic()) {
+        const auto hasNoUpperBound = [](const ov::Dimension& val) {
+            return !val.get_interval().has_upper_bound();
+        };
+        if (llvm::any_of(partialShape, hasNoUpperBound)) {
+            return {std::move(resultShape), {}};
+        }
         const auto getUpperBound = [](const ov::Dimension& val) -> int64_t {
             if (val.is_static()) {
                 return checked_cast<int64_t>(val.get_length());
@@ -472,7 +483,8 @@ ShapeInfo vpux::inferGroupConvolutionOutputShapeInfo(ShapeInfo& inShapeInfo, Sha
                                                      ArrayRef<int64_t> dataPaddingAbove,
                                                      ArrayRef<int64_t> windowDilations,
                                                      std::optional<int64_t> maybeGroups, bool hasOutputPadding) {
-    VPUX_THROW_WHEN(filterShapeInfo.isDynamic(), "Filters with dynamic shapes aren't currently supported");
+    VPUX_THROW_WHEN(filterShapeInfo.isDynamic() || filterShapeInfo.isUnbounded(),
+                    "Filters with dynamic shapes aren't currently supported");
 
     // We need to adjust the input and filter shapes to reuse OV helpers for normal convolution
     auto groups = maybeGroups.value_or(0);
@@ -498,7 +510,8 @@ ShapeInfo vpux::inferGroupConvolutionOutputShapeInfo(ShapeInfo& inShapeInfo, Sha
         // input is still expanded in case of ODU autopad
         if (hasOutputPadding) {
             channels = filterShapeInfo.shape[C.ind()];
-        } else {
+        } else if (channels != mlir::ShapedType::kDynamic) {
+            // A dynamic channel count stays dynamic; dividing the sentinel would yield a bogus static extent.
             channels /= groups;
         }
     };
@@ -692,6 +705,12 @@ mlir::LogicalResult vpux::reifyInterpolateResultShape(mlir::OpBuilder& builder, 
             scaleF64 = builder.createOrFold<mlir::arith::ConstantOp>(dimLoc,
                                                                      builder.getF64FloatAttr(staticScaleForAxis[idx]));
         }
+
+        // Match OpenVINO's epsilon-tolerant scale truncation (see inferOutputShapeWithScalesMode) so this
+        // runtime-reified dim agrees with the compile-time inferred one under float precision loss.
+        static constexpr double epsilon = 1.0e-6;
+        auto epsilonConst = builder.createOrFold<mlir::arith::ConstantOp>(dimLoc, builder.getF64FloatAttr(epsilon));
+        scaleF64 = builder.createOrFold<mlir::arith::AddFOp>(dimLoc, scaleF64, epsilonConst);
 
         auto scaledDimF64 = builder.createOrFold<mlir::arith::MulFOp>(dimLoc, inputDimF64, scaleF64);
         auto scaledDimI64 = builder.createOrFold<mlir::arith::FPToSIOp>(dimLoc, builder.getI64Type(), scaledDimF64);
@@ -1000,7 +1019,9 @@ ShapeInfo vpux::inferEltwiseOutputShapeInfo(const ShapeInfo& in1ShapeInfo, const
         }
     }
 
-    if (in1ShapeInfo.bounds.empty() && in2ShapeInfo.bounds.empty()) {
+    // An unbounded input makes the output unbounded; its raw shape must not be used as bounds.
+    if ((in1ShapeInfo.bounds.empty() && in2ShapeInfo.bounds.empty()) || in1ShapeInfo.isUnbounded() ||
+        in2ShapeInfo.isUnbounded()) {
         return {std::move(outShape), {}};
     }
 
@@ -1023,29 +1044,30 @@ ShapeInfo vpux::inferEltwiseOutputShapeInfo(const ShapeInfo& in1ShapeInfo, const
 
 mlir::LogicalResult vpux::reifyYuvToRgbTensors(mlir::Operation* op, mlir::OpBuilder& builder,
                                                mlir::ReifiedRankedShapedTypeDims& reifiedReturnShapes) {
+    using namespace Dims4D::Act;
+
     const auto loc = op->getLoc();
     const auto inputs = op->getOperands();
     const auto firstInput = inputs[0];
     auto inDims = mlir::tensor::getMixedSizes(builder, loc, firstInput);
 
-    // YuvToRgb has NHWC physical tensor order
-    enum { N = 0, H = 1, W = 2, C = 3 };
-
-    SmallVector<mlir::OpFoldResult> outDims;
-    outDims.push_back(inDims[N]);
-
+    mlir::OpFoldResult outH;
     if (inputs.size() > 1) {
-        outDims.push_back(inDims[H]);
+        outH = inDims[H.ind()];
     } else {
         auto ctx = builder.getContext();
         auto expr = (getAffineDimExpr(0, ctx) * 2).floorDiv(3);
         auto map = mlir::AffineMap::get(/*dimCount=*/1, /*symbolCount=*/0, expr);
-        auto outH = mlir::affine::makeComposedFoldedAffineApply(builder, loc, map, {inDims[H]});
-        outDims.push_back(outH);
+        outH = mlir::affine::makeComposedFoldedAffineApply(builder, loc, map, {inDims[H.ind()]});
     }
 
-    outDims.push_back(inDims[W]);
-    outDims.push_back(builder.getIndexAttr(C));
+    // Reified dims must follow logical tensor order [N, C, H, W].
+    // Emitting [N, H, W, C] makes the channel constant appear as width in downstream reification.
+    SmallVector<mlir::OpFoldResult> outDims(inDims.size());
+    outDims[N.ind()] = inDims[N.ind()];
+    outDims[H.ind()] = outH;
+    outDims[W.ind()] = inDims[W.ind()];
+    outDims[C.ind()] = builder.getIndexAttr(3);
 
     reifiedReturnShapes.push_back(std::move(outDims));
     return mlir::success();
@@ -1055,19 +1077,29 @@ mlir::LogicalResult vpux::reifyYuvToRgbTensors(mlir::Operation* op, mlir::OpBuil
 // Attention shape inference helpers
 //
 
-void vpux::inferAttentionOutputShapeComponents(mlir::MLIRContext* ctx, mlir::Value inputQ, mlir::Value inputK,
-                                               mlir::Value inputV, SmallVector<int64_t>& outShape,
-                                               mlir::Attribute& outEncoding, mlir::Type& outElementType) {
+bool vpux::isAttentionVTransposed(ShapeRef kBounds, ShapeRef vBounds) {
+    const auto rank = kBounds.size();
+    const auto kSeqLen = kBounds[Dim(rank - 2)];
+    const auto vRowDim = vBounds[Dim(rank - 2)];
+    if (kSeqLen != mlir::ShapedType::kDynamic && vRowDim != mlir::ShapedType::kDynamic) {
+        return kSeqLen != vRowDim;
+    }
+    const auto vColDim = vBounds[Dim(rank - 1)];
+    return vColDim == mlir::ShapedType::kDynamic && vRowDim != mlir::ShapedType::kDynamic;
+}
+
+void vpux::inferAttentionOutputShapeAndBounds(mlir::Value inputQ, mlir::Value inputK, mlir::Value inputV,
+                                              SmallVector<int64_t>& outShape, SmallVector<int64_t>& outBounds,
+                                              mlir::Type& outElementType) {
     const auto inQType = mlir::cast<vpux::NDTypeInterface>(inputQ.getType());
     const auto inQShape = inQType.getShape().raw();
     const auto rank = inQType.getShape().size();
     const auto inVShape = mlir::cast<vpux::NDTypeInterface>(inputV.getType()).getShape().raw();
 
-    // Detect V transposition by comparing K and V sequence-length dimensions.
-    // For dynamic shapes (BoundedTensorType), use upper bounds for the comparison.
+    // For dynamic shapes (BoundedTensorType), use upper bounds for the transposition detection.
     const auto kBounds = getBoundedShape(inputK);
     const auto vBounds = getBoundedShape(inputV);
-    const auto isTransposedV = kBounds[Dim(rank - 2)] != vBounds[Dim(rank - 2)];
+    const auto isTransposedV = isAttentionVTransposed(kBounds, vBounds);
     const auto Ev = isTransposedV ? inVShape[rank - 2] : inVShape[rank - 1];
 
     outShape.assign(inQShape.begin(), inQShape.end());
@@ -1075,20 +1107,41 @@ void vpux::inferAttentionOutputShapeComponents(mlir::MLIRContext* ctx, mlir::Val
     outElementType = inQType.getElementType();
 
     // Propagate bounds when the output has dynamic dimensions.
-    outEncoding = nullptr;
+    outBounds.clear();
     const bool outIsDynamic = llvm::any_of(outShape, [](int64_t d) {
         return d == mlir::ShapedType::kDynamic;
     });
-    if (outIsDynamic) {
-        const auto qBounds = getBoundedShape(inputQ);
-        SmallVector<int64_t> outBounds(qBounds.begin(), qBounds.end());
-        outBounds[rank - 1] = isTransposedV ? vBounds[Dim(rank - 2)] : vBounds[Dim(rank - 1)];
+    if (!outIsDynamic) {
+        return;
+    }
+
+    const auto qBounds = getBoundedShape(inputQ);
+    SmallVector<int64_t> derivedBounds(qBounds.begin(), qBounds.end());
+    derivedBounds[rank - 1] = isTransposedV ? vBounds[Dim(rank - 2)] : vBounds[Dim(rank - 1)];
+    // getBoundedShape returns kDynamic for unbounded inputs; the output is then unbounded too.
+    const auto boundsAreKnown = llvm::none_of(derivedBounds, [](int64_t bound) {
+        return bound == mlir::ShapedType::kDynamic;
+    });
+    if (boundsAreKnown) {
+        outBounds = std::move(derivedBounds);
+    }
+}
+
+void vpux::inferAttentionOutputShapeComponents(mlir::MLIRContext* ctx, mlir::Value inputQ, mlir::Value inputK,
+                                               mlir::Value inputV, SmallVector<int64_t>& outShape,
+                                               mlir::Attribute& outEncoding, mlir::Type& outElementType) {
+    SmallVector<int64_t> outBounds;
+    inferAttentionOutputShapeAndBounds(inputQ, inputK, inputV, outShape, outBounds, outElementType);
+
+    outEncoding = nullptr;
+    if (!outBounds.empty()) {
+        const auto inQType = mlir::cast<vpux::NDTypeInterface>(inputQ.getType());
         outEncoding = vpux::getTensorAttr(ctx, inQType.getDimsOrder(), /*memSpace=*/nullptr, BoundsRef(outBounds));
     }
 }
 
-mlir::LogicalResult vpux::reifyAttentionResultShape(mlir::OpBuilder& builder, mlir::Value inputQ, mlir::Value inputV,
-                                                    mlir::Location loc,
+mlir::LogicalResult vpux::reifyAttentionResultShape(mlir::OpBuilder& builder, mlir::Value inputQ, mlir::Value inputK,
+                                                    mlir::Value inputV, mlir::Location loc,
                                                     mlir::ReifiedRankedShapedTypeDims& reifiedReturnShapes) {
     const auto qType = mlir::cast<mlir::RankedTensorType>(inputQ.getType());
     const auto rank = qType.getRank();
@@ -1099,8 +1152,52 @@ mlir::LogicalResult vpux::reifyAttentionResultShape(mlir::OpBuilder& builder, ml
         dims.push_back(reifyDim(builder, inputQ, qType, i, loc));
     }
     const auto vType = mlir::cast<mlir::RankedTensorType>(inputV.getType());
-    dims.push_back(reifyDim(builder, inputV, vType, rank - 1, loc));
+    const auto isTransposedV = isAttentionVTransposed(getBoundedShape(inputK), getBoundedShape(inputV));
+    dims.push_back(reifyDim(builder, inputV, vType, isTransposedV ? rank - 2 : rank - 1, loc));
 
     reifiedReturnShapes.emplace_back(std::move(dims));
     return mlir::success();
+}
+
+//
+// TopK shape inference helpers
+//
+
+mlir::FailureOr<ShapeInfo> vpux::inferTopKOutputShapeInfo(const ShapeInfo& inShapeInfo, int64_t axis,
+                                                          mlir::Value kValue, mlir::IntegerAttr kValueAttr,
+                                                          mlir::Location loc) {
+    if (kValue == nullptr && kValueAttr == nullptr) {
+        return errorAt(loc, "TopK: either K operand or k_value attribute must be provided");
+    }
+    // A failure here means K is a non-constant operand, i.e. runtime K
+    const auto k = Const::getConstOrAttrValue(kValue, kValueAttr);
+
+    const int64_t rank = inShapeInfo.rank();
+    const int64_t normAxis = axis < 0 ? axis + rank : axis;
+    if (normAxis < 0 || normAxis >= rank) {
+        return errorAt(loc, "TopK: axis {0} is out of range for rank {1}", axis, rank);
+    }
+
+    const bool hasStaticK = mlir::succeeded(k);
+    // Runtime K is validated at execution time; only a known K can be checked here
+    if (hasStaticK && *k <= 0) {
+        return errorAt(loc, "TopK: K must be positive, got {0}", *k);
+    }
+
+    ShapeInfo outInfo;
+    outInfo.shape = inShapeInfo.shape;
+    outInfo.shape[normAxis] = hasStaticK ? *k : mlir::ShapedType::kDynamic;
+
+    // Empty bounds mean a static shape: a static K may have removed the only dynamic dim (the TopK axis).
+    // Bounds are all-or-nothing, so an unbounded input gives an unbounded output.
+    const bool isOutStatic = !llvm::is_contained(outInfo.shape, mlir::ShapedType::kDynamic);
+    if (isOutStatic || inShapeInfo.isUnbounded()) {
+        return outInfo;
+    }
+
+    outInfo.bounds = inShapeInfo.isDynamic() ? inShapeInfo.bounds : inShapeInfo.shape;
+    if (hasStaticK) {
+        outInfo.bounds[normAxis] = *k;
+    }
+    return outInfo;
 }

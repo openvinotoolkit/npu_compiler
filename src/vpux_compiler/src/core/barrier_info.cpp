@@ -442,7 +442,7 @@ size_t vpux::BarrierInfo::getNumOfSlotsUsed(VPURT::TaskOp op) {
         return 1;
     }
 
-    if (op.getExecutorKind() == config::ExecutorKind::DMA_NN || op.getExecutorKind() == config::ExecutorKind::M2I) {
+    if (op.getExecutorKind() == config::ExecutorKind::DMA_NN) {
         return 1;
     }
 

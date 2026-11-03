@@ -167,6 +167,8 @@ def ELF_RelocationType :
                 I64EnumAttrCase<"R_VPU_32_OR_LO_19_LSB_21_RSHIFT_2",                    24>,
                 I64EnumAttrCase<"R_VPU_DMA_DESCRIPTOR_INPUT",                           25>,
                 I64EnumAttrCase<"R_VPU_DMA_DESCRIPTOR_OUTPUT",                          26>,
+                I64EnumAttrCase<"R_VPU_DMA_DESCRIPTOR_INPUT_BIT",                       27>,
+                I64EnumAttrCase<"R_VPU_DMA_DESCRIPTOR_OUTPUT_BIT",                      28>,
                 // the following relocation types are used for CMX addresses
                 // available only on compiler side, not used by the loader
                 I64EnumAttrCase<"R_VPU_16_LSB_21_RSHIFT_5_LSHIFT_16_SUM",               1000001>,

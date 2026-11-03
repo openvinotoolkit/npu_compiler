@@ -5,6 +5,33 @@
 
 include("${CMAKE_CURRENT_LIST_DIR}/compile_options_llvm.cmake")
 
+function(check_ipo_support_cached)
+    if(NOT DEFINED VPUX_IPO_SUPPORTED)
+        include(CheckIPOSupported)
+        check_ipo_supported(RESULT VPUX_IPO_SUPPORTED OUTPUT VPUX_IPO_ERROR)
+        set(VPUX_IPO_SUPPORTED "${VPUX_IPO_SUPPORTED}" CACHE INTERNAL "")
+        set(VPUX_IPO_ERROR "${VPUX_IPO_ERROR}" CACHE INTERNAL "")
+    endif()
+endfunction()
+
+# Enables CMake IPO (LTO) for the given target. Call it right after the
+# target is defined; targets that do not get the call take no part in LTO.
+# On MSVC, CMake IPO also injects /LTCG into lib.exe while archiving, which
+# can inflate large archives holding /GL IL past the 4 GB PE/COFF limit
+# (LNK1248) - hence the explicit per-target opt-in.
+function(enable_lto_if_possible _target)
+    check_ipo_support_cached()
+    if(ENABLE_LTO AND VPUX_IPO_SUPPORTED)
+        message(STATUS "LTO enabled via CMake IPO for ${_target}")
+        set_target_properties(${_target} PROPERTIES
+            INTERPROCEDURAL_OPTIMIZATION_RELEASE ON
+            INTERPROCEDURAL_OPTIMIZATION_RELWITHDEBINFO ON
+            INTERPROCEDURAL_OPTIMIZATION_MINSIZEREL ON)
+    elseif(ENABLE_LTO AND NOT VPUX_IPO_SUPPORTED)
+        message(WARNING "IPO / LTO is not supported: ${VPUX_IPO_ERROR}")
+    endif()
+endfunction()
+
 # put flags allowing dynamic symbols into target
 macro(replace_compile_visibility_options)
     # Replace compiler flags
@@ -82,7 +109,7 @@ endif()
 
 function(enable_warnings_as_errors TARGET_NAME)
 
-    cmake_parse_arguments(WARNIGS "WIN_STRICT;SKIP_SYSTEM" "" "" ${ARGN})
+    cmake_parse_arguments(WARNIGS "WIN_STRICT" "" "" ${ARGN})
 
     if(MSVC)
         # Enforce standards conformance on MSVC
@@ -122,19 +149,17 @@ function(enable_warnings_as_errors TARGET_NAME)
             PRIVATE
                 -Wall -Wextra -Werror -Werror=suggest-override
         )
-        if(NOT WARNIGS_SKIP_SYSTEM)
-            # Set SYSTEM property on OpenVINO dependencies to suppress extra warnings from their headers
-            # when building via OPENVINO_EXTRA_MODULES
-            get_target_property(deps ${TARGET_NAME} LINK_LIBRARIES)
-            foreach(lib IN LISTS deps)
-                if(${lib} MATCHES "^openvino::")
-                    get_target_property(orig ${lib} ALIASED_TARGET)
-                    if (TARGET ${orig})
-                        set_target_properties(${orig} PROPERTIES SYSTEM TRUE)
-                    endif()
+        # Set SYSTEM property on OpenVINO dependencies to suppress extra warnings from their headers
+        # when building via OPENVINO_EXTRA_MODULES
+        get_target_property(deps ${TARGET_NAME} LINK_LIBRARIES)
+        foreach(lib IN LISTS deps)
+            if(${lib} MATCHES "^openvino::")
+                get_target_property(orig ${lib} ALIASED_TARGET)
+                if (TARGET ${orig})
+                    set_target_properties(${orig} PROPERTIES SYSTEM TRUE)
                 endif()
-            endforeach()
-        endif()
+            endif()
+        endforeach()
     endif()
 endfunction()
 
@@ -142,6 +167,7 @@ macro(enable_split_dwarf)
     if ((CMAKE_BUILD_TYPE STREQUAL "Debug") OR (CMAKE_BUILD_TYPE STREQUAL "RelWithDebInfo"))
         if (CMAKE_CXX_COMPILER_ID MATCHES "Clang" OR CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
             add_compile_options(-gsplit-dwarf)
+            include(CheckLinkerFlag OPTIONAL)
             if (COMMAND check_linker_flag)
                 check_linker_flag(CXX "-Wl,--gdb-index" LINKER_SUPPORTS_GDB_INDEX)
                 if (LINKER_SUPPORTS_GDB_INDEX)

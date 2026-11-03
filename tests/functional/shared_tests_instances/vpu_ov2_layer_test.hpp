@@ -43,7 +43,6 @@ public:
     void setSkipInferenceCallback(SkipCallback skipCallback);
 
 protected:
-    void importModel();
     void exportModel();
     void importInput();
     void exportInput();

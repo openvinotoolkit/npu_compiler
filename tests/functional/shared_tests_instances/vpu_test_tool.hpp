@@ -1,5 +1,5 @@
 //
-// Copyright (C) 2022-2025 Intel Corporation
+// Copyright (C) 2022-2026 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -25,7 +25,6 @@ public:
     explicit VpuTestTool(const VpuTestEnvConfig& envCfg);
 
     void exportModel(ov::CompiledModel& compiledModel, const std::string& fsName);
-    ov::CompiledModel importModel(const std::shared_ptr<ov::Core>& core, const std::string& fsName);
     void exportTensor(const ov::Tensor& tensor, const std::string& fsName);
     void importTensor(ov::Tensor& tensor, const std::string& fsName);
     std::string getDeviceMetric(std::string name);

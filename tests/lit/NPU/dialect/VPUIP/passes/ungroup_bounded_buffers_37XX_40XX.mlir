@@ -279,7 +279,6 @@ module attributes {config.platform = #config.platform<NPU4000>, config.compilati
     config.Option @config.BarrierMaxSlotCount : 256
     config.Option @config.MaxKernelSize : 11
   }
-  config.ExecutorResource 1 of @M2I
   config.ExecutorResource 2 of @DMA_NN
   config.MemoryResource 67108864000 bytes of @DDR {config.bandwidth = 64 : i64, config.derateFactor = 6.000000e-01 : f64}
   module @VPU.SW {

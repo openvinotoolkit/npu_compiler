@@ -165,3 +165,76 @@ func.func @InplaceEltwiseUnequalTensorSize(%activation: memref<1x64x128x128x!qEl
     // CHECK-SAME:                         uniform_distributed_segments}>
 
   }
+
+// -----
+
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+
+!BufDDR = memref<1x32x96x96xf16, {order = #NHWC}>
+!BufCMX = memref<1x32x96x96xf16, {order = #NHWC}, @CMX_NN>
+
+// The in-place Eltwise output buffer is the `scf.for` iteration argument, which makes the buffer alias chain cyclic
+func.func @InplaceEltwiseInSCFForLoop(%in: !BufDDR, %out: !BufDDR) -> !BufDDR {
+    %cst0 = const.Declare !BufDDR = dense<2.0> : tensor<1x32x96x96xf16>, [#const.Reorder<#NHWC>]
+
+    %buf_in = memref.alloc() : !BufCMX
+    %buf0 = memref.alloc() : !BufCMX
+    %buf1 = memref.alloc() : !BufCMX
+
+    %0 = VPUIP.Copy inputs(%in : !BufDDR) outputs(%buf_in : !BufCMX) -> !BufCMX
+    %1 = VPUIP.Copy inputs(%cst0 : !BufDDR) outputs(%buf0 : !BufCMX) -> !BufCMX
+
+    %lb = arith.constant 0 : index
+    %ub = arith.constant 4 : index
+    %step = arith.constant 1 : index
+
+    %loop = scf.for %i = %lb to %ub step %step iter_args(%acc = %buf1) -> (!BufCMX) {
+        %eltwise = VPUIP.NCEClusterTask <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>,
+                    task_type = #VPUIP.nce_task_type<ELTWISE>,
+                    is_inplace = true
+                }>
+                input(%0 : !BufCMX)
+                weights(%1 : !BufCMX)
+                parent_input(%0 : !BufCMX)
+                parent_output(%acc : !BufCMX)
+                outputs(%acc : !BufCMX) -> !BufCMX
+                variants : {
+                    DPUTask { outEnd = [95, 95, 31], mpe_mode = #VPU.mpe_mode<VECTOR_FP16>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, outStart = [0, 0, 0] }
+                }
+                PPE : {
+                    PPETask {ppe = #VPU.PPEStub<>}
+                }
+        scf.yield %eltwise : !BufCMX
+    }
+
+    %2 = VPUIP.Copy inputs(%loop : !BufCMX) outputs(%out : !BufDDR) -> !BufDDR
+
+    return %2 : !BufDDR
+}
+
+// CHECK-LABEL: func.func @InplaceEltwiseInSCFForLoop
+// CHECK-SAME:      ([[IN:%.+]]: memref<1x32x96x96xf16, {order = #NHWC}>,
+// CHECK-SAME:       [[OUT:%.+]]: memref<1x32x96x96xf16, {order = #NHWC}>)
+
+// CHECK:   [[IN_BUF:%.+]] = memref.alloc() : memref<1x32x96x96xf16, {order = #NHWC}, @CMX_NN>
+// CHECK:   [[WEIGHTS_BUF:%.+]] = memref.alloc() : memref<1x32x96x96xf16, {order = #NHWC}, @CMX_NN>
+// CHECK:   [[ACC_BUF:%.+]] = memref.alloc() : memref<1x32x96x96xf16, {order = #NHWC}, @CMX_NN>
+
+// CHECK:   [[IN_CMX:%.+]] = VPUIP.Copy inputs([[IN]] : memref<1x32x96x96xf16, {order = #NHWC}>)
+// CHECK-SAME:                          outputs([[IN_BUF]] : memref<1x32x96x96xf16, {order = #NHWC}, @CMX_NN>)
+// CHECK:   [[WEIGHTS_CMX:%.+]] = VPUIP.Copy
+// CHECK-SAME:                          outputs([[WEIGHTS_BUF]] : memref<1x32x96x96xf16, {order = #NHWC}, @CMX_NN>)
+
+// CHECK:   [[LOOP:%.+]] = scf.for {{%.+}} = {{%.+}} to {{%.+}} step {{%.+}} iter_args({{%.+}} = [[ACC_BUF]])
+// CHECK:     [[ELTWISE:%.+]] = VPUIP.NCEClusterTask <{is_inplace = true,
+// CHECK-SAME:                          task_type = #VPUIP.nce_task_type<ELTWISE>}>
+// CHECK-SAME:                          input([[IN_CMX]] :
+// CHECK-SAME:                          weights([[WEIGHTS_CMX]] :
+// CHECK-SAME:                          parent_output([[IN_BUF]] :
+// CHECK-SAME:                          outputs([[IN_BUF]] :
+// CHECK:     scf.yield [[ELTWISE]] : memref<1x32x96x96xf16, {order = #NHWC}, @CMX_NN>
+
+// CHECK:   [[RES:%.+]] = VPUIP.Copy inputs([[LOOP]] : memref<1x32x96x96xf16, {order = #NHWC}, @CMX_NN>)
+// CHECK-SAME:                          outputs([[OUT]] : memref<1x32x96x96xf16, {order = #NHWC}>)
+// CHECK:   return [[RES]] : memref<1x32x96x96xf16, {order = #NHWC}>
+

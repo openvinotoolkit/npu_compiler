@@ -76,11 +76,12 @@ std::vector<ELF::RelocationInfo> NPUReg40XX::NNDMAOp::getRelocationInfo(ELF::Sym
     // Temporary, until SymRef lookup & interpretation is fixed
     // Skip input reloc for strided inputs as it is covered by a different relocation
     if (!getOperation()->hasAttr(vpux::stridedInputAttrName)) {
-        auto inputRelocType = VPUASM::getBufferLocation(symRefMap, getInput()) == VPURT::BufferSection::CMX_NN
+        auto input = getInputAttr();
+        auto inputRelocType = VPUASM::getBufferLocation(symRefMap, input) == VPURT::BufferSection::CMX_NN
                                       ? ELF::RelocationType::R_VPU_64_BIT_OR_B21_B26_UNSET
                                       : ELF::RelocationType::R_VPU_64;
-        relocs.emplace_back(getInput(), targetSection, getSymRefOffsetForReloc(thisDma, getInput()), inputRelocType,
-                            ELF::getOffsetOfSymRef(symRefMap, getInput()), "Input in NNDMA reloc");
+        relocs.emplace_back(input, targetSection, getSymRefOffsetForReloc(thisDma, input), inputRelocType,
+                            ELF::getOffsetOfSymRef(symRefMap, input), "Input in NNDMA reloc");
     }
 
     // Output reloc
@@ -130,7 +131,7 @@ std::vector<ELF::RelocationInfo> NPUReg40XX::NNDMAOp::getRelocationInfo(ELF::Sym
 }
 
 mlir::SymbolRefAttr NPUReg40XX::NNDMAOp::getInputSymbol() {
-    return getInput();
+    return getInputAttr();
 }
 
 mlir::SymbolRefAttr NPUReg40XX::NNDMAOp::getOutputSymbol() {

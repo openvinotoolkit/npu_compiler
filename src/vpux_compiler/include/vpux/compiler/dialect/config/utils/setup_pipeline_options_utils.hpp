@@ -71,6 +71,8 @@ mlir::Attribute getAttributeFromOption(mlir::MLIRContext* ctx, mlir::Pass::Optio
         return mlir::FloatAttr::get(mlir::Float64Type::get(ctx), optionValue.getValue());
     } else if constexpr (std::is_same_v<T, vpux::WeightsTableReuseMode>) {
         return mlir::IntegerAttr::get(getUInt64Type(ctx), static_cast<size_t>(optionValue.getValue()));
+    } else if constexpr (std::is_same_v<T, vpux::UnboundedDynamismMode>) {
+        return mlir::IntegerAttr::get(getUInt64Type(ctx), static_cast<size_t>(optionValue.getValue()));
     } else {
         // To have T in error message
         static_assert(!sizeof(T), "Unsupported option type for attribute conversion");

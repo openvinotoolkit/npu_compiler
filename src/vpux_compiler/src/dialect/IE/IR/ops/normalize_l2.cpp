@@ -39,6 +39,12 @@ mlir::LogicalResult vpux::IE::NormalizeL2Op::inferReturnTypeComponents(
 //
 
 mlir::LogicalResult vpux::IE::NormalizeL2Op::verify() {
+    const auto epsMode = getEpsMode();
+    if (epsMode == IE::EpsMode::ADD_SUM || epsMode == IE::EpsMode::MAX_SUM ||
+        epsMode == IE::EpsMode::CONDITIONAL_EPS_SUM) {
+        return errorAt(*this, "NormalizeL2 does not support *_SUM epsilon modes; they are reserved for IE.RMS");
+    }
+
     const auto inRank = mlir::cast<mlir::ShapedType>(getData().getType()).getRank();
     const auto axes_tensor = getAxes();
     const auto axes_attribute = getAxesValueAttr();

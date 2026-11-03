@@ -92,7 +92,7 @@ std::optional<mlir::Type> vpux::Const::backInferElemTypeAffineReshape(
             // Equivalent to collecting other_dim_val0, other_dim_val1 ...
             SmallVector<int64_t> mappedShape;
             std::transform(dimMapping[inIdx].begin(), dimMapping[inIdx].end(), std::back_inserter(mappedShape),
-                           [&shapeValue](auto oIdx) {
+                           [shapeValue](auto oIdx) {
                                return shapeValue[oIdx];
                            });
 

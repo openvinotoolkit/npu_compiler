@@ -56,16 +56,15 @@ mlir::LogicalResult MergeQuantDequant::matchAndRewrite(IE::DequantizeOp dequanti
     mlir::DenseElementsAttr rMinAttr, rMaxAttr;
     IE::getFakeQuantParams(quantizeType, levels, attrType, rMinAttr, rMaxAttr);
 
-    mlir::IntegerAttr levelsAttr = nullptr;
-    mlir::TypeAttr lowFpTypeAttr = nullptr;
-
+    // Build merged attribute based on storage type
+    mlir::Attribute levelsOrLowFpTypeAttr;
     if (const auto quantizeStorageType =
                 mlir::dyn_cast<mlir::quant::QuantizedType>(quantizeType.getElementType()).getStorageType();
         mlir::isa<mlir::Float8E4M3FNType>(quantizeStorageType) ||
         mlir::isa<mlir::Float8E5M2Type>(quantizeStorageType)) {
-        lowFpTypeAttr = mlir::TypeAttr::get(quantizeStorageType);
+        levelsOrLowFpTypeAttr = mlir::TypeAttr::get(quantizeStorageType);
     } else {
-        levelsAttr = getIntAttr(dequantizeOp.getContext(), levels);
+        levelsOrLowFpTypeAttr = getIntAttr(dequantizeOp.getContext(), levels);
     }
 
     auto rMinOp = Const::DeclareOp::create(rewriter, appendLoc(dequantizeOp.getLoc(), "low"), attrType,
@@ -75,7 +74,7 @@ mlir::LogicalResult MergeQuantDequant::matchAndRewrite(IE::DequantizeOp dequanti
 
     auto fqOp = IE::FakeQuantizeOp::create(rewriter, appendLoc(dequantizeOp.getLoc(), "as_fq"), quantizeOp.getInput(),
                                            rMinOp.getOutput(), rMaxOp.getOutput(), rMinOp.getOutput(),
-                                           rMaxOp.getOutput(), levelsAttr, lowFpTypeAttr, IE::AutoBroadcastType::NUMPY);
+                                           rMaxOp.getOutput(), levelsOrLowFpTypeAttr, IE::AutoBroadcastType::NUMPY);
     rewriter.replaceAllOpUsesWith(dequantizeOp, fqOp);
 
     return mlir::success();
@@ -147,11 +146,13 @@ mlir::LogicalResult MergeQuantCastDequant::matchAndRewrite(IE::DequantizeOp dequ
     auto outMaxOp = Const::DeclareOp::create(rewriter, appendLoc(dequantizeOp.getLoc(), "out_high"), outAttrType,
                                              Const::ContentAttr::get(outMaxAttr));
 
-    // lowFpType in not needed (nullptr), only levels are given
-    auto fqOp =
-            IE::FakeQuantizeOp::create(rewriter, appendLoc(dequantizeOp.getLoc(), "as_fq"), quantizeOp.getInput(),
-                                       inMinOp.getOutput(), inMaxOp.getOutput(), outMinOp.getOutput(),
-                                       outMaxOp.getOutput(), levelsAttr, lowFpTypeAttr, IE::AutoBroadcastType::NUMPY);
+    // Build merged attribute
+    const mlir::Attribute levelsOrLowFpTypeAttr = lowFpTypeAttr != nullptr ? mlir::cast<mlir::Attribute>(lowFpTypeAttr)
+                                                                           : mlir::cast<mlir::Attribute>(levelsAttr);
+
+    auto fqOp = IE::FakeQuantizeOp::create(rewriter, appendLoc(dequantizeOp.getLoc(), "as_fq"), quantizeOp.getInput(),
+                                           inMinOp.getOutput(), inMaxOp.getOutput(), outMinOp.getOutput(),
+                                           outMaxOp.getOutput(), levelsOrLowFpTypeAttr, IE::AutoBroadcastType::NUMPY);
     rewriter.replaceAllOpUsesWith(dequantizeOp, fqOp);
 
     return mlir::success();

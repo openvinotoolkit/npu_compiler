@@ -1,5 +1,5 @@
 //
-// Copyright (C) 2022-2025 Intel Corporation
+// Copyright (C) 2022-2026 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -32,19 +32,6 @@ void VpuTestTool::exportModel(ov::CompiledModel& compiledModel, const std::strin
     }
     compiledModel.export_model(file);
     _log.info("Exported model into file {0}", fileName);
-}
-
-ov::CompiledModel VpuTestTool::importModel(const std::shared_ptr<ov::Core>& core, const std::string& fsName) {
-    OPENVINO_ASSERT(!envConfig.IE_NPU_TESTS_DUMP_PATH.empty());
-
-    const auto fileName = vpux::printToString("{0}/{1}", envConfig.IE_NPU_TESTS_DUMP_PATH, fsName);
-    _log.info("Importing model from {0}, device {2}", fileName, DEVICE_NAME);
-
-    std::ifstream file(fileName, std::ios_base::in | std::ios_base::binary);
-    if (!file.is_open()) {
-        OPENVINO_THROW("importModel(). Can't open file ", fileName);
-    }
-    return core->import_model(file, DEVICE_NAME);
 }
 
 void VpuTestTool::importTensor(ov::Tensor& tensor, const std::string& fsName) {

@@ -117,8 +117,7 @@ void vpux::VPU::WorkloadSplitter::correctInvalidWorkload(const VPU::SparsityCons
             // In case ODU autopad is used and the existing channel padding needs to be removed, update the supported
             // channels to reflect the unpadded channels
             if (channelPadding != 0 && VPU::canAutopadOutput(op)) {
-                const auto outputChannels =
-                        mlir::cast<vpux::NDTypeInterface>(op->getResult(0).getType()).getShape()[Dims4D::Act::C];
+                const auto outputChannels = getPreODUOutputChannels(op);
                 for (auto& channel : supportedChannels) {
                     if (channel == outputChannels) {
                         channel -= channelPadding;
@@ -553,8 +552,7 @@ SmallVector<int64_t> vpux::VPU::WorkloadSplitter::getSupportedChannels(
     // If this happens, the current output channel configuration can be considered a supported workload configuration
     for (auto op : nceOps) {
         if (VPU::canAutopadOutput(op)) {
-            const auto outputChannels =
-                    mlir::cast<NDTypeInterface>(op->getResult(0).getType()).getShape()[Dims4D::Act::C];
+            const auto outputChannels = getPreODUOutputChannels(op);
             supportedChannels.push_back(outputChannels);
             break;
         }

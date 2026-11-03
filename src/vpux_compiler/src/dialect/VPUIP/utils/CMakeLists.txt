@@ -32,5 +32,7 @@ add_npu_library(${TARGET_NAME}
         npu_compiler_dialect_vpu_interfaces
         npu_compiler_dialect_shave
 )
+enable_lto_if_possible(${TARGET_NAME})
+
 
 ov_add_version_defines(${VPUX_COMPILER_VERSION_FILE} ${TARGET_NAME})

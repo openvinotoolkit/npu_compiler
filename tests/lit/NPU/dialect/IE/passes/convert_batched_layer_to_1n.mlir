@@ -213,6 +213,8 @@ func.func @NoChangesGroupConvolution(%arg0: tensor<16x16x2x32xf16>) -> tensor<16
 
 // -----
 
+// CHECK: [[MAP:#.+]] = affine_map<(d0, d1, d2, d3) -> (d2, d1, d0, d3)>
+
 // CHECK: func.func @ConvertIdentityMaxPool([[ARG0:%.+]]: tensor<16x16x1x3xf16>)
 func.func @ConvertIdentityMaxPool(%arg0: tensor<16x16x1x3xf16>) -> tensor<16x16x1x3xf16> {
     %0 = IE.MaxPool(%arg0) {
@@ -225,15 +227,12 @@ func.func @ConvertIdentityMaxPool(%arg0: tensor<16x16x1x3xf16>) -> tensor<16x16x
 
     return %0 : tensor<16x16x1x3xf16>
 
-    // CHECK:               [[IN_RESHAPE:%.+]] = IE.AffineReshape([[ARG0]])
-    // CHECK-SAME{LITERAL}:         {dim_mapping = [[0, 1], [2], [3], [3]], shape_value = [1, 16, 16, 3]} : tensor<16x16x1x3xf16> -> tensor<1x16x16x3xf16>
-
-    // CHECK:               [[MAXPOOL:%.+]] = IE.MaxPool([[IN_RESHAPE]]) {kernel_size = [1, 1], pads_begin = [0, 0], pads_end = [0, 0],
+    // CHECK:       [[IN_TRANSPOSE:%.+]] = IE.Transpose([[ARG0]]) {order_value = [[MAP]]} : tensor<16x16x1x3xf16> -> tensor<1x16x16x3xf16>
+    // CHECK:       [[MAXPOOL:%.+]] = IE.MaxPool([[IN_TRANSPOSE]]) {kernel_size = [1, 1], pads_begin = [0, 0], pads_end = [0, 0],
     // CHECK-SAME:                                  rounding_type = #IE.rounding_type<FLOOR>, strides = [1, 1]} : tensor<1x16x16x3xf16> -> tensor<1x16x16x3xf16>
+    // CHECK:       [[OUT_TRANSPOSE:%.+]] = IE.Transpose([[MAXPOOL]]) {order_value = [[MAP]]} : tensor<1x16x16x3xf16> -> tensor<16x16x1x3xf16>
 
-    // CHECK:               [[OUT_RESHAPE:%.+]] = IE.AffineReshape([[MAXPOOL]])
-    // CHECK-SAME{LITERAL}:         {dim_mapping = [[0], [0], [1], [2, 3]], shape_value = [16, 16, 1, 3]} : tensor<1x16x16x3xf16> -> tensor<16x16x1x3xf16>
-    // CHECK:               return [[OUT_RESHAPE]] : tensor<16x16x1x3xf16>
+    // CHECK:       return [[OUT_TRANSPOSE]]  : tensor<16x16x1x3xf16>
 }
 
 // -----
@@ -290,6 +289,8 @@ func.func @NoChangesMaxPool(%arg0: tensor<16x16x3x6xf16>) -> tensor<16x16x3x5xf1
 // CHECK: !qElemType = !quant.uniform<i8:f16, 1.000000e+00>
 // CHECK: !qElemType1 = !quant.uniform<u8:f16, 1.000000e+00:128>
 
+// CHECK: [[MAP:#.+]] = affine_map<(d0, d1, d2, d3) -> (d2, d1, d0, d3)>
+
 // CHECK: func.func @ConvertIdentityAvgPool([[ARG0:%.+]]: tensor<16x16x1x3x!qElemType>)
 func.func @ConvertIdentityAvgPool(%arg0: tensor<16x16x1x3x!qElemType1>) -> tensor<16x16x1x3x!qElemType2> {
     %0 = IE.AvgPool(%arg0) {
@@ -302,15 +303,11 @@ func.func @ConvertIdentityAvgPool(%arg0: tensor<16x16x1x3x!qElemType1>) -> tenso
 
     return %0 : tensor<16x16x1x3x!qElemType2>
 
-    // CHECK:               [[IN_RESHAPE:%.+]] = IE.AffineReshape([[ARG0]])
-    // CHECK-SAME{LITERAL}:         {dim_mapping = [[0, 1], [2], [3], [3]], shape_value = [1, 16, 16, 3]} : tensor<16x16x1x3x!qElemType> -> tensor<1x16x16x3x!qElemType>
-
-    // CHECK:               [[MAXPOOL:%.+]] = IE.AvgPool([[IN_RESHAPE]]) {kernel_size = [1, 1], pads_begin = [0, 0], pads_end = [0, 0],
+    // CHECK:       [[IN_TRANSPOSE:%.+]] = IE.Transpose([[ARG0]]) {order_value = [[MAP]]} : tensor<16x16x1x3x!qElemType> -> tensor<1x16x16x3x!qElemType>
+    // CHECK:       [[AVGPOOL:%.+]] = IE.AvgPool([[IN_TRANSPOSE]]) {kernel_size = [1, 1], pads_begin = [0, 0], pads_end = [0, 0],
     // CHECK-SAME:                                  rounding_type = #IE.rounding_type<FLOOR>, strides = [1, 1]} : tensor<1x16x16x3x!qElemType> -> tensor<1x16x16x3x!qElemType1>
-
-    // CHECK:               [[OUT_RESHAPE:%.+]] = IE.AffineReshape([[MAXPOOL]])
-    // CHECK-SAME{LITERAL}:         {dim_mapping = [[0], [0], [1], [2, 3]], shape_value = [16, 16, 1, 3]} : tensor<1x16x16x3x!qElemType1> -> tensor<16x16x1x3x!qElemType1>
-    // CHECK:               return [[OUT_RESHAPE]] : tensor<16x16x1x3x!qElemType1>
+    // CHECK:       [[OUT_TRANSPOSE:%.+]] = IE.Transpose([[AVGPOOL]]) {order_value = [[MAP]]} : tensor<1x16x16x3x!qElemType1> -> tensor<16x16x1x3x!qElemType1>
+    // CHECK:       return [[OUT_TRANSPOSE]] : tensor<16x16x1x3x!qElemType1>
 }
 
 // -----
@@ -664,4 +661,33 @@ func.func @ConvertPowerOpWithShapeCast(%arg0: tensor<50x16x10x10xf16>, %arg1: te
     // CHECK: [[OUTPUT_SHAPECAST:%.+]] = IE.ShapeCast {shape = [50, 16, 10, 10]} inputs([[POWER]] : tensor<1x800x10x10xf16>) -> tensor<50x16x10x10xf16>
 
     // CHECK: return [[OUTPUT_SHAPECAST]] : tensor<50x16x10x10xf16>
+}
+
+// -----
+
+!qElemType = !quant.uniform<u8:f16, 0.024695388943541282:128>
+
+// CHECK: !qElemType = !quant.uniform<u8:f16, 0.024695388943541282:128>
+
+// CHECK: [[MAP:#.+]] = affine_map<(d0, d1, d2, d3) -> (d3, d1, d2, d0)>
+
+// CHECK: func.func @ConvertIdentityAvgPoolWithWEqOne([[ARG0:%.+]]: tensor<4x145x384x1x!qElemType>)
+func.func @ConvertIdentityAvgPoolWithWEqOne(%arg0: tensor<4x145x384x1x!qElemType>) -> tensor<4x145x384x1xf16> {
+    %0 = IE.AvgPool(%arg0) {
+        exclude_pads,
+        kernel_size = [1, 1],
+        pads_begin = [0, 0],
+        pads_end = [0, 0],
+        rounding_type = #IE.rounding_type<FLOOR>,
+        strides = [1, 1]
+    } : tensor<4x145x384x1x!qElemType> -> tensor<4x145x384x1xf16>
+
+    return %0 : tensor<4x145x384x1xf16>
+
+    // CHECK:       [[IN_TRANSPOSE:%.+]] = IE.Transpose([[ARG0]]) {order_value = [[MAP]]} : tensor<4x145x384x1x!qElemType> -> tensor<1x145x384x4x!qElemType>
+    // CHECK:       [[AVGPOOL:%.+]] = IE.AvgPool([[IN_TRANSPOSE]]) {exclude_pads, kernel_size = [1, 1], pads_begin = [0, 0], pads_end = [0, 0],
+    // CHECK-SAME:                                  rounding_type = #IE.rounding_type<FLOOR>, strides = [1, 1]} : tensor<1x145x384x4x!qElemType> -> tensor<1x145x384x4xf16>
+    // CHECK:       [[OUT_TRANSPOSE:%.+]] = IE.Transpose([[AVGPOOL]]) {order_value = [[MAP]]} : tensor<1x145x384x4xf16> -> tensor<4x145x384x1xf16>
+
+    // CHECK:       return [[OUT_TRANSPOSE]] : tensor<4x145x384x1xf16>
 }

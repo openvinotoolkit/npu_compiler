@@ -235,7 +235,6 @@ TEST_F(MLIR_VPU_IsSupportedTileSize, UpsamlingSEP) {
             config.ExecutorResource 1 of @DPU
         }
 
-        config.ExecutorResource 1 of @M2I
         config.ExecutorResource 2 of @DMA_NN
         config.MemoryResource 67108864000 bytes of @DDR {config.bandwidth = 64 : i64, config.derateFactor = 6.000000e-01 : f64}
 

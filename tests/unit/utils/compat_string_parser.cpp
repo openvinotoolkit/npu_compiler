@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-#include "vpux/utils/ov/compat_string_parser.hpp"
+#include "compatibility/compat_string_parser.hpp"
 
 #include <gtest/gtest.h>
 

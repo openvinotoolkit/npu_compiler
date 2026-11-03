@@ -103,7 +103,7 @@ def IE_AddOp :
     let hasVerifier = 1;
     let hasFolder = 1;
 
-    let elemComparisonModes = [IE_TypeComparisonMode_ALLOW_MIXED_PRECISION];
+    let elemComparisonModes = [IE_TypeComparisonMode_ALLOW_MIXED_PRECISION, IE_TypeComparisonMode_ALLOW_DIFFERENT_QUANT];
 }
 
 def IE_DivideOp :

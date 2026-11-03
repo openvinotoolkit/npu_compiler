@@ -9,7 +9,7 @@
 #include <type_traits>
 #include <utility>
 
-#include "npu_driver_compiler.h"
+#include "compatibility/npu_driver_compiler.h"
 #include "openvino/core/except.hpp"
 #include "vpux/utils/logger/logger.hpp"
 

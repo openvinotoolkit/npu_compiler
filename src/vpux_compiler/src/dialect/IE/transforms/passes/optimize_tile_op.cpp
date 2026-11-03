@@ -199,6 +199,15 @@ mlir::LogicalResult FoldTileOpRewriter::matchAndRewrite(IE::TileOp origOp, mlir:
         return mlir::failure();
     }
 
+    // Broadcast eltwise is lowered to SHAVE, which does not support quantized types.
+    const auto isQuantized = [](mlir::Value value) {
+        return mlir::isa<mlir::quant::QuantizedType>(
+                mlir::cast<vpux::NDTypeInterface>(value.getType()).getElementType());
+    };
+    if (llvm::any_of(outputUserOp->getOperands(), isQuantized) || isQuantized(outputUserOp->getResult(0))) {
+        return mlir::failure();
+    }
+
     // Can't fold TileOp if the layer has a fused post-op (PPE). A broadcast Add with post_op
     // falls through to a SHAVE SW kernel that silently ignores the post_op attribute, dropping
     // the activation and causing an accuracy regression.
@@ -440,18 +449,6 @@ mlir::LogicalResult FuseGroupConvWithBiasAdd::matchAndRewrite(IE::AddOp origOp, 
         return mlir::failure();
     }
 
-    // GroupConvolution infers its output element type from its input, so rebuilding the op discards an
-    // output precision that was promoted independently of the input (e.g. by RunF16ToF32ConvertOnDPU).
-    // Fusing here would silently hand consumers a narrower type than they expect.
-    const auto groupConvInElemType =
-            mlir::cast<vpux::NDTypeInterface>(groupConvOp.getInput().getType()).getElementType();
-    const auto origOutElemType = mlir::cast<vpux::NDTypeInterface>(origOp.getOutput().getType()).getElementType();
-    if (groupConvInElemType != origOutElemType) {
-        _log.nest().trace("Fusion would re-infer the output element type from '{0}' to '{1}'", origOutElemType,
-                          groupConvInElemType);
-        return mlir::failure();
-    }
-
     // Accept bias either from a preceding TileOp (original pattern) or directly when it is
     // already NxCx1x1 -- the latter happens when FoldTileOpRewriter already removed the Tile.
     auto tileOp = biasTileValue.getDefiningOp<IE::TileOp>();
@@ -524,10 +521,13 @@ mlir::LogicalResult FuseGroupConvWithBiasAdd::matchAndRewrite(IE::AddOp origOp, 
     // semantically correct: at hardware level the weight-table bias is added in the NCE
     // accumulator stage (before the PPE fires), so the PPE activation acts on the already-biased
     // output -- identical to the original graph where PPE fired on the output of the Add.
+    // Keep the Add's result type explicitly: GroupConvolution would otherwise re-infer the output
+    // element type from its input, discarding a precision promoted independently (e.g. by
+    // RunF16ToF32ConvertOnDPU).
     rewriter.replaceOpWithNewOp<IE::GroupConvolutionOp>(
-            origOp, groupConvOp.getInput(), groupConvOp.getFilter(), directBias, groupConvOp.getStridesAttr(),
-            groupConvOp.getPadsBeginAttr(), groupConvOp.getPadsEndAttr(), groupConvOp.getDilationsAttr(),
-            groupConvOp.getGroupsAttr(), origOp.getPostOpAttr(), origOp.getClampAttr(),
+            origOp, origOp.getOutput().getType(), groupConvOp.getInput(), groupConvOp.getFilter(), directBias,
+            groupConvOp.getStridesAttr(), groupConvOp.getPadsBeginAttr(), groupConvOp.getPadsEndAttr(),
+            groupConvOp.getDilationsAttr(), groupConvOp.getGroupsAttr(), origOp.getPostOpAttr(), origOp.getClampAttr(),
             groupConvOp.getOutputPaddingAttr(), groupConvOp.getInputPaddingAttr());
 
     rewriter.eraseOp(groupConvOp);

@@ -1058,3 +1058,290 @@ func.func @MergeMatMulChainSplitOverGroup(
   // CHECK: VPU.Yield [[MM1]]
   // CHECK: return [[VF]] : tensor<256x1x256x16x16xf32, {order = #GNHWC}>
 }
+
+// -----
+
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+
+module @VPU.SW {
+  func.func @generated_info_0(%arg0: index, %arg1: index, %arg2: index, %arg3: index) -> (index, index, index, index, index, index, index, index, index, index, index, index, index, index, index, index) {
+    %c1 = arith.constant 1 : index
+    %c0 = arith.constant 0 : index
+    return %c1, %c1, %arg0, %arg1, %c0, %c0, %arg2, %arg3, %c1, %c1, %c1, %arg1, %c0, %c0, %c0, %arg3 : index, index, index, index, index, index, index, index, index, index, index, index, index, index, index, index
+  }
+  func.func nested @generated_0(%arg0: tensor<1x1x?x?xf16>, %arg1: tensor<1x1x1x?xf16>, %arg2: index, %arg3: index, %arg4: index, %arg5: index) -> tensor<1x1x?x?xf16> attributes {
+      kernelInfo = #VPU.KernelInfo<
+          tilingInfoFunc = @generated_info_0,
+          tilingAxes = [2, 3],
+          numSlicedInputs = 2 : i64,
+          numTensorInputs = 2 : i64,
+          numAuxBuffers = 0 : i64,
+          inputSegmentationAxes = [array<i64: 2, -1>, array<i64: 3, 3>]>
+  }
+}
+
+// CHECK-LABEL: @MergeGenericSwLayers
+// CHECK-SAME:      [[INPUT0:%.+]]: tensor<1x960x1x640xf16, {order = #NHWC}>, [[INPUT1:%.+]]: tensor<1x960x1x1xf16, {order = #NHWC}>, [[INPUT2:%.+]]: tensor<1x960x1x1xf16, {order = #NHWC}>)
+func.func @MergeGenericSwLayers(%arg0: tensor<1x960x1x640xf16, {order = #NHWC}>, %arg1: tensor<1x960x1x1xf16, {order = #NHWC}>, %arg2: tensor<1x960x1x1xf16, {order = #NHWC}>) -> tensor<1x960x1x640xf16, {order = #NHWC}> {
+  %0 = VPU.VerticalFusion (%arg0 as %a0: tensor<1x960x1x640xf16, {order = #NHWC}>, %arg1 as %a1: tensor<1x960x1x1xf16, {order = #NHWC}>) attributes {tilingStrategy = [1, 2, 1, 1]} -> tensor<1x960x1x640xf16, {order = #NHWC}> {
+    %inner = VPU.GenericSwLayer(%a0, %a1 : tensor<1x960x1x640xf16, {order = #NHWC}>, tensor<1x960x1x1xf16, {order = #NHWC}>) @VPU.SW::@generated_0 tiling(sizes = [640, 960], offsets = [0, 0]) {multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>} -> tensor<1x960x1x640xf16, {order = #NHWC}>
+    VPU.Yield %inner
+  }
+  %1 = VPU.VerticalFusion (%0 as %a0: tensor<1x960x1x640xf16, {order = #NHWC}>, %arg2 as %a1: tensor<1x960x1x1xf16, {order = #NHWC}>) attributes {tilingStrategy = [1, 2, 1, 1]} -> tensor<1x960x1x640xf16, {order = #NHWC}> {
+    %inner = VPU.GenericSwLayer(%a0, %a1 : tensor<1x960x1x640xf16, {order = #NHWC}>, tensor<1x960x1x1xf16, {order = #NHWC}>) @VPU.SW::@generated_0 tiling(sizes = [640, 960], offsets = [0, 0]) {multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>} -> tensor<1x960x1x640xf16, {order = #NHWC}>
+    VPU.Yield %inner
+  }
+  return %1 : tensor<1x960x1x640xf16, {order = #NHWC}>
+
+    // CHECK:       VPU.VerticalFusion ([[INPUT0]] as [[ARG0:%.+]]: tensor<1x960x1x640xf16, {order = #NHWC}>, [[INPUT1]] as [[ARG1:%.+]]: tensor<1x960x1x1xf16, {order = #NHWC}>, [[INPUT2]] as [[ARG2:%.+]]: tensor<1x960x1x1xf16, {order = #NHWC}>)
+    // CHECK-SAME:      tilingStrategy = [1, 2, 1, 1]
+    // CHECK:         [[GSL0:%.+]] = VPU.GenericSwLayer([[ARG0]], [[ARG1]]
+    // CHECK-SAME:        multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>
+    // CHECK:         [[GSL1:%.+]] = VPU.GenericSwLayer([[GSL0]], [[ARG2]]
+    // CHECK-SAME:        multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>
+    // CHECK:         VPU.Yield [[GSL1]]
+}
+
+// -----
+
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+
+// Same kernel, but the segmentation of the inputs is only known for mem dim 2 (logical W) and is
+// unknown for mem dim 3 (logical C). Fusion on the tiling axis of both regions (C) is restricted, so
+// the merge falls back to tiling on W.
+
+module @VPU.SW {
+  func.func @generated_info_0(%arg0: index, %arg1: index, %arg2: index, %arg3: index) -> (index, index, index, index, index, index, index, index, index, index, index, index, index, index, index, index) {
+    %c1 = arith.constant 1 : index
+    %c0 = arith.constant 0 : index
+    return %c1, %c1, %arg0, %arg1, %c0, %c0, %arg2, %arg3, %c1, %c1, %c1, %arg1, %c0, %c0, %c0, %arg3 : index, index, index, index, index, index, index, index, index, index, index, index, index, index, index, index
+  }
+  func.func nested @generated_0(%arg0: tensor<1x1x?x?xf16>, %arg1: tensor<1x1x1x?xf16>, %arg2: index, %arg3: index, %arg4: index, %arg5: index) -> tensor<1x1x?x?xf16> attributes {
+      kernelInfo = #VPU.KernelInfo<
+          tilingInfoFunc = @generated_info_0,
+          tilingAxes = [2, 3],
+          numSlicedInputs = 2 : i64,
+          numTensorInputs = 2 : i64,
+          numAuxBuffers = 0 : i64,
+          inputSegmentationAxes = [array<i64: 2, -1>, array<i64: -2, -2>]>
+  }
+}
+
+// CHECK-LABEL: @MergeGenericSwLayersOnValidMCAxis
+// CHECK-SAME:      [[INPUT0:%.+]]: tensor<1x960x1x640xf16, {order = #NHWC}>, [[INPUT1:%.+]]: tensor<1x960x1x1xf16, {order = #NHWC}>, [[INPUT2:%.+]]: tensor<1x960x1x1xf16, {order = #NHWC}>)
+func.func @MergeGenericSwLayersOnValidMCAxis(%arg0: tensor<1x960x1x640xf16, {order = #NHWC}>, %arg1: tensor<1x960x1x1xf16, {order = #NHWC}>, %arg2: tensor<1x960x1x1xf16, {order = #NHWC}>) -> tensor<1x960x1x640xf16, {order = #NHWC}> {
+  %0 = VPU.VerticalFusion (%arg0 as %a0: tensor<1x960x1x640xf16, {order = #NHWC}>, %arg1 as %a1: tensor<1x960x1x1xf16, {order = #NHWC}>) attributes {tilingStrategy = [1, 2, 1, 1]} -> tensor<1x960x1x640xf16, {order = #NHWC}> {
+    %inner = VPU.GenericSwLayer(%a0, %a1 : tensor<1x960x1x640xf16, {order = #NHWC}>, tensor<1x960x1x1xf16, {order = #NHWC}>) @VPU.SW::@generated_0 tiling(sizes = [640, 960], offsets = [0, 0]) -> tensor<1x960x1x640xf16, {order = #NHWC}>
+    VPU.Yield %inner
+  }
+  %1 = VPU.VerticalFusion (%0 as %a0: tensor<1x960x1x640xf16, {order = #NHWC}>, %arg2 as %a1: tensor<1x960x1x1xf16, {order = #NHWC}>) attributes {tilingStrategy = [1, 2, 1, 1]} -> tensor<1x960x1x640xf16, {order = #NHWC}> {
+    %inner = VPU.GenericSwLayer(%a0, %a1 : tensor<1x960x1x640xf16, {order = #NHWC}>, tensor<1x960x1x1xf16, {order = #NHWC}>) @VPU.SW::@generated_0 tiling(sizes = [640, 960], offsets = [0, 0]) -> tensor<1x960x1x640xf16, {order = #NHWC}>
+    VPU.Yield %inner
+  }
+  return %1 : tensor<1x960x1x640xf16, {order = #NHWC}>
+
+    // CHECK:       VPU.VerticalFusion ([[INPUT0]] as [[ARG0:%.+]]: tensor<1x960x1x640xf16, {order = #NHWC}>, [[INPUT1]] as [[ARG1:%.+]]: tensor<1x960x1x1xf16, {order = #NHWC}>, [[INPUT2]] as [[ARG2:%.+]]: tensor<1x960x1x1xf16, {order = #NHWC}>)
+    // CHECK-SAME:      tilingStrategy = [1, 1, 1, {{[2-9]|[1-9][0-9]+}}]}
+    // CHECK:         [[GSL0:%.+]] = VPU.GenericSwLayer([[ARG0]], [[ARG1]]
+    // CHECK:         [[GSL1:%.+]] = VPU.GenericSwLayer([[GSL0]], [[ARG2]]
+    // CHECK:         VPU.Yield [[GSL1]]
+}
+
+// -----
+
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+
+// None of the kernel's inputs can be classified on any tiling axis, so no axis is left to fuse on
+// and the two regions stay separate.
+
+module @VPU.SW {
+  func.func @generated_info_0(%arg0: index, %arg1: index, %arg2: index, %arg3: index) -> (index, index, index, index, index, index, index, index, index, index, index, index, index, index, index, index) {
+    %c1 = arith.constant 1 : index
+    %c0 = arith.constant 0 : index
+    return %c1, %c1, %arg0, %arg1, %c0, %c0, %arg2, %arg3, %c1, %c1, %c1, %arg1, %c0, %c0, %c0, %arg3 : index, index, index, index, index, index, index, index, index, index, index, index, index, index, index, index
+  }
+  func.func nested @generated_0(%arg0: tensor<1x1x?x?xf16>, %arg1: tensor<1x1x1x?xf16>, %arg2: index, %arg3: index, %arg4: index, %arg5: index) -> tensor<1x1x?x?xf16> attributes {
+      kernelInfo = #VPU.KernelInfo<
+          tilingInfoFunc = @generated_info_0,
+          tilingAxes = [2, 3],
+          numSlicedInputs = 2 : i64,
+          numTensorInputs = 2 : i64,
+          numAuxBuffers = 0 : i64,
+          inputSegmentationAxes = [array<i64: -2, -2>, array<i64: -2, -2>]>
+  }
+}
+
+// CHECK-LABEL: @DoNotMergeGenericSwLayersWithUnknownInputSegmentation
+// CHECK-SAME:      [[INPUT0:%.+]]: tensor<1x960x1x640xf16, {order = #NHWC}>, [[INPUT1:%.+]]: tensor<1x960x1x1xf16, {order = #NHWC}>, [[INPUT2:%.+]]: tensor<1x960x1x1xf16, {order = #NHWC}>)
+func.func @DoNotMergeGenericSwLayersWithUnknownInputSegmentation(%arg0: tensor<1x960x1x640xf16, {order = #NHWC}>, %arg1: tensor<1x960x1x1xf16, {order = #NHWC}>, %arg2: tensor<1x960x1x1xf16, {order = #NHWC}>) -> tensor<1x960x1x640xf16, {order = #NHWC}> {
+  %0 = VPU.VerticalFusion (%arg0 as %a0: tensor<1x960x1x640xf16, {order = #NHWC}>, %arg1 as %a1: tensor<1x960x1x1xf16, {order = #NHWC}>) attributes {tilingStrategy = [1, 2, 1, 1]} -> tensor<1x960x1x640xf16, {order = #NHWC}> {
+    %inner = VPU.GenericSwLayer(%a0, %a1 : tensor<1x960x1x640xf16, {order = #NHWC}>, tensor<1x960x1x1xf16, {order = #NHWC}>) @VPU.SW::@generated_0 tiling(sizes = [640, 960], offsets = [0, 0]) -> tensor<1x960x1x640xf16, {order = #NHWC}>
+    VPU.Yield %inner
+  }
+  %1 = VPU.VerticalFusion (%0 as %a0: tensor<1x960x1x640xf16, {order = #NHWC}>, %arg2 as %a1: tensor<1x960x1x1xf16, {order = #NHWC}>) attributes {tilingStrategy = [1, 2, 1, 1]} -> tensor<1x960x1x640xf16, {order = #NHWC}> {
+    %inner = VPU.GenericSwLayer(%a0, %a1 : tensor<1x960x1x640xf16, {order = #NHWC}>, tensor<1x960x1x1xf16, {order = #NHWC}>) @VPU.SW::@generated_0 tiling(sizes = [640, 960], offsets = [0, 0]) -> tensor<1x960x1x640xf16, {order = #NHWC}>
+    VPU.Yield %inner
+  }
+  return %1 : tensor<1x960x1x640xf16, {order = #NHWC}>
+
+    // CHECK:       [[VF0:%.+]] = VPU.VerticalFusion ([[INPUT0]] as [[ARG0:%.+]]: tensor<1x960x1x640xf16, {order = #NHWC}>, [[INPUT1]] as [[ARG1:%.+]]: tensor<1x960x1x1xf16, {order = #NHWC}>)
+    // CHECK:         [[GSL0:%.+]] = VPU.GenericSwLayer([[ARG0]], [[ARG1]]
+    // CHECK:         VPU.Yield [[GSL0]]
+    // CHECK:       VPU.VerticalFusion ([[VF0]] as [[ARG2:%.+]]: tensor<1x960x1x640xf16, {order = #NHWC}>, [[INPUT2]] as [[ARG3:%.+]]: tensor<1x960x1x1xf16, {order = #NHWC}>)
+    // CHECK:         [[GSL1:%.+]] = VPU.GenericSwLayer([[ARG2]], [[ARG3]]
+    // CHECK:         VPU.Yield [[GSL1]]
+}
+
+// -----
+
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+
+// Reject VF on axes where the input is not segmented on the same logical dimension
+// as the output. This works around limitations in backInferVFTilingDim. Note that
+// without these restrictions we would be tiling the first (producer) kernel on
+// memory dimension 2.
+
+// Producer kernel: the input is segmented on the tiling axis, but only mem dim 3 (logical C) has a
+// known segmentation, so fusion on mem dim 2 (logical W) is restricted.
+module @VPU.SW {
+  func.func @generated_info_0(%arg0: index, %arg1: index, %arg2: index, %arg3: index) -> (index, index, index, index, index, index, index, index) {
+    %c1 = arith.constant 1 : index
+    %c0 = arith.constant 0 : index
+    return %c1, %c1, %arg0, %arg1, %c0, %c0, %arg2, %arg3 : index, index, index, index, index, index, index, index
+  }
+  func.func nested @generated_0(%arg0: tensor<1x1x?x?xf16>, %arg1: index, %arg2: index, %arg3: index, %arg4: index) -> tensor<1x1x?x?xf16> attributes {
+      kernelInfo = #VPU.KernelInfo<
+          tilingInfoFunc = @generated_info_0,
+          tilingAxes = [2, 3],
+          numSlicedInputs = 1 : i64,
+          numTensorInputs = 1 : i64,
+          numAuxBuffers = 0 : i64,
+          inputSegmentationAxes = [array<i64: -2>, array<i64: 3>]>
+  }
+
+  // Consumer kernel: the iteration axes are swapped with respect to the input - tiling the result on
+  // mem dim 2 slices the input on mem dim 3 and vice versa. The input is classified on both.
+  func.func @generated_info_1(%arg0: index, %arg1: index, %arg2: index, %arg3: index) -> (index, index, index, index, index, index, index, index) {
+    %c1 = arith.constant 1 : index
+    %c0 = arith.constant 0 : index
+    return %c1, %c1, %arg1, %arg0, %c0, %c0, %arg3, %arg2 : index, index, index, index, index, index, index, index
+  }
+  func.func nested @generated_1(%arg0: tensor<1x1x?x?xf16>, %arg1: index, %arg2: index, %arg3: index, %arg4: index) -> tensor<1x1x?x?xf16> attributes {
+      kernelInfo = #VPU.KernelInfo<
+          tilingInfoFunc = @generated_info_1,
+          tilingAxes = [2, 3],
+          numSlicedInputs = 1 : i64,
+          numTensorInputs = 1 : i64,
+          numAuxBuffers = 0 : i64,
+          inputSegmentationAxes = [array<i64: 3>, array<i64: 2>]>
+  }
+}
+
+// CHECK-LABEL: @DoNotMergeGenericSwLayersWhenInputAxisDiffers
+// CHECK-SAME:      [[INPUT0:%.+]]: tensor<1x640x1x640xf16, {order = #NHWC}>)
+func.func @DoNotMergeGenericSwLayersWhenInputAxisDiffers(%arg0: tensor<1x640x1x640xf16, {order = #NHWC}>) -> tensor<1x640x1x640xf16, {order = #NHWC}> {
+  %0 = VPU.VerticalFusion (%arg0 as %a0: tensor<1x640x1x640xf16, {order = #NHWC}>) attributes {tilingStrategy = [1, 2, 1, 1]} -> tensor<1x640x1x640xf16, {order = #NHWC}> {
+    %inner = VPU.GenericSwLayer(%a0 : tensor<1x640x1x640xf16, {order = #NHWC}>) @VPU.SW::@generated_0 tiling(sizes = [640, 640], offsets = [0, 0]) -> tensor<1x640x1x640xf16, {order = #NHWC}>
+    VPU.Yield %inner
+  }
+  %1 = VPU.VerticalFusion (%0 as %a0: tensor<1x640x1x640xf16, {order = #NHWC}>) attributes {tilingStrategy = [1, 2, 1, 1]} -> tensor<1x640x1x640xf16, {order = #NHWC}> {
+    %inner = VPU.GenericSwLayer(%a0 : tensor<1x640x1x640xf16, {order = #NHWC}>) @VPU.SW::@generated_1 tiling(sizes = [640, 640], offsets = [0, 0]) -> tensor<1x640x1x640xf16, {order = #NHWC}>
+    VPU.Yield %inner
+  }
+  return %1 : tensor<1x640x1x640xf16, {order = #NHWC}>
+
+    // CHECK:       [[VF0:%.+]] = VPU.VerticalFusion ([[INPUT0]] as [[ARG0:%.+]]: tensor<1x640x1x640xf16, {order = #NHWC}>)
+    // CHECK:         [[GSL0:%.+]] = VPU.GenericSwLayer([[ARG0]] {{.*}} @VPU.SW::@generated_0
+    // CHECK:         VPU.Yield [[GSL0]]
+    // CHECK:       VPU.VerticalFusion ([[VF0]] as [[ARG1:%.+]]: tensor<1x640x1x640xf16, {order = #NHWC}>)
+    // CHECK:         [[GSL1:%.+]] = VPU.GenericSwLayer([[ARG1]] {{.*}} @VPU.SW::@generated_1
+    // CHECK:         VPU.Yield [[GSL1]]
+}
+
+// -----
+
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+
+module @VPU.SW {
+  func.func @generated_info_0(%arg0: index, %arg1: index, %arg2: index, %arg3: index) -> (index, index, index, index, index, index, index, index, index, index, index, index, index, index, index, index) {
+    %c1 = arith.constant 1 : index
+    %c0 = arith.constant 0 : index
+    return %c1, %c1, %arg0, %arg1, %c0, %c0, %arg2, %arg3, %c1, %c1, %c1, %arg1, %c0, %c0, %c0, %arg3 : index, index, index, index, index, index, index, index, index, index, index, index, index, index, index, index
+  }
+  func.func nested @generated_0(%arg0: tensor<1x1x?x?xf16>, %arg1: tensor<1x1x1x?xf16>, %arg2: index, %arg3: index, %arg4: index, %arg5: index) -> tensor<1x1x?x?xf16> attributes {
+      kernelInfo = #VPU.KernelInfo<
+          tilingInfoFunc = @generated_info_0,
+          tilingAxes = [2, 3],
+          numSlicedInputs = 2 : i64,
+          numTensorInputs = 2 : i64,
+          numAuxBuffers = 0 : i64,
+          inputSegmentationAxes = [array<i64: 2, -1>, array<i64: 3, 3>]>
+  }
+}
+
+// CHECK-LABEL: @DoNotMergeGenericSwLayersWithMismatchedMCStrategy
+// CHECK-SAME:      [[INPUT0:%.+]]: tensor<1x960x1x640xf16, {order = #NHWC}>, [[INPUT1:%.+]]: tensor<1x960x1x1xf16, {order = #NHWC}>, [[INPUT2:%.+]]: tensor<1x960x1x1xf16, {order = #NHWC}>)
+func.func @DoNotMergeGenericSwLayersWithMismatchedMCStrategy(%arg0: tensor<1x960x1x640xf16, {order = #NHWC}>, %arg1: tensor<1x960x1x1xf16, {order = #NHWC}>, %arg2: tensor<1x960x1x1xf16, {order = #NHWC}>) -> tensor<1x960x1x640xf16, {order = #NHWC}> {
+  %0 = VPU.VerticalFusion (%arg0 as %a0: tensor<1x960x1x640xf16, {order = #NHWC}>, %arg1 as %a1: tensor<1x960x1x1xf16, {order = #NHWC}>) attributes {tilingStrategy = [1, 2, 1, 1]} -> tensor<1x960x1x640xf16, {order = #NHWC}> {
+    %inner = VPU.GenericSwLayer(%a0, %a1 : tensor<1x960x1x640xf16, {order = #NHWC}>, tensor<1x960x1x1xf16, {order = #NHWC}>) @VPU.SW::@generated_0 tiling(sizes = [640, 960], offsets = [0, 0]) {multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>} -> tensor<1x960x1x640xf16, {order = #NHWC}>
+    VPU.Yield %inner
+  }
+  %1 = VPU.VerticalFusion (%0 as %a0: tensor<1x960x1x640xf16, {order = #NHWC}>, %arg2 as %a1: tensor<1x960x1x1xf16, {order = #NHWC}>) attributes {tilingStrategy = [1, 2, 1, 1]} -> tensor<1x960x1x640xf16, {order = #NHWC}> {
+    %inner = VPU.GenericSwLayer(%a0, %a1 : tensor<1x960x1x640xf16, {order = #NHWC}>, tensor<1x960x1x1xf16, {order = #NHWC}>) @VPU.SW::@generated_0 tiling(sizes = [640, 960], offsets = [0, 0]) -> tensor<1x960x1x640xf16, {order = #NHWC}>
+    VPU.Yield %inner
+  }
+  return %1 : tensor<1x960x1x640xf16, {order = #NHWC}>
+
+    // CHECK:       [[VF0:%.+]] = VPU.VerticalFusion ([[INPUT0]] as [[ARG0:%.+]]: tensor<1x960x1x640xf16, {order = #NHWC}>, [[INPUT1]] as [[ARG1:%.+]]: tensor<1x960x1x1xf16, {order = #NHWC}>)
+    // CHECK:         [[GSL0:%.+]] = VPU.GenericSwLayer([[ARG0]], [[ARG1]]
+    // CHECK-SAME:        multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>
+    // CHECK:         VPU.Yield [[GSL0]]
+    // CHECK:       VPU.VerticalFusion ([[VF0]] as [[ARG2:%.+]]: tensor<1x960x1x640xf16, {order = #NHWC}>, [[INPUT2]] as [[ARG3:%.+]]: tensor<1x960x1x1xf16, {order = #NHWC}>)
+    // CHECK:         [[GSL1:%.+]] = VPU.GenericSwLayer([[ARG2]], [[ARG3]]
+    // CHECK-NOT:         multiClusterStrategy
+    // CHECK:         VPU.Yield [[GSL1]]
+}
+
+// -----
+
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+
+module @VPU.SW {
+  func.func @generated_info_0(%arg0: index, %arg1: index, %arg2: index, %arg3: index) -> (index, index, index, index, index, index, index, index, index, index, index, index, index, index, index, index) {
+    %c1 = arith.constant 1 : index
+    %c0 = arith.constant 0 : index
+    return %c1, %c1, %arg0, %arg1, %c0, %c0, %arg2, %arg3, %c1, %c1, %c1, %arg1, %c0, %c0, %c0, %arg3 : index, index, index, index, index, index, index, index, index, index, index, index, index, index, index, index
+  }
+  func.func nested @generated_0(%arg0: tensor<1x1x?x?xf16>, %arg1: tensor<1x1x1x?xf16>, %arg2: index, %arg3: index, %arg4: index, %arg5: index) -> tensor<1x1x?x?xf16> attributes {
+      kernelInfo = #VPU.KernelInfo<
+          tilingInfoFunc = @generated_info_0,
+          tilingAxes = [2, 3],
+          numSlicedInputs = 2 : i64,
+          numTensorInputs = 2 : i64,
+          numAuxBuffers = 0 : i64,
+          inputSegmentationAxes = [array<i64: 2, -1>, array<i64: 3, 3>]>
+  }
+}
+
+// CHECK-LABEL: @DoNotMergeGenericSwLayersWithIncompatibleMCStrategies
+// CHECK-SAME:      [[INPUT0:%.+]]: tensor<1x960x1x640xf16, {order = #NHWC}>, [[INPUT1:%.+]]: tensor<1x960x1x1xf16, {order = #NHWC}>, [[INPUT2:%.+]]: tensor<1x960x1x1xf16, {order = #NHWC}>)
+func.func @DoNotMergeGenericSwLayersWithIncompatibleMCStrategies(%arg0: tensor<1x960x1x640xf16, {order = #NHWC}>, %arg1: tensor<1x960x1x1xf16, {order = #NHWC}>, %arg2: tensor<1x960x1x1xf16, {order = #NHWC}>) -> tensor<1x960x1x640xf16, {order = #NHWC}> {
+  %0 = VPU.VerticalFusion (%arg0 as %a0: tensor<1x960x1x640xf16, {order = #NHWC}>, %arg1 as %a1: tensor<1x960x1x1xf16, {order = #NHWC}>) attributes {tilingStrategy = [1, 2, 1, 1]} -> tensor<1x960x1x640xf16, {order = #NHWC}> {
+    %inner = VPU.GenericSwLayer(%a0, %a1 : tensor<1x960x1x640xf16, {order = #NHWC}>, tensor<1x960x1x1xf16, {order = #NHWC}>) @VPU.SW::@generated_0 tiling(sizes = [640, 960], offsets = [0, 0]) {multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>} -> tensor<1x960x1x640xf16, {order = #NHWC}>
+    VPU.Yield %inner
+  }
+  %1 = VPU.VerticalFusion (%0 as %a0: tensor<1x960x1x640xf16, {order = #NHWC}>, %arg2 as %a1: tensor<1x960x1x1xf16, {order = #NHWC}>) attributes {tilingStrategy = [1, 2, 1, 1]} -> tensor<1x960x1x640xf16, {order = #NHWC}> {
+    %inner = VPU.GenericSwLayer(%a0, %a1 : tensor<1x960x1x640xf16, {order = #NHWC}>, tensor<1x960x1x1xf16, {order = #NHWC}>) @VPU.SW::@generated_0 tiling(sizes = [640, 960], offsets = [0, 0]) {multiClusterStrategy = #VPU.multi_cluster_strategy<Clustering>} -> tensor<1x960x1x640xf16, {order = #NHWC}>
+    VPU.Yield %inner
+  }
+  return %1 : tensor<1x960x1x640xf16, {order = #NHWC}>
+
+    // CHECK:       [[VF0:%.+]] = VPU.VerticalFusion ([[INPUT0]] as [[ARG0:%.+]]: tensor<1x960x1x640xf16, {order = #NHWC}>, [[INPUT1]] as [[ARG1:%.+]]: tensor<1x960x1x1xf16, {order = #NHWC}>)
+    // CHECK:         [[GSL0:%.+]] = VPU.GenericSwLayer([[ARG0]], [[ARG1]]
+    // CHECK-SAME:        multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>
+    // CHECK:         VPU.Yield [[GSL0]]
+    // CHECK:       VPU.VerticalFusion ([[VF0]] as [[ARG2:%.+]]: tensor<1x960x1x640xf16, {order = #NHWC}>, [[INPUT2]] as [[ARG3:%.+]]: tensor<1x960x1x1xf16, {order = #NHWC}>)
+    // CHECK:         [[GSL1:%.+]] = VPU.GenericSwLayer([[ARG2]], [[ARG3]]
+    // CHECK-SAME:        multiClusterStrategy = #VPU.multi_cluster_strategy<Clustering>
+    // CHECK:         VPU.Yield [[GSL1]]
+}

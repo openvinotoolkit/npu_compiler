@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-// RUN: vpux-opt --split-input-file --init-compiler="platform=%platform% compilation-mode=HostCompile allow-custom-values=true" --extract-weights --concat-host-consts %s | FileCheck %s
+// RUN: vpux-opt --split-input-file --init-compiler="platform=%platform% compilation-mode=HostCompile_Interpreter allow-custom-values=true" --extract-weights --concat-host-consts %s | FileCheck %s
 // REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010
 
 {-#
@@ -299,5 +299,162 @@ module @SingleInput {
       scf.yield %kernel_output_def : tensor<1x16x?x1280xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 86, 1280]> : tensor<4xsi64>, order = #NCHW}>
     }
     return %switch: tensor<1x16x?x1280xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 86, 1280]> : tensor<4xsi64>, order = #NCHW}>
+  }
+}
+
+// -----
+
+{-#
+  dialect_resources: {
+    builtin: {
+      vpux_ow_0: "0x1000000001020304",
+      vpux_ow_1: "0x100000000506"
+    }
+  }
+#-}
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+module @SubsetOfFoldedConsts {
+  net.NetworkInfo entryPoint : @main inputsInfo : {
+  } outputsInfo : {
+    DataInfo "output_0" : tensor<1x16x1x1xf16, {order = #NHWC}>
+    DataInfo "output_1" : tensor<1x8x1x1xf16, {order = #NHWC}>
+  }
+
+  // CHECK-LABEL: module @SubsetOfFoldedConsts
+  // CHECK:       func.func private @kernel_first0([[ARG:%.+]]: tensor<48xi8>)
+  func.func private @kernel_first0() -> tensor<1x16x1x1xf16, {order = #NHWC}> {
+    %cst = const.Declare tensor<1x16x1x1xf16, {order = #NHWC}> = dense_resource<vpux_ow_0> : tensor<4xui8>, [#const.Reshape<[1, 4, 1, 1]>, #const.Reorder<#NHWC>, #const.CastElemType<f16>, #const.PadWithZero<[0, 0, 0, 0], [0, 12, 0, 0]>]
+    // CHECK:     [[SLICE_FIRST0:%.+]] = VPU.Slice [[ARG]] [0] [32] : tensor<48xi8> to tensor<32xi8>
+    // CHECK:     [[CAST_FIRST0:%.+]] = Core.ReinterpretCast([[SLICE_FIRST0]]) : tensor<32xi8> -> tensor<1x16x1x1xf16, {order = #NHWC}>
+    // CHECK:     return [[CAST_FIRST0]] : tensor<1x16x1x1xf16, {order = #NHWC}>
+    return %cst : tensor<1x16x1x1xf16, {order = #NHWC}>
+  }
+
+  // CHECK:       func.func private @kernel_first1([[ARG:%.+]]: tensor<48xi8>)
+  func.func private @kernel_first1() -> tensor<1x16x1x1xf16, {order = #NHWC}> {
+    %cst = const.Declare tensor<1x16x1x1xf16, {order = #NHWC}> = dense_resource<vpux_ow_0> : tensor<4xui8>, [#const.Reshape<[1, 4, 1, 1]>, #const.Reorder<#NHWC>, #const.CastElemType<f16>, #const.PadWithZero<[0, 0, 0, 0], [0, 12, 0, 0]>]
+    // CHECK:     [[SLICE_FIRST1:%.+]] = VPU.Slice [[ARG]] [0] [32] : tensor<48xi8> to tensor<32xi8>
+    // CHECK:     [[CAST_FIRST1:%.+]] = Core.ReinterpretCast([[SLICE_FIRST1]]) : tensor<32xi8> -> tensor<1x16x1x1xf16, {order = #NHWC}>
+    // CHECK:     return [[CAST_FIRST1]] : tensor<1x16x1x1xf16, {order = #NHWC}>
+    return %cst : tensor<1x16x1x1xf16, {order = #NHWC}>
+  }
+
+  // CHECK:       func.func private @kernel_second0([[ARG:%.+]]: tensor<48xi8>)
+  func.func private @kernel_second0() -> tensor<1x8x1x1xf16, {order = #NHWC}> {
+    %cst = const.Declare tensor<1x8x1x1xf16, {order = #NHWC}> = dense_resource<vpux_ow_1> : tensor<2xui8>, [#const.Reshape<[1, 2, 1, 1]>, #const.Reorder<#NHWC>, #const.CastElemType<f16>, #const.PadWithZero<[0, 0, 0, 0], [0, 6, 0, 0]>]
+    // CHECK:     [[SLICE_SECOND0:%.+]] = VPU.Slice [[ARG]] [32] [16] : tensor<48xi8> to tensor<16xi8>
+    // CHECK:     [[CAST_SECOND0:%.+]] = Core.ReinterpretCast([[SLICE_SECOND0]]) : tensor<16xi8> -> tensor<1x8x1x1xf16, {order = #NHWC}>
+    // CHECK:     return [[CAST_SECOND0]] : tensor<1x8x1x1xf16, {order = #NHWC}>
+    return %cst : tensor<1x8x1x1xf16, {order = #NHWC}>
+  }
+
+  // CHECK:       func.func private @kernel_second1([[ARG:%.+]]: tensor<48xi8>)
+  func.func private @kernel_second1() -> tensor<1x8x1x1xf16, {order = #NHWC}> {
+    %cst = const.Declare tensor<1x8x1x1xf16, {order = #NHWC}> = dense_resource<vpux_ow_1> : tensor<2xui8>, [#const.Reshape<[1, 2, 1, 1]>, #const.Reorder<#NHWC>, #const.CastElemType<f16>, #const.PadWithZero<[0, 0, 0, 0], [0, 6, 0, 0]>]
+    // CHECK:     [[SLICE_SECOND1:%.+]] = VPU.Slice [[ARG]] [32] [16] : tensor<48xi8> to tensor<16xi8>
+    // CHECK:     [[CAST_SECOND1:%.+]] = Core.ReinterpretCast([[SLICE_SECOND1]]) : tensor<16xi8> -> tensor<1x8x1x1xf16, {order = #NHWC}>
+    // CHECK:     return [[CAST_SECOND1]] : tensor<1x8x1x1xf16, {order = #NHWC}>
+    return %cst : tensor<1x8x1x1xf16, {order = #NHWC}>
+  }
+
+  func.func @main() -> (tensor<1x16x1x1xf16, {order = #NHWC}>, tensor<1x8x1x1xf16, {order = #NHWC}>) {
+    // CHECK:     [[CST:%.+]] = arith.constant dense<[0, 60, 0, 64, 0, 66, 0, 68, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 69, 0, 70, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]> : tensor<48xi8>
+    // CHECK:     call @kernel_first0([[CST]]) : (tensor<48xi8>) -> tensor<1x16x1x1xf16, {order = #NHWC}>
+    %call0 = call @kernel_first0() : () -> tensor<1x16x1x1xf16, {order = #NHWC}>
+    // CHECK:     call @kernel_first1([[CST]]) : (tensor<48xi8>) -> tensor<1x16x1x1xf16, {order = #NHWC}>
+    %call1 = call @kernel_first1() : () -> tensor<1x16x1x1xf16, {order = #NHWC}>
+    // CHECK:     call @kernel_second0([[CST]]) : (tensor<48xi8>) -> tensor<1x8x1x1xf16, {order = #NHWC}>
+    %call2 = call @kernel_second0() : () -> tensor<1x8x1x1xf16, {order = #NHWC}>
+    // CHECK:     call @kernel_second1([[CST]]) : (tensor<48xi8>) -> tensor<1x8x1x1xf16, {order = #NHWC}>
+    %call3 = call @kernel_second1() : () -> tensor<1x8x1x1xf16, {order = #NHWC}>
+    return %call0, %call2: tensor<1x16x1x1xf16, {order = #NHWC}>, tensor<1x8x1x1xf16, {order = #NHWC}>
+  }
+}
+
+// -----
+
+{-#
+  dialect_resources: {
+    builtin: {
+      vpux_ow_0: "0x1000000001020304",
+      vpux_ow_1: "0x100000000506",
+      vpux_ow_2: "0x10000000070809"
+    }
+  }
+#-}
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+module @SharedSubsetConsts {
+  net.NetworkInfo entryPoint : @main inputsInfo : {
+  } outputsInfo : {
+    DataInfo "output_0" : tensor<1x16x1x1xf16, {order = #NHWC}>
+    DataInfo "output_1" : tensor<1x8x1x1xf16, {order = #NHWC}>
+    DataInfo "output_2" : tensor<1x12x1x1xf16, {order = #NHWC}>
+  }
+
+  // CHECK:       func.func private @kernel_func0([[ARG:%.+]]: tensor<72xi8>)
+  func.func private @kernel_func0() -> tensor<1x16x1x1xf16, {order = #NHWC}> {
+    %cst0 = const.Declare tensor<1x16x1x1xf16, {order = #NHWC}> = dense_resource<vpux_ow_0> : tensor<4xui8>, [#const.Reshape<[1, 4, 1, 1]>, #const.Reorder<#NHWC>, #const.CastElemType<f16>, #const.PadWithZero<[0, 0, 0, 0], [0, 12, 0, 0]>]
+    // CHECK:     [[SLICE_0:%.+]] = VPU.Slice [[ARG]] [0] [32] : tensor<72xi8> to tensor<32xi8>
+    // CHECK:     [[CAST_0:%.+]] = Core.ReinterpretCast([[SLICE_0]]) : tensor<32xi8> -> tensor<1x16x1x1xf16, {order = #NHWC}>
+    // CHECK:     return [[CAST_0]] : tensor<1x16x1x1xf16, {order = #NHWC}>
+    return %cst0 : tensor<1x16x1x1xf16, {order = #NHWC}>
+  }
+
+  // CHECK:       func.func private @kernel_func1([[ARG:%.+]]: tensor<72xi8>)
+  func.func private @kernel_func1() -> (tensor<1x16x1x1xf16, {order = #NHWC}>, tensor<1x8x1x1xf16, {order = #NHWC}>) {
+    %cst0 = const.Declare tensor<1x16x1x1xf16, {order = #NHWC}> = dense_resource<vpux_ow_0> : tensor<4xui8>, [#const.Reshape<[1, 4, 1, 1]>, #const.Reorder<#NHWC>, #const.CastElemType<f16>, #const.PadWithZero<[0, 0, 0, 0], [0, 12, 0, 0]>]
+    %cst1 = const.Declare tensor<1x8x1x1xf16, {order = #NHWC}> = dense_resource<vpux_ow_1> : tensor<2xui8>, [#const.Reshape<[1, 2, 1, 1]>, #const.Reorder<#NHWC>, #const.CastElemType<f16>, #const.PadWithZero<[0, 0, 0, 0], [0, 6, 0, 0]>]
+    // CHECK:     [[SLICE_0:%.+]] = VPU.Slice [[ARG]] [0] [32] : tensor<72xi8> to tensor<32xi8>
+    // CHECK:     [[CAST_0:%.+]] = Core.ReinterpretCast([[SLICE_0]]) : tensor<32xi8> -> tensor<1x16x1x1xf16, {order = #NHWC}>
+    // CHECK:     [[SLICE_1:%.+]] = VPU.Slice [[ARG]] [32] [16] : tensor<72xi8> to tensor<16xi8>
+    // CHECK:     [[CAST_1:%.+]] = Core.ReinterpretCast([[SLICE_1]]) : tensor<16xi8> -> tensor<1x8x1x1xf16, {order = #NHWC}>
+    // CHECK:     return [[CAST_0]], [[CAST_1]] : tensor<1x16x1x1xf16, {order = #NHWC}>, tensor<1x8x1x1xf16, {order = #NHWC}>
+    return %cst0, %cst1 : tensor<1x16x1x1xf16, {order = #NHWC}>, tensor<1x8x1x1xf16, {order = #NHWC}>
+  }
+
+  // CHECK:       func.func private @kernel_func2([[ARG:%.+]]: tensor<72xi8>)
+  func.func private @kernel_func2() -> (tensor<1x8x1x1xf16, {order = #NHWC}>, tensor<1x12x1x1xf16, {order = #NHWC}>) {
+    %cst1 = const.Declare tensor<1x8x1x1xf16, {order = #NHWC}> = dense_resource<vpux_ow_1> : tensor<2xui8>, [#const.Reshape<[1, 2, 1, 1]>, #const.Reorder<#NHWC>, #const.CastElemType<f16>, #const.PadWithZero<[0, 0, 0, 0], [0, 6, 0, 0]>]
+    %cst2 = const.Declare tensor<1x12x1x1xf16, {order = #NHWC}> = dense_resource<vpux_ow_2> : tensor<3xui8>, [#const.Reshape<[1, 3, 1, 1]>, #const.Reorder<#NHWC>, #const.CastElemType<f16>, #const.PadWithZero<[0, 0, 0, 0], [0, 9, 0, 0]>]
+    // CHECK:     [[SLICE_0:%.+]] = VPU.Slice [[ARG]] [32] [16] : tensor<72xi8> to tensor<16xi8>
+    // CHECK:     [[CAST_0:%.+]] = Core.ReinterpretCast([[SLICE_0]]) : tensor<16xi8> -> tensor<1x8x1x1xf16, {order = #NHWC}>
+    // CHECK:     [[SLICE_1:%.+]] = VPU.Slice [[ARG]] [48] [24] : tensor<72xi8> to tensor<24xi8>
+    // CHECK:     [[CAST_1:%.+]] = Core.ReinterpretCast([[SLICE_1]]) : tensor<24xi8> -> tensor<1x12x1x1xf16, {order = #NHWC}>
+    // CHECK:     return [[CAST_0]], [[CAST_1]] : tensor<1x8x1x1xf16, {order = #NHWC}>, tensor<1x12x1x1xf16, {order = #NHWC}>
+    return %cst1, %cst2 : tensor<1x8x1x1xf16, {order = #NHWC}>, tensor<1x12x1x1xf16, {order = #NHWC}>
+  }
+
+  // CHECK:       func.func private @kernel_func3([[ARG:%.+]]: tensor<72xi8>)
+  func.func private @kernel_func3() -> (tensor<1x16x1x1xf16, {order = #NHWC}>, tensor<1x12x1x1xf16, {order = #NHWC}>) {
+    %cst0 = const.Declare tensor<1x16x1x1xf16, {order = #NHWC}> = dense_resource<vpux_ow_0> : tensor<4xui8>, [#const.Reshape<[1, 4, 1, 1]>, #const.Reorder<#NHWC>, #const.CastElemType<f16>, #const.PadWithZero<[0, 0, 0, 0], [0, 12, 0, 0]>]
+    %cst2 = const.Declare tensor<1x12x1x1xf16, {order = #NHWC}> = dense_resource<vpux_ow_2> : tensor<3xui8>, [#const.Reshape<[1, 3, 1, 1]>, #const.Reorder<#NHWC>, #const.CastElemType<f16>, #const.PadWithZero<[0, 0, 0, 0], [0, 9, 0, 0]>]
+    // CHECK:     [[SLICE_0:%.+]] = VPU.Slice [[ARG]] [0] [32] : tensor<72xi8> to tensor<32xi8>
+    // CHECK:     [[CAST_0:%.+]] = Core.ReinterpretCast([[SLICE_0]]) : tensor<32xi8> -> tensor<1x16x1x1xf16, {order = #NHWC}>
+    // CHECK:     [[SLICE_1:%.+]] = VPU.Slice [[ARG]] [48] [24] : tensor<72xi8> to tensor<24xi8>
+    // CHECK:     [[CAST_1:%.+]] = Core.ReinterpretCast([[SLICE_1]]) : tensor<24xi8> -> tensor<1x12x1x1xf16, {order = #NHWC}>
+    // CHECK:     return [[CAST_0]], [[CAST_1]] : tensor<1x16x1x1xf16, {order = #NHWC}>, tensor<1x12x1x1xf16, {order = #NHWC}>
+    return %cst0, %cst2 : tensor<1x16x1x1xf16, {order = #NHWC}>, tensor<1x12x1x1xf16, {order = #NHWC}>
+  }
+
+  // Intermediate state after `extract-weights` and before `concat-host-consts`.
+  // The shared subset is still visible in separate constants here:
+  // `vpux_ow_0` is used by `kernel_func0`, `kernel_func1`, and `kernel_func3`;
+  // `vpux_ow_1` is used by `kernel_func1` and `kernel_func2`;
+  // `vpux_ow_2` is used by `kernel_func2` and `kernel_func3`.
+  // After `concat-host-consts`, these constants are folded into one blob in
+  // resource order, so the later calls access the shared blob by offsets:
+  // `vpux_ow_0` at `[0, 32)`, `vpux_ow_1` at `[32, 48)`, `vpux_ow_2` at `[48, 72)`.
+  func.func @main() -> (tensor<1x16x1x1xf16, {order = #NHWC}>, tensor<1x8x1x1xf16, {order = #NHWC}>, tensor<1x12x1x1xf16, {order = #NHWC}>) {
+    // CHECK:     [[CST:%.+]] = arith.constant
+    // CHECK-SAME: tensor<72xi8>
+    // CHECK:     call @kernel_func0([[CST]]) : (tensor<72xi8>) -> tensor<1x16x1x1xf16, {order = #NHWC}>
+    %call0 = call @kernel_func0() : () -> tensor<1x16x1x1xf16, {order = #NHWC}>
+    // CHECK:     call @kernel_func1([[CST]]) : (tensor<72xi8>) -> (tensor<1x16x1x1xf16, {order = #NHWC}>, tensor<1x8x1x1xf16, {order = #NHWC}>)
+    %call1:2 = call @kernel_func1() : () -> (tensor<1x16x1x1xf16, {order = #NHWC}>, tensor<1x8x1x1xf16, {order = #NHWC}>)
+    // CHECK:     call @kernel_func2([[CST]]) : (tensor<72xi8>) -> (tensor<1x8x1x1xf16, {order = #NHWC}>, tensor<1x12x1x1xf16, {order = #NHWC}>)
+    %call2:2 = call @kernel_func2() : () -> (tensor<1x8x1x1xf16, {order = #NHWC}>, tensor<1x12x1x1xf16, {order = #NHWC}>)
+    // CHECK:     call @kernel_func3([[CST]]) : (tensor<72xi8>) -> (tensor<1x16x1x1xf16, {order = #NHWC}>, tensor<1x12x1x1xf16, {order = #NHWC}>)
+    %call3:2 = call @kernel_func3() : () -> (tensor<1x16x1x1xf16, {order = #NHWC}>, tensor<1x12x1x1xf16, {order = #NHWC}>)
+    return %call0, %call1#1, %call2#1 : tensor<1x16x1x1xf16, {order = #NHWC}>, tensor<1x8x1x1xf16, {order = #NHWC}>, tensor<1x12x1x1xf16, {order = #NHWC}>
   }
 }

@@ -180,6 +180,8 @@ VPURT::TaskOp SwKernelRewriter::createNewTaskOp(VPUIP::SwKernelOp swKernelOp, VP
                 swKernelOp.getInputStridesAttr(), swKernelOp.getOutputStridesAttr());
     }();
 
+    VPUIP::copyCustomKernelAttributes(swKernelOp, newSwKernelOp);
+
     if (auto logicalTask = swKernelOp->getAttr(VPUIP::LOGICAL_TASK_INDEX_ATTR_NAME)) {
         newSwKernelOp->setAttr(VPUIP::LOGICAL_TASK_INDEX_ATTR_NAME, logicalTask);
     }

@@ -21,6 +21,7 @@
 //   head-fold: [1,kvH,...] -> [kvH,1,...]), Q is un-folded to batch=1 so that
 //   FlashSDPA's native GQA head-broadcast handles qH > kvH without extra reshaping.
 
+#include <algorithm>
 #include <limits>
 #include "vpux/compiler/core/layers.hpp"
 #include "vpux/compiler/dialect/IE/IR/dialect.hpp"
@@ -31,7 +32,9 @@
 #include "vpux/compiler/dialect/IE/IR/ops/specialized.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
 #include "vpux/compiler/dialect/IE/utils/concat_utils.hpp"
+#include "vpux/compiler/dialect/VPU/utils/manual_strategy_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_invariant.hpp"
+#include "vpux/compiler/dialect/config/IR/resources.hpp"
 #include "vpux/compiler/dialect/const/utils/utils.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
@@ -121,27 +124,31 @@ static int64_t computeQHeads(ShapeRef shapeQ, mlir::Operation* kWrapOp) {
 
 // Returns true when tSL==1 decode attention falls into the low-efficiency GQA/SOK
 // corner case where the block-cache FlashSDPA cascade is unprofitable:
-//   - kvHeads == 1 forces K/V duplication across all SOK clusters.
-//   - qHeads <= kDecodeLowQHeadsThreshold means multi-cluster DPU utilisation is low
-//     (e.g. 8 Q-heads split as [3,3,2] across 3 clusters).
+//   - kvHeads == 1 forces K/V duplication across all SOK clusters, so Q heads are
+//     the only thing distributed: each cluster gets floor(qHeads / numClusters),
+//     and each SHAVE_ACT lane within a cluster gets a further floor(.. / numShaves).
+//   - flash_sdpa.cpp runs its per-invocation fixed cost (2x dpuMatMulInit, mask
+//     check, SW-kernel dispatch) independently per SHAVE lane, once per kv_num_tiles
+//     block. Below kDecodeMinHeadsPerShave heads that cost is not amortised over
+//     enough per-head work, so the FlashSDPA cascade's Shave time dominates.
 // kvHeads == 0 or qHeads == 0 means the dimension is indeterminate; the guard is
 // skipped conservatively and the function returns false.
-static bool isLowEfficiencyDecodeCase(int64_t tSL, int64_t kvHeads, int64_t qHeads) {
+static bool isLowEfficiencyDecodeCase(int64_t tSL, int64_t kvHeads, int64_t qHeads, int64_t numClusters,
+                                      int64_t numShavesPerTile) {
     if (tSL != 1) {
         return false;
     }
     // kvHeads == 0 or qHeads == 0: indeterminate; skip the guard conservatively.
-    if (kvHeads == 0 || qHeads == 0) {
+    if (kvHeads == 0 || qHeads == 0 || numClusters <= 0 || numShavesPerTile <= 0) {
         return false;
     }
     if (kvHeads != 1) {
         return false;
     }
-    // With 8 Q-heads and SOK over typical cluster
-    // counts (e.g. 6), the split is uneven ([2,2,2,1,1,0] or similar), leaving
-    // clusters idle. Above 8 the imbalance is small enough to be profitable.
-    constexpr int64_t kDecodeLowQHeadsThreshold = 8;
-    return qHeads <= kDecodeLowQHeadsThreshold;
+    // Worst-case (least loaded) SHAVE lane after an even SOK + intra-cluster split.
+    constexpr int64_t kDecodeMinHeadsPerShave = 4;
+    const auto minHeadsPerShave = qHeads / (numClusters * numShavesPerTile);
+    return minHeadsPerShave <= kDecodeMinHeadsPerShave;
 }
 
 // Returns true when the op structurally matches the tiled K/V concat pattern and
@@ -196,10 +203,15 @@ bool shouldConvertBlockCacheAttentionToFlashSDPA(IE::AttentionOp op, int64_t seq
     }
 
     // Skip the FlashSDPA cascade for decode steps that fall into the low-efficiency
-    // GQA/SOK corner case (kvHeads==1, small qHeads).  See isLowEfficiencyDecodeCase.
-    // kvHeads is 0 when K is not 4D ([N, kvH, S, E] assumed); the guard is skipped.
+    // GQA/SOK corner case (kvHeads==1, too few heads per SHAVE lane).  See
+    // isLowEfficiencyDecodeCase. kvHeads is 0 when K is not 4D ([N, kvH, S, E]
+    // assumed); the guard is skipped.
     const int64_t kvHeads = (rankKConcat == 4) ? kConcatShape[Dims4D::Act::C] : 0;
-    if (isLowEfficiencyDecodeCase(tSL, kvHeads, computeQHeads(shapeQ, kWrapOp))) {
+    const auto module = op->getParentOfType<mlir::ModuleOp>();
+    auto tileExec = config::getTileExecutor(module);
+    const auto numClusters = tileExec.getCount();
+    const auto numShavesPerTile = tileExec.getSubExecutor(config::ExecutorKind::SHAVE_ACT).getCount();
+    if (isLowEfficiencyDecodeCase(tSL, kvHeads, computeQHeads(shapeQ, kWrapOp), numClusters, numShavesPerTile)) {
         return false;
     }
 
@@ -303,8 +315,8 @@ static MergedTileGroups buildMergedTileGroups(mlir::OperandRange kInputs, mlir::
 
 class AttentionToFlashSDPARewrite final : public mlir::OpRewritePattern<IE::AttentionOp> {
 public:
-    AttentionToFlashSDPARewrite(mlir::MLIRContext* ctx, Logger log)
-            : mlir::OpRewritePattern<IE::AttentionOp>(ctx), _log(log) {
+    AttentionToFlashSDPARewrite(mlir::MLIRContext* ctx, Logger log, LoopIndexAllocator& loopIndexAllocator)
+            : mlir::OpRewritePattern<IE::AttentionOp>(ctx), _log(log), _loopIndexAllocator(loopIndexAllocator) {
         setDebugName("AttentionToFlashSDPARewrite");
     }
 
@@ -312,6 +324,7 @@ public:
 
 private:
     Logger _log;
+    LoopIndexAllocator& _loopIndexAllocator;
 };
 
 mlir::LogicalResult AttentionToFlashSDPARewrite::matchAndRewrite(IE::AttentionOp origOp,
@@ -322,6 +335,10 @@ mlir::LogicalResult AttentionToFlashSDPARewrite::matchAndRewrite(IE::AttentionOp
             VPU::NCEInvariant::getAlignment(mlir::cast<NDTypeInterface>(origOp.getInputQ().getType()).getElementType());
     if (!shouldConvertBlockCacheAttentionToFlashSDPA(origOp, seqAlignment)) {
         return mlir::failure();
+    }
+    if (!origOp->hasAttr(TILING_LOOP_INDEX_ATTR_NAME)) {
+        const auto tilingLoopIndex = _loopIndexAllocator.getNextTilingLoopIndex();
+        origOp->setAttr(TILING_LOOP_INDEX_ATTR_NAME, TilingLoopIndexAttr::get(origOp->getContext(), tilingLoopIndex));
     }
 
     // Re-peel to obtain the tile inputs (shouldConvert already validated the pattern).
@@ -480,6 +497,7 @@ mlir::LogicalResult AttentionToFlashSDPARewrite::matchAndRewrite(IE::AttentionOp
         auto tileOp =
                 IE::FlashSDPAOp::create(rewriter, appendLoc(loc, "flash_sdpa_tile_{0}", i), queryForFlash, kTile, vTile,
                                         runOut, runMax, runSum, maskTile, isHead, isTail, getIntAttr(ctx, 0));
+        copyLoopAttributes(origOp, tileOp.getOperation());
 
         runOut = tileOp.getResultRunningOutput();
         runMax = tileOp.getResultRunningMax();
@@ -529,9 +547,10 @@ private:
 void ConvertBlockCacheAttentionToFlashSDPA::safeRunOnFunc() {
     auto func = getOperation();
     auto& ctx = getContext();
+    LoopIndexAllocator loopIndexAllocator(func);
 
     mlir::RewritePatternSet patterns(&ctx);
-    patterns.add<AttentionToFlashSDPARewrite>(&ctx, _log);
+    patterns.add<AttentionToFlashSDPARewrite>(&ctx, _log, loopIndexAllocator);
 
     walkAndApplyPatterns(func, std::move(patterns));
 }

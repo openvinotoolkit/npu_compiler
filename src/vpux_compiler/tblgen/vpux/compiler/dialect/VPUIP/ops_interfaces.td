@@ -273,6 +273,10 @@ def VPUIP_DMATypeOpInterface : OpInterface<"DMATypeOpInterface", [DeclareOpInter
             }]
         >
     ];
+
+    let verify = [{
+        return vpux::VPUIP::verifyDMAType($_op);
+    }];
 }
 
 //

@@ -133,6 +133,39 @@ private:
     vpux::Logger _log;
 };
 
+class RemoveDuplicatingConvert final : public mlir::OpRewritePattern<IE::ConvertOp> {
+public:
+    using mlir::OpRewritePattern<IE::ConvertOp>::OpRewritePattern;
+
+    mlir::LogicalResult matchAndRewrite(IE::ConvertOp origOp, mlir::PatternRewriter& rewriter) const final {
+        auto firstUser = origOp;
+        SmallVector<IE::ConvertOp> matchingConverts;
+        for (auto* user : origOp.getInput().getUsers()) {
+            auto convertOp = mlir::dyn_cast<IE::ConvertOp>(user);
+            if (convertOp == nullptr || convertOp->getBlock() != origOp->getBlock() ||
+                convertOp.getOutput().getType() != origOp.getOutput().getType()) {
+                continue;
+            }
+            matchingConverts.push_back(convertOp);
+            if (convertOp->isBeforeInBlock(firstUser)) {
+                firstUser = convertOp;
+            }
+        }
+
+        // If there are less than two matching convert operations, there is nothing to deduplicate.
+        if (matchingConverts.size() < 2) {
+            return mlir::failure();
+        }
+
+        for (auto convertOp : matchingConverts) {
+            if (convertOp != firstUser) {
+                rewriter.replaceOp(convertOp, firstUser.getOutput());
+            }
+        }
+        return mlir::success();
+    }
+};
+
 }  // namespace
 
 void vpux::IE::setupConvertPrecision(mlir::TypeConverter& typeConverter,
@@ -178,5 +211,16 @@ mlir::LogicalResult vpux::IE::runConvertOpTypes(mlir::ModuleOp module, mlir::Typ
     }
     patterns.add<ConvertOpTypes>(typeConverter, module.getContext(), log, std::move(shouldPreserveOperand));
 
-    return mlir::applyPartialConversion(module, target, std::move(patterns));
+    if (mlir::failed(mlir::applyPartialConversion(module, target, std::move(patterns)))) {
+        return mlir::failure();
+    }
+
+    // Distinct materialization requests (e.g. from different uses of the same value, or intermediate
+    // placeholder values resolved separately by the conversion driver) can each produce their own
+    // IE.Convert, ending up with an identical (input, dstType) pair (and thus a colliding location).
+    // Merge any such duplicates here, once the final operands are known.
+    mlir::RewritePatternSet cleanupPatterns(module.getContext());
+    cleanupPatterns.add<RemoveDuplicatingConvert>(module.getContext());
+
+    return mlir::applyPatternsGreedily(module, std::move(cleanupPatterns), getDefaultGreedyRewriteConfig());
 }

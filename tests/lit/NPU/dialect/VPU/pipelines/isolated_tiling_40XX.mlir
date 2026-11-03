@@ -676,40 +676,37 @@ func.func @Gather4DSplitWithBatchDims(%arg0: tensor<2x1x4004x320xf16>) -> tensor
 // -----
 
 // CHECK-LABEL: func.func @Yuv2RGBSplit
-// CHECK-SAME:      [[INPUT:%.+]]: tensor<1x993x736x1xf16>
-func.func @Yuv2RGBSplit(%arg0: tensor<1x993x736x1xf16>) -> tensor<1x662x736x3xf16> {
-  %0 = VPU.Slice %arg0 [0, 0, 0, 0] [1, 662, 736, 1] : tensor<1x993x736x1xf16> to tensor<1x662x736x1xf16>
-  %1 = VPU.Slice %arg0 [0, 662, 0, 0] [1, 331, 736, 1] : tensor<1x993x736x1xf16> to tensor<1x331x736x1xf16>
-  %2 = VPU.Reshape(%1) {shape_value = [1, 331, 368, 2]} : tensor<1x331x736x1xf16> -> tensor<1x331x368x2xf16>
-  %3 = VPU.YuvToRgb(%0, %2) {inFmt = #IE.color_fmt<NV12>, operandSegmentSizes = array<i32: 1, 1, 0>, outFmt = #IE.color_fmt<RGB>} : tensor<1x662x736x1xf16>, tensor<1x331x368x2xf16> -> tensor<1x662x736x3xf16>
-  return %3 : tensor<1x662x736x3xf16>
+// CHECK-SAME:      [[ARG_0:%.+]]: tensor<1x1x662x736xf16, {order = #NHWC}>
+// CHECK-SAME:      [[ARG_1:%.+]]: tensor<1x2x331x368xf16, {order = #NHWC}>
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
-    // CHECK:    [[UV_INPUT:%.+]] = VPU.Slice [[INPUT]] [0, 662, 0, 0] [1, 331, 736, 1] : tensor<1x993x736x1xf16> to tensor<1x331x736x1xf16>
-    // CHECK:    [[UV_CAST:%.+]] = VPU.ShapeCast {shape = [1, 331, 368, 2]} inputs([[UV_INPUT]] : tensor<1x331x736x1xf16>) -> tensor<1x331x368x2xf16>
+func.func @Yuv2RGBSplit(%arg0: tensor<1x1x662x736xf16, {order = #NHWC}>, %arg1: tensor<1x2x331x368xf16, {order = #NHWC}>) -> tensor<1x3x662x736xf16, {order = #NHWC}> {
+    %3 = VPU.YuvToRgb(%arg0, %arg1) {inFmt = #IE.color_fmt<NV12>, operandSegmentSizes = array<i32: 1, 1, 0>, outFmt = #IE.color_fmt<RGB>} : tensor<1x1x662x736xf16, {order = #NHWC}>, tensor<1x2x331x368xf16, {order = #NHWC}> -> tensor<1x3x662x736xf16, {order = #NHWC}>
+    return %3 : tensor<1x3x662x736xf16, {order = #NHWC}>
 
     // Tile 0
-    // CHECK:    [[Y0:%.+]] = VPU.Slice [[INPUT]] [0, 0, 0, 0] [1, 166, 736, 1] : tensor<1x993x736x1xf16> to tensor<1x166x736x1xf16>
-    // CHECK:    [[UV0:%.+]] = VPU.Slice [[UV_CAST]] [0, 0, 0, 0] [1, 83, 368, 2] : tensor<1x331x368x2xf16> to tensor<1x83x368x2xf16>
-    // CHECK:    [[RGB0:%.+]] = VPU.YuvToRgb([[Y0]], [[UV0]]) {inFmt = #IE.color_fmt<NV12>, loop_tile_coord = {axes = array<i64: 1>, indices = array<i64: 0>}, operandSegmentSizes = array<i32: 1, 1, 0>, outFmt = #IE.color_fmt<RGB>, tiling_loop_index = 0 : i64} : tensor<1x166x736x1xf16>, tensor<1x83x368x2xf16> -> tensor<1x166x736x3xf16>
+        // CHECK:    [[Y0:%.+]] = VPU.Slice [[ARG_0]] [0, 0, 0, 0] [1, 1, 166, 736] : tensor<1x1x662x736xf16, {order = #NHWC}> to tensor<1x1x166x736xf16, {order = #NHWC}>
+        // CHECK:    [[UV0:%.+]] = VPU.Slice [[ARG_1]] [0, 0, 0, 0] [1, 2, 83, 368] : tensor<1x2x331x368xf16, {order = #NHWC}> to tensor<1x2x83x368xf16, {order = #NHWC}>
+        // CHECK:    [[RGB0:%.+]] = VPU.YuvToRgb([[Y0]], [[UV0]]) {inFmt = #IE.color_fmt<NV12>, loop_tile_coord = {axes = array<i64: 2>, indices = array<i64: 0>}, operandSegmentSizes = array<i32: 1, 1, 0>, outFmt = #IE.color_fmt<RGB>, tiling_loop_index = 0 : i64} : tensor<1x1x166x736xf16, {order = #NHWC}>, tensor<1x2x83x368xf16, {order = #NHWC}> -> tensor<1x3x166x736xf16, {order = #NHWC}>
 
     // Tile 1
-    // CHECK:    [[Y1:%.+]] = VPU.Slice [[INPUT]] [0, 166, 0, 0] [1, 166, 736, 1] : tensor<1x993x736x1xf16> to tensor<1x166x736x1xf16>
-    // CHECK:    [[UV1:%.+]] = VPU.Slice [[UV_CAST]] [0, 83, 0, 0] [1, 83, 368, 2] : tensor<1x331x368x2xf16> to tensor<1x83x368x2xf16>
-    // CHECK:    [[RGB1:%.+]] = VPU.YuvToRgb([[Y1]], [[UV1]]) {inFmt = #IE.color_fmt<NV12>, loop_tile_coord = {axes = array<i64: 1>, indices = array<i64: 1>}, operandSegmentSizes = array<i32: 1, 1, 0>, outFmt = #IE.color_fmt<RGB>, tiling_loop_index = 0 : i64} : tensor<1x166x736x1xf16>, tensor<1x83x368x2xf16> -> tensor<1x166x736x3xf16>
+        // CHECK:    [[Y1:%.+]] = VPU.Slice [[ARG_0]] [0, 0, 166, 0] [1, 1, 166, 736] : tensor<1x1x662x736xf16, {order = #NHWC}> to tensor<1x1x166x736xf16, {order = #NHWC}>
+        // CHECK:    [[UV1:%.+]] = VPU.Slice [[ARG_1]] [0, 0, 83, 0] [1, 2, 83, 368] : tensor<1x2x331x368xf16, {order = #NHWC}> to tensor<1x2x83x368xf16, {order = #NHWC}>
+        // CHECK:    [[RGB1:%.+]] = VPU.YuvToRgb([[Y1]], [[UV1]]) {inFmt = #IE.color_fmt<NV12>, loop_tile_coord = {axes = array<i64: 2>, indices = array<i64: 1>}, operandSegmentSizes = array<i32: 1, 1, 0>, outFmt = #IE.color_fmt<RGB>, tiling_loop_index = 0 : i64} : tensor<1x1x166x736xf16, {order = #NHWC}>, tensor<1x2x83x368xf16, {order = #NHWC}> -> tensor<1x3x166x736xf16, {order = #NHWC}>
 
     // Tile 2
-    // CHECK:    [[Y2:%.+]] = VPU.Slice [[INPUT]] [0, 332, 0, 0] [1, 166, 736, 1] : tensor<1x993x736x1xf16> to tensor<1x166x736x1xf16>
-    // CHECK:    [[UV2:%.+]] = VPU.Slice [[UV_CAST]] [0, 166, 0, 0] [1, 83, 368, 2] : tensor<1x331x368x2xf16> to tensor<1x83x368x2xf16>
-    // CHECK:    [[RGB2:%.+]] = VPU.YuvToRgb([[Y2]], [[UV2]]) {inFmt = #IE.color_fmt<NV12>, loop_tile_coord = {axes = array<i64: 1>, indices = array<i64: 2>}, operandSegmentSizes = array<i32: 1, 1, 0>, outFmt = #IE.color_fmt<RGB>, tiling_loop_index = 0 : i64} : tensor<1x166x736x1xf16>, tensor<1x83x368x2xf16> -> tensor<1x166x736x3xf16>
+        // CHECK:    [[Y2:%.+]] = VPU.Slice [[ARG_0]] [0, 0, 332, 0] [1, 1, 166, 736] : tensor<1x1x662x736xf16, {order = #NHWC}> to tensor<1x1x166x736xf16, {order = #NHWC}>
+        // CHECK:    [[UV2:%.+]] = VPU.Slice [[ARG_1]] [0, 0, 166, 0] [1, 2, 83, 368] : tensor<1x2x331x368xf16, {order = #NHWC}> to tensor<1x2x83x368xf16, {order = #NHWC}>
+        // CHECK:    [[RGB2:%.+]] = VPU.YuvToRgb([[Y2]], [[UV2]]) {inFmt = #IE.color_fmt<NV12>, loop_tile_coord = {axes = array<i64: 2>, indices = array<i64: 2>}, operandSegmentSizes = array<i32: 1, 1, 0>, outFmt = #IE.color_fmt<RGB>, tiling_loop_index = 0 : i64} : tensor<1x1x166x736xf16, {order = #NHWC}>, tensor<1x2x83x368xf16, {order = #NHWC}> -> tensor<1x3x166x736xf16, {order = #NHWC}>
 
     // Tile 3
-    // CHECK:    [[Y3:%.+]] = VPU.Slice [[INPUT]] [0, 498, 0, 0] [1, 164, 736, 1] : tensor<1x993x736x1xf16> to tensor<1x164x736x1xf16>
-    // CHECK:    [[UV3:%.+]] = VPU.Slice [[UV_CAST]] [0, 249, 0, 0] [1, 82, 368, 2] : tensor<1x331x368x2xf16> to tensor<1x82x368x2xf16>
-    // CHECK:    [[RGB3:%.+]] = VPU.YuvToRgb([[Y3]], [[UV3]]) {inFmt = #IE.color_fmt<NV12>, loop_tile_coord = {axes = array<i64: 1>, indices = array<i64: 3>}, operandSegmentSizes = array<i32: 1, 1, 0>, outFmt = #IE.color_fmt<RGB>, tiling_loop_index = 0 : i64} : tensor<1x164x736x1xf16>, tensor<1x82x368x2xf16> -> tensor<1x164x736x3xf16>
+        // CHECK:    [[Y3:%.+]] = VPU.Slice [[ARG_0]] [0, 0, 498, 0] [1, 1, 164, 736] : tensor<1x1x662x736xf16, {order = #NHWC}> to tensor<1x1x164x736xf16, {order = #NHWC}>
+        // CHECK:    [[UV3:%.+]] = VPU.Slice [[ARG_1]] [0, 0, 249, 0] [1, 2, 82, 368] : tensor<1x2x331x368xf16, {order = #NHWC}> to tensor<1x2x82x368xf16, {order = #NHWC}>
+        // CHECK:    [[RGB3:%.+]] = VPU.YuvToRgb([[Y3]], [[UV3]]) {inFmt = #IE.color_fmt<NV12>, loop_tile_coord = {axes = array<i64: 2>, indices = array<i64: 3>}, operandSegmentSizes = array<i32: 1, 1, 0>, outFmt = #IE.color_fmt<RGB>, tiling_loop_index = 0 : i64} : tensor<1x1x164x736xf16, {order = #NHWC}>, tensor<1x2x82x368xf16, {order = #NHWC}> -> tensor<1x3x164x736xf16, {order = #NHWC}>
 
     // CHECK:    [[CONCAT:%.+]] = VPU.Concat([[RGB0]], [[RGB1]], [[RGB2]], [[RGB3]])
-    // CHECK-SAME{LITERAL}: {static_offsets = [[0, 0, 0, 0], [0, 166, 0, 0], [0, 332, 0, 0], [0, 498, 0, 0]]} : tensor<1x166x736x3xf16>, tensor<1x166x736x3xf16>, tensor<1x166x736x3xf16>, tensor<1x164x736x3xf16> -> tensor<1x662x736x3xf16>
-    // CHECK:    return [[CONCAT]] : tensor<1x662x736x3xf16>
+        // CHECK-SAME{LITERAL}: {static_offsets = [[0, 0, 0, 0], [0, 0, 166, 0], [0, 0, 332, 0], [0, 0, 498, 0]]} : tensor<1x3x166x736xf16, {order = #NHWC}>, tensor<1x3x166x736xf16, {order = #NHWC}>, tensor<1x3x166x736xf16, {order = #NHWC}>, tensor<1x3x164x736xf16, {order = #NHWC}> -> tensor<1x3x662x736xf16, {order = #NHWC}>
+        // CHECK:    return [[CONCAT]] : tensor<1x3x662x736xf16, {order = #NHWC}>
 }
 
 // -----

@@ -206,8 +206,8 @@ bool VPU::NCEReduceOp::doesLayerChangeOutputAlignmentFitIntoCMX(
     auto nceOp = mlir::cast<NCEReduceOp>(getOperation());
     auto numClusters = VPU::getOptimalNumClusters(
             nceOp, mlir::cast<vpux::NDTypeInterface>(nceOp.getOutput().getType()).getShape(), strategy);
-    auto distributedInputType = getDistributedActivationTypeFromOp(nceOp, nceOp.getInput(), nceOp.getInput().getType(),
-                                                                   numClusters, strategy);
+    auto distributedInputType = getDistributedActivationTypeFromOp(nceOp, nceOp.getInputMutable(),
+                                                                   nceOp.getInput().getType(), numClusters, strategy);
     return fitIntoCMX(distributedInputType, newDistributedTensorType);
 }
 
@@ -218,8 +218,8 @@ vpux::NDTypeInterface vpux::VPU::NCEReduceOp::getDistributedTypeForOpOperand(mli
     const auto strategy = clusteredOp.getMultiClusterStrategy().value();
 
     if (operand.get() == getInput()) {
-        return VPU::getDistributedActivationTypeForOpOperand(clusteredOp, getInput(), strategy,
-                                                             hasExplicitDistributedAttr, siblingsAnalysis);
+        return VPU::getDistributedActivationTypeForOpOperand(clusteredOp, operand, strategy, hasExplicitDistributedAttr,
+                                                             siblingsAnalysis);
     }
 
     VPUX_THROW("Failed to compute distributed type for op {0}", clusteredOp);

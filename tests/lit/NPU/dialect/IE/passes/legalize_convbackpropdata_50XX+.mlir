@@ -13,7 +13,7 @@ func.func @ConvertDynDeqGroupConvBackpropDataToGroupTransposedConvF8E4M3FN(%inpu
     %low = const.Declare tensor<1xf16> = dense<-4.480000e+02> : tensor<1xf16>
     %high = const.Declare tensor<1xf16> = dense<4.480000e+02> : tensor<1xf16>
     %fq = IE.FakeQuantize(%input, %low, %high, %low, %high) {
-        auto_broadcast = #IE.auto_broadcast_type<NUMPY>, low_fp_type = f8E4M3FN
+        auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = f8E4M3FN
     } : tensor<1x32x23x30xf16>, tensor<1xf16>, tensor<1xf16>, tensor<1xf16>, tensor<1xf16> -> tensor<1x32x23x30xf16>
 
     %filter = const.Declare tensor<2x16x32x2x1xf8E4M3FN> = dense<1.000000e+00> : tensor<2x16x32x2x1xf8E4M3FN>
@@ -28,7 +28,7 @@ func.func @ConvertDynDeqGroupConvBackpropDataToGroupTransposedConvF8E4M3FN(%inpu
     %output_low = const.Declare tensor<1xf16> = dense<-1.0> : tensor<1xf16>
     %output_high = const.Declare tensor<1xf16> = dense<1.0> : tensor<1xf16>
     %output_fq = IE.FakeQuantize(%output, %low, %high, %output_low, %output_high) {
-        auto_broadcast = #IE.auto_broadcast_type<NUMPY>, low_fp_type = f8E4M3FN
+        auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = f8E4M3FN
     } : tensor<1x64x46x59xf16>, tensor<1xf16>, tensor<1xf16>, tensor<1xf16>, tensor<1xf16> -> tensor<1x64x46x59xf16>
 
     return %output_fq : tensor<1x64x46x59xf16>
@@ -41,14 +41,14 @@ func.func @ConvertDynDeqGroupConvBackpropDataToGroupTransposedConvF8E4M3FN(%inpu
     // CHECK-DAG:    [[OUT_HIGH:%.+]] = const.Declare tensor<1xf16> = dense<1.000000e+00> : tensor<1xf16>
 
     // CHECK:    [[FQ:%.+]] = IE.FakeQuantize([[INPUT]], [[LOW]], [[HIGH]], [[LOW]], [[HIGH]])
-    // CHECK-SAME:  {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, low_fp_type = f8E4M3FN} : tensor<1x32x23x30xf16>, tensor<1xf16>, tensor<1xf16>, tensor<1xf16>, tensor<1xf16> -> tensor<1x32x23x30xf16>
+    // CHECK-SAME:  {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = f8E4M3FN} : tensor<1x32x23x30xf16>, tensor<1xf16>, tensor<1xf16>, tensor<1xf16>, tensor<1xf16> -> tensor<1x32x23x30xf16>
     // CHECK:    [[FILTER_DQ:%.+]] = IE.DynamicDequantize([[FILTER]], [[FILTER_SCALE]]) {dstElemType = f16} :
     // CHECK-SAME:      tensor<2x32x16x2x1xf8E4M3FN>, tensor<1x1x1x1x1xf16> -> tensor<2x32x16x2x1xf16>
 
     // CHECK:    [[CONV:%.+]] = IE.GroupTransposedConvolution([[FQ]], [[FILTER_DQ]])
     // CHECK-SAME:  {dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], spatial_output_padding = [0, 0], strides = [2, 2]} : tensor<1x32x23x30xf16>, tensor<2x32x16x2x1xf16> -> tensor<1x64x46x59xf16>
     // CHECK:    [[OUTPUT_FQ:%.+]] = IE.FakeQuantize([[CONV]], [[LOW]], [[HIGH]], [[OUT_LOW]], [[OUT_HIGH]])
-    // CHECK-SAME:  {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, low_fp_type = f8E4M3FN} : tensor<1x64x46x59xf16>, tensor<1xf16>, tensor<1xf16>, tensor<1xf16>, tensor<1xf16> -> tensor<1x64x46x59xf16>
+    // CHECK-SAME:  {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = f8E4M3FN} : tensor<1x64x46x59xf16>, tensor<1xf16>, tensor<1xf16>, tensor<1xf16>, tensor<1xf16> -> tensor<1x64x46x59xf16>
 
     // CHECK:    return [[OUTPUT_FQ]] : tensor<1x64x46x59xf16>
 }
@@ -61,7 +61,7 @@ func.func @ConvertDynDeqGroupConvBackpropDataToGroupTransposedConvF8E4M3FN(%inpu
 func.func @ConvertDynDeqGroupConvBackpropDataToGroupTransposedConvF8E4M3FNPerTensor(%input: tensor<1x32x23x30x!qElemType>) -> tensor<1x64x46x59xf16> {
     %low = const.Declare tensor<1xf16> = dense<-4.480000e+02> : tensor<1xf16>
     %high = const.Declare tensor<1xf16> = dense<4.480000e+02> : tensor<1xf16>
-    %dq = IE.Dequantize(%input) {dstElemType = f16, low_fp_type = f8E4M3FN} : tensor<1x32x23x30x!qElemType> -> tensor<1x32x23x30xf16>
+    %dq = IE.Dequantize(%input) {dstElemType = f16, levels_or_low_fp_type = f8E4M3FN} : tensor<1x32x23x30x!qElemType> -> tensor<1x32x23x30xf16>
 
     %filter = const.Declare tensor<2x16x32x2x1xf8E4M3FN> = dense<1.000000e+00> : tensor<2x16x32x2x1xf8E4M3FN>
     %filter_scale = const.Declare tensor<1x1x1x1x1xf16> = dense<1.000000e+00> : tensor<1x1x1x1x1xf16>
@@ -75,7 +75,7 @@ func.func @ConvertDynDeqGroupConvBackpropDataToGroupTransposedConvF8E4M3FNPerTen
     %output_low = const.Declare tensor<1xf16> = dense<-1.0> : tensor<1xf16>
     %output_high = const.Declare tensor<1xf16> = dense<1.0> : tensor<1xf16>
     %output_fq = IE.FakeQuantize(%output, %low, %high, %output_low, %output_high) {
-        auto_broadcast = #IE.auto_broadcast_type<NUMPY>, low_fp_type = f8E4M3FN
+        auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = f8E4M3FN
     } : tensor<1x64x46x59xf16>, tensor<1xf16>, tensor<1xf16>, tensor<1xf16>, tensor<1xf16> -> tensor<1x64x46x59xf16>
 
     return %output_fq : tensor<1x64x46x59xf16>
@@ -86,14 +86,14 @@ func.func @ConvertDynDeqGroupConvBackpropDataToGroupTransposedConvF8E4M3FNPerTen
     // CHECK-DAG:    [[OUT_HIGH:%.+]] = const.Declare tensor<1xf16> = dense<1.000000e+00> : tensor<1xf16>
 
     // CHECK:    [[DQ:%.+]] = IE.Dequantize([[INPUT]])
-    // CHECK-SAME:  {dstElemType = f16, low_fp_type = f8E4M3FN} : tensor<1x32x23x30x!qElemType> -> tensor<1x32x23x30xf16>
+    // CHECK-SAME:  {dstElemType = f16, levels_or_low_fp_type = f8E4M3FN} : tensor<1x32x23x30x!qElemType> -> tensor<1x32x23x30xf16>
     // CHECK:    [[FILTER_DQ:%.+]] = IE.DynamicDequantize([[FILTER]], [[FILTER_SCALE]]) {dstElemType = f16} :
     // CHECK-SAME:      tensor<2x32x16x2x1xf8E4M3FN>, tensor<1x1x1x1x1xf16> -> tensor<2x32x16x2x1xf16>
 
     // CHECK:    [[CONV:%.+]] = IE.GroupTransposedConvolution([[DQ]], [[FILTER_DQ]])
     // CHECK-SAME:  {dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], spatial_output_padding = [0, 0], strides = [2, 2]} : tensor<1x32x23x30xf16>, tensor<2x32x16x2x1xf16> -> tensor<1x64x46x59xf16>
     // CHECK:    [[OUTPUT_FQ:%.+]] = IE.FakeQuantize([[CONV]], [[LOW:%.+]], [[HIGH:%.+]], [[OUT_LOW]], [[OUT_HIGH]])
-    // CHECK-SAME:  {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, low_fp_type = f8E4M3FN} : tensor<1x64x46x59xf16>, tensor<1xf16>, tensor<1xf16>, tensor<1xf16>, tensor<1xf16> -> tensor<1x64x46x59xf16>
+    // CHECK-SAME:  {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = f8E4M3FN} : tensor<1x64x46x59xf16>, tensor<1xf16>, tensor<1xf16>, tensor<1xf16>, tensor<1xf16> -> tensor<1x64x46x59xf16>
 
     // CHECK:    return [[OUTPUT_FQ]] : tensor<1x64x46x59xf16>
 }
@@ -108,7 +108,7 @@ func.func @ConvertDynDeqGroupConvBackpropDataToGroupTransposedConvF8E4M3FNPerTen
 func.func @ConvertDynDeqGroupConvBackpropDataToGroupTransposedConvF8E4M3FNPerAxis(%input: tensor<1x32x23x30x!qElemType>) -> tensor<1x64x46x59xf16> {
     %low = const.Declare tensor<1xf16> = dense<-4.480000e+02> : tensor<1xf16>
     %high = const.Declare tensor<1xf16> = dense<4.480000e+02> : tensor<1xf16>
-    %dq = IE.Dequantize(%input) {dstElemType = f16, low_fp_type = f8E4M3FN} : tensor<1x32x23x30x!qElemType> -> tensor<1x32x23x30xf16>
+    %dq = IE.Dequantize(%input) {dstElemType = f16, levels_or_low_fp_type = f8E4M3FN} : tensor<1x32x23x30x!qElemType> -> tensor<1x32x23x30xf16>
 
     %filter = const.Declare tensor<2x16x32x2x1xf8E4M3FN> = dense<1.000000e+00> : tensor<2x16x32x2x1xf8E4M3FN>
     %filter_scale = const.Declare tensor<1x1x32x1x1xf16> = dense<[[[[[1.0]],[[2.0]],[[3.0]],[[4.0]],[[5.0]],[[6.0]],[[7.0]],[[8.0]],[[9.0]],[[10.0]],[[11.0]],[[12.0]],[[13.0]],[[14.0]],[[15.0]],[[16.0]],[[17.0]],[[18.0]],[[19.0]],[[20.0]],[[21.0]],[[22.0]],[[23.0]],[[24.0]],[[25.0]],[[26.0]],[[27.0]],[[28.0]],[[29.0]],[[30.0]],[[31.0]],[[32.0]]]]]> : tensor<1x1x32x1x1xf16>
@@ -122,7 +122,7 @@ func.func @ConvertDynDeqGroupConvBackpropDataToGroupTransposedConvF8E4M3FNPerAxi
     %output_low = const.Declare tensor<1xf16> = dense<-1.0> : tensor<1xf16>
     %output_high = const.Declare tensor<1xf16> = dense<1.0> : tensor<1xf16>
     %output_fq = IE.FakeQuantize(%output, %low, %high, %output_low, %output_high) {
-        auto_broadcast = #IE.auto_broadcast_type<NUMPY>, low_fp_type = f8E4M3FN
+        auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = f8E4M3FN
     } : tensor<1x64x46x59xf16>, tensor<1xf16>, tensor<1xf16>, tensor<1xf16>, tensor<1xf16> -> tensor<1x64x46x59xf16>
 
     return %output_fq : tensor<1x64x46x59xf16>
@@ -136,14 +136,14 @@ func.func @ConvertDynDeqGroupConvBackpropDataToGroupTransposedConvF8E4M3FNPerAxi
     // CHECK: [[FILTER:%.+]] = const.Declare tensor<2x32x16x2x1xf8E4M3FN> = dense<1.000000e+00> : tensor<2x16x32x2x1xf8E4M3FN>, [#const.Reverse<2 : i64>, #const.Transpose<#map>]
 
     // CHECK:    [[DQ:%.+]] = IE.Dequantize([[INPUT]])
-    // CHECK-SAME:  {dstElemType = f16, low_fp_type = f8E4M3FN} : tensor<1x32x23x30x!qElemType> -> tensor<1x32x23x30xf16>
+    // CHECK-SAME:  {dstElemType = f16, levels_or_low_fp_type = f8E4M3FN} : tensor<1x32x23x30x!qElemType> -> tensor<1x32x23x30xf16>
     // CHECK:    [[FILTER_DQ:%.+]] = IE.DynamicDequantize([[FILTER]], [[FILTER_SCALE]]) {dstElemType = f16} :
     // CHECK-SAME:      tensor<2x32x16x2x1xf8E4M3FN>, tensor<1x32x1x1x1xf16> -> tensor<2x32x16x2x1xf16>
 
     // CHECK:    [[CONV:%.+]] = IE.GroupTransposedConvolution([[DQ]], [[FILTER_DQ]])
     // CHECK-SAME:  {dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], spatial_output_padding = [0, 0], strides = [2, 2]} : tensor<1x32x23x30xf16>, tensor<2x32x16x2x1xf16> -> tensor<1x64x46x59xf16>
     // CHECK:    [[OUTPUT_FQ:%.+]] = IE.FakeQuantize([[CONV]], [[LOW:%.+]], [[HIGH:%.+]], [[OUT_LOW]], [[OUT_HIGH]])
-    // CHECK-SAME:  {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, low_fp_type = f8E4M3FN} : tensor<1x64x46x59xf16>, tensor<1xf16>, tensor<1xf16>, tensor<1xf16>, tensor<1xf16> -> tensor<1x64x46x59xf16>
+    // CHECK-SAME:  {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = f8E4M3FN} : tensor<1x64x46x59xf16>, tensor<1xf16>, tensor<1xf16>, tensor<1xf16>, tensor<1xf16> -> tensor<1x64x46x59xf16>
 
     // CHECK:    return [[OUTPUT_FQ]] : tensor<1x64x46x59xf16>
 }
@@ -156,7 +156,7 @@ func.func @ConvertDynDeqConvertedConvBackpropDataToTransposedConvF8E5M2(%input: 
     %low = const.Declare tensor<1xf16> = dense<-5.734400e+04> : tensor<1xf16>
     %high = const.Declare tensor<1xf16> = dense<5.734400e+04> : tensor<1xf16>
     %fq = IE.FakeQuantize(%input, %low, %high, %low, %high) {
-        auto_broadcast = #IE.auto_broadcast_type<NUMPY>, low_fp_type = f8E5M2
+        auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = f8E5M2
     } : tensor<1x16x23x30xf16>, tensor<1xf16>, tensor<1xf16>, tensor<1xf16>, tensor<1xf16> -> tensor<1x16x23x30xf16>
 
     %filter = const.Declare tensor<16x32x2x1xf8E5M2> = dense<1.000000e+00> : tensor<16x32x2x1xf8E5M2>
@@ -173,7 +173,7 @@ func.func @ConvertDynDeqConvertedConvBackpropDataToTransposedConvF8E5M2(%input: 
     %output_low = const.Declare tensor<1xf16> = dense<-1.0> : tensor<1xf16>
     %output_high = const.Declare tensor<1xf16> = dense<1.0> : tensor<1xf16>
     %output_fq = IE.FakeQuantize(%output, %low, %high, %output_low, %output_high) {
-        auto_broadcast = #IE.auto_broadcast_type<NUMPY>, low_fp_type = f8E5M2
+        auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = f8E5M2
     } : tensor<1x32x46x59xf16>, tensor<1xf16>, tensor<1xf16>, tensor<1xf16>, tensor<1xf16> -> tensor<1x32x46x59xf16>
 
     return %output_fq : tensor<1x32x46x59xf16>
@@ -186,7 +186,7 @@ func.func @ConvertDynDeqConvertedConvBackpropDataToTransposedConvF8E5M2(%input: 
     // CHECK-DAG:    [[OUT_HIGH:%.+]] = const.Declare tensor<1xf16> = dense<1.000000e+00> : tensor<1xf16>
 
     // CHECK:    [[FQ:%.+]] = IE.FakeQuantize([[INPUT]], [[LOW]], [[HIGH]], [[LOW]], [[HIGH]])
-    // CHECK-SAME:  {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, low_fp_type = f8E5M2} : tensor<1x16x23x30xf16>, tensor<1xf16>, tensor<1xf16>, tensor<1xf16>, tensor<1xf16> -> tensor<1x16x23x30xf16>
+    // CHECK-SAME:  {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = f8E5M2} : tensor<1x16x23x30xf16>, tensor<1xf16>, tensor<1xf16>, tensor<1xf16>, tensor<1xf16> -> tensor<1x16x23x30xf16>
     // CHECK:    [[FILTER_DQ:%.+]] = IE.DynamicDequantize([[FILTER]], [[FILTER_SCALE]]) {dstElemType = f16} :
     // CHECK-SAME:      tensor<32x16x2x1xf8E5M2>, tensor<1x1x1x1xf16> -> tensor<32x16x2x1xf16>
     // CHECK:    [[CONVERT:%.+]] = IE.Convert([[FILTER_DQ]]) {dstElemType = f32} : tensor<32x16x2x1xf16> -> tensor<32x16x2x1xf32>
@@ -194,7 +194,7 @@ func.func @ConvertDynDeqConvertedConvBackpropDataToTransposedConvF8E5M2(%input: 
     // CHECK:    [[CONV:%.+]] = IE.TransposedConvolution([[FQ]], [[CONVERT]])
     // CHECK-SAME:  {dilations = [1, 1], operandSegmentSizes = array<i32: 1, 1, 0, 0>, pads_begin = [0, 0], pads_end = [0, 0], spatial_output_padding = [0, 0], strides = [2, 2]} : tensor<1x16x23x30xf16>, tensor<32x16x2x1xf32> -> tensor<1x32x46x59xf16>
     // CHECK:    [[OUTPUT_FQ:%.+]] = IE.FakeQuantize([[CONV]], [[LOW]], [[HIGH]], [[OUT_LOW]], [[OUT_HIGH]])
-    // CHECK-SAME:  {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, low_fp_type = f8E5M2} : tensor<1x32x46x59xf16>, tensor<1xf16>, tensor<1xf16>, tensor<1xf16>, tensor<1xf16> -> tensor<1x32x46x59xf16>
+    // CHECK-SAME:  {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = f8E5M2} : tensor<1x32x46x59xf16>, tensor<1xf16>, tensor<1xf16>, tensor<1xf16>, tensor<1xf16> -> tensor<1x32x46x59xf16>
 
     // CHECK:    return [[OUTPUT_FQ]] : tensor<1x32x46x59xf16>
 }
@@ -207,7 +207,7 @@ func.func @ConvertDynDeqConvertedConvBackpropDataToTransposedConvF8E5M2(%input: 
 func.func @ConvertDynDeqConvertedConvBackpropDataToTransposedConvF8E5M2PerTensor(%input: tensor<1x16x23x30x!qElemType>) -> tensor<1x32x46x59xf16> {
     %low = const.Declare tensor<1xf16> = dense<-5.734400e+04> : tensor<1xf16>
     %high = const.Declare tensor<1xf16> = dense<5.734400e+04> : tensor<1xf16>
-    %dq = IE.Dequantize(%input) {dstElemType = f16, low_fp_type = f8E5M2} : tensor<1x16x23x30x!qElemType> -> tensor<1x16x23x30xf16>
+    %dq = IE.Dequantize(%input) {dstElemType = f16, levels_or_low_fp_type = f8E5M2} : tensor<1x16x23x30x!qElemType> -> tensor<1x16x23x30xf16>
 
     %filter = const.Declare tensor<16x32x2x1xf8E5M2> = dense<1.000000e+00> : tensor<16x32x2x1xf8E5M2>
     %filter_scale = const.Declare tensor<1x1x1x1xf16> = dense<1.000000e+00> : tensor<1x1x1x1xf16>
@@ -223,7 +223,7 @@ func.func @ConvertDynDeqConvertedConvBackpropDataToTransposedConvF8E5M2PerTensor
     %output_low = const.Declare tensor<1xf16> = dense<-1.0> : tensor<1xf16>
     %output_high = const.Declare tensor<1xf16> = dense<1.0> : tensor<1xf16>
     %output_fq = IE.FakeQuantize(%output, %low, %high, %output_low, %output_high) {
-        auto_broadcast = #IE.auto_broadcast_type<NUMPY>, low_fp_type = f8E5M2
+        auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = f8E5M2
     } : tensor<1x32x46x59xf16>, tensor<1xf16>, tensor<1xf16>, tensor<1xf16>, tensor<1xf16> -> tensor<1x32x46x59xf16>
 
     return %output_fq : tensor<1x32x46x59xf16>
@@ -236,7 +236,7 @@ func.func @ConvertDynDeqConvertedConvBackpropDataToTransposedConvF8E5M2PerTensor
     // CHECK-DAG:    [[OUT_HIGH:%.+]] = const.Declare tensor<1xf16> = dense<1.000000e+00> : tensor<1xf16>
 
     // CHECK:    [[DQ:%.+]] = IE.Dequantize([[INPUT]])
-    // CHECK-SAME:  {dstElemType = f16, low_fp_type = f8E5M2} : tensor<1x16x23x30x!qElemType> -> tensor<1x16x23x30xf16>
+    // CHECK-SAME:  {dstElemType = f16, levels_or_low_fp_type = f8E5M2} : tensor<1x16x23x30x!qElemType> -> tensor<1x16x23x30xf16>
     // CHECK:    [[FILTER_DQ:%.+]] = IE.DynamicDequantize([[FILTER]], [[FILTER_SCALE]]) {dstElemType = f16} :
     // CHECK-SAME:      tensor<32x16x2x1xf8E5M2>, tensor<1x1x1x1xf16> -> tensor<32x16x2x1xf16>
     // CHECK:    [[CONVERT:%.+]] = IE.Convert([[FILTER_DQ]]) {dstElemType = f32} : tensor<32x16x2x1xf16> -> tensor<32x16x2x1xf32>
@@ -244,7 +244,7 @@ func.func @ConvertDynDeqConvertedConvBackpropDataToTransposedConvF8E5M2PerTensor
     // CHECK:    [[CONV:%.+]] = IE.TransposedConvolution([[DQ]], [[CONVERT]])
     // CHECK-SAME:  {dilations = [1, 1], operandSegmentSizes = array<i32: 1, 1, 0, 0>, pads_begin = [0, 0], pads_end = [0, 0], spatial_output_padding = [0, 0], strides = [2, 2]} : tensor<1x16x23x30xf16>, tensor<32x16x2x1xf32> -> tensor<1x32x46x59xf16>
     // CHECK:    [[OUTPUT_FQ:%.+]] = IE.FakeQuantize([[CONV]], [[LOW]], [[HIGH]], [[OUT_LOW]], [[OUT_HIGH]])
-    // CHECK-SAME:  {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, low_fp_type = f8E5M2} : tensor<1x32x46x59xf16>, tensor<1xf16>, tensor<1xf16>, tensor<1xf16>, tensor<1xf16> -> tensor<1x32x46x59xf16>
+    // CHECK-SAME:  {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = f8E5M2} : tensor<1x32x46x59xf16>, tensor<1xf16>, tensor<1xf16>, tensor<1xf16>, tensor<1xf16> -> tensor<1x32x46x59xf16>
 
     // CHECK:    return [[OUTPUT_FQ]] : tensor<1x32x46x59xf16>
 }
@@ -259,7 +259,7 @@ func.func @ConvertDynDeqConvertedConvBackpropDataToTransposedConvF8E5M2PerTensor
 func.func @ConvertDynDeqConvertedConvBackpropDataToTransposedConvF8E5M2PerAxis(%input: tensor<1x16x23x30x!qElemType>) -> tensor<1x32x46x59xf16> {
     %low = const.Declare tensor<1xf16> = dense<-5.734400e+04> : tensor<1xf16>
     %high = const.Declare tensor<1xf16> = dense<5.734400e+04> : tensor<1xf16>
-    %dq = IE.Dequantize(%input) {dstElemType = f16, low_fp_type = f8E5M2} : tensor<1x16x23x30x!qElemType> -> tensor<1x16x23x30xf16>
+    %dq = IE.Dequantize(%input) {dstElemType = f16, levels_or_low_fp_type = f8E5M2} : tensor<1x16x23x30x!qElemType> -> tensor<1x16x23x30xf16>
 
     %filter = const.Declare tensor<16x32x2x1xf8E5M2> = dense<1.000000e+00> : tensor<16x32x2x1xf8E5M2>
     %filter_scale = const.Declare tensor<1x32x1x1xf16> = dense<[[[[1.0]],[[2.0]],[[3.0]],[[4.0]],[[5.0]],[[6.0]],[[7.0]],[[8.0]],[[9.0]],[[10.0]],[[11.0]],[[12.0]],[[13.0]],[[14.0]],[[15.0]],[[16.0]],[[17.0]],[[18.0]],[[19.0]],[[20.0]],[[21.0]],[[22.0]],[[23.0]],[[24.0]],[[25.0]],[[26.0]],[[27.0]],[[28.0]],[[29.0]],[[30.0]],[[31.0]],[[32.0]]]]> : tensor<1x32x1x1xf16>
@@ -275,7 +275,7 @@ func.func @ConvertDynDeqConvertedConvBackpropDataToTransposedConvF8E5M2PerAxis(%
     %output_low = const.Declare tensor<1xf16> = dense<-1.0> : tensor<1xf16>
     %output_high = const.Declare tensor<1xf16> = dense<1.0> : tensor<1xf16>
     %output_fq = IE.FakeQuantize(%output, %low, %high, %output_low, %output_high) {
-        auto_broadcast = #IE.auto_broadcast_type<NUMPY>, low_fp_type = f8E5M2
+        auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = f8E5M2
     } : tensor<1x32x46x59xf16>, tensor<1xf16>, tensor<1xf16>, tensor<1xf16>, tensor<1xf16> -> tensor<1x32x46x59xf16>
 
     return %output_fq : tensor<1x32x46x59xf16>
@@ -291,7 +291,7 @@ func.func @ConvertDynDeqConvertedConvBackpropDataToTransposedConvF8E5M2PerAxis(%
     // CHECK-DAG:    [[HIGH:%.+]] = const.Declare tensor<1xf16> = dense<5.734400e+04> : tensor<1xf16>
 
     // CHECK:    [[DQ:%.+]] = IE.Dequantize([[INPUT]])
-    // CHECK-SAME:  {dstElemType = f16, low_fp_type = f8E5M2} : tensor<1x16x23x30x!qElemType> -> tensor<1x16x23x30xf16>
+    // CHECK-SAME:  {dstElemType = f16, levels_or_low_fp_type = f8E5M2} : tensor<1x16x23x30x!qElemType> -> tensor<1x16x23x30xf16>
     // CHECK:    [[FILTER_DQ:%.+]] = IE.DynamicDequantize([[FILTER]], [[FILTER_SCALE]]) {dstElemType = f16} :
     // CHECK-SAME:      tensor<32x16x2x1xf8E5M2>, tensor<32x1x1x1xf16> -> tensor<32x16x2x1xf16>
     // CHECK:    [[CONVERT:%.+]] = IE.Convert([[FILTER_DQ]]) {dstElemType = f32} : tensor<32x16x2x1xf16> -> tensor<32x16x2x1xf32>
@@ -299,7 +299,7 @@ func.func @ConvertDynDeqConvertedConvBackpropDataToTransposedConvF8E5M2PerAxis(%
     // CHECK:    [[CONV:%.+]] = IE.TransposedConvolution([[DQ]], [[CONVERT]])
     // CHECK-SAME:  {dilations = [1, 1], operandSegmentSizes = array<i32: 1, 1, 0, 0>, pads_begin = [0, 0], pads_end = [0, 0], spatial_output_padding = [0, 0], strides = [2, 2]} : tensor<1x16x23x30xf16>, tensor<32x16x2x1xf32> -> tensor<1x32x46x59xf16>
     // CHECK:    [[OUTPUT_FQ:%.+]] = IE.FakeQuantize([[CONV]], [[LOW]], [[HIGH]], [[OUT_LOW]], [[OUT_HIGH]])
-    // CHECK-SAME:  {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, low_fp_type = f8E5M2} : tensor<1x32x46x59xf16>, tensor<1xf16>, tensor<1xf16>, tensor<1xf16>, tensor<1xf16> -> tensor<1x32x46x59xf16>
+    // CHECK-SAME:  {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = f8E5M2} : tensor<1x32x46x59xf16>, tensor<1xf16>, tensor<1xf16>, tensor<1xf16>, tensor<1xf16> -> tensor<1x32x46x59xf16>
 
     // CHECK:    return [[OUTPUT_FQ]] : tensor<1x32x46x59xf16>
 }

@@ -170,3 +170,124 @@ func.func @NotReorderOpsOutsideVFBlock(%arg0: tensor<1x64x30x30xf16, {order = #N
 
     //CHECK:    return [[CONCAT]] : tensor<1x64x15x15x!qElemType, {order = #NHWC}>
 }
+
+// -----
+
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+
+!qElemType = !quant.uniform<u8:f16, 0.0096478944666245403:128>
+
+// DepthConvolution feeds two parallel Convolutions whose quantized weights are
+// dequantized on-the-fly. Their outputs are combined by an Eltwise multiply. The pass should
+// keep each Dequantize next to its Convolution consumer and place both Convolution branches
+// right before the Eltwise consumer.
+
+// CHECK-LABEL: @EfficientOrderWithDequantProducers
+// CHECK-SAME:      ([[INPUT:%[^:]+]]: tensor<1x768x12x8xf16, {order = #NHWC}>)
+func.func @EfficientOrderWithDequantProducers(%arg0: tensor<1x768x12x8xf16, {order = #NHWC}>) -> tensor<1x1152x12x8xf16, {order = #NHWC}> {
+    %cst_dw = const.Declare tensor<768x16x1x1xf16, {order = #NHWC}> = dense<1.0> : tensor<768x16x1x1xf16>, [#const.Reorder<#NHWC>]
+    %cst_0 = const.Declare tensor<1152x768x1x1x!qElemType, {order = #NHWC}> = dense<1.000000e+00> : tensor<1152x768x1x1xf32>, [#const.CastElemType<f16>, #const.CastElemType<ui8>, #const.CastElemType<!qElemType>, #const.Reorder<#NHWC>]
+    %cst_1 = const.Declare tensor<1152x768x1x1x!qElemType, {order = #NHWC}> = dense<2.000000e+00> : tensor<1152x768x1x1xf32>, [#const.CastElemType<f16>, #const.CastElemType<ui8>, #const.CastElemType<!qElemType>, #const.Reorder<#NHWC>]
+
+    %0 = VPU.NCE.DepthConvolution(%arg0, %cst_dw) rawFilterShape [768, 1, 1, 1] {
+        resultSegmentSizes = array<i32: 1, 0, 0, 0>, ppe = #VPU.PPEStub<>,
+        pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
+        strides = [1, 1]}
+        -> tensor<1x768x12x8xf16, {order = #NHWC}>
+
+    %1 = VPU.Dequantize(%cst_1) {dstElemType = f16}
+        : tensor<1152x768x1x1x!qElemType, {order = #NHWC}> -> tensor<1152x768x1x1xf16, {order = #NHWC}>
+    %2 = VPU.NCE.Convolution(%0, %1) rawFilterShape [1152, 768, 1, 1] {
+        resultSegmentSizes = array<i32: 1, 0, 0, 0>, ppe = #VPU.PPEStub<>,
+        pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
+        strides = [1, 1]}
+        : tensor<1x768x12x8xf16, {order = #NHWC}>, tensor<1152x768x1x1xf16, {order = #NHWC}> -> tensor<1x1152x12x8xf16, {order = #NHWC}>
+
+    %3 = VPU.Dequantize(%cst_0) {dstElemType = f16}
+        : tensor<1152x768x1x1x!qElemType, {order = #NHWC}> -> tensor<1152x768x1x1xf16, {order = #NHWC}>
+    %4 = VPU.NCE.Convolution(%0, %3) rawFilterShape [1152, 768, 1, 1] {
+        resultSegmentSizes = array<i32: 1, 0, 0, 0>, ppe = #VPU.PPEStub<>,
+        pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
+        strides = [1, 1]}
+        : tensor<1x768x12x8xf16, {order = #NHWC}>, tensor<1152x768x1x1xf16, {order = #NHWC}> -> tensor<1x1152x12x8xf16, {order = #NHWC}>
+
+    %5 = VPU.NCE.Eltwise(%4, %2) {resultSegmentSizes = array<i32: 1, 0, 0, 0>, op_type = #VPU.eltwise_type<MULTIPLY>, ppe = #VPU.PPEStub<>}
+        -> tensor<1x1152x12x8xf16, {order = #NHWC}>
+
+    return %5 : tensor<1x1152x12x8xf16, {order = #NHWC}>
+
+    //CHECK-DAG:  [[CST_DW:%.+]] = const.Declare tensor<768x16x1x1xf16, {order = #NHWC}>
+    //CHECK-DAG:  [[CST_0:%.+]] = const.Declare tensor<1152x768x1x1x!qElemType, {order = #NHWC}> = dense<1.000000e+00>
+    //CHECK-DAG:  [[CST_1:%.+]] = const.Declare tensor<1152x768x1x1x!qElemType, {order = #NHWC}> = dense<2.000000e+00>
+
+    //CHECK:  [[DEQUANT_0:%.+]] = VPU.Dequantize([[CST_0]])
+    //CHECK:  [[DEPTHCONV:%.+]] = VPU.NCE.DepthConvolution([[INPUT]], [[CST_DW]])
+    //CHECK:  [[CONV_0:%.+]] = VPU.NCE.Convolution([[DEPTHCONV]], [[DEQUANT_0]])
+    //CHECK:  [[DEQUANT_1:%.+]] = VPU.Dequantize([[CST_1]])
+    //CHECK:  [[CONV_1:%.+]] = VPU.NCE.Convolution([[DEPTHCONV]], [[DEQUANT_1]])
+    //CHECK:  [[ELTWISE:%.+]] = VPU.NCE.Eltwise([[CONV_0]], [[CONV_1]])
+    //CHECK:  return [[ELTWISE]] : tensor<1x1152x12x8xf16, {order = #NHWC}>
+}
+
+
+// -----
+
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+
+!qElemType = !quant.uniform<u8:f16, 0.0096478944666245403:128>
+
+// DequantizeOp has another consumer. It is before NCE.Conv in block, therefore moving the Dequant
+// right before Conv will cause dominance issues. Reorder the ops, but do not move the Dequant.
+
+// CHECK-LABEL: @ReorderOpsDoNotMoveDequantize
+// CHECK-SAME:      ([[INPUT:%[^:]+]]: tensor<1x768x12x8xf16, {order = #NHWC}>)
+func.func @ReorderOpsDoNotMoveDequantize(%arg0: tensor<1x768x12x8xf16, {order = #NHWC}>)
+        -> (tensor<1x1152x12x8xf16, {order = #NHWC}>, tensor<1152x768x1x1xf32, {order = #NHWC}>) {
+    %cst_dw = const.Declare tensor<768x16x1x1xf16, {order = #NHWC}> = dense<1.0> : tensor<768x16x1x1xf16>, [#const.Reorder<#NHWC>]
+    %cst_0 = const.Declare tensor<1152x768x1x1x!qElemType, {order = #NHWC}> = dense<1.000000e+00> : tensor<1152x768x1x1xf32>, [#const.CastElemType<f16>, #const.CastElemType<ui8>, #const.CastElemType<!qElemType>, #const.Reorder<#NHWC>]
+    %cst_1 = const.Declare tensor<1152x768x1x1x!qElemType, {order = #NHWC}> = dense<2.000000e+00> : tensor<1152x768x1x1xf32>, [#const.CastElemType<f16>, #const.CastElemType<ui8>, #const.CastElemType<!qElemType>, #const.Reorder<#NHWC>]
+
+    %0 = VPU.NCE.DepthConvolution(%arg0, %cst_dw) rawFilterShape [768, 1, 1, 1] {
+        resultSegmentSizes = array<i32: 1, 0, 0, 0>, ppe = #VPU.PPEStub<>,
+        pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
+        strides = [1, 1]}
+        -> tensor<1x768x12x8xf16, {order = #NHWC}>
+
+    %1 = VPU.Dequantize(%cst_1) {dstElemType = f16}
+        : tensor<1152x768x1x1x!qElemType, {order = #NHWC}> -> tensor<1152x768x1x1xf16, {order = #NHWC}>
+    %2 = VPU.Convert(%1) {dstElemType = f32}
+        : tensor<1152x768x1x1xf16, {order = #NHWC}> -> tensor<1152x768x1x1xf32, {order = #NHWC}>
+    %3 = VPU.NCE.Convolution(%0, %1) rawFilterShape [1152, 768, 1, 1] {
+        resultSegmentSizes = array<i32: 1, 0, 0, 0>, ppe = #VPU.PPEStub<>,
+        pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
+        strides = [1, 1]}
+        : tensor<1x768x12x8xf16, {order = #NHWC}>, tensor<1152x768x1x1xf16, {order = #NHWC}> -> tensor<1x1152x12x8xf16, {order = #NHWC}>
+
+    %4 = VPU.Dequantize(%cst_0) {dstElemType = f16}
+        : tensor<1152x768x1x1x!qElemType, {order = #NHWC}> -> tensor<1152x768x1x1xf16, {order = #NHWC}>
+    %5 = VPU.NCE.Convolution(%0, %4) rawFilterShape [1152, 768, 1, 1] {
+        resultSegmentSizes = array<i32: 1, 0, 0, 0>, ppe = #VPU.PPEStub<>,
+        pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
+        strides = [1, 1]}
+        : tensor<1x768x12x8xf16, {order = #NHWC}>, tensor<1152x768x1x1xf16, {order = #NHWC}> -> tensor<1x1152x12x8xf16, {order = #NHWC}>
+
+    %6 = VPU.NCE.Eltwise(%5, %3) {resultSegmentSizes = array<i32: 1, 0, 0, 0>, op_type = #VPU.eltwise_type<MULTIPLY>, ppe = #VPU.PPEStub<>}
+        -> tensor<1x1152x12x8xf16, {order = #NHWC}>
+
+    return %6, %2 : tensor<1x1152x12x8xf16, {order = #NHWC}>, tensor<1152x768x1x1xf32, {order = #NHWC}>
+
+    //CHECK-DAG:  [[CST_DW:%.+]] = const.Declare tensor<768x16x1x1xf16, {order = #NHWC}>
+    //CHECK-DAG:  [[CST_0:%.+]] = const.Declare tensor<1152x768x1x1x!qElemType, {order = #NHWC}> = dense<1.000000e+00>
+    //CHECK-DAG:  [[CST_1:%.+]] = const.Declare tensor<1152x768x1x1x!qElemType, {order = #NHWC}> = dense<2.000000e+00>
+
+    //CHECK:  [[DEQUANT_1:%.+]] = VPU.Dequantize([[CST_1]])
+    //CHECK:  [[CONVERT:%.+]] = VPU.Convert([[DEQUANT_1]])
+
+    //CHECK:  [[DEQUANT_0:%.+]] = VPU.Dequantize([[CST_0]])
+    //CHECK:  [[DEPTHCONV:%.+]] = VPU.NCE.DepthConvolution([[INPUT]], [[CST_DW]])
+    //CHECK:  [[CONV_0:%.+]] = VPU.NCE.Convolution([[DEPTHCONV]], [[DEQUANT_0]])
+
+    //CHECK:  [[CONV_1:%.+]] = VPU.NCE.Convolution([[DEPTHCONV]], [[DEQUANT_1]])
+    //CHECK:  [[ELTWISE:%.+]] = VPU.NCE.Eltwise([[CONV_0]], [[CONV_1]])
+    //CHECK:  return [[ELTWISE]], [[CONVERT]] : tensor<1x1152x12x8xf16, {order = #NHWC}>, tensor<1152x768x1x1xf32, {order = #NHWC}>
+}

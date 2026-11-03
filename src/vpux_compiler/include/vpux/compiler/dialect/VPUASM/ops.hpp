@@ -11,9 +11,11 @@
 #include "vpux/compiler/dialect/VPUASM/types.hpp"
 #include "vpux/compiler/dialect/VPUMI40XX/attributes.hpp"
 #include "vpux/compiler/dialect/VPURegMapped/attributes.hpp"
+#include "vpux/compiler/dialect/VPURegMapped/ops_interfaces.hpp"
 #include "vpux/compiler/dialect/VPURegMapped/types.hpp"
 #include "vpux/compiler/dialect/const/attributes/attributes.hpp"
 #include "vpux/compiler/dialect/core/IR/properties.hpp"
+#include "vpux/compiler/dialect/core/interfaces/ops_interfaces.hpp"
 
 //
 // Generated

@@ -73,9 +73,8 @@ bool UnrollFullyConnected::checkConcat(IE::ConcatOp concat) const {
     const auto concatOutput = concat.getOutput();
     const auto outputShape = getShape(concatOutput);
     const auto isConcatInputCompatible = [&](const mlir::Value in) -> bool {
-        if (in.getDefiningOp<IE::FakeQuantizeOp>() == nullptr &&
-            in.getDefiningOp<IE::DynamicDequantizeOp>() == nullptr && in.getDefiningOp<IE::DequantizeOp>() == nullptr) {
-            nestedLog.trace("Concat input does not have FakeQuantize producer: input = {1}.", in);
+        if (in.getDefiningOp<IE::DynamicDequantizeOp>() == nullptr) {
+            nestedLog.trace("Concat input does not have DynamicDequantize producer: input = {0}.", in);
             return false;
         }
 
@@ -366,46 +365,13 @@ bool isBeneficialToUseReduceSumForAccumulate(IE::FullyConnectedOp origOp) {
     // Benefit in the data-bound decode regime:
     // 1. KV cache model, token length = 1
     // 2. speculative decoding KV cache model, token length between 1 ~ 16
-    return IE::isDataBoundTokenDim(getShape(origOp.getOutput()));
+    return IE::isDataBoundTokenDim(origOp).value_or(false);
 }
 
 bool UnrollFullyConnected::isUnrollingBeneficial(IE::FullyConnectedOp origOp, mlir::ValueRange concatInputs) const {
     auto nestedLog = _log.nest();
 
     const auto fcInputShape = getShape(origOp.getInput());
-    if (auto fqParent = concatInputs.front().getDefiningOp<IE::FakeQuantizeOp>()) {
-        const auto levels = fqParent.getLevels();
-
-        if (!levels.has_value()) {
-            nestedLog.trace("FakeQuantize parent at loc {0} does not have 'levels' attribute.", fqParent->getLoc());
-            return false;
-        }
-
-        // Worse performance observed for unrolled MatMul when weights elem type is larger than 4 bits
-        constexpr int64_t MAX_QUANT_LEVELS = 16;
-        if (levels.value() > MAX_QUANT_LEVELS) {
-            nestedLog.trace("Quantized element type has more than 4bits.");
-            return false;
-        }
-
-        // U2 weights (levels=4) is always beneficial.
-        constexpr int64_t U2_QUANT_LEVELS = 4;
-        if (levels.value() == U2_QUANT_LEVELS) {
-            nestedLog.trace("Weights have U2 subbyte type (levels=4), unrolling is always beneficial.");
-            return true;
-        }
-
-        // Constant sub-byte grouped weights: unroll into per-group quantized convolutions to keep the weights at 4
-        // bits, since otherwise they are dequantized to fp16 whose DMA is 4x larger and dominates memory-bound decode.
-        // Gated on a constant weight (with spatial very small) so non-const, activation-like inputs
-        // still defer to the profiled cost model below.
-        constexpr int64_t MEMORY_BOUND_DECODE_SPATIAL_LIMIT = 16;
-        if (fcInputShape[Dim(0)] <= MEMORY_BOUND_DECODE_SPATIAL_LIMIT &&
-            fqParent.getInput().getDefiningOp<Const::DeclareOp>() != nullptr) {
-            nestedLog.trace("Constant sub-byte grouped weights in memory-bound regime, unrolling is beneficial.");
-            return true;
-        }
-    }
 
     if (auto dynamicDequant = concatInputs.front().getDefiningOp<IE::DynamicDequantizeOp>()) {
         auto inputType = mlir::dyn_cast<vpux::NDTypeInterface>(dynamicDequant.getInput().getType());
@@ -422,20 +388,36 @@ bool UnrollFullyConnected::isUnrollingBeneficial(IE::FullyConnectedOp origOp, ml
             return false;
         }
 
-        // Synthetic WAC DynDeqs should not bypass the cost model
-        if (!dynamicDequant->hasAttr(IE::SYNTHETIC_DYN_DEQUANT_ATTR)) {
-            // Non-synth DynDeq: always beneficial to unroll for KV cache decode
-            if (fcInputShape[Dim(0)] == 1) {
+        // 2-bit weights: always beneficial
+        if (auto uniformType = mlir::dyn_cast<mlir::quant::UniformQuantizedType>(elemType)) {
+            if (uniformType.getStorageTypeIntegralWidth() == 2) {
+                return true;
+            }
+        } else if (auto intType = mlir::dyn_cast<mlir::IntegerType>(elemType)) {
+            if (intType.getWidth() == 2) {
                 return true;
             }
         }
-    }
 
-    if (auto dequant = concatInputs.front().getDefiningOp<IE::DequantizeOp>()) {
-        auto inputType = mlir::dyn_cast<vpux::NDTypeInterface>(dequant.getInput().getType());
-        if (auto uniformType = mlir::dyn_cast<mlir::quant::UniformQuantizedType>(inputType.getElementType())) {
-            if (!uniformType.isSigned() || uniformType.getStorageTypeIntegralWidth() != 4) {
-                return false;
+        // Constant sub-byte grouped weights: unroll into per-group quantized convolutions to keep the weights at 4
+        // bits, since otherwise they are dequantized to fp16 whose DMA is 4x larger and dominates memory-bound decode.
+        constexpr int64_t MEMORY_BOUND_DECODE_SPATIAL_LIMIT = 16;
+        const auto dynDeqInput = dynamicDequant.getInput();
+        auto quantCast = dynDeqInput.getDefiningOp<IE::QuantizeCastOp>();
+        const bool isConstWeights =
+                dynDeqInput.getDefiningOp<Const::DeclareOp>() != nullptr ||
+                (quantCast != nullptr && quantCast.getInput().getDefiningOp<Const::DeclareOp>() != nullptr);
+        if (fcInputShape[Dim(0)] <= MEMORY_BOUND_DECODE_SPATIAL_LIMIT && isConstWeights) {
+            nestedLog.trace("Constant sub-byte grouped weights in memory-bound regime, unrolling is beneficial.");
+            return true;
+        }
+
+        // Synthetic WAC DynDeqs should not bypass the cost model
+        if (!dynamicDequant->hasAttr(IE::SYNTHETIC_DYN_DEQUANT_ATTR) &&
+            !dynamicDequant->hasAttr(IE::WEIGHTS_IMPORT_DYN_DEQUANT_ATTR)) {
+            // Non-synth DynDeq: always beneficial to unroll for KV cache decode
+            if (fcInputShape[Dim(0)] == 1) {
+                return true;
             }
         }
     }

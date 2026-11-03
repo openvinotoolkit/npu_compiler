@@ -22,7 +22,7 @@ module @StaticEltwiseNHWC {
     DataInfo "output" : tensor<1x16x720x?xf16>
   }
 
-  // CHECK:    func.func @main_func0_static([[ARG0:%.+]]: tensor<1x16x720x100xf16, {order = #NHWC}> {func.dynamicStrides = true}, [[ARG1:%.+]]: tensor<1x16x720x100xf16, {order = #NHWC}> {func.dynamicStrides = true}) -> (tensor<1x16x720x100xf16, {order = #NHWC}> {func.dynamicStrides = true}) {
+  // CHECK:    func.func private @main_func0_static([[ARG0:%.+]]: tensor<1x16x720x100xf16, {order = #NHWC}> {func.dynamicStrides = true}, [[ARG1:%.+]]: tensor<1x16x720x100xf16, {order = #NHWC}> {func.dynamicStrides = true}) -> (tensor<1x16x720x100xf16, {order = #NHWC}> {func.dynamicStrides = true}) {
   // CHECK:      [[OUTPUT:%.+]] = VPU.NCE.Eltwise([[ARG0]], [[ARG1]]){{.*}} {multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, op_type = #VPU.eltwise_type<ADD>, ppe = #VPU.PPEInt<mode = <NOOP>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64, lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, quant_scale = [1.000000e+00], fp_prelu_alpha = 1.000000e+00 : f64>, resultSegmentSizes = array<i32: 1, 0, 0, 0>} -> tensor<1x16x720x100xf16, {order = #NHWC}>
   // CHECK:      return [[OUTPUT]] : tensor<1x16x720x100xf16, {order = #NHWC}>
   // CHECK:    }
@@ -145,7 +145,7 @@ module {
     DataInfo "output" : tensor<1x256x?x64xf16>
   }
 
-  // CHECK: func.func @ApplyTilingNCEConvDyn_func0_dims_H_cases_0_static([[ARG0:%.+]]: tensor<1x32x258x64xf16, {order = #NHWC}> {func.dynamicStrides = true}) -> (tensor<1x256x256x64xf16, {order = #NHWC}> {func.dynamicStrides = true}) {
+  // CHECK: func.func private @ApplyTilingNCEConvDyn_func0_dims_H_cases_0_static([[ARG0:%.+]]: tensor<1x32x258x64xf16, {order = #NHWC}> {func.dynamicStrides = true}) -> (tensor<1x256x256x64xf16, {order = #NHWC}> {func.dynamicStrides = true}) {
   // CHECK:   [[CST:%.+]] = const.Declare tensor<256x32x3x3xf16, {order = #NHWC}> = dense<1.000000e+00> : tensor<256x32x3x3xf16>, [#const.Reorder<#NHWC>]
   // CHECK:   [[CONV:%.+]] = VPU.NCE.Convolution([[ARG0]], [[CST]]) rawFilterShape [256, 32, 3, 3] {pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEStub<>,
   // CHECK-SAME: strides = [1, 1]} : tensor<1x32x258x64xf16, {order = #NHWC}>, tensor<256x32x3x3xf16, {order = #NHWC}> -> tensor<1x256x256x64xf16, {order = #NHWC}>
@@ -158,7 +158,7 @@ module {
     return %0 : tensor<1x256x?x64xf16, {bounds = #const.OpaqueI64Elements<[1, 256, 256, 64]> : tensor<4xsi64>, order = #NHWC}>
   }
 
-  // CHECK: func.func @ApplyTilingNCEConvDyn_func0_dims_H_cases_2_static([[ARG0:%.+]]: tensor<1x32x257x64xf16, {order = #NHWC}> {func.dynamicStrides = true}) -> (tensor<1x256x256x64xf16, {order = #NHWC}> {func.dynamicStrides = true}) {
+  // CHECK: func.func private @ApplyTilingNCEConvDyn_func0_dims_H_cases_2_static([[ARG0:%.+]]: tensor<1x32x257x64xf16, {order = #NHWC}> {func.dynamicStrides = true}) -> (tensor<1x256x256x64xf16, {order = #NHWC}> {func.dynamicStrides = true}) {
   // CHECK:   [[CST:%.+]] = const.Declare tensor<256x32x3x3xf16, {order = #NHWC}> = dense<1.000000e+00> : tensor<256x32x3x3xf16>, [#const.Reorder<#NHWC>]
   // CHECK:   [[CONV:%.+]] = VPU.NCE.Convolution([[ARG0]], [[CST]]) rawFilterShape [256, 32, 3, 3] {pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 0 : i64>, ppe = #VPU.PPEStub<>,
   // CHECK-SAME: strides = [1, 1]} : tensor<1x32x257x64xf16, {order = #NHWC}>, tensor<256x32x3x3xf16, {order = #NHWC}> -> tensor<1x256x256x64xf16, {order = #NHWC}>
@@ -171,7 +171,7 @@ module {
     return %0 : tensor<1x256x?x64xf16, {bounds = #const.OpaqueI64Elements<[1, 256, 256, 64]> : tensor<4xsi64>, order = #NHWC}>
   }
 
-  // CHECK: func.func @ApplyTilingNCEConvDyn_func0_dims_H_cases_1_static([[ARG0:%.+]]: tensor<1x32x257x64xf16, {order = #NHWC}> {func.dynamicStrides = true}) -> (tensor<1x256x256x64xf16, {order = #NHWC}> {func.dynamicStrides = true}) {
+  // CHECK: func.func private @ApplyTilingNCEConvDyn_func0_dims_H_cases_1_static([[ARG0:%.+]]: tensor<1x32x257x64xf16, {order = #NHWC}> {func.dynamicStrides = true}) -> (tensor<1x256x256x64xf16, {order = #NHWC}> {func.dynamicStrides = true}) {
   // CHECK:   [[CST:%.+]] = const.Declare tensor<256x32x3x3xf16, {order = #NHWC}> = dense<1.000000e+00> : tensor<256x32x3x3xf16>, [#const.Reorder<#NHWC>]
   // CHECK:   [[CONV:%.+]] = VPU.NCE.Convolution([[ARG0]], [[CST]]) rawFilterShape [256, 32, 3, 3] {pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 0 : i64, bottom = 1 : i64>, ppe = #VPU.PPEStub<>,
   // CHECK-SAME: strides = [1, 1]} : tensor<1x32x257x64xf16, {order = #NHWC}>, tensor<256x32x3x3xf16, {order = #NHWC}> -> tensor<1x256x256x64xf16, {order = #NHWC}>
@@ -932,7 +932,7 @@ module {
     DataInfo "output" friendlyName = "output/sink_port_0" tensorNames = ["output"] : tensor<1x16x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 1080, 1920]> : tensor<4xsi64>, order = #NHWC}>
   }
 
-  // CHECK:    func.func @permuteConv_static
+  // CHECK:    func.func private @permuteConv_static
   // CHECK-NOT:  tensor.extract_slice
   // CHECK-NOT:  tensor.cast
   // CHECK:      VPU.Slice
@@ -1069,7 +1069,7 @@ module  {
   } outputsInfo : {
     DataInfo "/Add" friendlyName = "output/sink_port_0" tensorNames = ["output"] : tensor<1x32x?x?xf32, {bounds = #const.OpaqueI64Elements<[1, 32, 540, 960]> : tensor<4xsi64>, order = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>}>
   }
-  // CHECK:    func.func @main_func2_dims_HW_cases_22_static
+  // CHECK:    func.func private @main_func2_dims_HW_cases_22_static
   func.func nested @main_func2_dims_HW_cases_22(%main: tensor<1x32x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 32, 92, 66]> : tensor<4xsi64>, order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}>) -> tensor<1x32x?x?xf32, {bounds = #const.OpaqueI64Elements<[1, 32, 90, 64]> : tensor<4xsi64>, order = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>}> {
     %main_0 = arith.constant 64 : index
     %main_1 = arith.constant 90 : index
@@ -1092,7 +1092,7 @@ module  {
     // CHECK:     VPU.Slice
     // CHECK:     VPU.NCE.Eltwise
   }
-  // CHECK:    func.func @main_func2_dims_HW_cases_21_static
+  // CHECK:    func.func private @main_func2_dims_HW_cases_21_static
   func.func nested @main_func2_dims_HW_cases_21(%main: tensor<1x32x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 32, 92, 67]> : tensor<4xsi64>, order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}>) -> tensor<1x32x?x?xf32, {bounds = #const.OpaqueI64Elements<[1, 32, 90, 64]> : tensor<4xsi64>, order = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>}> {
     %main_0 = arith.constant 64 : index
     %main_1 = arith.constant 90 : index
@@ -1115,7 +1115,7 @@ module  {
     // CHECK:     VPU.Slice
     // CHECK:     VPU.NCE.Eltwise
   }
-  // CHECK:    func.func @main_func2_dims_HW_cases_00_static
+  // CHECK:    func.func private @main_func2_dims_HW_cases_00_static
   func.func nested @main_func2_dims_HW_cases_00(%main: tensor<1x32x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 32, 95, 69]> : tensor<4xsi64>, order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}>) -> tensor<1x32x?x?xf32, {bounds = #const.OpaqueI64Elements<[1, 32, 90, 64]> : tensor<4xsi64>, order = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>}> {
     %main_0 = arith.constant 64 : index
     %main_1 = arith.constant 90 : index

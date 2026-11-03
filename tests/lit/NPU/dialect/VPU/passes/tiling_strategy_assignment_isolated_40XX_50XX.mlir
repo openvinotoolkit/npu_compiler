@@ -71,7 +71,7 @@ func.func @NCEMatMulSOGAndHTile(%arg0: tensor<6x1x512x512xf16>, %arg1: tensor<6x
 #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
-module @Test attributes {config.compilationMode = #config.compilation_mode<HostCompile>}  {
+module @Test attributes {config.compilationMode = #config.compilation_mode<HostCompile_Interpreter>}  {
 
 config.Resources 3 of @NCE {
 config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}

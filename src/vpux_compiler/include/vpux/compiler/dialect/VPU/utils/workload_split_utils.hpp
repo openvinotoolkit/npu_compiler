@@ -68,10 +68,13 @@ void materializeWorkloads(VPU::NCEOpInterface nceOp, mlir::OpBuilder& builder, A
  * - Small kernel optimization filtering
  * - ODU autopad channel adjustment
  *
+ * `inputShapeOverride`, when non-empty, is forwarded to doesDWOperationNeedWorkloadSplit.
+ * It is needed by callers whose operand(0) IR type may still be dynamically shaped.
  */
 void correctWorkloadDescriptors(VPU::NCEOpInterface nceOp, SmallVector<WorkloadDescriptor, 4>& workloads,
                                 mlir::MLIRContext* ctx, Logger log,
-                                SmallVector<int64_t>* outSupportedChannels = nullptr);
+                                SmallVector<int64_t>* outSupportedChannels = nullptr,
+                                ShapeRef inputShapeOverride = ShapeRef());
 
 /**
  * Back-infer input workload offsets/sizes from output workload descriptors.

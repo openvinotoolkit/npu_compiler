@@ -1114,7 +1114,7 @@ mlir::LogicalResult CMXToCMXCopy::matchAndRewrite(VPUIP::CopyOp copyOp, mlir::Pa
             VPUIP::moveRootAllocBefore(copySubView, parentNCE);
         }
 
-        const auto updateParentNCEOp = [&parentNCE](size_t argIdx, mlir::Value value) {
+        const auto updateParentNCEOp = [parentNCE](size_t argIdx, mlir::Value value) {
             // Update result types of NCEClusterTask
             parentNCE->getResult(checked_cast<unsigned int>(argIdx)).setType(value.getType());
             // Update output buffers of NCEClusterTask
@@ -2753,7 +2753,7 @@ mlir::Value DuplicatedCopyWithSegmentedCopy::getDuplicatedReloadSource(VPUIP::Co
 */
 
 mlir::Value SubViewWithDistributedCopy::getSuitableSubViewPattern(VPUIP::CopyOp origOp, vpux::Logger log) const {
-    auto isDistributedCopyOpSegmentedOnN = [&log](VPUIP::CopyOp copyOp) {
+    auto isDistributedCopyOpSegmentedOnN = [log](VPUIP::CopyOp copyOp) {
         if (copyOp == nullptr) {
             log.trace("Not distributed Copy");
             return false;
@@ -3063,7 +3063,7 @@ mlir::LogicalResult FuseCopiesThroughReshape::matchAndRewrite(VPUIP::CopyOp copy
             break;
         }
 
-        if (!isSupportedViewLikeOp(userOp) || !userOp->hasOneUse()) {
+        if (!isSupportedViewLikeOp(userOp)) {
             return mlir::failure();
         }
 
@@ -3073,6 +3073,32 @@ mlir::LogicalResult FuseCopiesThroughReshape::matchAndRewrite(VPUIP::CopyOp copy
 
         viewLikeOps.push_back(userOp);
         currentOutput = userOp->getResult(0);
+    }
+
+    // The loop above stops at a fan-out point. Only one fused chain is created for compatible
+    // distributed-copy consumers, while other consumers keep the original DDR view-like chain.
+    SmallVector<VPUIP::CopyOp> siblingCopyOps;
+    bool hasUnfusedUsers = false;
+    if (userClusterCopyOp == nullptr) {
+        for (auto* userOp : currentOutput.getUsers()) {
+            auto siblingCopyOp = mlir::dyn_cast<VPUIP::CopyOp>(userOp);
+            if (siblingCopyOp == nullptr || !vpux::VPUIP::hasDistributedOperand(siblingCopyOp) ||
+                VPUIP::getRootAlloc<VPURT::AllocDistributed>(siblingCopyOp.getOutputBuff()) == nullptr) {
+                hasUnfusedUsers = true;
+                continue;
+            }
+
+            if (userClusterCopyOp == nullptr) {
+                userClusterCopyOp = siblingCopyOp;
+                continue;
+            }
+
+            if (siblingCopyOp.getOutput().getType() != userClusterCopyOp.getOutput().getType()) {
+                return mlir::failure();
+            }
+
+            siblingCopyOps.push_back(siblingCopyOp);
+        }
     }
 
     if (userClusterCopyOp == nullptr || !vpux::VPUIP::hasDistributedOperand(userClusterCopyOp)) {
@@ -3288,13 +3314,24 @@ mlir::LogicalResult FuseCopiesThroughReshape::matchAndRewrite(VPUIP::CopyOp copy
     // Replace all uses of outBufAlloc with newOutput before erasing
     rewriter.replaceAllUsesWith(outBufAlloc->getResult(0), newOutput);
     rewriter.eraseOp(outBufAlloc);
-    for (auto it = viewLikeOps.rbegin(); it != viewLikeOps.rend(); ++it) {
-        rewriter.eraseOp(*it);
+    for (auto siblingCopyOp : siblingCopyOps) {
+        auto siblingAlloc = VPUIP::getRootAlloc<VPURT::AllocDistributed>(siblingCopyOp.getOutputBuff());
+        rewriter.replaceOp(siblingCopyOp, newOutput);
+        if (siblingAlloc != nullptr && siblingAlloc != outBufAlloc) {
+            rewriter.replaceAllUsesWith(siblingAlloc->getResult(0), newOutput);
+            rewriter.eraseOp(siblingAlloc);
+        }
     }
-    auto origAlloc = VPUIP::getRootAlloc<mlir::memref::AllocOp>(copyOp.getOutputBuff());
-    rewriter.eraseOp(copyOp);
-    if (origAlloc != nullptr) {
-        rewriter.eraseOp(origAlloc);
+    if (!hasUnfusedUsers) {
+        for (auto it = viewLikeOps.rbegin(); it != viewLikeOps.rend(); ++it) {
+            VPUX_THROW_UNLESS((*it)->use_empty(), "All view-like operations must have no uses before erasing");
+            rewriter.eraseOp(*it);
+        }
+        auto origAlloc = VPUIP::getRootAlloc<mlir::memref::AllocOp>(copyOp.getOutputBuff());
+        rewriter.eraseOp(copyOp);
+        if (origAlloc != nullptr) {
+            rewriter.eraseOp(origAlloc);
+        }
     }
     log.trace("Successfully fused copies through view-like ops");
     return mlir::success();
@@ -3869,10 +3906,16 @@ mlir::LogicalResult GatherDMAWithSubview::matchAndRewrite(VPUIP::GatherDMAOp gat
         auto newGatherOutBuffer = VPURT::AllocDistributed::create(
                 rewriter, appendLoc(copyOp->getLoc(), "_new_CMX_buffer"), newGatherOutType, nullptr, nullptr);
 
-        auto newGatherDMAOp = VPUIP::GatherDMAOp::create(
-                rewriter, appendLoc(opLoc, "_new_gatherDMA"), gatherDMAOp.getInput(), newIndicesCopyOp.getOutput(),
-                newGatherOutBuffer, gatherDMAOp.getElementSize(), gatherDMAOp.getPadding(),
-                gatherDMAOp.getPort().value(), VPUIP::GatherAddressingMode::INDEXED);
+        auto newGatherDMAOp = VPUIP::GatherDMAOp::create(rewriter, appendLoc(opLoc, "_new_gatherDMA"),
+                                                         gatherDMAOp.getInput(), newIndicesCopyOp.getOutput(),
+                                                         newGatherOutBuffer, gatherDMAOp.getElementSize(),
+                                                         gatherDMAOp.getPadding(), gatherDMAOp.getPort().value());
+        if (auto addressingMode = gatherDMAOp.getAddressingModeAttr()) {
+            newGatherDMAOp.setAddressingModeAttr(addressingMode);
+        }
+        if (auto listOOBMode = gatherDMAOp.getListOOBModeAttr()) {
+            newGatherDMAOp.setListOOBModeAttr(listOOBMode);
+        }
         auto newPermuteCastOp = VPUIP::PermuteCastOp::create(
                 rewriter, appendLoc(opLoc, "_new_permuteCast"), copyOutDistributedType, newGatherDMAOp.getOutput(),
                 permuteCastOp.getDstOrderAttr(), permuteCastOp.getMemPermAttr());

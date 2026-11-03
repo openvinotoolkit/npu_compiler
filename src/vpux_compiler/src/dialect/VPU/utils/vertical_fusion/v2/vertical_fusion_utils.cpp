@@ -9,6 +9,8 @@
 #include "vpux/compiler/dialect/VPU/utils/manual_strategy_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/multi_cluster_strategy_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/tile_utils.hpp"
+#include "vpux/compiler/dialect/VPU/utils/vertical_fusion/v2/merge_tiling_policy.hpp"
+#include "vpux/compiler/dialect/VPU/utils/vertical_fusion/v2/merge_tiling_policy_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/vertical_fusion/v2/vertical_fusion_case.hpp"
 #include "vpux/compiler/dialect/VPU/utils/vertical_fusion/v2/vertical_fusion_config.hpp"
 #include "vpux/compiler/dialect/VPU/utils/vertical_fusion/v2/vertical_fusion_scheduler_interface.hpp"
@@ -28,6 +30,96 @@
 namespace vpux::VPU::VF::v2 {
 
 constexpr double ELTWISE_PERFORMANT_RATIO_FOR_MULTI_DIM_TILING = 0.5;
+
+namespace {
+
+bool hasCompatibleDistributedTypes(const OpWithViewInputs& parentInfo, VPU::DistributedTensorType producerDataType,
+                                   VPU::DistributedTensorType consumerDataType) {
+    auto inferredProducerType = VPU::inferDistributedTypeThroughViewOps(producerDataType, parentInfo.viewOps);
+    return inferredProducerType != nullptr &&
+           VPU::areDistributionAttrsCompatible(inferredProducerType, consumerDataType, true).succeeded();
+}
+
+}  // namespace
+
+bool hasCompatibleDistributedTypes(const OpWithViewInputs& parentInfo, VPU::ClusteredOpInterface consumerOp,
+                                   const MultiClusterStrategyMap& strategies) {
+    auto producerOp = parentInfo.clusteredOp;
+    const auto producerHasStrategy =
+            strategies.contains(producerOp) || producerOp.getMultiClusterStrategy().has_value();
+    const auto consumerHasStrategy =
+            strategies.contains(consumerOp) || consumerOp.getMultiClusterStrategy().has_value();
+    if (!producerHasStrategy || !consumerHasStrategy || producerOp->getNumResults() != 1) {
+        return false;
+    }
+    auto producerStrategy = details::getMultiClusterStrategy(producerOp, strategies);
+    auto consumerStrategy = details::getMultiClusterStrategy(consumerOp, strategies);
+
+    auto producerType = VPU::getDistributedOutputType(producerOp, producerOp->getResult(0), producerStrategy);
+    auto consumerType =
+            VPU::getDistributedInputType(consumerOp, consumerOp->getOperand(parentInfo.operandIdx), consumerStrategy);
+    if (producerType == nullptr || consumerType == nullptr) {
+        return false;
+    }
+
+    auto producerDataType =
+            mlir::dyn_cast_if_present<VPU::DistributedTensorType>(producerType.getDistributedTypes().front());
+    auto consumerDataType =
+            mlir::dyn_cast_if_present<VPU::DistributedTensorType>(consumerType.getDistributedTypes().front());
+    if (producerDataType == nullptr || consumerDataType == nullptr) {
+        return false;
+    }
+
+    return hasCompatibleDistributedTypes(parentInfo, producerDataType, consumerDataType);
+}
+
+bool isStrategySupported(VPU::ClusteredOpInterface op, VPU::MultiClusterStrategy strategy, size_t numClusters) {
+    if (!op.checkStrategyCompatibility(strategy, numClusters)) {
+        return false;
+    }
+    if (strategy == VPU::MultiClusterStrategy::SplitOverHeight || strategy == VPU::MultiClusterStrategy::HKSwitch) {
+        return op.isOperationSplitOverHeightCompatible(TileInfo(ShapeRef()));
+    }
+    if (strategy == VPU::MultiClusterStrategy::SplitOverKernel) {
+        return op.isOperationSplitOverKernelCompatible(ShapeRef(), ShapeRef(), ShapeRef());
+    }
+    return true;
+}
+
+bool tryAdjustStrategy(VPU::ClusteredOpInterface opToAdjust, const OpWithViewInputs& parentInfo,
+                       VPU::ClusteredOpInterface consumerOp, MultiClusterStrategyMap& strategies,
+                       ArrayRef<VPU::MultiClusterStrategy> candidates) {
+    if (!supportMultiClusterStrategyAdjustmentInVF(opToAdjust.getOperation())) {
+        return false;
+    }
+
+    auto consumerStrategy = details::getMultiClusterStrategy(consumerOp, strategies);
+    auto consumerType =
+            getDistributedInputType(consumerOp, consumerOp->getOperand(parentInfo.operandIdx), consumerStrategy);
+    if (consumerType == nullptr) {
+        return false;
+    }
+    auto consumerDataType = mlir::cast<VPU::DistributedTensorType>(consumerType.getDistributedTypes().front());
+
+    auto outType = mlir::cast<vpux::NDTypeInterface>(opToAdjust->getResult(0).getType());
+    for (auto strategy : candidates) {
+        const auto numClusters = getOptimalNumClusters(opToAdjust, outType.getShape(), strategy);
+        if (!isStrategySupported(opToAdjust, strategy, checked_cast<size_t>(numClusters))) {
+            continue;
+        }
+
+        auto producerType = getDistributedOutputTypeFromOp(opToAdjust, outType, numClusters, strategy);
+        if (producerType == nullptr) {
+            continue;
+        }
+        auto producerDataType = mlir::cast<VPU::DistributedTensorType>(producerType.getDistributedTypes().front());
+        if (hasCompatibleDistributedTypes(parentInfo, producerDataType, consumerDataType)) {
+            strategies[opToAdjust] = strategy;
+            return true;
+        }
+    }
+    return false;
+}
 
 bool isCmxOperation(mlir::Operation* operation, const bool checkTilingType) {
     if (!mlir::isa_and_present<VPU::TilingInfoOpInterface, VPU::VerticalFusionOp>(operation)) {
@@ -364,12 +456,12 @@ bool isDataTiledOnSameAxisWithMCStrategy(VPU::DistributedTensorType dataType, Ar
 }  // namespace
 
 bool hasOutputSpilledForDifferentDataSizeUses(mlir::Operation* op) {
-    auto outElementSize = getShape(op->getResult(0)).totalSize();
+    auto outElementSize = getBoundedShape(op->getResult(0)).totalSize();
     auto usedBySizeChangedViewOps = llvm::all_of(op->getUsers(), [&](auto user) {
         if (!isPureViewOp(user)) {
             return false;
         }
-        auto elementSize = getShape(user->getResult(0)).totalSize();
+        auto elementSize = getBoundedShape(user->getResult(0)).totalSize();
         return outElementSize != elementSize;
     });
     return usedBySizeChangedViewOps;

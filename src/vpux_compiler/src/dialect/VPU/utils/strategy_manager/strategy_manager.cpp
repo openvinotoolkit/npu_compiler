@@ -29,6 +29,22 @@
 using namespace vpux;
 using namespace VPU;
 
+namespace {
+
+bool hasGroupQuantCorrectionUser(mlir::Operation* op) {
+    for (auto* user : op->getUsers()) {
+        if (mlir::isa<VPU::GroupQuantCorrectionOp>(user)) {
+            return true;
+        }
+        if (mlir::isa<VPU::ViewLikeOpInterface>(user) && hasGroupQuantCorrectionUser(user)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+}  // namespace
+
 StrategyManager::StrategyManager(mlir::func::FuncOp func, int64_t numTiles, bool enablePrefetchTiling,
                                  VPU::MCOptimizationScope mcOptimizationScope, SiblingOpsAnalysis& siblingsOpsAnalysis,
                                  std::shared_ptr<VPUNN::VPULayerCostModel> layerCostModelPtr,
@@ -65,13 +81,6 @@ void StrategyManager::assignMultiClusterStrategy(bool enableMultiClusterForSWLay
     const auto callback = [&](mlir::Operation* op) {
         // Currently the distributed tensor only supports the tiling scheme with numTile shape=4
         // TODO: #E81820
-
-        // E#152917 [ShaveCodeGen] Analyze & settle on GenericSwLayerOp integration & vpux interface usage
-        if (mlir::isa<VPU::GenericSwLayerOp>(op)) {
-            _log.info("Compiler-generated sw layers are not supported by standard multicluster strategy assignment "
-                      "infra");
-            return;
-        }
 
         // InterpolateDMA has non-4D parameter operands (e.g. scales tensor<2xf16>)
         // that stay in DDR and are not distributed across clusters.
@@ -470,9 +479,21 @@ void StrategyManager::assignMultiClusterStrategy(bool enableMultiClusterForSWLay
                     }
                 })
                 .Case<NCEMatMulOp>([&](NCEMatMulOp origOp) {
-                    // NCEMatMulOp is supposed to be grouped layer with 5D shape like GNCHW and it can be multiclustered
-                    // only over G
-                    if (origOp.checkStrategyCompatibility(VPU::MultiClusterStrategy::SplitOverGroup, _numTiles)) {
+                    // Choose SOK for MatMuls with GroupQuantCorrection users to increase VF opportunities.
+                    // Otherwise choose SOG. TODO: Choose based on cost after E#126102
+                    auto outputType = mlir::cast<vpux::NDTypeInterface>(origOp.getOutput().getType());
+                    auto outputChannels = outputType.getShape()[DimsGroups5D::Act::C];
+                    // Choose SOK for MatMuls with GroupQuantCorrection users to increase VF opportunities.
+                    // Otherwise choose SOG. TODO: Choose based on cost after E#126102
+                    if (outputChannels > VPU::NCEInvariant::VPU_DIMENSION_LIMIT &&
+                        hasGroupQuantCorrectionUser(origOp.getOperation()) &&
+                        origOp.isOperationSplitOverKernelCompatible(/*outputShape=*/ShapeRef(),
+                                                                    /*offset=*/ShapeRef(),
+                                                                    /*axis=*/ShapeRef())) {
+                        setLayerStrategy(VPU::MultiClusterStrategy::SplitOverKernel, origOp.getOperation());
+                        return;
+                    } else if (origOp.checkStrategyCompatibility(VPU::MultiClusterStrategy::SplitOverGroup,
+                                                                 _numTiles)) {
                         setLayerStrategy(VPU::MultiClusterStrategy::SplitOverGroup, origOp.getOperation());
                     }
                 })

@@ -511,49 +511,12 @@ Note: If no dispatched inliner interface is provided via `registerDispatchedInli
 
 ## HostCompile Compilation Pipeline
 
-The HostCompile pipeline is a specialized compilation mode designed to partition a neural network into multiple independently compilable functions. Each function contains NPU code, which is subsequently compiled into separate ELF blobs, along with the main function, which contains CPU host code that manages these compiled blobs using the LevelZero API.
+HostCompile separates a model into a host program and independently compiled NPU kernels. The host
+program handles shapes, loops, buffers and device dispatch. Each kernel contains NPU computation and
+is compiled into an ELF binary. The host program is represented as interpreter bytecode or as an
+LLVM-based program for JIT execution, depending on the selected backend.
 
-<img src="images/1_ir_levels_HostCompile.drawio.svg" alt="drawing" width="600"/>
-
-### Overview
-
-In the HostCompile pipeline, the network is divided into kernel functions and host functions. Kernel functions contain the NPU-specific code and are compiled into ELF blobs as usual. Host function, on the other hand, consist of operations from MLIR upstream dialects such as tensor, scf, async, memref and arith. This code is later compiled into CPU code responsible for orchestrating the execution of kernel functions, passing various input data, and aggregating their outputs.
-
-### Example
-
-Consider the following example:
-
-```mlir
-module @StaticEltwiseNHWC attributes {config.revisionID = #config.revision_id<REVISION_NONE>, config.compilationMode = #config.compilation_mode<HostCompile>, config.platform = #config.platform<NPU4000>} {
-  module @Module_1 {
-    // function which contains the NPU-specific code and supposed to be compiled into ELF blobs
-    func.func private @main_func0(%arg0: tensor<1x16x720x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 720, 100]> : tensor<4xsi64>, order = #NHWC}>, %arg1: tensor<1x16x720x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 720, 100]> : tensor<4xsi64>, order = #NHWC}>) -> tensor<1x16x720x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 720, 100]> : tensor<4xsi64>, order = #NHWC}> {
-        %0 = VPU.NCE.Eltwise(%arg0, %arg1) {multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, op_type = #VPU.eltwise_type<ADD>, ppe = #VPU.PPEInt<mode = <NOOP>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64, lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, quant_scale = [1.000000e+00], fp_prelu_alpha = 1.000000e+00 : f64>} -> tensor<1x16x720x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 720, 100]> : tensor<4xsi64>, order = #NHWC}>
-        return %0 : tensor<1x16x720x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 720, 100]> : tensor<4xsi64>, order = #NHWC}>
-    }
-  }
-  // Host function which will be compiled into CPU code responsible for orchestrating the execution of kernel functions
-  func.func @main(%arg0: tensor<1x16x720x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 720, 1000]> : tensor<4xsi64>, order = #NHWC}>, %arg1: tensor<1x16x720x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 720, 1000]> : tensor<4xsi64>, order = #NHWC}>) -> tensor<1x16x720x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 720, 1000]> : tensor<4xsi64>, order = #NHWC}> {
-    %c100 = arith.constant 100 : index
-    %c0 = arith.constant 0 : index
-    %c3 = arith.constant 3 : index
-    %dim = tensor.dim %arg0, %c3 : tensor<1x16x720x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 720, 1000]> : tensor<4xsi64>, order = #NHWC}>
-    %0 = tensor.empty(%dim) : tensor<1x16x720x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 720, 1000]> : tensor<4xsi64>, order = #NHWC}>
-    %dim_0 = tensor.dim %arg0, %c3 : tensor<1x16x720x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 720, 1000]> : tensor<4xsi64>, order = #NHWC}>
-    %1 = scf.for %arg2 = %c0 to %dim_0 step %c100 iter_args(%arg3 = %0) -> (tensor<1x16x720x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 720, 1000]> : tensor<4xsi64>, order = #NHWC}>) {
-      %2 = affine.min #map(%arg2)[%dim_0]
-      %extracted_slice = tensor.extract_slice %arg0[0, 0, 0, %arg2] [1, 16, 720, %2] [1, 1, 1, 1] : tensor<1x16x720x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 720, 1000]> : tensor<4xsi64>, order = #NHWC}> to tensor<1x16x720x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 720, 100]> : tensor<4xsi64>, order = #NHWC}>
-      %extracted_slice_1 = tensor.extract_slice %arg1[0, 0, 0, %arg2] [1, 16, 720, %2] [1, 1, 1, 1] : tensor<1x16x720x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 720, 1000]> : tensor<4xsi64>, order = #NHWC}> to tensor<1x16x720x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 720, 100]> : tensor<4xsi64>, order = #NHWC}>
-      %3 = Core.NestedCall @Module_1::@main_func0(%extracted_slice, %extracted_slice_1) : (tensor<1x16x720x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 720, 100]> : tensor<4xsi64>, order = #NHWC}>, tensor<1x16x720x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 720, 100]> : tensor<4xsi64>, order = #NHWC}>) -> tensor<1x16x720x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 720, 100]> : tensor<4xsi64>, order = #NHWC}>
-      %inserted_slice = tensor.insert_slice %3 into %arg3[0, 0, 0, %arg2] [1, 16, 720, %2] [1, 1, 1, 1] : tensor<1x16x720x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 720, 100]> : tensor<4xsi64>, order = #NHWC}> into tensor<1x16x720x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 720, 1000]> : tensor<4xsi64>, order = #NHWC}>
-      scf.yield %inserted_slice : tensor<1x16x720x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 720, 1000]> : tensor<4xsi64>, order = #NHWC}>
-    }
-    return %1 : tensor<1x16x720x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 720, 1000]> : tensor<4xsi64>, order = #NHWC}>
-  }
-}
-```
-In the HostCompile pipeline, as demonstrated in the example, the code is distinctly divided into NPU kernel functions, such as `@Module_1::@main_func0`, and the host function `@main`, which orchestrates their execution.
-This contrasts with the `DefaultHW` pipeline, where the compilation process generates a single ELF blob that encapsulates all NPU code, without including any CPU code for orchestration.
+The [HostCompile design guide](../design/host_compile.md) explains shapes, tiling, device kernels and host execution, with small elementwise example showing how dynamic host control works with fixed device tile shapes.
 
 ### How to use HostCompile mode
 

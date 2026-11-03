@@ -9,6 +9,7 @@
 #include "vpux/compiler/dialect/IE/utils/dynamic_dequantize_utils.hpp"
 #include "vpux/compiler/dialect/IE/utils/fake_quantize_utils.hpp"
 #include "vpux/compiler/dialect/IE/utils/token_length_regime_utils.hpp"
+#include "vpux/compiler/dialect/const/ops.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 
 namespace vpux::IE {
@@ -27,8 +28,9 @@ public:
     GenericUnrollBase(mlir::MLIRContext* ctx, Logger log): mlir::OpRewritePattern<ConcreteOp>(ctx), _log(log) {
     }
 
-public:
     mlir::LogicalResult matchAndRewrite(ConcreteOp origOp, mlir::PatternRewriter& rewriter) const final;
+
+protected:
     mlir::Value getValue(const mlir::ValueRange values, const int64_t idx) const;
     SmallVector<mlir::Value> splitValue(const mlir::Value val, const int64_t axis,
                                         mlir::PatternRewriter& rewriter) const;
@@ -36,11 +38,8 @@ public:
 private:
     virtual SmallVector<mlir::Value> splitInputs(ConcreteOp origOp, const int64_t axis,
                                                  mlir::PatternRewriter& rewriter) const = 0;
-    virtual std::set<int64_t> findAxes(ConcreteOp origOp) const = 0;
-
     virtual bool isBeneficialForUnroll(ConcreteOp origOp) const;
 
-private:
     Logger _log;
 };
 
@@ -96,11 +95,16 @@ bool GenericUnrollBase<ConcreteOp>::isBeneficialForUnroll(ConcreteOp) const {
 template <typename ConcreteOp>
 mlir::LogicalResult GenericUnrollBase<ConcreteOp>::matchAndRewrite(ConcreteOp origOp,
                                                                    mlir::PatternRewriter& rewriter) const {
-    if (mlir::isa_and_nonnull<IE::GroupConvolutionOp>(*origOp.getResult().user_begin())) {
+    _log.trace("Got '{0}' at '{1}'", origOp->getName(), origOp->getLoc());
+
+    if (origOp.getResult().use_empty()) {
         return mlir::failure();
     }
 
-    const auto axes = findAxes(origOp);
+    if (mlir::isa_and_present<IE::GroupConvolutionOp>(*origOp.getResult().user_begin())) {
+        return mlir::failure();
+    }
+    const auto axes = IE::findAxes(origOp);
     // Cases when there's only one axis or there are no axes at all are fine. Nothing to do.
     if (axes.size() <= 1) {
         return mlir::failure();
@@ -126,8 +130,8 @@ mlir::LogicalResult GenericUnrollBase<ConcreteOp>::matchAndRewrite(ConcreteOp or
         }
     }
 
-    const auto fqChunks = splitInputs(origOp, axis, rewriter);
-    auto concatOp = IE::ConcatOp::create(rewriter, takeOpLoc(origOp, "output_concat"), fqChunks, axis);
+    const auto chunks = splitInputs(origOp, axis, rewriter);
+    auto concatOp = IE::ConcatOp::create(rewriter, takeOpLoc(origOp, "output_concat"), chunks, axis);
     rewriter.replaceOp(origOp, concatOp.getResult());
     return mlir::success();
 }
@@ -140,7 +144,6 @@ public:
 private:
     SmallVector<mlir::Value> splitInputs(IE::FakeQuantizeOp origOp, const int64_t axis,
                                          mlir::PatternRewriter& rewriter) const override;
-    std::set<int64_t> findAxes(IE::FakeQuantizeOp origOp) const override;
 };
 
 // Split the inputs (data, input_high, input_low, output_high, output_low) by specified axis.
@@ -161,14 +164,10 @@ SmallVector<mlir::Value> UnrollFakeQuantize::splitInputs(IE::FakeQuantizeOp fqOp
         const auto loc = appendLoc(fqOp.getLoc(), "slice_{0}", idx);
         auto reducedFq = IE::FakeQuantizeOp::create(
                 rewriter, loc, data[idx], getValue(inLow, idx), getValue(inHigh, idx), getValue(outLow, idx),
-                getValue(outHigh, idx), fqOp.getLevelsAttr(), fqOp.getLowFpTypeAttr(), fqOp.getAutoBroadcast());
+                getValue(outHigh, idx), fqOp.getLevelsOrLowFpTypeAttr(), fqOp.getAutoBroadcast());
         fqResults.push_back(reducedFq.getResult());
     }
     return fqResults;
-}
-
-std::set<int64_t> UnrollFakeQuantize::findAxes(IE::FakeQuantizeOp origOp) const {
-    return IE::findAxes(origOp);
 }
 
 class UnrollDynamicDequantize final : public GenericUnrollBase<IE::DynamicDequantizeOp> {
@@ -179,13 +178,24 @@ public:
 private:
     SmallVector<mlir::Value> splitInputs(IE::DynamicDequantizeOp origOp, const int64_t axis,
                                          mlir::PatternRewriter& rewriter) const override;
-    std::set<int64_t> findAxes(IE::DynamicDequantizeOp origOp) const override;
     bool isBeneficialForUnroll(IE::DynamicDequantizeOp origOp) const override;
 };
 
 SmallVector<mlir::Value> UnrollDynamicDequantize::splitInputs(IE::DynamicDequantizeOp origOp, const int64_t axis,
                                                               mlir::PatternRewriter& rewriter) const {
-    const auto input = splitValue(origOp.getInput(), axis, rewriter);
+    auto input = splitValue(origOp.getInput(), axis, rewriter);
+    if (origOp->hasAttr(IE::WEIGHTS_IMPORT_DYN_DEQUANT_ATTR)) {
+        auto quantCast = origOp.getInput().getDefiningOp<IE::QuantizeCastOp>();
+        if (quantCast != nullptr) {
+            const auto rawInput = splitValue(quantCast.getInput(), axis, rewriter);
+            const auto dstElemType = quantCast.getDstElemType();
+            input.clear();
+            input.reserve(rawInput.size());
+            for (const auto& chunk : rawInput) {
+                input.push_back(IE::QuantizeCastOp::create(rewriter, chunk.getLoc(), chunk, dstElemType).getOutput());
+            }
+        }
+    }
     const auto scale = splitValue(origOp.getScale(), axis, rewriter);
     bool hasZeroPoint = false;
     SmallVector<mlir::Value> zeroPoint;
@@ -212,10 +222,6 @@ SmallVector<mlir::Value> UnrollDynamicDequantize::splitInputs(IE::DynamicDequant
     return deQuantizeResults;
 }
 
-std::set<int64_t> UnrollDynamicDequantize::findAxes(IE::DynamicDequantizeOp origOp) const {
-    return IE::findAxes(origOp);
-}
-
 bool isValidFullyConnectedOp(IE::FullyConnectedOp fcOp) {
     if (fcOp == nullptr) {
         return false;
@@ -225,7 +231,7 @@ bool isValidFullyConnectedOp(IE::FullyConnectedOp fcOp) {
     // 1. KV cache model, token length = 1
     // 2. speculative decoding KV cache model, token length between 1 ~ 16
     auto outShape = getShape(fcOp.getOutput());
-    return outShape.size() == 2 && IE::isDataBoundTokenDim(outShape);
+    return outShape.size() == 2 && IE::isDataBoundTokenDim(fcOp).value_or(false);
 }
 
 bool isValidAffineReshape(IE::AffineReshapeOp reshape) {
@@ -249,6 +255,10 @@ bool UnrollDynamicDequantize::isBeneficialForUnroll(IE::DynamicDequantizeOp orig
     // to Dequantize by the bridge pass and handled as a single batched convolution.
     if (origOp->hasAttr(IE::SYNTHETIC_DYN_DEQUANT_ATTR)) {
         return false;
+    }
+
+    if (origOp->hasAttr(IE::WEIGHTS_IMPORT_DYN_DEQUANT_ATTR)) {
+        return true;
     }
 
     auto propagateTranspose = [](mlir::Operation* userOp) {

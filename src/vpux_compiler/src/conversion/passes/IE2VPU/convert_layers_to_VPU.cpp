@@ -34,6 +34,7 @@
 #include "vpux/compiler/dialect/VPU/IR/ops/shape_manipulation.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/specialized.hpp"
 #include "vpux/compiler/dialect/VPU/utils/auxiliary_buffers.hpp"
+#include "vpux/compiler/dialect/VPU/utils/manual_strategy_utils.hpp"
 #include "vpux/compiler/dialect/config/IR/attributes.hpp"
 #include "vpux/compiler/dialect/config/utils/config_option_utils.hpp"
 #include "vpux/compiler/dialect/const/dialect.hpp"
@@ -412,6 +413,22 @@ mlir::LogicalResult PadRewrite::matchAndRewrite(IE::PadOp origOp, mlir::PatternR
             origOp.getModeAttr(), origOp.getOutputPaddingAttr(), origOp.getInputPaddingAttr(),
             origOp.getOutputShapeAttr(), origOp.getOutputBoundsAttr(),
             VPU::BoundsRepresentationAttr::get(rewriter.getContext(), VPU::BoundsRepresentation::BOUNDS));
+    return mlir::success();
+}
+
+//
+// ReduceMeanRewrite
+//
+
+mlir::LogicalResult ReduceMeanRewrite::matchAndRewrite(IE::ReduceMeanOp origOp, mlir::PatternRewriter& rewriter) const {
+    _log.trace("Found ReduceMean Operation '{0}'", origOp->getLoc());
+    auto opWithDma = mlir::dyn_cast<IE::LayerWithDmaInterface>(origOp.getOperation());
+    if (opWithDma != nullptr && opWithDma.isSupported()) {
+        rewriter.replaceOpWithNewOp<VPU::ReduceMeanDMAOp>(origOp, origOp.getInput());
+        return mlir::success();
+    }
+    rewriter.replaceOpWithNewOp<VPU::ReduceMeanOp>(origOp, origOp.getInput(), origOp.getAxesValueAttr(),
+                                                   origOp.getKeepDimsAttr());
     return mlir::success();
 }
 
@@ -797,11 +814,33 @@ mlir::LogicalResult FlashSDPARewrite::matchAndRewrite(IE::FlashSDPAOp origOp, ml
             rewriter, origOp->getLoc(), origOp.getQuery(), origOp.getKey(), origOp.getValue(),
             origOp.getInputRunningOutput(), inputRunningMax, inputRunningSum, origOp.getAttentionMask(),
             origOp.getSourceSeqLenPadSizeAttr(), origOp.getIsHeadAttr(), origOp.getIsTailAttr());
+    copyLoopAttributes(origOp, newOp.getOperation());
 
     auto resultRunningMax = rotateShape(newOp.getResultRunningMax(), Rotate::Right);
     auto resultRunningSum = rotateShape(newOp.getResultRunningSum(), Rotate::Right);
 
     rewriter.replaceOp(origOp, mlir::ValueRange{newOp.getResultRunningOutput(), resultRunningMax, resultRunningSum});
+
+    return mlir::success();
+}
+
+//
+// AttentionDMARewrite
+//
+
+mlir::LogicalResult AttentionDMARewrite::matchAndRewrite(IE::AttentionDMAOp origOp,
+                                                         mlir::PatternRewriter& rewriter) const {
+    _log.trace("Found AttentionDMA Operation '{0}'", origOp->getLoc());
+
+    // Not a DRR pattern: the optional presentK/presentV results give the op a variable result count.
+    auto newOp = VPU::AttentionDMAOp::create(
+            rewriter, origOp->getLoc(), origOp.getInputQ(), origOp.getInputK(), origOp.getInputV(), origOp.getPastK(),
+            origOp.getPastV(), origOp.getInputMask(), origOp.getInputScale(), origOp.getInputSink(),
+            origOp.getInputBias(), origOp.getSeqLenK(), origOp.getKScale(), origOp.getVScale(),
+            origOp.getPadSizeSAttr(), origOp.getLocalWindowSizeAttr(), origOp.getSmoothSoftmaxAttr(),
+            origOp.getSlidingWindowCacheAttr(), origOp.getVTransposedAttr());
+
+    rewriter.replaceOp(origOp, newOp->getResults());
 
     return mlir::success();
 }
@@ -886,6 +925,7 @@ void ConvertLayers2VPUPass::safeRunOnFunc() {
     patterns.add<TopKRewrite>(&ctx, _log);
     patterns.add<GatedDeltaNetRewrite>(&ctx, _log);
     patterns.add<AtanRewrite>(&ctx, _log);
+    patterns.add<ReduceMeanRewrite>(&ctx, _log);
     patterns.add<ScatterUpdateRewrite>(&ctx, _log);
     patterns.add<MaxPool8Rewrite>(&ctx, _log);
     patterns.add<TransposedConvRewrite>(&ctx, _log);
@@ -904,6 +944,7 @@ void ConvertLayers2VPUPass::safeRunOnFunc() {
     patterns.add<AddRewrite>(&ctx, _log);
     patterns.add<MultiplyRewrite>(&ctx, _log);
     patterns.add<FlashSDPARewrite>(&ctx, _log);
+    patterns.add<AttentionDMARewrite>(&ctx, _log);
     patterns.add<LogSoftmaxTopKRewrite>(&ctx, _log);
     patterns.add<LogSoftmaxPeakRewrite>(&ctx, _log);
     populateWithGenerated(patterns);

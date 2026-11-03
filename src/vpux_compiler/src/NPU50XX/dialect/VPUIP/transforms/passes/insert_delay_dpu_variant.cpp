@@ -9,8 +9,10 @@
 #include "vpux/compiler/dialect/VPUIP/IR/attributes.hpp"
 #include "vpux/compiler/dialect/VPUIP/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPUIP/IR/ops.hpp"
+#include "vpux/compiler/dialect/VPUIP/utils/utils.hpp"
 #include "vpux/compiler/dialect/VPUIP/utils/workload_utils.hpp"
 #include "vpux/compiler/dialect/VPURT/IR/task.hpp"
+#include "vpux/compiler/utils/infer_output_shape.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 
 namespace vpux::VPUIP::arch50xx {
@@ -26,6 +28,23 @@ using namespace vpux;
 //
 // InsertDelayDPUVariant
 //
+
+namespace {
+
+// NCEClusterTaskOp does not implement VPU::NCEOpInterface, so its ODU S2D/D2S scaling cannot be
+// derived via VPU::getODUScaling(); VPUIP::getPreODUOutputChannels() reads the op's own
+// s2dd2s_config attribute directly instead.
+bool isOutputCompatibleWithAutoPad(VPUIP::NCEClusterTaskOp nceClusterTask, vpux::NDTypeInterface outputType) {
+    if (outputType.getRank() != 4) {
+        return false;
+    }
+
+    const auto channels = VPUIP::getPreODUOutputChannels(nceClusterTask);
+    return VPU::outputCompatibleWithAutoPad(
+            VPU::AutoPadPreS2DD2SInfo{outputType.getRank(), channels, outputType.getElemTypeSize().count()});
+}
+
+}  // namespace
 
 class InsertDelayDPUVariant final : public VPUIP::arch50xx::impl::InsertDelayDPUVariantBase<InsertDelayDPUVariant> {
 public:
@@ -58,7 +77,8 @@ void InsertDelayDPUVariant::safeRunOnFunc() {
         auto firstVariant = mlir::dyn_cast<VPUIP::DPUTaskOp>(variantsBlock.front());
         VPUX_THROW_WHEN(firstVariant == nullptr, "Unexpected variant operation: {0}", variantsBlock.front());
         auto outputType = mlir::cast<NDTypeInterface>(nceClusterTask.getOutput().getType());
-        return VPU::outputCompatibleWithAutoPad(outputType) && firstVariant.getHaloRegionsAttr() != nullptr;
+        return isOutputCompatibleWithAutoPad(nceClusterTask, outputType) &&
+               firstVariant.getHaloRegionsAttr() != nullptr;
     };
 
     const auto createVariant = [](VPUIP::NCEClusterTaskOp nceClusterTask, bool atTheStart) {

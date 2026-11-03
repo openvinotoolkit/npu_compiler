@@ -7,7 +7,7 @@
 // REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010
 
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
-module @RemoveReturnValues attributes {config.compilationMode = #config.compilation_mode<HostCompile>} {
+module @RemoveReturnValues attributes {config.compilationMode = #config.compilation_mode<HostCompile_Interpreter>} {
     net.NetworkInfo entryPoint : @main inputsInfo : {
         DataInfo "input1" : tensor<1x16x256x?xf16>
     } outputsInfo : {
@@ -40,7 +40,7 @@ module @RemoveReturnValues attributes {config.compilationMode = #config.compilat
 
 // -----
 
-module @InferenceExecCalledFromAnotherFunc attributes {config.compilationMode = #config.compilation_mode<HostCompile>} {
+module @InferenceExecCalledFromAnotherFunc attributes {config.compilationMode = #config.compilation_mode<HostCompile_Interpreter>} {
     net.NetworkInfo entryPoint : @main inputsInfo : {
         DataInfo "input" : tensor<1x16x?x?xf16>
     } outputsInfo : {

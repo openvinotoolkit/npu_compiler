@@ -284,13 +284,18 @@ bool wouldAlignmentWastePrecision(MutableArrayRef<IE::FakeQuantizeOp> fqOpsToAli
     return clampedPart > MAX_CLAMPED_RANGE_THRESHOLD;
 }
 
-void findMinMax(MutableArrayRef<IE::FakeQuantizeOp> fqOpsToAlign, float& min, float& max, float& range,
-                int& maxLevels) {
+mlir::LogicalResult findMinMax(MutableArrayRef<IE::FakeQuantizeOp> fqOpsToAlign, float& min, float& max, float& range,
+                               int& maxLevels) {
     for (auto fqOpToAlign : fqOpsToAlign) {
         const auto outputLowVals = IE::getConst(fqOpToAlign.getOutputLow().getDefiningOp<Const::DeclareOp>());
         const auto outputHighVals = IE::getConst(fqOpToAlign.getOutputHigh().getDefiningOp<Const::DeclareOp>());
 
-        maxLevels = std::max(maxLevels, static_cast<int>(fqOpToAlign.getLevels().value()));
+        const auto levels = fqOpToAlign.getLevels();
+        if (!levels.has_value()) {
+            return mlir::failure();
+        }
+
+        maxLevels = std::max(maxLevels, checked_cast<int>(levels.value()));
 
         for (size_t i = 0; i < outputLowVals.size(); i++) {
             min = std::min(min, outputLowVals[i]);
@@ -298,6 +303,7 @@ void findMinMax(MutableArrayRef<IE::FakeQuantizeOp> fqOpsToAlign, float& min, fl
             range = std::min(range, outputHighVals[i] - outputLowVals[i]);
         }
     }
+    return mlir::success();
 }
 
 void alignFQRanges(IE::ConcatOp origOp, MutableArrayRef<IE::FakeQuantizeOp> fqOpsToAlign,
@@ -327,8 +333,14 @@ void alignFQRanges(IE::ConcatOp origOp, MutableArrayRef<IE::FakeQuantizeOp> fqOp
     for (size_t i = 0; i < fqOpsToAlign.size(); i++) {
         const auto outputLowVals = IE::getConst(fqOpsToAlign[i].getOutputLow().getDefiningOp<Const::DeclareOp>());
         const auto outputHighVals = IE::getConst(fqOpsToAlign[i].getOutputHigh().getDefiningOp<Const::DeclareOp>());
-        auto fqHasMaxRanges = [min, max, maxLevels, outputLowVals, outputHighVals](IE::FakeQuantizeOp fqOp) -> bool {
-            return (static_cast<int>(fqOp.getLevels().value()) == maxLevels && isFloatEqual(min, outputLowVals[0]) &&
+        auto fqHasMaxRanges = [min, max, maxLevels, &outputLowVals, &outputHighVals](IE::FakeQuantizeOp fqOp) -> bool {
+            // Extract levels from merged attribute
+            const auto mergedAttr = fqOp.getLevelsOrLowFpTypeAttr();
+            int fqLevels = 0;
+            if (auto intAttr = mlir::dyn_cast<mlir::IntegerAttr>(mergedAttr)) {
+                fqLevels = static_cast<int>(intAttr.getInt());
+            }
+            return (fqLevels == maxLevels && isFloatEqual(min, outputLowVals[0]) &&
                     isFloatEqual(max, outputHighVals[0]));
         };
 
@@ -348,7 +360,7 @@ void alignFQRanges(IE::ConcatOp origOp, MutableArrayRef<IE::FakeQuantizeOp> fqOp
             // range interval
             auto newFQOp = IE::FakeQuantizeOp::create(rewriter, takeOpLoc(fqOpsToAlign[i], "fq_same_inout_{0}", i),
                                                       fqOpsToAlign[i].getInput(), commonInputLow, commonInputHigh,
-                                                      commonInputLow, commonInputHigh, commonLevels, nullptr,
+                                                      commonInputLow, commonInputHigh, commonLevels,
                                                       fqOpsToAlign[i].getAutoBroadcastAttr());
             log.trace("Created new FQ op at {0}", newFQOp->getLoc());
 
@@ -362,7 +374,7 @@ void alignFQRanges(IE::ConcatOp origOp, MutableArrayRef<IE::FakeQuantizeOp> fqOp
             rewriter.setInsertionPointAfter(fqOpsToAlign[i]);
             auto newFQOp = IE::FakeQuantizeOp::create(rewriter, takeOpLoc(fqOpsToAlign[i], "fq_diff_inout_{0}", i),
                                                       fqOpsToAlign[i].getOutput(), commonInputLow, commonInputHigh,
-                                                      commonInputLow, commonInputHigh, commonLevels, nullptr,
+                                                      commonInputLow, commonInputHigh, commonLevels,
                                                       fqOpsToAlign[i].getAutoBroadcastAttr());
             log.trace("Created new FQ op at {0} for different in out range case", newFQOp->getLoc());
 
@@ -443,7 +455,11 @@ mlir::LogicalResult AlignConcatScalesRewriter::matchAndRewrite(IE::ConcatOp orig
     int maxLevels = 0;
 
     // Determine the alignment interval limits
-    findMinMax(fqOpsToAlign, min, max, range, maxLevels);
+    if (mlir::failed(findMinMax(fqOpsToAlign, min, max, range, maxLevels))) {
+        _log.trace("Failed to align FQ ranges because at least one FakeQuantize has lowFpType instead of levels");
+        return mlir::failure();
+    }
+
     if (maxLevels > QuantizationLevels::QUANT_LEVELS_8BIT) {
         _log.trace("Only support quantization with maxLevels <= {0}", QuantizationLevels::QUANT_LEVELS_8BIT);
         return mlir::failure();
@@ -473,7 +489,8 @@ mlir::LogicalResult AlignSliceRewriter::matchAndRewrite(IE::FakeQuantizeOp fqOp,
     _log.trace("Got '{0}' at '{1}'", fqOp->getName(), fqOp->getLoc());
     mlir::MLIRContext* ctx = fqOp->getContext();
 
-    if (!fqOp.getLevels().has_value() || !IE::hasStaticLowAndHighValues(fqOp)) {
+    const auto levels = fqOp.getLevels();
+    if (!levels.has_value() || !IE::hasStaticLowAndHighValues(fqOp)) {
         return mlir::failure();
     }
     auto sliceOp = fqOp.getInput().getDefiningOp<IE::SliceOp>();
@@ -550,10 +567,10 @@ mlir::LogicalResult AlignSliceRewriter::matchAndRewrite(IE::FakeQuantizeOp fqOp,
         }
     }
 
-    auto newFQOp = IE::FakeQuantizeOp::create(
-            rewriter, takeOpLoc(fqOp, "as_fq"), sliceOp->getResult(0), parentFqOp.getInputLow(),
-            parentFqOp.getInputHigh(), parentFqOp.getOutputLow(), parentFqOp.getOutputHigh(), fqOp.getLevelsAttr(),
-            fqOp.getLowFpTypeAttr(), fqOp.getAutoBroadcastAttr());
+    auto newFQOp = IE::FakeQuantizeOp::create(rewriter, takeOpLoc(fqOp, "as_fq"), sliceOp->getResult(0),
+                                              parentFqOp.getInputLow(), parentFqOp.getInputHigh(),
+                                              parentFqOp.getOutputLow(), parentFqOp.getOutputHigh(),
+                                              fqOp.getLevelsOrLowFpTypeAttr(), fqOp.getAutoBroadcastAttr());
 
     if (fqOutputLowVal > parentFqOutputLowVal || fqOutputHighVal < parentFqOutputHighVal) {
         const auto inputLowAttr = getFPAttr(ctx, fqOutputLowVal);

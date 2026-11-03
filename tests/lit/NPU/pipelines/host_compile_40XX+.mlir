@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-// RUN: vpux-opt --platform=%platform% --split-input-file --mlir-elide-elementsattrs-if-larger 8 --host-compile %s | FileCheck %s --check-prefixes=CHECK,CHECK-%platform%
+// RUN: vpux-opt --platform=%platform% --split-input-file --mlir-elide-elementsattrs-if-larger 8 --host-compile="auto-unrolling-mode=disabled" %s | FileCheck %s --check-prefixes=CHECK,CHECK-%platform%
 // REQUIRES: platform-NPU4000 || platform-NPU5010
 
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
@@ -18,14 +18,14 @@ module @StaticEltwiseNHWC {
     }
 
     // CHECK:                 module [[MODULE0:@.+]] attributes {
-    // CHECK-SAME:              config.compilationMode = #config.compilation_mode<HostCompile>
+    // CHECK-SAME:              config.compilationMode = #config.compilation_mode<HostCompile_Interpreter>
     // CHECK-NPU4000:         builtin.module @ReservedMemory
     // CHECK-NPU4000:         module @DmaProfilingReservedMemory
 
     // CHECK-NPU4000:           func.func [[FUNC0:@.+]]([[_:%.+]]: memref<1x[[STEP:.+]]x1000x16xf16, {{.*}}>, [[_:%.+]]: memref<1x[[STEP]]x1000x16xf16, {{.*}}>, [[_:%.+]]: memref<1x[[STEP]]x1000x16xf16, {{.*}}>) -> memref<1x[[STEP]]x1000x16xf16, {{.*}}> {
     // CHECK-NPU5010:           func.func [[FUNC0:@.+]]([[_:%.+]]: memref<1x[[STEP:.+]]x1000x16xf16, {{.*}}>, [[_:%.+]]: memref<1x[[STEP]]x1000x16xf16, {{.*}}>, [[_:%.+]]: memref<1x[[STEP]]x1000x16xf16, {{.*}}>) -> memref<1x[[STEP]]x1000x16xf16, {{.*}}> {
 
-    // CHECK-NPU4000-COUNT-28:    VPURT.Task
+    // CHECK-NPU4000-COUNT-26:    VPURT.Task
     // CHECK-NPU5010-COUNT-20:    VPURT.Task
     // CHECK-NOT: IE.Add
     func.func @main(%arg0: tensor<1x16x2560x1000xf16, {order = #NHWC}>,

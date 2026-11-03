@@ -97,6 +97,9 @@ bool vpux::VPU::isNCEConvSupported(mlir::Operation* op, NDTypeInterface inputTyp
 
 bool vpux::VPU::isSupportedConv(IE::ConvolutionOp op, LogCb logCb, bool checkLayout, bool checkChannelAlignment,
                                 bool supportsInputActCompression) {
+    if (mlir::cast<vpux::NDTypeInterface>(op.getInput().getType()).getRank() != 4) {
+        return false;
+    }
     const auto dilations = parseIntArrayAttr<int64_t>(op.getDilations());
 
     const auto filterShape = getShape(op.getFilter());

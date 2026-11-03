@@ -68,8 +68,8 @@ IE::ConcatOp vpux::buildConcat(const mlir::Location loc, mlir::OpBuilder& builde
     return IE::ConcatOp::create(builder, appendLoc(loc, "concat"), concatInputs, axisAttr);
 }
 
-mlir::Value vpux::repackDynamicTensor(mlir::OpBuilder& builder, mlir::Operation* producer, NDTypeInterface operandType,
-                                      IE::ConcatOp newShapeValue) {
+mlir::Value vpux::repackDynamicTensor(mlir::Location loc, mlir::OpBuilder& builder, mlir::Operation* producer,
+                                      NDTypeInterface operandType, IE::ConcatOp newShapeValue) {
     auto ctx = builder.getContext();
 
     const auto tensorRank = checked_cast<int64_t>(operandType.getRank());
@@ -79,7 +79,7 @@ mlir::Value vpux::repackDynamicTensor(mlir::OpBuilder& builder, mlir::Operation*
         const SmallVector<int64_t> begins(tensorRank, 0);
         const SmallVector<int64_t> strides(tensorRank, 1);
 
-        auto sliceOp = IE::StridedSliceOp::create(builder, appendLoc(producer->getLoc(), "slice"),
+        auto sliceOp = IE::StridedSliceOp::create(builder, appendLoc(loc, "slice"),
                                                   /*data=*/producer->getResult(0),
                                                   /*begins=*/nullptr,
                                                   /*ends=*/newShapeValue.getOutput(),
@@ -103,7 +103,7 @@ mlir::Value vpux::repackDynamicTensor(mlir::OpBuilder& builder, mlir::Operation*
 
     // Reshape is required because strided slice infers all dimensions as dynamic
     // [Track number: S#154699]
-    auto reshape = IE::DynamicReshapeOp::create(builder, appendLoc(producer->getLoc(), "reshape"),
+    auto reshape = IE::DynamicReshapeOp::create(builder, appendLoc(loc, "reshape"),
                                                 /*data=*/dynReshapeOperand,
                                                 /*shape=*/newShapeValue.getOutput(),
                                                 /*output_shape=*/getIntArrayAttr(ctx, operandShape.raw()),

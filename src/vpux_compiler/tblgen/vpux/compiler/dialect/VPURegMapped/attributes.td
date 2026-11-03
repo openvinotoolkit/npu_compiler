@@ -126,8 +126,7 @@ def VPURegMapped_TaskType :
             I64EnumAttrCase<"ActKernelInvocation", 1>,
             I64EnumAttrCase<"ActKernelRange",      2>,
             I64EnumAttrCase<"DPUInvariant",        3>,
-            I64EnumAttrCase<"DPUVariant",          4>,
-            I64EnumAttrCase<"M2I",                 5>
+            I64EnumAttrCase<"DPUVariant",          4>
         ]
     > {
 }

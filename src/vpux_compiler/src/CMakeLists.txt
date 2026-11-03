@@ -17,6 +17,8 @@ set(VPU_COMPILER_PCH_FILE
 if(ENABLE_FASTER_BUILD)
         add_library(npu_compiler_pch_base STATIC
                 "${CMAKE_CURRENT_SOURCE_DIR}/npu_compiler_pch_base.cpp")
+
+        enable_lto_if_possible(npu_compiler_pch_base)
         add_dependencies(npu_compiler_pch_base mlir-headers MLIRVPUXIncGenList)
 
         target_include_directories(npu_compiler_pch_base SYSTEM PRIVATE
@@ -26,6 +28,7 @@ if(ENABLE_FASTER_BUILD)
                 ${VPU_COMPILER_SRC_INCLUDE_DIR}
                 $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/src/vpux_utils/include>)
 
+        enable_warnings_as_errors(npu_compiler_pch_base WIN_STRICT)
         ov_build_target_faster(npu_compiler_pch_base PCH_HEADER ${VPU_COMPILER_PCH_FILE})
 
         # on old systems (e.g. Ubuntu 20.04) it is required to explicitly link

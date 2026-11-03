@@ -35,7 +35,6 @@ bool allQueuesWaiting(const TaskOpQueueIterator& frontTasks, const TaskOpQueues&
 SmallVector<size_t> findReadyOpsFromTaskOpQueues(TaskOpQueueIterator& frontTasks, const TaskOpQueues& taskOpQueues,
                                                  BarrierInfo& barrierInfo);
 
-bool isShareWaitAndUpdateBarriersNeeded(std::optional<WorkloadManagementMode> workloadManagementMode);
 SmallVector<size_t> getBarriersOrder(mlir::func::FuncOp funcOp, BarrierInfo& barrierInfo, bool orderByConsumptionReady);
 
 }  // namespace VPURT

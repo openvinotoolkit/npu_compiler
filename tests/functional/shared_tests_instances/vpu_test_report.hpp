@@ -1,5 +1,5 @@
 //
-// Copyright (C) 2022-2025 Intel Corporation
+// Copyright (C) 2022-2026 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -12,7 +12,7 @@
 
 namespace LayerTestsUtils {
 
-enum class VpuTestStage { RUN = 0, COMPILED, IMPORTED, INFERRED, VALIDATED, SKIPPED_EXCEPTION, LAST_VALUE };
+enum class VpuTestStage { RUN = 0, COMPILED, INFERRED, VALIDATED, SKIPPED_EXCEPTION, LAST_VALUE };
 
 class VpuTestReport {
 private:
@@ -25,7 +25,6 @@ public:
     explicit VpuTestReport();
     void run(const testing::TestInfo* testInfo);
     void compiled(const testing::TestInfo* testInfo);
-    void imported(const testing::TestInfo* testInfo);
     void inferred(const testing::TestInfo* testInfo);
     void validated(const testing::TestInfo* testInfo);
     void skipped(const testing::TestInfo* testInfo);

@@ -10,6 +10,11 @@
 
 include "mlir/IR/OpBase.td"
 
+// Marks an operation as a DMA task in backend dialects.
+def DMAOpTrait : NativeOpTrait<"DMAOpTrait"> {
+    let cppNamespace = "vpux";
+}
+
 def VPURegMapped_TaskOpInterface : OpInterface<"TaskOpInterface"> {
     let description = "Task Op interface";
     let cppNamespace = "vpux::VPURegMapped";

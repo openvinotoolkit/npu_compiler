@@ -32,7 +32,6 @@ TEST_F(MLIR_VPU_ClusteringStrategyNoThrow, SWLayer_ClusteringStrategy) {
             config.ExecutorResource 1 of @DPU
         }
         config.Resources 1 of @global {
-            config.ExecutorResource 1 of @M2I
             config.ExecutorResource 2 of @DMA_NN
             config.MemoryResource 2306867200 bytes of @DDR {config.bandwidth = 64 : i64, config.derateFactor = 6.000000e-01 : f64}
         }

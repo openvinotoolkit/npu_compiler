@@ -14,6 +14,9 @@
 #include "vpux/compiler/dialect/IE/utils/quantization.hpp"
 #include "vpux/compiler/dialect/IE/utils/shape_infer.hpp"
 #include "vpux/compiler/dialect/IE/utils/slice_utils.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/convolution.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/dpu.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/eltwise.hpp"
 #include "vpux/compiler/dialect/VPU/utils/auto_padding_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_invariant.hpp"
 #include "vpux/compiler/dialect/config/utils/config_option_utils.hpp"
@@ -115,8 +118,8 @@ mlir::Value paddingFilter(mlir::Operation* origOp, mlir::PatternRewriter& rewrit
                           Shape padsEnd) {
     auto sliceOp = origOp->getOperand(0).getDefiningOp<IE::SliceOp>();
     if (sliceOp == nullptr) {
-        return rewriter.createOrFold<IE::ExpandOp>(appendLoc(expandValue.getLoc(), "pad_filter"), expandValue,
-                                                   std::nullopt, ShapeRef(padsEnd));
+        return rewriter.createOrFold<IE::ExpandOp>(takeOpLoc(origOp, "pad_filter"), expandValue, std::nullopt,
+                                                   ShapeRef(padsEnd));
     }
     auto firstExpand = expandWithOffset(takeOpLoc(origOp, "expand_filter"), rewriter, origOp, sliceOp, expandValue,
                                         padsEnd, Dims4D::Act::C.ind());
@@ -280,6 +283,7 @@ bool beneficialToKeepExpand(ShapeRef unExpandedShape, ShapeRef expandedShape, ml
         if (mlir::failed(shapeCastResult)) {
             return false;
         }
+
         auto sliceChildOp = mlir::dyn_cast_or_null<IE::SliceOp>(*childOp->getResult(0).getUsers().begin());
         if (sliceChildOp == nullptr) {
             return true;
@@ -296,6 +300,37 @@ bool beneficialToKeepExpand(ShapeRef unExpandedShape, ShapeRef expandedShape, ml
         }
     }
     return false;
+}
+
+//
+// shouldSkipFoldForSliceExpandDifferentPadding
+//
+// SliceOp (1x3x?x?) -> ExpandOp (1x16x?x?) -> AddOp
+//                   -> ExpandOp (1x4x?x?)  -> ConvOp
+// Skip optimization when 'expandOp' and a sibling 'Expand' have differing channel padding.
+// Only relevant for dynamic shapes, where the folded/fused form cannot express the differing
+// per-branch channel padding that 'expandOp' and its sibling rely on
+bool shouldSkipFoldForSliceExpandDifferentPadding(IE::SliceOp sliceOp, IE::ExpandOp expandOp) {
+    const auto isShapeDynamic = getShape(sliceOp.getSource()).isDynamic() || getShape(expandOp.getResult()).isDynamic();
+    if (!isShapeDynamic) {
+        return false;
+    }
+
+    const auto shouldSkip = llvm::any_of(sliceOp.getResult().getUsers(), [&](mlir::Operation* sliceUser) {
+        auto siblingExpandOp = mlir::dyn_cast<IE::ExpandOp>(sliceUser);
+        if (siblingExpandOp == nullptr || siblingExpandOp == expandOp) {
+            return false;
+        }
+
+        // Skip if sibling has different padding
+        if (siblingExpandOp.getPadsBegin() != expandOp.getPadsBegin() ||
+            siblingExpandOp.getPadsEnd() != expandOp.getPadsEnd()) {
+            return true;
+        }
+        return false;
+    });
+
+    return shouldSkip;
 }
 
 int64_t calculateAlignmentRequirementForExpandOpConversion(const vpux::NDTypeInterface expandInType) {

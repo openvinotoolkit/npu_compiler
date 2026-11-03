@@ -6,6 +6,10 @@
 #include "single_op_tests/topk.hpp"
 #include "vpu_ov2_layer_test.hpp"
 
+#include <cmath>
+#include <limits>
+#include <vector>
+
 namespace ov {
 namespace test {
 
@@ -25,6 +29,86 @@ class TopKDDRLayerTestCommon : public TopK11LayerTest, virtual public VpuOv2Laye
     }
 };
 class TopkDmaLayerTestCommon : public TopKDDRLayerTestCommon {};
+
+constexpr size_t K8_KEY_PATTERNS = 6;
+
+// Payloads for the K=8/axis-0 fast path, which sorts packed keys
+// (monotoneU16(value) << 16 | 127 - index) instead of comparing fp16 directly.
+// The default filler emits ten distinct non-negative values and never reaches
+// that encoding, so these patterns drive the sign-flip half of the mapping, the
+// -0.0/+0.0 collapse, the fp16 extremes (-inf and +/-65504, while NaN and +inf
+// are left out because they make the reference check ill-defined) and the index
+// tie-break. Fixed per-line patterns also turn a stale line pointer into a hard
+// mismatch.
+void fillK8KeyPatternLine(ov::float16* line, size_t w, size_t patternIdx) {
+    const auto set = [line](size_t i, float v) {
+        line[i] = ov::float16(v);
+    };
+
+    switch (patternIdx) {
+    case 0:  // all negative, all distinct: the whole top-8 comes from the flipped half
+        for (size_t i = 0; i < w; i++) {
+            set(i, -static_cast<float>(i + 1));
+        }
+        break;
+    case 1:  // alternating signs: top-8 straddles the sign boundary
+        for (size_t i = 0; i < w; i++) {
+            set(i, ((i % 2) ? 1.0f : -1.0f) * static_cast<float>(i + 1));
+        }
+        break;
+    case 2:  // -0.0 and +0.0 are the largest values and must tie by ascending index
+        for (size_t i = 0; i < w; i++) {
+            set(i, -static_cast<float>(i + 1));
+        }
+        for (size_t z = 0; z * 11 < w; z++) {
+            set(z * 11, (z % 2) ? -0.0f : 0.0f);
+        }
+        break;
+    case 3:  // every element equal: top-8 must be indices 0..7
+        for (size_t i = 0; i < w; i++) {
+            set(i, 1.0f);
+        }
+        break;
+    case 4:  // fp16 extremes: -inf must sink, the two maxima must tie by index
+        for (size_t i = 0; i < w; i++) {
+            set(i, static_cast<float>(i) - static_cast<float>(w / 2));
+        }
+        set(5, -std::numeric_limits<float>::infinity());
+        set(w - 28, -std::numeric_limits<float>::infinity());
+        set(9, -65504.0f);
+        set(3, 65504.0f);
+        set(70 % w, 65504.0f);
+        break;
+    default:  // seven distinct values, then a tie spanning the rank-8 boundary
+        for (size_t i = 0; i < w; i++) {
+            set(i, 5.0f);
+        }
+        for (size_t i = 0; i < 7; i++) {
+            set(i, 100.0f - static_cast<float>(i));
+        }
+        break;
+    }
+}
+
+class TopK_K8Axis0KeyPatternLayerTest : public TopKLayerTestCommon {
+    void generate_inputs(const std::vector<ov::Shape>& targetInputStaticShapes) override {
+        VpuOv2LayerTest::inputs.clear();
+        const auto& funcInputs = VpuOv2LayerTest::function->inputs();
+        const auto& shape = targetInputStaticShapes[0];
+        ASSERT_EQ(funcInputs[0].get_element_type(), ov::element::f16);
+
+        ov::Tensor tensor(funcInputs[0].get_element_type(), shape);
+        const size_t w = shape.back();
+        const size_t numLines = ov::shape_size(shape) / w;
+        auto* data = tensor.data<ov::float16>();
+        for (size_t line = 0; line < numLines; line++) {
+            fillK8KeyPatternLine(data + line * w, w, line % K8_KEY_PATTERNS);
+        }
+
+        VpuOv2LayerTest::inputs.insert({funcInputs[0].get_node_shared_ptr(), tensor});
+    }
+};
+
 class TopK_SCFTilingLayerTest : public TopKLayerTestCommon {
     void configure_model() override {
         configuration[ov::intel_npu::compilation_mode_params.name()] =
@@ -41,6 +125,26 @@ TEST_P(TopKLayerTestCommon, NPU3720_HW) {
 TEST_P(TopKLayerTestCommon, NPU4000_HW) {
     setDefaultHardwareMode();
     run(Platform::NPU4000);
+}
+
+TEST_P(TopK_K8Axis0KeyPatternLayerTest, NPU3720_HW) {
+    setDefaultHardwareMode();
+    run(Platform::NPU3720);
+}
+
+TEST_P(TopK_K8Axis0KeyPatternLayerTest, NPU4000_HW) {
+    setDefaultHardwareMode();
+    run(Platform::NPU4000);
+}
+
+TEST_P(TopK_K8Axis0KeyPatternLayerTest, NPU5010_HW) {
+    setDefaultHardwareMode();
+    run(Platform::NPU5010);
+}
+
+TEST_P(TopK_K8Axis0KeyPatternLayerTest, NPU5020_SW) {
+    setReferenceSoftwareMode();
+    run(Platform::NPU5020);
 }
 
 TEST_P(TopK_SCFTilingLayerTest, NPU4000_HW) {
@@ -131,6 +235,7 @@ TEST_P(TopK1LayerTest, NPU3720_HW) {
 
 using ov::test::TopK11LayerTestCommon;
 using ov::test::TopK1LayerTest;
+using ov::test::TopK_K8Axis0KeyPatternLayerTest;
 using ov::test::TopK_SCFTilingLayerTest;
 using ov::test::TopKDDRLayerTestCommon;
 using ov::test::TopkDmaLayerTestCommon;
@@ -254,6 +359,24 @@ const auto paramsK8Axis0 =
                            ::testing::Values(test_utils::TARGET_DEVICE));
 
 INSTANTIATE_TEST_SUITE_P(smoke_TopK_K8Axis0, TopKLayerTestCommon, paramsK8Axis0, TopKLayerTestCommon::getTestCaseName);
+
+// Same fast-path configuration, but with payloads that reach the key encoding:
+// negatives, signed zeros, fp16 extremes and ties across several 128-wide lines.
+const std::vector<std::vector<ov::Shape>> inShapes_K8Axis0KeyPattern = {
+        {{6, 128}},     // one line per pattern
+        {{12, 128}},    // every pattern twice: a stale line pointer repeats a line
+        {{2, 3, 128}},  // same patterns through the rank-3 dense path
+};
+
+INSTANTIATE_TEST_SUITE_P(smoke_TopK_K8Axis0KeyPattern, TopK_K8Axis0KeyPatternLayerTest,
+                         ::testing::Combine(::testing::Values(int64_t{8}), ::testing::Values(int64_t{-1}),
+                                            ::testing::Values(ov::op::v3::TopK::Mode::MAX),
+                                            ::testing::Values(ov::op::v3::TopK::SortType::SORT_VALUES),
+                                            ::testing::ValuesIn(modelTypeFP16),
+                                            ::testing::ValuesIn(ov::test::static_shapes_to_test_representation(
+                                                    inShapes_K8Axis0KeyPattern)),
+                                            ::testing::Values(test_utils::TARGET_DEVICE)),
+                         TopK_K8Axis0KeyPatternLayerTest::getTestCaseName);
 
 INSTANTIATE_TEST_SUITE_P(smoke_TopK_SCFTiling, TopK_SCFTilingLayerTest,
                          ::testing::Combine(::testing::ValuesIn(k_Tilling), ::testing::ValuesIn(axes_Tilling),

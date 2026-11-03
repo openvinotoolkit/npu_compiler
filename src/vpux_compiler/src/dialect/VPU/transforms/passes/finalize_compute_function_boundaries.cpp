@@ -160,6 +160,10 @@ void FinalizeComputeFunctionBoundariesPass::safeRunOnModule() {
     typeConverter.addConversion([](mlir::IndexType type) {
         return type;
     });
+    // Scalar integer values (e.g. i1 conditions of scf.if produced by sub-tile dispatch) are kept as is
+    typeConverter.addConversion([](mlir::IntegerType type) {
+        return type;
+    });
 
     const auto convert = [this](mlir::OpBuilder& builder, mlir::RankedTensorType destType, mlir::ValueRange inputs,
                                 mlir::Location loc) -> mlir::Value {

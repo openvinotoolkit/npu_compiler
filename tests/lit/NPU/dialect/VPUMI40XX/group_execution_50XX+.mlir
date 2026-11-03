@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-// RUN: vpux-opt --split-input-file --init-compiler="platform=%platform% allow-custom-values=true enable-sw-kernel-fifo-per-shave-engine=true" --group-execution-ops %s | FileCheck %s
+// RUN: vpux-opt --split-input-file --init-compiler="platform=%platform% allow-custom-values=true workload-management-mode=FWLM_V1_PAGES" --group-execution-ops %s | FileCheck %s
 // REQUIRES: platform-NPU5010
 
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
@@ -20,7 +20,6 @@ module @TestConvolution {
     config.ExecutorResource 2 of @SHAVE_ACT
     config.ExecutorResource 1 of @DPU
   }
-  config.ExecutorResource 1 of @M2I
   config.ExecutorResource 1 of @DMA_NN
   config.MemoryResource 67108864000 bytes of @DDR {config.bandwidth = 64 : i64, config.derateFactor = 6.000000e-01 : f64}
   net.NetworkInfo entryPoint : @main inputsInfo : {
@@ -59,7 +58,7 @@ module @TestConvolution {
     }
     %19 = VPUMI40XX.DPUVariant calls(%17 : <0:0:0>) weights(%6 : memref<1x16x16x16xf16, {order = #NHWC}, [@CMX_NN, 0]>) <{end = [15, 15, 15], inEnd = [15, 15, 15], inStart = [0, 0, 0], mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, nce_task_type = #VPUIP.nce_task_type<ELTWISE>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, start = [0, 0, 0]}> -> <0:0:0>
     %20 = VPUMI40XX.DPUVariant previousTask(%19 : !VPURegMapped.Index<0:0:0>) calls(%18 : <0:0:1>) weights(%9 : memref<16x16x3x3xf16, {order = #NHWC}, [@CMX_NN, 0]>) weight_table(%8 : memref<16x1x1x4xsi32, [@CMX_NN, 0]>) <{end = [13, 13, 15], inEnd = [15, 15, 15], inStart = [0, 0, 0], mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, nce_task_type = #VPUIP.nce_task_type<CONV>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, start = [0, 0, 0]}> -> <0:0:1>
-    %21 = VPUMI40XX.MappedInference dmas((%14, %16) : (!VPURegMapped.Index<0:0:0>, !VPURegMapped.Index<0:1:0>)) invariants(%17 : !VPURegMapped.Index<0:0:0>) variants(%19 : !VPURegMapped.Index<0:0:0>) barriers(%10 : !VPURegMapped.Index<0:0:0>) dmaCount([[2, 1]]) invariantCount([2]) variantCount([2]) actKernelRangesCount([[0, 0]]) actKernelInvocationsCount([[0, 0]]) mediaCount(0) barrierCount(4) -> !VPURegMapped.Index<0:0:0>
+    %21 = VPUMI40XX.MappedInference dmas((%14, %16) : (!VPURegMapped.Index<0:0:0>, !VPURegMapped.Index<0:1:0>)) invariants(%17 : !VPURegMapped.Index<0:0:0>) variants(%19 : !VPURegMapped.Index<0:0:0>) barriers(%10 : !VPURegMapped.Index<0:0:0>) dmaCount([[2, 1]]) invariantCount([2]) variantCount([2]) actKernelRangesCount([[0, 0]]) actKernelInvocationsCount([[0, 0]]) barrierCount(4) -> !VPURegMapped.Index<0:0:0>
     return %arg1 : memref<1x16x14x14xf16, @DDR>
   }
 }
@@ -94,7 +93,6 @@ module @Convolution attributes {config.compilationMode = #config.compilation_mod
     config.ExecutorResource 2 of @SHAVE_ACT
     config.ExecutorResource 1 of @DPU
   }
-  config.ExecutorResource 1 of @M2I
   config.ExecutorResource 2 of @DMA_NN
   config.MemoryResource 67108864000 bytes of @DDR {config.bandwidth = 64 : i64, config.derateFactor = 6.000000e-01 : f64}
   net.NetworkInfo entryPoint : @main inputsInfo : {
@@ -226,7 +224,7 @@ module @Convolution attributes {config.compilationMode = #config.compilation_mod
     %118 = VPUMI40XX.DPUVariant previousTask(%112 : !VPURegMapped.Index<3:0:0>) calls(%106 : <3:0:1>) weights(%59 : memref<32x32x3x3xf16, {order = #NHWC}, [@CMX_NN, 3]>) weight_table(%53 : memref<32x1x1x4xsi32, [@CMX_NN, 3]>) <{cluster_id = 3 : ui64, end = [13, 1, 31], inEnd = [15, 3, 31], inStart = [0, 0, 0], mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, nce_task_type = #VPUIP.nce_task_type<CONV>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, start = [0, 0, 0]}> -> <3:0:1>
     %119 = VPUMI40XX.DPUVariant previousTask(%113 : !VPURegMapped.Index<4:0:0>) calls(%107 : <4:0:1>) weights(%60 : memref<32x32x3x3xf16, {order = #NHWC}, [@CMX_NN, 4]>) weight_table(%54 : memref<32x1x1x4xsi32, [@CMX_NN, 4]>) <{cluster_id = 4 : ui64, end = [13, 1, 31], inEnd = [15, 3, 31], inStart = [0, 0, 0], mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, nce_task_type = #VPUIP.nce_task_type<CONV>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, start = [0, 0, 0]}> -> <4:0:1>
     %120 = VPUMI40XX.DPUVariant previousTask(%114 : !VPURegMapped.Index<5:0:0>) calls(%108 : <5:0:1>) weights(%61 : memref<32x32x3x3xf16, {order = #NHWC}, [@CMX_NN, 5]>) weight_table(%55 : memref<32x1x1x4xsi32, [@CMX_NN, 5]>) <{cluster_id = 5 : ui64, end = [13, 1, 31], inEnd = [15, 3, 31], inStart = [0, 0, 0], mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, nce_task_type = #VPUIP.nce_task_type<CONV>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, start = [0, 0, 0]}> -> <5:0:1>
-    %121 = VPUMI40XX.MappedInference dmas((%82, %82) : (!VPURegMapped.Index<0:0:0>, !VPURegMapped.Index<0:0:0>)) invariants(%97, %98, %99, %100, %101, %102 : !VPURegMapped.Index<0:0:0>, !VPURegMapped.Index<1:0:0>, !VPURegMapped.Index<2:0:0>, !VPURegMapped.Index<3:0:0>, !VPURegMapped.Index<4:0:0>, !VPURegMapped.Index<5:0:0>) variants(%109, %110, %111, %112, %113, %114 : !VPURegMapped.Index<0:0:0>, !VPURegMapped.Index<1:0:0>, !VPURegMapped.Index<2:0:0>, !VPURegMapped.Index<3:0:0>, !VPURegMapped.Index<4:0:0>, !VPURegMapped.Index<5:0:0>) barriers(%74 : !VPURegMapped.Index<0:0:0>) dmaCount([[6, 3], [3, 3]]) invariantCount([2, 2, 2, 2, 2, 2]) variantCount([2, 2, 2, 2, 2, 2]) actKernelRangesCount([[0, 0], [0, 0], [0, 0], [0, 0], [0, 0], [0, 0]]) actKernelInvocationsCount([[0, 0], [0, 0], [0, 0], [0, 0], [0, 0], [0, 0]]) mediaCount(0) barrierCount(6) -> !VPURegMapped.Index<0:0:0>
+    %121 = VPUMI40XX.MappedInference dmas((%82, %82) : (!VPURegMapped.Index<0:0:0>, !VPURegMapped.Index<0:0:0>)) invariants(%97, %98, %99, %100, %101, %102 : !VPURegMapped.Index<0:0:0>, !VPURegMapped.Index<1:0:0>, !VPURegMapped.Index<2:0:0>, !VPURegMapped.Index<3:0:0>, !VPURegMapped.Index<4:0:0>, !VPURegMapped.Index<5:0:0>) variants(%109, %110, %111, %112, %113, %114 : !VPURegMapped.Index<0:0:0>, !VPURegMapped.Index<1:0:0>, !VPURegMapped.Index<2:0:0>, !VPURegMapped.Index<3:0:0>, !VPURegMapped.Index<4:0:0>, !VPURegMapped.Index<5:0:0>) barriers(%74 : !VPURegMapped.Index<0:0:0>) dmaCount([[6, 3], [3, 3]]) invariantCount([2, 2, 2, 2, 2, 2]) variantCount([2, 2, 2, 2, 2, 2]) actKernelRangesCount([[0, 0], [0, 0], [0, 0], [0, 0], [0, 0], [0, 0]]) actKernelInvocationsCount([[0, 0], [0, 0], [0, 0], [0, 0], [0, 0], [0, 0]]) barrierCount(6) -> !VPURegMapped.Index<0:0:0>
     return %arg1 : memref<1x32x14x14xf16, @DDR>
   }
 }
@@ -291,7 +289,6 @@ module @TestSoftmax {
     config.ExecutorResource 2 of @SHAVE_ACT
     config.ExecutorResource 1 of @DPU
   }
-  config.ExecutorResource 1 of @M2I
   config.ExecutorResource 1 of @DMA_NN
   config.MemoryResource 67108864000 bytes of @DDR {config.bandwidth = 64 : i64, config.derateFactor = 6.000000e-01 : f64}
   net.NetworkInfo entryPoint : @main inputsInfo : {
@@ -424,7 +421,7 @@ module @TestSoftmax {
   %67 = VPUMI40XX.NNDMA <{port = 0 : i64}> inputs(%21 : memref<1x1000x1x1xf16, [@CMX_NN, 0]>) outputs(%1 : memref<1x1000x1x1xf16, @DDR>) waits(%47 : !VPURegMapped.Index<0:0:5>) updates(%48 : !VPURegMapped.Index<0:0:6>) start_after(0) clean_after(0) acceleration_mode(<DISABLE>) dma_transaction(#VPUMI40XX.NNDMATransaction<inputType = memref<1x1000x1x1xf16, [@CMX_NN, 0]>, outputType = memref<1x1000x1x1xf16, @DDR>>) -> !VPURegMapped.Index<0:1:0>
   %68 = VPUMI40XX.PlatformInfo -> <0:0:0>
   %69 = VPUMI40XX.ActShaveRt kernel("nnActEntry") -> !VPURegMapped.Index<0:0:0>
-  %70 = VPUMI40XX.MappedInference dmas((%65, %67) : (!VPURegMapped.Index<0:0:0>, !VPURegMapped.Index<0:1:0>)) actKernelRanges((%49, %105), (%50, %106) : (!VPURegMapped.Index<0:0:0>, !VPURegMapped.Index<0:1:0>), (!VPURegMapped.Index<1:0:0>, !VPURegMapped.Index<1:1:0>)) actKernelInvocations((%57, %113), (%58, %114) : (!VPURegMapped.Index<0:0:0>, !VPURegMapped.Index<0:1:0>), (!VPURegMapped.Index<1:0:0>, !VPURegMapped.Index<1:1:0>)) barriers(%42 : !VPURegMapped.Index<0:0:0>) actShaveRt(%69 : !VPURegMapped.Index<0:0:0>) dmaHwpBase(%4 : memref<16xui32, [@CMX_NN, 0]>) dmaCount([[2, 1], [0, 0]]) invariantCount([0, 0]) variantCount([0, 0]) actKernelRangesCount([[4, 4], [4, 4]]) actKernelInvocationsCount([[4, 4], [4, 4]]) mediaCount(0) barrierCount(7) -> !VPURegMapped.Index<0:0:0>
+  %70 = VPUMI40XX.MappedInference dmas((%65, %67) : (!VPURegMapped.Index<0:0:0>, !VPURegMapped.Index<0:1:0>)) actKernelRanges((%49, %105), (%50, %106) : (!VPURegMapped.Index<0:0:0>, !VPURegMapped.Index<0:1:0>), (!VPURegMapped.Index<1:0:0>, !VPURegMapped.Index<1:1:0>)) actKernelInvocations((%57, %113), (%58, %114) : (!VPURegMapped.Index<0:0:0>, !VPURegMapped.Index<0:1:0>), (!VPURegMapped.Index<1:0:0>, !VPURegMapped.Index<1:1:0>)) barriers(%42 : !VPURegMapped.Index<0:0:0>) actShaveRt(%69 : !VPURegMapped.Index<0:0:0>) dmaHwpBase(%4 : memref<16xui32, [@CMX_NN, 0]>) dmaCount([[2, 1], [0, 0]]) invariantCount([0, 0]) variantCount([0, 0]) actKernelRangesCount([[4, 4], [4, 4]]) actKernelInvocationsCount([[4, 4], [4, 4]]) barrierCount(7) -> !VPURegMapped.Index<0:0:0>
   return %arg1 : memref<1x1000x1x1xf16, @DDR>
   }
 }

@@ -26,3 +26,5 @@ add_npu_library(npu_compiler_dialect_vpumi40xx
         npu_compiler_dialect_vpurt
         npu_compiler_core
 )
+enable_lto_if_possible(npu_compiler_dialect_vpumi40xx)
+

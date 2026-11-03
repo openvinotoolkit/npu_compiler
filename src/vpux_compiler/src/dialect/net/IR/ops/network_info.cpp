@@ -117,30 +117,18 @@ mlir::LogicalResult net::NetworkInfoOp::verifySymbolUses(mlir::SymbolTableCollec
 
     if (netFunc == nullptr) {
         if (hostCompileMode) {
-            if (!config::isHostCompileInterpreterMode(compilationMode)) {
-                // For host compilation, mlir::func::FuncOp is transformed to LLVMFuncOp in ConvertFuncToLLVMPass
-                // So, if netFunc is null and llvmFuncOp is not null, skip netinfo verification
-                // Later, revisit here if an additional pass is added to remove netinfo or transform it to something
-                // global binary
-                auto llvmFuncOp =
-                        symbolTable.lookupNearestSymbolFrom<mlir::LLVM::LLVMFuncOp>(*this, getEntryPointAttr());
-                if (llvmFuncOp != nullptr) {
-                    return mlir::success();
+            // For host compile interpreter mode, main function can be removed in
+            // ConvertHostCodeToBytecodePass. Only skip verification once there is an
+            // observable post-conversion state: no mlir::func::FuncOp remains in the module.
+            auto module = getOperation()->getParentOfType<mlir::ModuleOp>();
+            bool hasRemainingFuncOps = false;
+            if (module != nullptr) {
+                if (!module.getOps<mlir::func::FuncOp>().empty()) {
+                    hasRemainingFuncOps = true;
                 }
-            } else {
-                // For host compile interpreter mode, main function can be removed in
-                // ConvertHostCodeToBytecodePass. Only skip verification once there is an
-                // observable post-conversion state: no mlir::func::FuncOp remains in the module.
-                auto module = getOperation()->getParentOfType<mlir::ModuleOp>();
-                bool hasRemainingFuncOps = false;
-                if (module != nullptr) {
-                    if (!module.getOps<mlir::func::FuncOp>().empty()) {
-                        hasRemainingFuncOps = true;
-                    }
-                }
-                if (module != nullptr && !hasRemainingFuncOps) {
-                    return mlir::success();
-                }
+            }
+            if (module != nullptr && !hasRemainingFuncOps) {
+                return mlir::success();
             }
         }
         return errorAt(*this, "entryPoint '@{0}' doesn't refer to existing Function", getEntryPoint());

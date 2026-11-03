@@ -70,7 +70,14 @@ int main(int argc, char** argv, char** envp) {
 
     ::testing::AddGlobalTestEnvironment(new LayerTestsUtils::VpuTestReportEnvironment());
 
-    const bool dryRun = ::testing::GTEST_FLAG(list_tests) || ::testing::internal::g_help_flag;
+    // Compilation-only mode must work on a system without an NPU device, so neither the device
+    // availability check nor the device characteristics query below may run in that case.
+    const bool compileOnly = LayerTestsUtils::VpuTestEnvConfig::getInstance().IE_NPU_COMPILE_ONLY;
+    const bool dryRun = ::testing::GTEST_FLAG(list_tests) || ::testing::internal::g_help_flag || compileOnly;
+
+    if (compileOnly) {
+        std::cout << "\nIE_NPU_COMPILE_ONLY is set to 1: test will stop after compilation.\n\n";
+    }
 
     if (!dryRun) {
         {
@@ -90,17 +97,15 @@ int main(int argc, char** argv, char** envp) {
         }
 
         const std::string noFetch{"<not fetched>"};
-        std::string backend{noFetch}, arch{noFetch}, full{noFetch};
+        std::string arch{noFetch}, full{noFetch};
         try {
             LayerTestsUtils::VpuTestTool kmbTestTool(LayerTestsUtils::VpuTestEnvConfig::getInstance());
-            backend = kmbTestTool.getDeviceMetric(ov::intel_npu::backend_name.name());
             arch = kmbTestTool.getDeviceMetric(ov::device::architecture.name());
             full = kmbTestTool.getDeviceMetric(ov::device::full_name.name());
         } catch (const std::exception& e) {
             std::cerr << "Exception while trying to determine device characteristics: " << e.what() << std::endl;
         }
-        std::cout << "Tests run with: Backend name: '" << backend << "'; Device arch: '" << arch
-                  << "'; Full device name: '" << full << "'" << std::endl;
+        std::cout << "Device arch: '" << arch << "'; Full device name: '" << full << "'" << std::endl;
     }
 
     std::string dTest = ::testing::GTEST_FLAG(internal_run_death_test);

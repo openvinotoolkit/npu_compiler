@@ -375,9 +375,28 @@ void decomposeAttention(IE::AttentionOp origOp, Logger log, bool maskAware, bool
                                              /*isQuery=*/true);
 
             if (attentionMask) {
-                const auto maskShape = mlir::cast<vpux::NDTypeInterface>(attentionMask.getType()).getShape().raw();
+                auto maskShape = mlir::cast<vpux::NDTypeInterface>(attentionMask.getType()).getShape().raw();
                 if (maskShape.size() == 4 && maskShape[0] == qBatch) {
-                    SmallVector<int64_t> newMaskShape = {1, qBatch * maskShape[1], maskShape[2], maskShape[3]};
+                    auto maskHeads = maskShape[1];
+                    if (maskHeads != qHeads) {
+                        // Broadcast attention mask to match Qheads
+                        SmallVector<int64_t> broadcastMaskShape = {qBatch, qHeads, maskShape[2], maskShape[3]};
+                        auto shapeStorageType = mlir::RankedTensorType::get(
+                                {static_cast<int64_t>(broadcastMaskShape.size())}, getSInt64Type(ctx));
+                        auto shapeConst = Const::createConst(
+                                builder, appendLoc(loc, formatv("broadcast_mask_gqa_shape_const")), shapeStorageType,
+                                ArrayRef(broadcastMaskShape), [&](Const::ContentSetup& setup) {
+                                    return setup.castElemType(getSInt32Type(ctx));
+                                });
+                        attentionMask =
+                                IE::BroadcastOp::create(
+                                        builder, appendLoc(loc, "broadcast_mask_gqa"), attentionMask, shapeConst,
+                                        nullptr, IE::BroadcastTypeAttr::get(ctx, IE::BroadcastType::BIDIRECTIONAL))
+                                        .getOutput();
+                        maskHeads = qHeads;
+                    }
+
+                    SmallVector<int64_t> newMaskShape = {1, qBatch * maskHeads, maskShape[2], maskShape[3]};
                     attentionMask = IE::ReshapeOp::create(builder, appendLoc(loc, "reshape_mask_gqa"), attentionMask,
                                                           getIntArrayAttr(ctx, newMaskShape))
                                             .getOutput();

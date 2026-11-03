@@ -6,6 +6,7 @@
 #include "vpux/compiler/dialect/VPU/IR/dynamic_shape_propagation.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/specialized.hpp"
 #include "vpux/compiler/dialect/VPU/utils/auxiliary_buffers.hpp"
+#include "vpux/compiler/utils/error.hpp"
 #include "vpux/compiler/utils/infer_output_shape.hpp"
 #include "vpux/compiler/utils/types.hpp"
 
@@ -21,6 +22,10 @@ mlir::Type getAuxiliaryBufferType(mlir::Value inBoxCoords, mlir::FloatAttr softN
     size_t elemTypeSize = Byte(vpux::getElemTypeSize(elemType)).count();
     const auto inputShape = inBoxCoordsType.getShape();
     const auto shapeInfo = ShapeInfo::fromNDType(inBoxCoordsType);
+    VPUX_THROW_WHEN(
+            shapeInfo.isUnbounded(),
+            "Cannot size the NonMaxSuppression auxiliary buffer for boxes '{0}': a dimension has no upper bound",
+            inBoxCoordsType);
     auto numBoxes = inputShape[Dim(1)];
     if (shapeInfo.isDynamic()) {
         numBoxes = shapeInfo.bounds[Dim(1).ind()];
@@ -83,6 +88,9 @@ mlir::LogicalResult VPU::NonMaxSuppressionOp::inferReturnTypes(mlir::MLIRContext
     const int64_t maxOutputBoxesPerClass = nms.getMaxOutputBoxesPerClassValueAttr().getValue().getSExtValue();
     const auto inScoresType = mlir::cast<vpux::NDTypeInterface>(nms.getInBoxScores().getType());
     const auto inScoresShapeInfo = ShapeInfo::fromNDType(inScoresType);
+    if (inScoresShapeInfo.isUnbounded()) {
+        return errorAt(loc, "NonMaxSuppression scores '{0}' have a dimension without an upper bound", inScoresType);
+    }
     const auto hasBounds = inScoresShapeInfo.isDynamic();
     const auto& sizeSource = hasBounds ? inScoresShapeInfo.bounds : inScoresShapeInfo.shape;
     const auto numBatches = sizeSource[0];

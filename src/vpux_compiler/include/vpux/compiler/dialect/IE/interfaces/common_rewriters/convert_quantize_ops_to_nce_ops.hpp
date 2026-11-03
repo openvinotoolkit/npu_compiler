@@ -8,6 +8,7 @@
 #include "vpux/compiler/dialect/IE/IR/ops/data_type.hpp"
 #include "vpux/compiler/dialect/IE/utils/pooling_utils.hpp"
 #include "vpux/compiler/utils/passes.hpp"
+#include "vpux/compiler/utils/quantization.hpp"
 #include "vpux/utils/logger/logger.hpp"
 
 #include <mlir/IR/PatternMatch.h>
@@ -42,6 +43,15 @@ mlir::LogicalResult QuantizeDequantizeToAvgPool<ConcreteOp>::matchAndRewrite(Con
     if (_canSkipConversion(originOp)) {
         return mlir::failure();
     }
+
+    const auto input = originOp.getInput();
+    const auto inNDType = mlir::cast<vpux::NDTypeInterface>(input.getType());
+    const auto inElemType = inNDType.getElementType();
+    if (mlir::isa_and_present<IE::DequantizeOp>(originOp) && isInt8Quantized(inElemType)) {
+        _log.trace("SI8 Dequantize conversion to NCE is not supported.");
+        return mlir::failure();
+    }
+
     auto newPooling = IE::createIdentityAvgPool(originOp.getInput(), originOp.getType(), rewriter, originOp->getLoc());
     rewriter.replaceOp(originOp, newPooling->getResult(0));
     return mlir::success();

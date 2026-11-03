@@ -32,5 +32,5 @@ mlir::LogicalResult vpux::IE::AttentionOp::inferReturnTypeComponents(
 
 mlir::LogicalResult vpux::IE::AttentionOp::reifyResultShapes(mlir::OpBuilder& builder,
                                                              mlir::ReifiedRankedShapedTypeDims& reifiedReturnShapes) {
-    return reifyAttentionResultShape(builder, getInputQ(), getInputV(), getLoc(), reifiedReturnShapes);
+    return reifyAttentionResultShape(builder, getInputQ(), getInputK(), getInputV(), getLoc(), reifiedReturnShapes);
 }

@@ -17,11 +17,18 @@
 #include <llvm/ADT/SmallVector.h>
 #include <llvm/Support/JSON.h>
 #include <cerrno>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <cstdio>
+#include <cstring>
 #include <iterator>
 #include <memory>
 #include <utility>
+#include "llvm/Support/FileSystem.h"
+#include "llvm/Support/raw_ostream.h"
+#include "vpux/compiler/dialect/config/IR/resources.hpp"
+#include "vpux/utils/core/developer_build_utils.hpp"
 #include "vpux/utils/logger/logger.hpp"
 
 using namespace vpux;
@@ -149,7 +156,14 @@ OpAllocationInfo createAllocInfo(size_t opIdx, AsyncDepsInfo& depsInfo, AliasesI
               opIdx, queueType.type, toString(allocationType), inBuffers, outBuffers, dependencies, consumers);
 #endif
 
-    return OpAllocationInfo(opIdx, queueType, inBuffers, outBuffers, allocationType);
+    auto allocInfo = OpAllocationInfo(opIdx, queueType, inBuffers, outBuffers, allocationType);
+    allocInfo.cycleCost =
+            execOp->hasAttr(cycleCostAttrName)
+                    ? checked_cast<size_t>(mlir::cast<mlir::IntegerAttr>(execOp->getAttr(cycleCostAttrName))
+                                                   .getValue()
+                                                   .getSExtValue())
+                    : 1;
+    return allocInfo;
 }
 
 /**
@@ -725,6 +739,100 @@ SmallVector<LoopBody> createTiledOpDepsConsDescriptor(llvm::DenseMap<size_t, Sma
 
 }  // namespace
 
+// A VF tile index is local to an operation. It cannot identify a scheduler iteration when a DynamicDequantize is
+// tiled over channels and its NCE consumer is tiled over channels and height. For example:
+//
+//   Groups created from tile indices       Dependencies in the VF
+//
+//   tile 0: {DDQ(C0), NCE(C0,H0)}          DDQ(C0) ----> NCE(C0,H0)
+//                                              |
+//   tile 1: {NCE(C0,H1)}                       +-------> NCE(C0,H1)
+//
+//   tile 2: {DDQ(C1), NCE(C1,H0)}          DDQ(C1) ----> NCE(C1,H0)
+//                                              |
+//   tile 3: {NCE(C1,H1)}                       +-------> NCE(C1,H1)
+//
+// `NCE(C0,H1)` has a different operation-local tile index, but it consumes the same `DDQ(C0)` result as
+// `NCE(C0,H0)`. Scheduling it as a separate iteration would split one dependency-connected unit. Union-find merges
+// the groups crossed by those dependency edges, producing:
+//
+//   iteration 0: {DDQ(C0), NCE(C0,H0), NCE(C0,H1)}
+//   iteration 1: {DDQ(C1), NCE(C1,H0), NCE(C1,H1)}
+//
+// The components are then sorted and re-keyed with contiguous scheduler iteration indices.
+void vpux::groupVfOpsByDependencies(llvm::DenseMap<size_t, SmallVector<size_t>>& loopOps, AsyncDepsInfo& depsInfo) {
+    llvm::DenseMap<size_t, size_t> parent;
+    for (const auto& entry : loopOps) {
+        const auto& opIndices = entry.second;
+        for (const auto opIdx : opIndices) {
+            parent[opIdx] = opIdx;
+        }
+    }
+
+    const auto findRoot = [&](auto&& self, size_t opIdx) -> size_t {
+        auto& opParent = parent.find(opIdx)->second;
+        if (opParent != opIdx) {
+            opParent = self(self, opParent);
+        }
+        return opParent;
+    };
+    const auto merge = [&](size_t lhs, size_t rhs) {
+        lhs = findRoot(findRoot, lhs);
+        rhs = findRoot(findRoot, rhs);
+        if (lhs != rhs) {
+            parent[rhs] = lhs;
+        }
+    };
+
+    // Preserve the grouping explicitly represented by equal tile indices, including parallel branches.
+    for (const auto& entry : loopOps) {
+        const auto& opIndices = entry.second;
+        for (size_t idx = 1; idx < opIndices.size(); ++idx) {
+            merge(opIndices.front(), opIndices[idx]);
+        }
+    }
+
+    // Merge those groups when the VF dependency graph crosses operation-local tile indices.
+    for (const auto& entry : parent) {
+        const auto opIdx = entry.first;
+        for (const auto depIdx : depsInfo.getOpDepsUnordered(opIdx)) {
+            if (parent.count(depIdx)) {
+                merge(opIdx, depIdx);
+            }
+        }
+    }
+
+    llvm::DenseMap<size_t, SmallVector<size_t>> groupedOpsByRoot;
+    for (const auto& entry : parent) {
+        const auto opIdx = entry.first;
+        groupedOpsByRoot[findRoot(findRoot, opIdx)].push_back(opIdx);
+    }
+
+    SmallVector<SmallVector<size_t>> sortedGroups;
+    sortedGroups.reserve(groupedOpsByRoot.size());
+    for (auto& entry : groupedOpsByRoot) {
+        llvm::sort(entry.second);
+        sortedGroups.push_back(std::move(entry.second));
+    }
+    llvm::sort(sortedGroups, [](const auto& lhs, const auto& rhs) {
+        return lhs.front() < rhs.front();
+    });
+
+    // union-find roots are operation indices, while the descriptor builder reads groups using contiguous
+    //  iteration indices. Root keys 5 and 9 therefore make lookups for iterations 0 and 1 create empty groups:
+    //
+    //    root-keyed groups:   5 -> {5, 6}    9 -> {9, 10}
+    //
+    //  Sort the groups and replace each root key with its scheduler iteration index:
+    //
+    //    scheduler groups:   0 -> {5, 6}    1 -> {9, 10}
+    llvm::DenseMap<size_t, SmallVector<size_t>> groupedOps;
+    for (const auto iterationIdx : irange(sortedGroups.size())) {
+        groupedOps[iterationIdx] = std::move(sortedGroups[iterationIdx]);
+    }
+    loopOps = std::move(groupedOps);
+}
+
 BufferEqualityTopology vpux::getBufferEqualityTopology(const OpAllocationInfo& op) {
     BufferEqualityTopology topo;
     llvm::DenseMap<mlir::Value, uint32_t> classByValue;
@@ -759,6 +867,204 @@ std::string vpux::stringifyClassIds(ArrayRef<uint32_t> classIds) {
     }
     os << "]";
     return os.str();
+}
+
+void vpux::dumpScheduleASCII(const PredefinedSchedule& schedule, const Logger& log, llvm::StringRef tag,
+                             size_t regionIdx) {
+    if (!log.isActive(LogLevel::Trace) || !isDeveloperBuild()) {
+        return;
+    }
+
+    if (schedule.empty()) {
+        log.info("Schedule: {0}: (empty schedule)", tag);
+        return;
+    }
+
+    size_t maxOpIdx = 0;
+    for (const auto& step : schedule) {
+        for (const auto& entry : step) {
+            maxOpIdx = std::max(maxOpIdx, entry.allocInfo.opIdx);
+        }
+    }
+    const int digits = (maxOpIdx >= 10000) ? 5 : (maxOpIdx >= 1000) ? 4 : (maxOpIdx >= 100) ? 3 : 2;
+    const int minCellW = digits + 2;
+
+    // Map cycleCost to a cell width so the ASCII art conveys relative task duration.
+    // log1p keeps a few huge outliers from dwarfing everything else while still
+    // preserving the relative ordering/spread of costs.
+    size_t minCost = std::numeric_limits<size_t>::max();
+    size_t maxCost = 0;
+    for (const auto& step : schedule) {
+        for (const auto& entry : step) {
+            minCost = std::min(minCost, entry.allocInfo.cycleCost);
+            maxCost = std::max(maxCost, entry.allocInfo.cycleCost);
+        }
+    }
+    if (minCost > maxCost) {
+        minCost = maxCost = 0;
+    }
+    const int maxCellW = minCellW + 20;
+    const double logMin = std::log1p(static_cast<double>(minCost));
+    const double logRange = std::log1p(static_cast<double>(maxCost)) - logMin;
+
+    auto costCellWidth = [&](size_t cost) -> int {
+        if (logRange <= 0.0) {
+            return minCellW;
+        }
+        const double normalized = (std::log1p(static_cast<double>(cost)) - logMin) / logRange;
+        return minCellW + static_cast<int>(std::lround(normalized * (maxCellW - minCellW)));
+    };
+
+    // Render an op as "[-00-]": opIdx centered inside a cost-proportional width, padded
+    // with dashes so the cell's visual width communicates its relative cycle cost.
+    auto formatCostCell = [&](size_t opIdx, int width) {
+        char label[16];
+        ::snprintf(label, sizeof(label), "%0*zu", digits, opIdx);
+        const int labelLen = static_cast<int>(std::strlen(label));
+        const int inner = std::max(width - 2, labelLen);
+        const int padLeft = (inner - labelLen) / 2;
+        const int padRight = inner - labelLen - padLeft;
+        llvm::SmallString<32> cell;
+        cell += '[';
+        cell.append(padLeft, '-');
+        cell += label;
+        cell.append(padRight, '-');
+        cell += ']';
+        return cell;
+    };
+
+    constexpr int numLanes = 5;
+    const char* laneNames[numLanes] = {"DMA_IN  ", "DPU     ", "SHV     ", "DMA_OUT ", "OTHER   "};
+    auto classifyLane = [](const ComputeExplicitSchedule& entry) -> int {
+        if (entry.allocInfo.allocationType == AllocationType::DATA_IN) {
+            return 0;
+        }
+        if (entry.allocInfo.allocationType == AllocationType::DATA_OUT) {
+            return 3;
+        }
+        if (entry.allocInfo.queueType.type == config::ExecutorKind::DPU) {
+            return 1;
+        }
+        if (entry.allocInfo.queueType.type == config::ExecutorKind::SHAVE_ACT) {
+            return 2;
+        }
+        return 4;
+    };
+
+    const bool isBefore = tag.contains("before");
+    llvm::StringRef txtName = "undefinedvf.txt";
+    std::error_code ec;
+    const auto openFlags =
+            (isBefore && regionIdx == 0) ? llvm::sys::fs::OpenFlags::OF_None : llvm::sys::fs::OpenFlags::OF_Append;
+    llvm::raw_fd_ostream file(txtName, ec, openFlags);
+    if (ec) {
+        log.warning("Schedule: could not write {0}: {1}", txtName, ec.message());
+        return;
+    }
+
+    if (isBefore) {
+        file << "\n=== region " << regionIdx << " ===\n\n";
+        file << "BEFORE schedule rewrite (" << schedule.size() << " steps):\n";
+    } else {
+        file << "\nAFTER schedule rewrite (" << schedule.size() << " steps):\n";
+    }
+
+    constexpr int screenWidth = 200;
+    constexpr int prefixWidth = 12;
+    struct StepCols {
+        llvm::SmallString<512> rows[numLanes];
+        int width = 0;
+    };
+    std::vector<StepCols> stepCols(schedule.size());
+    for (size_t stepIdx = 0; stepIdx < schedule.size(); ++stepIdx) {
+        const auto& step = schedule[stepIdx];
+        int stepWidth = 0;
+        for (const auto& entry : step) {
+            const int cellW = costCellWidth(entry.allocInfo.cycleCost);
+            stepWidth += cellW;
+            const int lane = classifyLane(entry);
+            const auto cell = formatCostCell(entry.allocInfo.opIdx, cellW);
+            for (int laneIdx = 0; laneIdx < numLanes; ++laneIdx) {
+                if (laneIdx == lane) {
+                    stepCols[stepIdx].rows[laneIdx] += cell;
+                } else {
+                    for (int pos = 0; pos < cellW; ++pos) {
+                        stepCols[stepIdx].rows[laneIdx] += ' ';
+                    }
+                }
+            }
+        }
+        stepCols[stepIdx].width = stepWidth;
+    }
+
+    size_t stepIdx = 0;
+    while (stepIdx < schedule.size()) {
+        int rowWidth = 0;
+        const size_t rowStart = stepIdx;
+        size_t rowEnd = stepIdx;
+        while (rowEnd < schedule.size()) {
+            const int addWidth = stepCols[rowEnd].width + (rowEnd > rowStart ? 1 : 0);
+            if (rowWidth > 0 && prefixWidth + rowWidth + addWidth > screenWidth) {
+                break;
+            }
+            rowWidth += addWidth;
+            ++rowEnd;
+        }
+        if (rowEnd == rowStart) {
+            ++rowEnd;
+        }
+
+        file << "          ";
+        for (size_t colIdx = rowStart; colIdx < rowEnd; ++colIdx) {
+            file << "| ";
+            llvm::SmallString<32> label;
+            llvm::raw_svector_ostream labelStream(label);
+            labelStream << "Step" << colIdx << "(" << schedule[colIdx].size() << ")";
+            file << label;
+            const int padding = stepCols[colIdx].width - static_cast<int>(label.size()) - 1;
+            for (int pos = 0; pos < padding; ++pos) {
+                file << ' ';
+            }
+        }
+        file << "|\n";
+
+        auto printSeparator = [&]() {
+            file << "----------";
+            for (size_t colIdx = rowStart; colIdx < rowEnd; ++colIdx) {
+                file << "+";
+                for (int pos = 0; pos <= stepCols[colIdx].width; ++pos) {
+                    file << '-';
+                }
+            }
+            file << "\n";
+        };
+        printSeparator();
+
+        for (int laneIdx = 0; laneIdx < numLanes; ++laneIdx) {
+            bool hasContent = false;
+            for (size_t colIdx = rowStart; colIdx < rowEnd && !hasContent; ++colIdx) {
+                hasContent = llvm::any_of(stepCols[colIdx].rows[laneIdx], [](char character) {
+                    return character != ' ';
+                });
+            }
+            if (!hasContent) {
+                continue;
+            }
+            file << "  " << laneNames[laneIdx] << "| ";
+            for (size_t colIdx = rowStart; colIdx < rowEnd; ++colIdx) {
+                if (colIdx > rowStart) {
+                    file << "| ";
+                }
+                file << stepCols[colIdx].rows[laneIdx];
+            }
+            file << "\n";
+        }
+        printSeparator();
+        file << "\n";
+        stepIdx = rowEnd;
+    }
+
+    log.trace("Schedule: schedule ({0}) -> {1} region={2}", tag, txtName, regionIdx);
 }
 
 // Extract compute regions from async.execute ops based on loop attributes
@@ -816,6 +1122,11 @@ ComputeRegionVec vpux::getComputeRegionsFromAsyncExec(AliasesInfo& aliasInfo, As
     // Process loop regions and create ComputeRegion per detected loop
     for (auto& [loopType, loopRegion] : loopRegions) {
         for (auto& [loopIndex, loopOps] : loopRegion) {
+            if (loopType == LoopType::VF) {
+                // A scheduler iteration may contain tiles with different operation-local tile indices.
+                groupVfOpsByDependencies(loopOps, depsInfo);
+            }
+
             // For each loop region with enough iterations
             const auto iterations = loopOps.size();
             if ((loopType == LoopType::VF && iterations < MIN_VF_LOOP_OPS) ||

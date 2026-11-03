@@ -138,6 +138,13 @@ bool OpChainAnalysis::processOperations(llvm::ArrayRef<mlir::Operation*> operati
             return false;
         }
 
+        // Single-result op whose value is already known (e.g. seeded by the caller): reuse it instead of
+        // recomputing, since recomputation would just overwrite it with the same or a stale operand-derived
+        // value.
+        if (op->getNumResults() == 1 && valueMap.contains(op->getResult(0))) {
+            continue;
+        }
+
         auto* processor = _registry->getProcessor(op);
         if (processor == nullptr) {
             auto* dialect = op->getDialect();

@@ -465,12 +465,12 @@ mlir::LogicalResult TileBroadcastInputRewriter::matchAndRewrite(IE::MultiplyOp o
     if (doesInputNeedBroadCast(lhsInput)) {
         lhsInput = tileInput(rewriter, ctx, appendLoc(loc, "broadcast_lhs"), origOp.getInput1(), outputShape);
     }
-    auto newLhsInput = castToDimsOrder(lhsInput, dstOrderMap, memOrderMap[0], "_lhs_permute_cast", rewriter);
+    auto newLhsInput = castToDimsOrder(lhsInput, dstOrderMap, memOrderMap[0], "permute_in1", rewriter);
 
     if (doesInputNeedBroadCast(rhsInput)) {
         rhsInput = tileInput(rewriter, ctx, appendLoc(loc, "broadcast_rhs"), origOp.getInput2(), outputShape);
     }
-    auto newRhsInput = castToDimsOrder(rhsInput, dstOrderMap, memOrderMap[0], "_rhs_permute_cast", rewriter);
+    auto newRhsInput = castToDimsOrder(rhsInput, dstOrderMap, memOrderMap[0], "permute_in2", rewriter);
 
     // Create new Multiply
     auto newOutputType = outputType.changeDimsOrder(dstOrder).changeShape(getShape(newRhsInput));
@@ -478,8 +478,8 @@ mlir::LogicalResult TileBroadcastInputRewriter::matchAndRewrite(IE::MultiplyOp o
             rewriter, origOp.getLoc(), newOutputType, newLhsInput, newRhsInput, origOp.getAutoBroadcastAttr(),
             origOp.getPostOpAttr(), origOp.getClampAttr(), origOp.getOutputPaddingAttr(), origOp.getInputPaddingAttr());
     // Cast to the original dims order
-    auto result = castToDimsOrder(newMultiplyOp.getOutput(), dimsOrder.toAffineMap(ctx), memOrderMap[1],
-                                  "_output_permute_cast", rewriter);
+    auto result = castToDimsOrder(newMultiplyOp.getOutput(), dimsOrder.toAffineMap(ctx), memOrderMap[1], "permute_out",
+                                  rewriter);
     rewriter.replaceOp(origOp, result);
     return mlir::success();
 }

@@ -16,7 +16,8 @@ module @mainModule attributes { config.platform = #config.platform<NPU4000> } {
 
 // CHECK: module @mainModule attributes
 // CHECK: config.PipelineOptions @Options
-// CHECK: config.Option @config.UseDedicatedFifoPerShaveEngine : false
+// CHECK: config.Option @config.WorkloadManagementMode : "FWLM_V1_PAGES"
+// CHECK: config.Option @config.UseDedicatedFifoPerShaveEngine : true
 // CHECK: config.Option @config.BarrierMaxSlotCount : 256
-// CHECK: config.Option @config.MetadataMaxKernelInvocationCount : 64
-// CHECK: config.Option @config.MetadataMaxKernelRangeCount : 64
+// CHECK: config.Option @config.MetadataMaxKernelInvocationCount : 32
+// CHECK: config.Option @config.MetadataMaxKernelRangeCount : 32

@@ -249,7 +249,7 @@ TEST_F(MLIR_ClassifierVF, BumpRecordSizeAndAlignment) {
 
     EXPECT_TRUE(result.iterationIdentityHolds);
     EXPECT_EQ(rec.size, 256);
-    EXPECT_EQ(rec.alignment, 128);
+    EXPECT_EQ(rec.offsetAlignment, 128);
 }
 
 TEST_F(MLIR_ClassifierVF, BasicClassification) {

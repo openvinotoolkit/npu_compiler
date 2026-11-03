@@ -57,13 +57,13 @@ func.func @GQAPrefillThreeBlocks(
   // K/V tiles are used directly (batch=1); V is transposed to [...,S,E] layout for FlashSDPA.
   // Tile 0 (head).
   // CHECK: [[V0_T:%.+]] = IE.Transpose([[ARG_V0]]) {order_value = #NCWH} : tensor<1x8x128x1024xf16> -> tensor<1x8x1024x128xf16>
-  // CHECK: [[OUT0:%.+]], [[MAX0:%.+]], [[SUM0:%.+]] = IE.FlashSDPA([[Q_UF]], [[ARG_K0]], [[V0_T]], [[INIT_OUT]], [[INIT_MAX]], [[INIT_SUM]]) {is_head = true, is_tail = false, source_seq_len_pad_size = 0 : i64}
+  // CHECK: [[OUT0:%.+]], [[MAX0:%.+]], [[SUM0:%.+]] = IE.FlashSDPA([[Q_UF]], [[ARG_K0]], [[V0_T]], [[INIT_OUT]], [[INIT_MAX]], [[INIT_SUM]]) {is_head = true, is_tail = false, source_seq_len_pad_size = 0 : i64, tiling_loop_index = 0 : i64}
   // Tile 1 (middle).
   // CHECK: [[V1_T:%.+]] = IE.Transpose([[ARG_V1]]) {order_value = #NCWH} : tensor<1x8x128x1024xf16> -> tensor<1x8x1024x128xf16>
-  // CHECK: [[OUT1:%.+]], [[MAX1:%.+]], [[SUM1:%.+]] = IE.FlashSDPA([[Q_UF]], [[ARG_K1]], [[V1_T]], [[OUT0]], [[MAX0]], [[SUM0]]) {is_head = false, is_tail = false, source_seq_len_pad_size = 0 : i64}
+  // CHECK: [[OUT1:%.+]], [[MAX1:%.+]], [[SUM1:%.+]] = IE.FlashSDPA([[Q_UF]], [[ARG_K1]], [[V1_T]], [[OUT0]], [[MAX0]], [[SUM0]]) {is_head = false, is_tail = false, source_seq_len_pad_size = 0 : i64, tiling_loop_index = 0 : i64}
   // Tile 2 (tail).
   // CHECK: [[V2_T:%.+]] = IE.Transpose([[ARG_V2]]) {order_value = #NCWH} : tensor<1x8x128x1024xf16> -> tensor<1x8x1024x128xf16>
-  // CHECK: [[OUT2:%.+]], {{%.+}}, {{%.+}} = IE.FlashSDPA([[Q_UF]], [[ARG_K2]], [[V2_T]], [[OUT1]], [[MAX1]], [[SUM1]]) {is_head = false, is_tail = true, source_seq_len_pad_size = 0 : i64}
+  // CHECK: [[OUT2:%.+]], {{%.+}}, {{%.+}} = IE.FlashSDPA([[Q_UF]], [[ARG_K2]], [[V2_T]], [[OUT1]], [[MAX1]], [[SUM1]]) {is_head = false, is_tail = true, source_seq_len_pad_size = 0 : i64, tiling_loop_index = 0 : i64}
   // Output is re-folded to the original AttentionOp result type [8,4,1024,128].
   // CHECK: [[OUT_FOLD:%.+]] = IE.Reshape([[OUT2]]) {shape_value = [8, 4, 1024, 128]} : tensor<1x32x1024x128xf16> -> tensor<8x4x1024x128xf16>
   // CHECK: return [[OUT_FOLD]]
@@ -151,34 +151,34 @@ func.func @GQADecodeTenBlocks(
   // Tiles 0-7: 1024 tokens each (16-aligned), flushed individually.
   // CHECK: [[V0_T:%.+]] = IE.Transpose([[ARG_V0]]) {order_value = #NCWH} : tensor<1x8x128x1024xf16> -> tensor<1x8x1024x128xf16>
   // CHECK: [[MASK0:%.+]] = IE.Slice [[ARG_MASK]] [0, 0, 0, 0] [1, 1, 1, 1024]
-  // CHECK: [[O0:%.+]], [[M0:%.+]], [[S0:%.+]] = IE.FlashSDPA([[Q_SC]], [[ARG_K0]], [[V0_T]], [[INIT_OUT]], [[INIT_MAX]], [[INIT_SUM]], [[MASK0]]) {is_head = true, is_tail = false, source_seq_len_pad_size = 0 : i64}
+  // CHECK: [[O0:%.+]], [[M0:%.+]], [[S0:%.+]] = IE.FlashSDPA([[Q_SC]], [[ARG_K0]], [[V0_T]], [[INIT_OUT]], [[INIT_MAX]], [[INIT_SUM]], [[MASK0]]) {is_head = true, is_tail = false, source_seq_len_pad_size = 0 : i64, tiling_loop_index = 0 : i64}
   // CHECK: [[V1_T:%.+]] = IE.Transpose([[ARG_V1]]) {order_value = #NCWH} : tensor<1x8x128x1024xf16> -> tensor<1x8x1024x128xf16>
   // CHECK: [[MASK1:%.+]] = IE.Slice [[ARG_MASK]] [0, 0, 0, 1024] [1, 1, 1, 1024]
-  // CHECK: [[O1:%.+]], [[M1:%.+]], [[S1:%.+]] = IE.FlashSDPA([[Q_SC]], [[ARG_K1]], [[V1_T]], [[O0]], [[M0]], [[S0]], [[MASK1]]) {is_head = false, is_tail = false, source_seq_len_pad_size = 0 : i64}
+  // CHECK: [[O1:%.+]], [[M1:%.+]], [[S1:%.+]] = IE.FlashSDPA([[Q_SC]], [[ARG_K1]], [[V1_T]], [[O0]], [[M0]], [[S0]], [[MASK1]]) {is_head = false, is_tail = false, source_seq_len_pad_size = 0 : i64, tiling_loop_index = 0 : i64}
   // CHECK: [[V2_T:%.+]] = IE.Transpose([[ARG_V2]]) {order_value = #NCWH} : tensor<1x8x128x1024xf16> -> tensor<1x8x1024x128xf16>
   // CHECK: [[MASK2:%.+]] = IE.Slice [[ARG_MASK]] [0, 0, 0, 2048] [1, 1, 1, 1024]
-  // CHECK: [[O2:%.+]], [[M2:%.+]], [[S2:%.+]] = IE.FlashSDPA([[Q_SC]], [[ARG_K2]], [[V2_T]], [[O1]], [[M1]], [[S1]], [[MASK2]]) {is_head = false, is_tail = false, source_seq_len_pad_size = 0 : i64}
+  // CHECK: [[O2:%.+]], [[M2:%.+]], [[S2:%.+]] = IE.FlashSDPA([[Q_SC]], [[ARG_K2]], [[V2_T]], [[O1]], [[M1]], [[S1]], [[MASK2]]) {is_head = false, is_tail = false, source_seq_len_pad_size = 0 : i64, tiling_loop_index = 0 : i64}
   // CHECK: [[V3_T:%.+]] = IE.Transpose([[ARG_V3]]) {order_value = #NCWH} : tensor<1x8x128x1024xf16> -> tensor<1x8x1024x128xf16>
   // CHECK: [[MASK3:%.+]] = IE.Slice [[ARG_MASK]] [0, 0, 0, 3072] [1, 1, 1, 1024]
-  // CHECK: [[O3:%.+]], [[M3:%.+]], [[S3:%.+]] = IE.FlashSDPA([[Q_SC]], [[ARG_K3]], [[V3_T]], [[O2]], [[M2]], [[S2]], [[MASK3]]) {is_head = false, is_tail = false, source_seq_len_pad_size = 0 : i64}
+  // CHECK: [[O3:%.+]], [[M3:%.+]], [[S3:%.+]] = IE.FlashSDPA([[Q_SC]], [[ARG_K3]], [[V3_T]], [[O2]], [[M2]], [[S2]], [[MASK3]]) {is_head = false, is_tail = false, source_seq_len_pad_size = 0 : i64, tiling_loop_index = 0 : i64}
   // CHECK: [[V4_T:%.+]] = IE.Transpose([[ARG_V4]]) {order_value = #NCWH} : tensor<1x8x128x1024xf16> -> tensor<1x8x1024x128xf16>
   // CHECK: [[MASK4:%.+]] = IE.Slice [[ARG_MASK]] [0, 0, 0, 4096] [1, 1, 1, 1024]
-  // CHECK: [[O4:%.+]], [[M4:%.+]], [[S4:%.+]] = IE.FlashSDPA([[Q_SC]], [[ARG_K4]], [[V4_T]], [[O3]], [[M3]], [[S3]], [[MASK4]]) {is_head = false, is_tail = false, source_seq_len_pad_size = 0 : i64}
+  // CHECK: [[O4:%.+]], [[M4:%.+]], [[S4:%.+]] = IE.FlashSDPA([[Q_SC]], [[ARG_K4]], [[V4_T]], [[O3]], [[M3]], [[S3]], [[MASK4]]) {is_head = false, is_tail = false, source_seq_len_pad_size = 0 : i64, tiling_loop_index = 0 : i64}
   // CHECK: [[V5_T:%.+]] = IE.Transpose([[ARG_V5]]) {order_value = #NCWH} : tensor<1x8x128x1024xf16> -> tensor<1x8x1024x128xf16>
   // CHECK: [[MASK5:%.+]] = IE.Slice [[ARG_MASK]] [0, 0, 0, 5120] [1, 1, 1, 1024]
-  // CHECK: [[O5:%.+]], [[M5:%.+]], [[S5:%.+]] = IE.FlashSDPA([[Q_SC]], [[ARG_K5]], [[V5_T]], [[O4]], [[M4]], [[S4]], [[MASK5]]) {is_head = false, is_tail = false, source_seq_len_pad_size = 0 : i64}
+  // CHECK: [[O5:%.+]], [[M5:%.+]], [[S5:%.+]] = IE.FlashSDPA([[Q_SC]], [[ARG_K5]], [[V5_T]], [[O4]], [[M4]], [[S4]], [[MASK5]]) {is_head = false, is_tail = false, source_seq_len_pad_size = 0 : i64, tiling_loop_index = 0 : i64}
   // CHECK: [[V6_T:%.+]] = IE.Transpose([[ARG_V6]]) {order_value = #NCWH} : tensor<1x8x128x1024xf16> -> tensor<1x8x1024x128xf16>
   // CHECK: [[MASK6:%.+]] = IE.Slice [[ARG_MASK]] [0, 0, 0, 6144] [1, 1, 1, 1024]
-  // CHECK: [[O6:%.+]], [[M6:%.+]], [[S6:%.+]] = IE.FlashSDPA([[Q_SC]], [[ARG_K6]], [[V6_T]], [[O5]], [[M5]], [[S5]], [[MASK6]]) {is_head = false, is_tail = false, source_seq_len_pad_size = 0 : i64}
+  // CHECK: [[O6:%.+]], [[M6:%.+]], [[S6:%.+]] = IE.FlashSDPA([[Q_SC]], [[ARG_K6]], [[V6_T]], [[O5]], [[M5]], [[S5]], [[MASK6]]) {is_head = false, is_tail = false, source_seq_len_pad_size = 0 : i64, tiling_loop_index = 0 : i64}
   // CHECK: [[V7_T:%.+]] = IE.Transpose([[ARG_V7]]) {order_value = #NCWH} : tensor<1x8x128x1024xf16> -> tensor<1x8x1024x128xf16>
   // CHECK: [[MASK7:%.+]] = IE.Slice [[ARG_MASK]] [0, 0, 0, 7168] [1, 1, 1, 1024]
-  // CHECK: [[O7:%.+]], [[M7:%.+]], [[S7:%.+]] = IE.FlashSDPA([[Q_SC]], [[ARG_K7]], [[V7_T]], [[O6]], [[M6]], [[S6]], [[MASK7]]) {is_head = false, is_tail = false, source_seq_len_pad_size = 0 : i64}
+  // CHECK: [[O7:%.+]], [[M7:%.+]], [[S7:%.+]] = IE.FlashSDPA([[Q_SC]], [[ARG_K7]], [[V7_T]], [[O6]], [[M6]], [[S6]], [[MASK7]]) {is_head = false, is_tail = false, source_seq_len_pad_size = 0 : i64, tiling_loop_index = 0 : i64}
   // Tile 8 (tail): [127-token, 1-token] merged to 128 tokens (16-aligned).
   // CHECK: [[K_TAIL:%.+]] = IE.Concat([[ARG_KT]], [[ARG_KP]]) {{.*}} : tensor<1x8x127x128xf16>, tensor<1x8x1x128xf16> -> tensor<1x8x128x128xf16>
   // CHECK: [[V_TAIL:%.+]] = IE.Concat([[ARG_VT]], [[ARG_VP]]) {{.*}} : tensor<1x8x128x127xf16>, tensor<1x8x128x1xf16> -> tensor<1x8x128x128xf16>
   // CHECK: [[VTT:%.+]] = IE.Transpose([[V_TAIL]]) {order_value = #NCWH} : tensor<1x8x128x128xf16> -> tensor<1x8x128x128xf16>
   // CHECK: [[MASK8:%.+]] = IE.Slice [[ARG_MASK]] [0, 0, 0, 8192] [1, 1, 1, 128]
-  // CHECK: [[O8:%.+]], {{%.+}}, {{%.+}} = IE.FlashSDPA([[Q_SC]], [[K_TAIL]], [[VTT]], [[O7]], [[M7]], [[S7]], [[MASK8]]) {is_head = false, is_tail = true, source_seq_len_pad_size = 0 : i64}
+  // CHECK: [[O8:%.+]], {{%.+}}, {{%.+}} = IE.FlashSDPA([[Q_SC]], [[K_TAIL]], [[VTT]], [[O7]], [[M7]], [[S7]], [[MASK8]]) {is_head = false, is_tail = true, source_seq_len_pad_size = 0 : i64, tiling_loop_index = 0 : i64}
   // Output re-folded to the original AttentionOp result type [8,4,1,128].
   // CHECK: [[OUT_FOLD:%.+]] = IE.Reshape([[O8]]) {shape_value = [8, 4, 1, 128]} : tensor<1x32x1x128xf16> -> tensor<8x4x1x128xf16>
   // CHECK: return [[OUT_FOLD]]
@@ -346,6 +346,86 @@ func.func @DecodeGQALowQHeads_NotConverted(
       tensor<1x8x1x128xf16>, tensor<1x1x16512x128xf16>, tensor<1x1x128x16512xf16>
       -> tensor<1x8x1x128xf16>
   return %out : tensor<1x8x1x128xf16>
+  // CHECK-NOT: IE.FlashSDPA
+  // CHECK: IE.Attention
+}
+
+// -----
+
+// CHECK-LABEL: @DecodeGQALowHeadsPerShave_NotConverted
+func.func @DecodeGQALowHeadsPerShave_NotConverted(
+        %arg0:  tensor<1x16x1x128xf16>,
+        %arg1:  tensor<1x1x1024x128xf16>,
+        %arg2:  tensor<1x1x1024x128xf16>,
+        %arg3:  tensor<1x1x1024x128xf16>,
+        %arg4:  tensor<1x1x1024x128xf16>,
+        %arg5:  tensor<1x1x1024x128xf16>,
+        %arg6:  tensor<1x1x1024x128xf16>,
+        %arg7:  tensor<1x1x1024x128xf16>,
+        %arg8:  tensor<1x1x1024x128xf16>,
+        %arg9:  tensor<1x1x1024x128xf16>,
+        %arg10: tensor<1x1x1024x128xf16>,
+        %arg11: tensor<1x1x1024x128xf16>,
+        %arg12: tensor<1x1x1024x128xf16>,
+        %arg13: tensor<1x1x1024x128xf16>,
+        %arg14: tensor<1x1x1024x128xf16>,
+        %arg15: tensor<1x1x1024x128xf16>,
+        %arg16: tensor<1x1x1024x128xf16>,
+        %arg17: tensor<1x1x127x128xf16>,
+        %arg18: tensor<1x1x1x128xf16>,
+        %arg19: tensor<1x1x128x1024xf16>,
+        %arg20: tensor<1x1x128x1024xf16>,
+        %arg21: tensor<1x1x128x1024xf16>,
+        %arg22: tensor<1x1x128x1024xf16>,
+        %arg23: tensor<1x1x128x1024xf16>,
+        %arg24: tensor<1x1x128x1024xf16>,
+        %arg25: tensor<1x1x128x1024xf16>,
+        %arg26: tensor<1x1x128x1024xf16>,
+        %arg27: tensor<1x1x128x1024xf16>,
+        %arg28: tensor<1x1x128x1024xf16>,
+        %arg29: tensor<1x1x128x1024xf16>,
+        %arg30: tensor<1x1x128x1024xf16>,
+        %arg31: tensor<1x1x128x1024xf16>,
+        %arg32: tensor<1x1x128x1024xf16>,
+        %arg33: tensor<1x1x128x1024xf16>,
+        %arg34: tensor<1x1x128x1024xf16>,
+        %arg35: tensor<1x1x128x127xf16>,
+        %arg36: tensor<1x1x128x1xf16>) -> tensor<1x16x1x128xf16> {
+  %k_cat = IE.Concat(%arg1, %arg2, %arg3, %arg4, %arg5, %arg6, %arg7, %arg8,
+                     %arg9, %arg10, %arg11, %arg12, %arg13, %arg14, %arg15, %arg16,
+                     %arg17, %arg18) {
+      static_offsets = [[0, 0,     0, 0], [0, 0,  1024, 0], [0, 0,  2048, 0], [0, 0,  3072, 0],
+                        [0, 0,  4096, 0], [0, 0,  5120, 0], [0, 0,  6144, 0], [0, 0,  7168, 0],
+                        [0, 0,  8192, 0], [0, 0,  9216, 0], [0, 0, 10240, 0], [0, 0, 11264, 0],
+                        [0, 0, 12288, 0], [0, 0, 13312, 0], [0, 0, 14336, 0], [0, 0, 15360, 0],
+                        [0, 0, 16384, 0], [0, 0, 16511, 0]]} :
+      tensor<1x1x1024x128xf16>, tensor<1x1x1024x128xf16>, tensor<1x1x1024x128xf16>,
+      tensor<1x1x1024x128xf16>, tensor<1x1x1024x128xf16>, tensor<1x1x1024x128xf16>,
+      tensor<1x1x1024x128xf16>, tensor<1x1x1024x128xf16>, tensor<1x1x1024x128xf16>,
+      tensor<1x1x1024x128xf16>, tensor<1x1x1024x128xf16>, tensor<1x1x1024x128xf16>,
+      tensor<1x1x1024x128xf16>, tensor<1x1x1024x128xf16>, tensor<1x1x1024x128xf16>,
+      tensor<1x1x1024x128xf16>, tensor<1x1x127x128xf16>,  tensor<1x1x1x128xf16>
+      -> tensor<1x1x16512x128xf16>
+  %v_cat = IE.Concat(%arg19, %arg20, %arg21, %arg22, %arg23, %arg24, %arg25, %arg26,
+                     %arg27, %arg28, %arg29, %arg30, %arg31, %arg32, %arg33, %arg34,
+                     %arg35, %arg36) {
+      static_offsets = [[0, 0, 0,     0], [0, 0, 0,  1024], [0, 0, 0,  2048], [0, 0, 0,  3072],
+                        [0, 0, 0,  4096], [0, 0, 0,  5120], [0, 0, 0,  6144], [0, 0, 0,  7168],
+                        [0, 0, 0,  8192], [0, 0, 0,  9216], [0, 0, 0, 10240], [0, 0, 0, 11264],
+                        [0, 0, 0, 12288], [0, 0, 0, 13312], [0, 0, 0, 14336], [0, 0, 0, 15360],
+                        [0, 0, 0, 16384], [0, 0, 0, 16511]]} :
+      tensor<1x1x128x1024xf16>, tensor<1x1x128x1024xf16>, tensor<1x1x128x1024xf16>,
+      tensor<1x1x128x1024xf16>, tensor<1x1x128x1024xf16>, tensor<1x1x128x1024xf16>,
+      tensor<1x1x128x1024xf16>, tensor<1x1x128x1024xf16>, tensor<1x1x128x1024xf16>,
+      tensor<1x1x128x1024xf16>, tensor<1x1x128x1024xf16>, tensor<1x1x128x1024xf16>,
+      tensor<1x1x128x1024xf16>, tensor<1x1x128x1024xf16>, tensor<1x1x128x1024xf16>,
+      tensor<1x1x128x1024xf16>, tensor<1x1x128x127xf16>,  tensor<1x1x128x1xf16>
+      -> tensor<1x1x128x16512xf16>
+  %out = IE.Attention(%arg0, %k_cat, %v_cat) {
+      operandSegmentSizes = array<i32: 1, 1, 1, 0, 0, 0, 0>} :
+      tensor<1x16x1x128xf16>, tensor<1x1x16512x128xf16>, tensor<1x1x128x16512xf16>
+      -> tensor<1x16x1x128xf16>
+  return %out : tensor<1x16x1x128xf16>
   // CHECK-NOT: IE.FlashSDPA
   // CHECK: IE.Attention
 }

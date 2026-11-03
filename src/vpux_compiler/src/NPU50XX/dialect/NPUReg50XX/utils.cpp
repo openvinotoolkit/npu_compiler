@@ -12,7 +12,7 @@ namespace NPUReg50XX {
 VPUMI40XX::TaskDescriptorConstraintsPassArgs getTaskDescriptorConstraintsArgs() {
     using namespace Descriptors;
     return {DpuInvariantRegister{}.size(), DpuVariantRegister{}.size(), VpuActKernelInvocation{}.size(),
-            VpuActKernelRange{}.size(),    DMARegister{}.size(),        VpuMediaTask{}.size()};
+            VpuActKernelRange{}.size(), DMARegister{}.size()};
 }
 
 }  // namespace NPUReg50XX

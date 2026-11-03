@@ -96,6 +96,11 @@ struct CallOPPreInliner {
                                          ::mlir::iterator_range<::mlir::Region::iterator> inlinedBlocks, Logger log);
 
     private:
+        ResourceDescriptor(FunctionAnalyticBase base, DebatchedCallOpData data, std::optional<size_t> ddr)
+                : FunctionAnalyticBase(std::move(base)),
+                  callOpData(std::move(data)),
+                  singleFunctionDDRConsumptionBytes(ddr) {
+        }
         ResourceDescriptor() = delete;
     };
     /*

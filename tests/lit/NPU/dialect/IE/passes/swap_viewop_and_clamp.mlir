@@ -128,9 +128,9 @@ func.func @swapSliceWithClamp(%arg0: tensor<1x16x80x80x!qElemType>) -> tensor<1x
 
 !qElemType = !quant.uniform<u8:f16, 1.0:123>
 !qElemType1 = !quant.uniform<u8:f16, 1.0:120>
-// CHECK-LABEL: @NotSwapWithNCEAlreadyHasClamp
+// CHECK-LABEL: @SwapWithNCEAlreadyHasClamp
 // CHECK-SAME:    [[INPUT:%.+]]: tensor<1x16x80x80x!qElemType>
-func.func @NotSwapWithNCEAlreadyHasClamp(%arg0: tensor<1x16x80x80x!qElemType>) -> tensor<1x8x80x80x!qElemType1> {
+func.func @SwapWithNCEAlreadyHasClamp(%arg0: tensor<1x16x80x80x!qElemType>) -> tensor<1x8x80x80x!qElemType1> {
     %0 = IE.AvgPool(%arg0) { clamp = {max = 1.000000e+00 : f64, min = 0.000000e+00 : f64}, kernel_size = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], rounding_type = #IE.rounding_type<FLOOR>, strides = [1, 1] }
             : tensor<1x16x80x80x!qElemType> -> tensor<1x16x80x80x!qElemType1>
     %1 = IE.Slice %0 [0, 0, 0, 0] [1, 8, 80, 80] : tensor<1x16x80x80x!qElemType1> to tensor<1x8x80x80x!qElemType1>
@@ -138,9 +138,9 @@ func.func @NotSwapWithNCEAlreadyHasClamp(%arg0: tensor<1x16x80x80x!qElemType>) -
     return %2 : tensor<1x8x80x80x!qElemType1>
 
     // CHECK:   [[POOL:%.+]] = IE.AvgPool([[INPUT]])
-    // CHECK:   [[SLICE:%.+]] = IE.Slice [[POOL]]
-    // CHECK:   [[CLAMP:%.+]] = IE.Clamp([[SLICE]])
-    // CHECK:   return  [[CLAMP]]
+    // CHECK:   [[CLAMP:%.+]] = IE.Clamp([[POOL]])
+    // CHECK:   [[SLICE:%.+]] = IE.Slice [[CLAMP]]
+    // CHECK:   return  [[SLICE]]
 }
 
 // -----
@@ -162,4 +162,42 @@ func.func @swapPermuteCastWithClamp(%arg0: tensor<1x499x768x1xf16, {order = #NHW
     // CHECK:   [[CLAMP:%.+]] = IE.Clamp([[CONVOLUTION]]) {max = 6.000000e+00 : f64, min = 0.000000e+00 : f64} : tensor<1x1x768x1xf16, {order = #NHWC}> -> tensor<1x1x768x1xf16, {order = #NHWC}>
     // CHECK:   [[PERMUTECAST:%.+]] = IE.PermuteCast([[CLAMP]]) {dst_order = #NCHW, mem_perm = #NCHW} : tensor<1x1x768x1xf16, {order = #NHWC}> -> tensor<1x768x1x1xf16>
     // CHECK:   return  [[PERMUTECAST]]
+}
+
+// -----
+
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+
+// CHECK-LABEL: @SwapClampThroughReshapes
+// CHECK-SAME:    [[INPUT:%.+]]: tensor<1x499x768x1xf16, {order = #NHWC}>
+func.func @SwapClampThroughReshapes(%arg0: tensor<1x499x768x1xf16, {order = #NHWC}>) -> tensor<1x1x768x3xf16> {
+    %weights = const.Declare tensor<1x499x1x1xf16> = dense<1.0> : tensor<1x499x1x1xf32>, [#const.CastElemType<f16>]
+    %0 = IE.Convolution(%arg0, %weights) {dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]} : tensor<1x499x768x1xf16, {order = #NHWC}>, tensor<1x499x1x1xf16> -> tensor<1x1x768x1xf16, {order = #NHWC}>
+    %1 = IE.Reshape(%0) {shape_value = [1, 1, 768, 2]} : tensor<1x1x768x1xf16, {order = #NHWC}> -> tensor<1x1x768x2xf16>
+    %2 = IE.Reshape(%1) {shape_value = [1, 1, 768, 3]} : tensor<1x1x768x2xf16> -> tensor<1x1x768x3xf16>
+    %3 = IE.Clamp(%2) {max = 6.000000e+00 : f64, min = 0.000000e+00 : f64} : tensor<1x1x768x3xf16> -> tensor<1x1x768x3xf16>
+    return %3 : tensor<1x1x768x3xf16>
+
+    // CHECK:   [[WEIGHTS:%.+]] = const.Declare tensor<1x499x1x1xf16> = dense<1.000000e+00> : tensor<1x499x1x1xf32>, [#const.CastElemType<f16>]
+    // CHECK:   [[CONVOLUTION:%.+]] = IE.Convolution([[INPUT]], [[WEIGHTS]]) {dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]} : tensor<1x499x768x1xf16, {order = #NHWC}>, tensor<1x499x1x1xf16> -> tensor<1x1x768x1xf16, {order = #NHWC}>
+    // CHECK:   [[CLAMP:%.+]] = IE.Clamp([[CONVOLUTION]]) {max = 6.000000e+00 : f64, min = 0.000000e+00 : f64} : tensor<1x1x768x1xf16, {order = #NHWC}> -> tensor<1x1x768x1xf16, {order = #NHWC}>
+    // CHECK:   [[RESHAPE1:%.+]] = IE.Reshape([[CLAMP]]) {shape_value = [1, 1, 768, 2]} : tensor<1x1x768x1xf16, {order = #NHWC}> -> tensor<1x1x768x2xf16>
+    // CHECK:   [[RESHAPE2:%.+]] = IE.Reshape([[RESHAPE1]]) {shape_value = [1, 1, 768, 3]} : tensor<1x1x768x2xf16> -> tensor<1x1x768x3xf16>
+    // CHECK:   return [[RESHAPE2]] : tensor<1x1x768x3xf16>
+}
+
+// -----
+
+// CHECK-LABEL: @NoSwapClampAfterLayerWithPostOp
+// CHECK-SAME:    [[INPUT:%.+]]: tensor<1x499x768x1xf16>
+func.func @NoSwapClampAfterLayerWithPostOp(%arg0: tensor<1x499x768x1xf16>) -> tensor<1x1x768x1xf16> {
+    %weights = const.Declare tensor<1x499x1x1xf16> = dense<1.0> : tensor<1x499x1x1xf32>, [#const.CastElemType<f16>]
+    %0 = IE.Convolution(%arg0, %weights) {dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]} : tensor<1x499x768x1xf16>, tensor<1x499x1x1xf16> -> tensor<1x1x768x1xf16>
+    %1 = IE.Clamp(%0) {max = 6.000000e+00 : f64, min = 0.000000e+00 : f64} : tensor<1x1x768x1xf16> -> tensor<1x1x768x1xf16>
+    return %1 : tensor<1x1x768x1xf16>
+
+    // CHECK:   [[WEIGHTS:%.+]] = const.Declare tensor<1x499x1x1xf16> = dense<1.000000e+00> : tensor<1x499x1x1xf32>, [#const.CastElemType<f16>]
+    // CHECK:   [[CONVOLUTION:%.+]] = IE.Convolution([[INPUT]], [[WEIGHTS]]) {dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]} : tensor<1x499x768x1xf16>, tensor<1x499x1x1xf16> -> tensor<1x1x768x1xf16>
+    // CHECK:   [[CLAMP:%.+]] = IE.Clamp([[CONVOLUTION]]) {max = 6.000000e+00 : f64, min = 0.000000e+00 : f64} : tensor<1x1x768x1xf16> -> tensor<1x1x768x1xf16>
+    // CHECK:   return [[CLAMP]] : tensor<1x1x768x1xf16>
 }

@@ -38,7 +38,7 @@ func.func @SwapTransposeWithPerTensorFQ(%arg0: tensor<1x70x1x28xf16>) -> tensor<
     %cst_lo = const.Declare tensor<f32> = dense<0.0> : tensor<f32>
     %cst_hi = const.Declare tensor<f32> = dense<255.0> : tensor<f32>
     %0 = IE.FakeQuantize(%arg0, %cst_lo, %cst_hi, %cst_lo, %cst_hi)
-        { auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 }
+        { auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256 }
         : tensor<1x70x1x28xf16>, tensor<f32>, tensor<f32>, tensor<f32>, tensor<f32> -> tensor<1x70x1x28xf16>
 
     %1 = IE.Transpose(%0) {order_value = #NHWC} : tensor<1x70x1x28xf16> -> tensor<1x1x28x70xf16>
@@ -50,7 +50,7 @@ func.func @SwapTransposeWithPerTensorFQ(%arg0: tensor<1x70x1x28xf16>) -> tensor<
     // CHECK-SAME:  : tensor<1x70x1x28xf16> -> tensor<1x1x28x70xf16>
 
     // CHECK:   [[FQ:%.+]] = IE.FakeQuantize([[TRANSPOSE]], [[CST_LO]], [[CST_HI]], [[CST_LO]], [[CST_HI]])
-    // CHECK-SAME:  {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i64}
+    // CHECK-SAME:  {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256 : i64}
     // CHECK-SAME:  : tensor<1x1x28x70xf16>, tensor<f32>, tensor<f32>, tensor<f32>, tensor<f32> -> tensor<1x1x28x70xf16>
 
     // CHECK:   return [[FQ]] : tensor<1x1x28x70xf16>
@@ -66,7 +66,7 @@ func.func @DoNotSwapTransposeWithPerAxisFQ(%arg0: tensor<1x70x1x28xf16>) -> tens
     %cst_lo = const.Declare tensor<1x70x1x1xf32> = dense<0.0> : tensor<1x70x1x1xf32>
     %cst_hi = const.Declare tensor<1x70x1x1xf32> = dense<255.0> : tensor<1x70x1x1xf32>
     %0 = IE.FakeQuantize(%arg0, %cst_lo, %cst_hi, %cst_lo, %cst_hi)
-        { auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 }
+        { auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256 }
         : tensor<1x70x1x28xf16>, tensor<1x70x1x1xf32>, tensor<1x70x1x1xf32>, tensor<1x70x1x1xf32>, tensor<1x70x1x1xf32> -> tensor<1x70x1x28xf16>
 
     %1 = IE.Transpose(%0) {order_value = #NHWC} : tensor<1x70x1x28xf16> -> tensor<1x1x28x70xf16>
@@ -76,7 +76,7 @@ func.func @DoNotSwapTransposeWithPerAxisFQ(%arg0: tensor<1x70x1x28xf16>) -> tens
     // CHECK-DAG:   [[CST_LO:%.+]] = const.Declare tensor<1x70x1x1xf32> = dense<0.000000e+00> : tensor<1x70x1x1xf32>
 
     // CHECK:   [[FQ:%.+]] = IE.FakeQuantize([[ARG_0]], [[CST_LO]], [[CST_HI]], [[CST_LO]], [[CST_HI]])
-    // CHECK-SAME:  {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i64}
+    // CHECK-SAME:  {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256 : i64}
     // CHECK-SAME:  : tensor<1x70x1x28xf16>, tensor<1x70x1x1xf32>, tensor<1x70x1x1xf32>, tensor<1x70x1x1xf32>, tensor<1x70x1x1xf32>
     // CHECK-SAME:  -> tensor<1x70x1x28xf16>
 
@@ -97,12 +97,12 @@ func.func @SwapConvertTransposeWithFQ(%arg0: tensor<1x70x1x28xui8>) -> tensor<1x
     %cst_hi = const.Declare tensor<f32> = dense<255.0> : tensor<f32>
     %0 = IE.Convert(%arg0) {dstElemType = f16} : tensor<1x70x1x28xui8> -> tensor<1x70x1x28xf16>
     %1 = IE.FakeQuantize(%0, %cst_lo, %cst_hi, %cst_lo, %cst_hi)
-        { auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 }
+        { auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256 }
         : tensor<1x70x1x28xf16>, tensor<f32>, tensor<f32>, tensor<f32>, tensor<f32> -> tensor<1x70x1x28xf16>
 
     %2 = IE.Transpose(%1) {order_value = #NHWC} : tensor<1x70x1x28xf16> -> tensor<1x1x28x70xf16>
     %3 = IE.FakeQuantize(%2, %cst_lo, %cst_hi, %cst_lo, %cst_hi)
-        { auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 }
+        { auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256 }
         : tensor<1x1x28x70xf16>, tensor<f32>, tensor<f32>, tensor<f32>, tensor<f32> -> tensor<1x1x28x70xf16>
 
     return %3 : tensor<1x1x28x70xf16>
@@ -114,7 +114,7 @@ func.func @SwapConvertTransposeWithFQ(%arg0: tensor<1x70x1x28xui8>) -> tensor<1x
     // CHECK-SAME:  : tensor<1x70x1x28xf16> -> tensor<1x1x28x70xf16>
 
     // CHECK:   [[FQ:%.+]] = IE.FakeQuantize([[TRANSPOSE]], [[CST_LO]], [[CST_HI]], [[CST_LO]], [[CST_HI]])
-    // CHECK-SAME:  {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i64}
+    // CHECK-SAME:  {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256 : i64}
     // CHECK-SAME:  : tensor<1x1x28x70xf16>, tensor<f32>, tensor<f32>, tensor<f32>, tensor<f32> -> tensor<1x1x28x70xf16>
 
     // CHECK:   return [[FQ]] : tensor<1x1x28x70xf16>

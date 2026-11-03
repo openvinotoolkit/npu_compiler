@@ -139,6 +139,7 @@ void vpux::VPU::arch37xx::registerLayerWithPostOpModelInterface(mlir::DialectReg
         IE::AddOp::attachInterface<LayerWithPostOpModel<IE::AddOp>>(*ctx);
         IE::SubtractOp::attachInterface<LayerWithPostOpModel<IE::SubtractOp>>(*ctx);
         IE::MatMulOp::attachInterface<LayerWithPostOpModel<IE::MatMulOp>>(*ctx);
+        IE::FullyConnectedOp::attachInterface<LayerWithPostOpModel<IE::FullyConnectedOp>>(*ctx);
     });
     registry.addExtension(+[](mlir::MLIRContext* ctx, VPU::VPUDialect*) {
         VPU::TransposedConvolutionOp::attachInterface<LayerWithPostOpModel<VPU::TransposedConvolutionOp>>(*ctx);

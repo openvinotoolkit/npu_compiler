@@ -44,13 +44,19 @@ void vpux::VPUIP::NCEClusterTaskOp::build(mlir::OpBuilder&, mlir::OperationState
     state.addAttributes(llvm::to_vector(task->getDiscardableAttrs()));
 
     // Compute value for resultSegmentSizes attribute and add it to the properties
-    int32_t outputSMVal = (task.getOutputSparsityMap() != nullptr) ? 1 : 0;
-    props.setResultSegmentSizes({1, outputSMVal, 1});
+    const int32_t outputVal = (task.getOutput() != nullptr) ? 1 : 0;
+    const int32_t outputSMVal = (task.getOutputSparsityMap() != nullptr) ? 1 : 0;
+    const int32_t maxPerXyVal = (task.getMaxPerXy() != nullptr) ? 1 : 0;
+    const int32_t minPerXyVal = (task.getMinPerXy() != nullptr) ? 1 : 0;
+    const auto minMaxPerTensorVal = checked_cast<int32_t>(task.getMinMaxPerTensor().size());
+    props.setResultSegmentSizes(
+            {outputVal, outputSMVal, /*profiling_output=*/1, maxPerXyVal, minPerXyVal, minMaxPerTensorVal});
 
     for (unsigned i = 0; i != 2; ++i) {
         state.addRegion();
     }
 
+    // Result types must be added in the order declared by the operation definition
     if (task.getOutput() != nullptr) {
         state.addTypes(task.getOutput().getType());
     }
@@ -60,6 +66,18 @@ void vpux::VPUIP::NCEClusterTaskOp::build(mlir::OpBuilder&, mlir::OperationState
     }
 
     state.addTypes(profilingOutput);
+
+    if (task.getMaxPerXy() != nullptr) {
+        state.addTypes(task.getMaxPerXy().getType());
+    }
+
+    if (task.getMinPerXy() != nullptr) {
+        state.addTypes(task.getMinPerXy().getType());
+    }
+
+    for (const auto minMaxPerTensor : task.getMinMaxPerTensor()) {
+        state.addTypes(minMaxPerTensor.getType());
+    }
 }
 
 void vpux::VPUIP::NCEClusterTaskOp::build(
@@ -409,18 +427,23 @@ mlir::LogicalResult verifyNCEConv(VPUIP::NCEClusterTaskOp op, config::ArchKind a
         return errorAt(op, "Kernel verification failed");
     }
 
+    // Check weights table OC alignment. When ODU autopad is used, the number of output channels in the result and
+    // the weights constant may be unaligned. The weights table however must still have the OC dimension aligned.
     if (op.getWeightTable() != nullptr && op.getWeights() != nullptr) {
         const auto weightTableShape = getShape(op.getWeightTable());
-        const auto weightTableNumElements = weightTableShape.totalSize();
-
         const auto weightsShape = getShape(op.getWeights());
-        const auto weightsTableOC =
-                alignValUp(weightsShape[Dims4D::Filter::OC], vpux::VPU::NCEInvariant::VPU_CHANNEL_ALIGNMENT);
 
-        if (weightsTableOC * VPUIP::NCEInvariant::WEIGHT_TABLE_NUM_ELEMENTS_PER_OC > weightTableNumElements) {
-            return errorAt(op, "Weight table must have elements greater than or equal to '{0}', got '{1}'",
-                           weightsTableOC * VPUIP::NCEInvariant::WEIGHT_TABLE_NUM_ELEMENTS_PER_OC,
-                           weightTableNumElements);
+        // Grouped MatMul keeps weights as a 5D [G, OC, IC, KY, KX] shape, where OC is not at index 0.
+        const auto ocDimWeights =
+                weightsShape.size() == DimsGroups5D::Filter::numDims ? DimsGroups5D::Filter::OC : Dims4D::Filter::OC;
+        const auto alignedOC = alignValUp(weightsShape[ocDimWeights], VPU::NCEInvariant::VPU_CHANNEL_ALIGNMENT);
+        const auto ocDimTable = (weightTableShape.size() == DimsGroups5D::Filter::numDims) ? 1 : 0;
+        auto expectedWeightTableShape = Shape(weightTableShape);
+        expectedWeightTableShape[Dim(ocDimTable)] = alignedOC;
+
+        if (expectedWeightTableShape.totalSize() > weightTableShape.totalSize()) {
+            return errorAt(op, "Weight table shape expected to be larger ('{0}'), got shape '{1}'",
+                           expectedWeightTableShape, weightTableShape);
         }
     }
 
@@ -512,7 +535,7 @@ mlir::LogicalResult verifyReduction(VPUIP::NCEClusterTaskOp op, config::ArchKind
     return mlir::success();
 }
 
-mlir::LogicalResult verifyNCEPool(VPUIP::NCEClusterTaskOp op) {
+mlir::LogicalResult verifyNCEPool(VPUIP::NCEClusterTaskOp op, [[maybe_unused]] config::ArchKind arch) {
     VPUX_THROW_UNLESS(
             op.getTaskType() == VPUIP::NCETaskType::AVEPOOL || op.getTaskType() == VPUIP::NCETaskType::MAXPOOL,
             "Expected task type '{0}' or '{1}', but got '{2}'", VPUIP::NCETaskType::AVEPOOL,
@@ -613,18 +636,23 @@ mlir::LogicalResult verifyNCEDWConv(VPUIP::NCEClusterTaskOp op, [[maybe_unused]]
         return errorAt(op, "Kernel verification failed");
     }
 
+    // Check weights table OC alignment. When ODU autopad is used, the number of output channels in the result and
+    // the weights constant may be unaligned. The weights table however must still have the OC dimension aligned.
     if (op.getWeightTable() != nullptr && op.getWeights() != nullptr) {
         const auto weightTableShape = getShape(op.getWeightTable());
-        const auto weightTableNumElements = weightTableShape.totalSize();
-
         const auto weightsShape = getShape(op.getWeights());
-        const auto weightsTableOC =
-                alignValUp(weightsShape[Dims4D::Filter::OC], vpux::VPU::NCEInvariant::VPU_CHANNEL_ALIGNMENT);
 
-        if (weightsTableOC * VPUIP::NCEInvariant::WEIGHT_TABLE_NUM_ELEMENTS_PER_OC > weightTableNumElements) {
-            return errorAt(op, "Weight table must have elements greater than or equal to '{0}' elements, got '{1}'",
-                           weightsTableOC * VPUIP::NCEInvariant::WEIGHT_TABLE_NUM_ELEMENTS_PER_OC,
-                           weightTableNumElements);
+        // Grouped MatMul keeps weights as a 5D [G, OC, IC, KY, KX] shape, where OC is not at index 0.
+        const auto ocDimWeights =
+                weightsShape.size() == DimsGroups5D::Filter::numDims ? DimsGroups5D::Filter::OC : Dims4D::Filter::OC;
+        const auto alignedOC = alignValUp(weightsShape[ocDimWeights], VPU::NCEInvariant::VPU_CHANNEL_ALIGNMENT);
+        const auto ocDimTable = (weightTableShape.size() == DimsGroups5D::Filter::numDims) ? 1 : 0;
+        auto expectedWeightTableShape = Shape(weightTableShape);
+        expectedWeightTableShape[Dim(ocDimTable)] = alignedOC;
+
+        if (expectedWeightTableShape.totalSize() > weightTableShape.totalSize()) {
+            return errorAt(op, "Weight table shape expected to be larger ('{0}'), got shape '{1}'",
+                           expectedWeightTableShape, weightTableShape);
         }
     }
 
@@ -706,7 +734,7 @@ mlir::LogicalResult vpux::VPUIP::NCEClusterTaskOp::verify() {
             return mlir::failure();
         }
     } else if (getTaskType() == VPUIP::NCETaskType::MAXPOOL || getTaskType() == VPUIP::NCETaskType::AVEPOOL) {
-        if (mlir::failed(verifyNCEPool(*this))) {
+        if (mlir::failed(verifyNCEPool(*this, arch))) {
             return mlir::failure();
         }
     } else if (getTaskType() == VPUIP::NCETaskType::ELTWISE) {
@@ -797,7 +825,7 @@ mlir::LogicalResult vpux::VPUIP::NCEClusterTaskOp::verify() {
     appendToVector(nnCMXOperands, getOutputBuff());
     appendToVector(nnCMXOperands, getProfilingData());
 
-    const auto checkMemoryKind = [&op](mlir::ValueRange operands, EnumSet<VPU::MemoryKind> acceptedMemoryKinds) {
+    const auto checkMemoryKind = [op](mlir::ValueRange operands, EnumSet<VPU::MemoryKind> acceptedMemoryKinds) {
         for (const auto& val : operands) {
             const auto type = mlir::cast<vpux::NDTypeInterface>(val.getType());
 

@@ -99,7 +99,6 @@ HardwareSimulator::HardwareSimulator(int64_t dmaCount, ArrayRef<VPUIP::DmaChanne
     _FIFOs.emplace(FIFOType(config::ExecutorKind::DPU), HardwareFIFO(1));
     _FIFOs.emplace(FIFOType(config::ExecutorKind::SHAVE_NN), HardwareFIFO(1));
     _FIFOs.emplace(FIFOType(config::ExecutorKind::SHAVE_ACT), HardwareFIFO(1));
-    _FIFOs.emplace(FIFOType(config::ExecutorKind::M2I), HardwareFIFO(1));
 
     for (const auto& dmaChannelType : dmaChannelTypes) {
         FIFOType queueType(config::ExecutorKind::DMA_NN, static_cast<uint8_t>(getDMAQueueIdEncoding(dmaChannelType)));

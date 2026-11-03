@@ -9,9 +9,11 @@
 #include "vpux/compiler/dialect/IE/IR/ops/data_type.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
 #include "vpux/compiler/dialect/IE/utils/convolution_utils.hpp"
+#include "vpux/compiler/dialect/IE/utils/matmul.hpp"
 #include "vpux/compiler/dialect/IE/utils/quantization.hpp"
 #include "vpux/compiler/dialect/VPU/IR/attributes.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
+#include "vpux/compiler/dialect/config/constraints.hpp"
 #include "vpux/compiler/dialect/config/utils/config_option_utils.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
 #include "vpux/compiler/utils/analysis.hpp"
@@ -37,8 +39,10 @@ using namespace vpux;
 namespace {
 
 bool isLegalTensor(vpux::NDTypeInterface tensorType, mlir::ModuleOp moduleOp, int64_t symmetricalZeroPoint = 128) {
+    const auto context = moduleOp->getContext();
+    const auto& constraints = config::getNPUConstraints(context);
     const auto isAsymmetricPerChannelZeroPointSupported = config::asymmetricPerChannelZeroPointSupported(moduleOp);
-    const auto isAsymmetricPerTensorZeroPointSupported = config::asymmetricPerTensorZeroPointSupported(moduleOp);
+    const auto isAsymmetricPerTensorZeroPointSupported = constraints.asymmetricPerTensorZP;
     const auto isSymmetricalZeroPoint = [](mlir::Type quantizedType, const int64_t symmetricalZeroPoint) -> bool {
         if (const auto uniformQuantizedType =
                     mlir::dyn_cast_or_null<mlir::quant::UniformQuantizedType>(quantizedType)) {
@@ -82,31 +86,72 @@ bool isLegalTensor(vpux::NDTypeInterface tensorType, mlir::ModuleOp moduleOp, in
 };
 
 //
-// ConvolutionRewriter
+// WeightedOpTraits
+//
+// Per-op accessors and cloning helpers used by the templated rewriter and the
+// dynamic legality check. Specialized for ops that carry F16 activations and a
+// constant U8 weights operand (IE::ConvolutionOp, IE::MatMulOp).
 //
 
-class ConvolutionRewriter final : public mlir::OpConversionPattern<IE::ConvolutionOp> {
+template <typename OpType>
+struct WeightedOpTraits;
+
+template <>
+struct WeightedOpTraits<IE::ConvolutionOp> {
+    static mlir::Value getActivation(IE::ConvolutionOp op) {
+        return op.getInput();
+    }
+    static mlir::Value getWeights(IE::ConvolutionOp op) {
+        return op.getFilter();
+    }
+    static mlir::Operation* clone(mlir::ConversionPatternRewriter& rewriter, IE::ConvolutionOp origOp,
+                                  mlir::Value newActivation, mlir::Value newWeights) {
+        return cloneConvolutionOp(rewriter, origOp, newActivation, newWeights).getOperation();
+    }
+};
+
+template <>
+struct WeightedOpTraits<IE::MatMulOp> {
+    static mlir::Value getActivation(IE::MatMulOp op) {
+        return op.getInput1();
+    }
+    static mlir::Value getWeights(IE::MatMulOp op) {
+        return op.getInput2();
+    }
+    static mlir::Operation* clone(mlir::ConversionPatternRewriter& rewriter, IE::MatMulOp origOp,
+                                  mlir::Value newActivation, mlir::Value newWeights) {
+        return cloneMatMulOp(rewriter, origOp, newActivation, newWeights);
+    }
+};
+
+//
+// WeightsToI8Rewriter
+//
+
+template <typename OpType>
+class WeightsToI8Rewriter final : public mlir::ConversionPattern {
 public:
-    ConvolutionRewriter(mlir::TypeConverter& typeConverter, mlir::MLIRContext* ctx, Logger log)
-            : mlir::OpConversionPattern<IE::ConvolutionOp>(typeConverter, ctx), _log(log) {
+    WeightsToI8Rewriter(mlir::TypeConverter& typeConverter, mlir::MLIRContext* ctx, Logger log)
+            : mlir::ConversionPattern(typeConverter, OpType::getOperationName(), benefitLow, ctx), _log(log) {
     }
 
-public:
-    mlir::LogicalResult matchAndRewrite(IE::ConvolutionOp origOp, OpAdaptor newArgs,
+    mlir::LogicalResult matchAndRewrite(mlir::Operation* origOp, ArrayRef<mlir::Value> newArgs,
                                         mlir::ConversionPatternRewriter& rewriter) const final;
-    Const::DeclareOp replaceConstDeclare(Const::DeclareOp origOp, mlir::ConversionPatternRewriter& rewriter) const;
 
 private:
+    Const::DeclareOp replaceConstDeclare(Const::DeclareOp origOp, mlir::ConversionPatternRewriter& rewriter) const;
+
     Logger _log;
 };
 
-Const::DeclareOp ConvolutionRewriter::replaceConstDeclare(Const::DeclareOp origOp,
-                                                          mlir::ConversionPatternRewriter& rewriter) const {
+template <typename OpType>
+Const::DeclareOp WeightsToI8Rewriter<OpType>::replaceConstDeclare(Const::DeclareOp origOp,
+                                                                  mlir::ConversionPatternRewriter& rewriter) const {
     const auto outputType = origOp.getType();
     const auto origQuantType =
             mlir::dyn_cast<mlir::quant::QuantizedType>(mlir::cast<vpux::NDTypeInterface>(outputType).getElementType());
 
-    const auto newType = mlir::cast<vpux::NDTypeInterface>(typeConverter->convertType(outputType));
+    const auto newType = mlir::cast<vpux::NDTypeInterface>(this->getTypeConverter()->convertType(outputType));
 
     const auto newQuantType = mlir::cast<mlir::quant::QuantizedType>(newType.getElementType());
     _log.nest().trace("Convert content from '{0}' to '{1}'", origQuantType, newQuantType);
@@ -117,32 +162,37 @@ Const::DeclareOp ConvolutionRewriter::replaceConstDeclare(Const::DeclareOp origO
     return newConstantOp;
 }
 
-mlir::LogicalResult ConvolutionRewriter::matchAndRewrite(IE::ConvolutionOp origOp, OpAdaptor,
-                                                         mlir::ConversionPatternRewriter& rewriter) const {
+template <typename OpType>
+mlir::LogicalResult WeightsToI8Rewriter<OpType>::matchAndRewrite(mlir::Operation* op, ArrayRef<mlir::Value>,
+                                                                 mlir::ConversionPatternRewriter& rewriter) const {
+    auto origOp = mlir::cast<OpType>(op);
     _log.trace("Process Operation '{0}' at '{1}", origOp->getName(), origOp->getLoc());
 
     auto* typeConverter = this->getTypeConverter();
     VPUX_THROW_WHEN(typeConverter == nullptr, "TypeConverter was not set");
 
-    // Prior legality checks ensures all ops are defined and not null
-    auto dequantizeOp = origOp.getFilter().getDefiningOp<IE::DequantizeOp>();
-    IE::ConvolutionOp newConvOp = nullptr;
+    using Traits = WeightedOpTraits<OpType>;
+
+    // Prior legality checks ensure operands are defined and not null
+    auto weightsValue = Traits::getWeights(origOp);
+    auto dequantizeOp = weightsValue.template getDefiningOp<IE::DequantizeOp>();
+    mlir::Operation* newOp = nullptr;
     if (dequantizeOp != nullptr) {
-        auto weightDeclareOp = dequantizeOp.getInput().getDefiningOp<Const::DeclareOp>();
+        auto weightDeclareOp = dequantizeOp.getInput().template getDefiningOp<Const::DeclareOp>();
         auto newCstDeclareOp = replaceConstDeclare(weightDeclareOp, rewriter);
         auto newDequantizeOp = IE::DequantizeOp::create(rewriter, takeOpLoc(origOp, "dequantize_filter"),
                                                         newCstDeclareOp.getOutput(), dequantizeOp.getDstElemTypeAttr());
-        newConvOp = cloneConvolutionOp(rewriter, origOp, origOp.getInput(), newDequantizeOp);
+        newOp = Traits::clone(rewriter, origOp, Traits::getActivation(origOp), newDequantizeOp.getOutput());
     } else {
-        auto weightDeclareOp = origOp.getFilter().getDefiningOp<Const::DeclareOp>();
+        auto weightDeclareOp = weightsValue.template getDefiningOp<Const::DeclareOp>();
         auto newCstDeclareOp = replaceConstDeclare(weightDeclareOp, rewriter);
-        newConvOp = cloneConvolutionOp(rewriter, origOp, origOp.getInput(), newCstDeclareOp.getOutput());
+        newOp = Traits::clone(rewriter, origOp, Traits::getActivation(origOp), newCstDeclareOp.getOutput());
     }
-    auto newConvOutType = mlir::cast<NDTypeInterface>(newConvOp.getOutput().getType());
-    auto newConvOutElemType = mlir::cast<NDTypeInterface>(origOp.getOutput().getType()).getElementType();
-    newConvOutType = newConvOutType.changeElemType(newConvOutElemType);
-    newConvOp->getResult(0).setType(newConvOutType);
-    rewriter.replaceOp(origOp, newConvOp);
+    auto newOutType = mlir::cast<NDTypeInterface>(newOp->getResult(0).getType());
+    auto newOutElemType = mlir::cast<NDTypeInterface>(origOp.getOutput().getType()).getElementType();
+    newOutType = newOutType.changeElemType(newOutElemType);
+    newOp->getResult(0).setType(newOutType);
+    rewriter.replaceOp(origOp, newOp);
 
     return mlir::success();
 }
@@ -251,25 +301,30 @@ void ConvertWeightsToI8Pass::safeRunOnFunc() {
 
     mlir::ConversionTarget target(ctx);
 
-    // We can't convert any operations that have operands with symmetric and asymmetric zero points, i.e.: IE::Add
-    target.addDynamicallyLegalOp<IE::ConvolutionOp>([&](IE::ConvolutionOp op) {
-        if (!op.getInput() || !op.getFilter()) {
+    // Templated legality check shared by IE::ConvolutionOp and IE::MatMulOp.
+    // Both ops carry an F16 activation and a U8 constant weights operand; the
+    // accessors are abstracted via WeightedOpTraits.
+    auto isLegalWeightedOp = [&](auto op) -> bool {
+        using OpType = std::decay_t<decltype(op)>;
+        using Traits = WeightedOpTraits<OpType>;
+
+        auto activation = Traits::getActivation(op);
+        auto weights = Traits::getWeights(op);
+        if (!activation || !weights) {
             return true;
         }
 
-        auto inputType = mlir::cast<vpux::NDTypeInterface>(op.getInput().getType()).getElementType();
-        // Input should be F16 and should not be FQ
+        auto inputType = mlir::cast<vpux::NDTypeInterface>(activation.getType()).getElementType();
+        // Activation should be F16 and not be produced by FakeQuantize/Dequantize
         if (!inputType.isF16()) {
             return true;
         }
 
-        // Input cannot be FakeQuantize or Dequantize
-        if (mlir::matchPattern(op.getInput(), mlir::m_Op<IE::FakeQuantizeOp>()) ||
-            mlir::matchPattern(op.getInput(), mlir::m_Op<IE::DequantizeOp>())) {
+        if (mlir::matchPattern(activation, mlir::m_Op<IE::FakeQuantizeOp>()) ||
+            mlir::matchPattern(activation, mlir::m_Op<IE::DequantizeOp>())) {
             return true;
         }
 
-        auto filterOp = op.getFilter();
         Const::DeclareOp weightDeclareOp = nullptr;
 
         auto isEligibleQuantType = [](Const::DeclareOp constantOp) -> bool {
@@ -295,19 +350,19 @@ void ConvertWeightsToI8Pass::safeRunOnFunc() {
             return true;
         };
 
-        if (mlir::matchPattern(filterOp, mlir::m_Op<Const::DeclareOp>())) {
-            auto constantOp = filterOp.getDefiningOp<Const::DeclareOp>();
+        if (mlir::matchPattern(weights, mlir::m_Op<Const::DeclareOp>())) {
+            auto constantOp = weights.template getDefiningOp<Const::DeclareOp>();
             if (!isEligibleQuantType(constantOp)) {
                 return true;
             }
             weightDeclareOp = constantOp;
-        } else if (mlir::matchPattern(filterOp, mlir::m_Op<IE::DequantizeOp>(mlir::m_Op<Const::DeclareOp>()))) {
-            auto dequantOp = filterOp.getDefiningOp<IE::DequantizeOp>();
+        } else if (mlir::matchPattern(weights, mlir::m_Op<IE::DequantizeOp>(mlir::m_Op<Const::DeclareOp>()))) {
+            auto dequantOp = weights.template getDefiningOp<IE::DequantizeOp>();
             if (dequantOp == nullptr) {
                 return true;
             }
 
-            auto innerConstOp = dequantOp.getInput().getDefiningOp<Const::DeclareOp>();
+            auto innerConstOp = dequantOp.getInput().template getDefiningOp<Const::DeclareOp>();
             if (!isEligibleQuantType(innerConstOp)) {
                 return true;
             }
@@ -322,13 +377,22 @@ void ConvertWeightsToI8Pass::safeRunOnFunc() {
         }
 
         return isLegalTensor(mlir::cast<vpux::NDTypeInterface>(weightDeclareOp.getOutput().getType()), moduleOp);
+    };
+
+    // We can't convert any operations that have operands with symmetric and asymmetric zero points, i.e.: IE::Add
+    target.addDynamicallyLegalOp<IE::ConvolutionOp>([&](IE::ConvolutionOp op) {
+        return isLegalWeightedOp(op);
+    });
+    target.addDynamicallyLegalOp<IE::MatMulOp>([&](IE::MatMulOp op) {
+        return isLegalWeightedOp(op);
     });
 
     target.addLegalOp<Const::DeclareOp>();
     target.addLegalOp<IE::DequantizeOp>();
 
     mlir::RewritePatternSet patterns(&ctx);
-    patterns.add<ConvolutionRewriter>(typeConverter, &ctx, _log);
+    patterns.add<WeightsToI8Rewriter<IE::ConvolutionOp>>(typeConverter, &ctx, _log);
+    patterns.add<WeightsToI8Rewriter<IE::MatMulOp>>(typeConverter, &ctx, _log);
 
     if (mlir::failed(applyPartialConversion(func, target, std::move(patterns)))) {
         signalPassFailure();

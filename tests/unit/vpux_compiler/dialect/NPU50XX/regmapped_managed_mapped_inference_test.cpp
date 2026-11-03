@@ -87,7 +87,6 @@ TEST_NPU5_MMI_INFO_REG_FIELD(taskReferenceCount_MMI_nnrt_config, nnrt_config.cou
 
 TEST_NPU5_MMI_INFO_REG_FIELD(MMI_actshv_used, actshv_used)
 TEST_NPU5_MMI_INFO_REG_FIELD(MMI_dpu_used, dpu_used)
-TEST_NPU5_MMI_INFO_REG_FIELD(MMI_media_used, media_used)
 TEST_NPU5_MMI_INFO_REG_FIELD(MMI_dma_from_ddr_used, dma_from_ddr_used)
 TEST_NPU5_MMI_INFO_REG_FIELD(MMI_dma_from_cmx_used, dma_from_cmx_used)
 

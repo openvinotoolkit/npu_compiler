@@ -57,9 +57,6 @@ if(BUILD_SHARED_LIBS)
 endif()
 
 if(ENABLE_NPU_EXECUTION_ENGINE)
-    if(BUILD_SHARED_LIBS)
-        add_subdirectory(mlir_runtime)
-    endif()
     add_subdirectory(vm_runtime)
 endif()
 

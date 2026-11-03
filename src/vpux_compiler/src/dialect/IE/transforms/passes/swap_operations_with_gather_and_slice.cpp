@@ -79,6 +79,12 @@ std::optional<ConcreteOp> MoveTwoInputsEltwiseOpAfterGather<ConcreteOp>::getSupp
         if (op->hasAttr(IE::SYNTHETIC_DYN_DEQUANT_ATTR)) {
             return std::nullopt;
         }
+        // Weights-import DynamicDequantize ops must keep a compile-time constant scale until
+        // ConvertDynamicDequantizeToFakeQuantize consumes them; gathering the scale here would turn it
+        // dynamic and make the bridge unable to match, leaving the op unconverted.
+        if (op->hasAttr(IE::WEIGHTS_IMPORT_DYN_DEQUANT_ATTR)) {
+            return std::nullopt;
+        }
     } else {
         if (op.getPostOpAttr() != nullptr || op.getClampAttr() != nullptr || op.getOutputPaddingAttr() != nullptr ||
             op.getInputPaddingAttr() != nullptr) {
@@ -986,6 +992,14 @@ mlir::LogicalResult PropagateSliceThroughFullyConnected::moveSliceToActivations(
 mlir::LogicalResult PropagateSliceThroughFullyConnected::splitToWeights(IE::FullyConnectedOp fcOp,
                                                                         mlir::PatternRewriter& rewriter) const {
     _log.trace("[{0}] Got '{1}' at '{2}'", getDebugName(), fcOp->getName(), fcOp->getLoc());
+
+    // Splitting a fused QKV projection increases the number of FullyConnected operations and
+    // compilation and scheduling overhead.
+    // Avoid PropagateSliceThroughFullyConnected on NPU37XX to limit compilation time (E#231670).
+    const auto arch = config::getArch(fcOp);
+    if (arch == config::ArchKind::NPU37XX) {
+        return mlir::failure();
+    }
 
     // Channel-dim split requires the FC output to be reshaped before the Slices; the direct
     // FullyConnected -> Slice chain is the batch-dim case handled by moveSliceToActivations.

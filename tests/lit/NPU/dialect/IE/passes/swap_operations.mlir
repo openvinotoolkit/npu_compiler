@@ -638,7 +638,7 @@ func.func @SwapWithBiasCostDefinedAfterActivation(%arg0: tensor<768x1152x3xf16>)
   %bias = const.Declare tensor<1x3x1x1xf16> = dense<[[[223]], [[15]], [[181]]]> : tensor<3x1x1xui8>, [#const.Reshape<[1, 3, 1, 1]>, #const.CastElemType<f32>, #const.CastElemType<f16>, #const.Rescale<-1.000000e+00 : f64>]
   %affine_reshape = IE.AffineReshape(%arg0) {dim_mapping = [[0, 1], [2], [3]], shape_value = [1, 768, 1152, 3]} : tensor<768x1152x3xf16> -> tensor<1x768x1152x3xf16>
   %transpose = IE.Transpose(%affine_reshape) {order_value = affine_map<(d0, d1, d2, d3) -> (d0, d3, d1, d2)>} : tensor<1x768x1152x3xf16> -> tensor<1x3x768x1152xf16>
-  %fq = IE.FakeQuantize(%bias, %fq_in_low, %fq_in_out_high, %fq_out_low, %fq_in_out_high) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i64} : tensor<1x3x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<1x3x1x1xf16>
+  %fq = IE.FakeQuantize(%bias, %fq_in_low, %fq_in_out_high, %fq_out_low, %fq_in_out_high) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256 : i64} : tensor<1x3x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<1x3x1x1xf16>
   %add = IE.Add(%transpose, %fq) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x3x768x1152xf16>, tensor<1x3x1x1xf16> -> tensor<1x3x768x1152xf16>
 
   return %add : tensor<1x3x768x1152xf16>
@@ -651,7 +651,7 @@ func.func @SwapWithBiasCostDefinedAfterActivation(%arg0: tensor<768x1152x3xf16>)
    // CHECK-SAME{LITERAL}: dense<[[[223]], [[15]], [[181]]]> : tensor<3x1x1xui8>, [#const.Reshape<[1, 3, 1, 1]>, #const.CastElemType<f32>, #const.CastElemType<f16>, #const.Rescale<-1.000000e+00 : f64>]
    // CHECK: [[AFFINE_RESHAPE:%.+]] = IE.AffineReshape([[ARG0]])
    // CHECK-SAME{LITERAL}: {dim_mapping = [[0, 1], [2], [3]], shape_value = [1, 768, 1152, 3]} : tensor<768x1152x3xf16> -> tensor<1x768x1152x3xf16>
-   // CHECK: [[FQ:%.+]] = IE.FakeQuantize([[BIAS]], [[FQ_IN_LOW]], [[FQ_IN_OUT_HIGH]], [[FQ_OUT_LOW]], [[FQ_IN_OUT_HIGH]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i64} : tensor<1x3x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<1x3x1x1xf16>
+   // CHECK: [[FQ:%.+]] = IE.FakeQuantize([[BIAS]], [[FQ_IN_LOW]], [[FQ_IN_OUT_HIGH]], [[FQ_OUT_LOW]], [[FQ_IN_OUT_HIGH]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256 : i64} : tensor<1x3x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<1x3x1x1xf16>
    // CHECK: [[TRANSPOSE_0:%.+]] = IE.Transpose([[FQ]]) {order_value = #NHWC} : tensor<1x3x1x1xf16> -> tensor<1x1x1x3xf16>
    // CHECK: [[ADD:%.+]] = IE.Add([[AFFINE_RESHAPE]], [[TRANSPOSE_0]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x768x1152x3xf16>, tensor<1x1x1x3xf16> -> tensor<1x768x1152x3xf16>
    // CHECK: [[TRANSPOSE_1:%.+]] = IE.Transpose([[ADD]]) {order_value = #NWCH} : tensor<1x768x1152x3xf16> -> tensor<1x3x768x1152xf16>
@@ -780,7 +780,7 @@ func.func @SwapWithFQBias(%arg0: tensor<77x1024x1x1xf16>) -> tensor<1x1024x77x1x
 
    %conv = IE.Convolution(%arg0, %filter) {dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]} : tensor<77x1024x1x1xf16>, tensor<1024x1024x1x1xf16> -> tensor<77x1024x1x1xf16>
    %reshape0 = IE.AffineReshape(%conv) {dim_mapping = [[0, 1, 2], [3], [3], [3]], shape_value = [1, 1, 77, 1024]} : tensor<77x1024x1x1xf16> -> tensor<1x1x77x1024xf16>
-   %fq = IE.FakeQuantize(%reshape0, %low, %high, %low, %high) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 65536 : i64} : tensor<1x1x77x1024xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<1x1x77x1024xf16>
+   %fq = IE.FakeQuantize(%reshape0, %low, %high, %low, %high) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 65536 : i64} : tensor<1x1x77x1024xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<1x1x77x1024xf16>
    %reshape1 = IE.AffineReshape(%fq) {dim_mapping = [[0], [0], [1], [2, 3]], shape_value = [1, 77, 1024, 1]} : tensor<1x1x77x1024xf16> -> tensor<1x77x1024x1xf16>
    %transpose = IE.Transpose(%reshape1) {order_value = #NHCW} : tensor<1x77x1024x1xf16> -> tensor<1x1024x77x1xf16>
    %add = IE.Add(%transpose, %bias) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1024x77x1xf16>, tensor<1x1024x1x1xf16> -> tensor<1x1024x77x1xf16>
@@ -807,9 +807,9 @@ func.func @DoNotSwapWithFQGelu(%arg0: tensor<256x3072x1x1xf16>) -> tensor<1x1x25
    %high = const.Declare tensor<1x1x1x1xf16> = dense<5.930200e+00> : tensor<1x1x1x1xf16>
 
    %reshape1 = IE.AffineReshape(%arg0) {dim_mapping = [[0, 1, 2], [3], [3], [3]], shape_value = [1, 1, 256, 3072]} : tensor<256x3072x1x1xf16> -> tensor<1x1x256x3072xf16>
-   %fq1 = IE.FakeQuantize(%reshape1, %low, %high, %low, %high) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i64} : tensor<1x1x256x3072xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<1x1x256x3072xf16>
+   %fq1 = IE.FakeQuantize(%reshape1, %low, %high, %low, %high) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256 : i64} : tensor<1x1x256x3072xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<1x1x256x3072xf16>
    %gelu = IE.Gelu(%fq1) : tensor<1x1x256x3072xf16> -> tensor<1x1x256x3072xf16>
-   %fq2 = IE.FakeQuantize(%gelu, %low, %high, %low, %high) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i64} : tensor<1x1x256x3072xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<1x1x256x3072xf16>
+   %fq2 = IE.FakeQuantize(%gelu, %low, %high, %low, %high) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256 : i64} : tensor<1x1x256x3072xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<1x1x256x3072xf16>
 
    return %fq2 : tensor<1x1x256x3072xf16>
 
@@ -833,7 +833,7 @@ func.func @DoNotSwapWithFQSingleValueBiasAddMul(%arg0: tensor<1x77x1024x1xf16>) 
    %scale = const.Declare tensor<1x1x1x1xf16> = dense<0.5> : tensor<1x1x1x1xf16>
 
    %reshape = IE.AffineReshape(%arg0) {dim_mapping = [[0, 1], [2], [3], [3]], shape_value = [1, 1, 77, 1024]} : tensor<1x77x1024x1xf16> -> tensor<1x1x77x1024xf16>
-   %fq = IE.FakeQuantize(%reshape, %low, %high, %low, %high) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i64} : tensor<1x1x77x1024xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<1x1x77x1024xf16>
+   %fq = IE.FakeQuantize(%reshape, %low, %high, %low, %high) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256 : i64} : tensor<1x1x77x1024xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<1x1x77x1024xf16>
    %add = IE.Add(%fq, %bias) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x77x1024xf16>, tensor<1x1x1x1xf16> -> tensor<1x1x77x1024xf16>
    %multiply = IE.Multiply(%add, %scale) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x77x1024xf16>, tensor<1x1x1x1xf16> -> tensor<1x1x77x1024xf16>
 
@@ -858,7 +858,7 @@ func.func @SwapWithFQNotConstAdd(%arg0: tensor<1x77x1024x1xf16>, %arg1: tensor<1
    %scale = const.Declare tensor<1x1x1x1xf16> = dense<0.5> : tensor<1x1x1x1xf16>
 
    %reshape = IE.AffineReshape(%arg0) {dim_mapping = [[0, 1], [2], [3], [3]], shape_value = [1, 1, 77, 1024]} : tensor<1x77x1024x1xf16> -> tensor<1x1x77x1024xf16>
-   %fq = IE.FakeQuantize(%reshape, %low, %high, %low, %high) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i64} : tensor<1x1x77x1024xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<1x1x77x1024xf16>
+   %fq = IE.FakeQuantize(%reshape, %low, %high, %low, %high) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256 : i64} : tensor<1x1x77x1024xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<1x1x77x1024xf16>
    %add = IE.Add(%fq, %arg1) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x77x1024xf16>, tensor<1x1x1x1xf16> -> tensor<1x1x77x1024xf16>
    %multiply = IE.Multiply(%add, %scale) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x77x1024xf16>, tensor<1x1x1x1xf16> -> tensor<1x1x77x1024xf16>
 
@@ -885,7 +885,7 @@ func.func @SwapWithFQChangeLayout(%arg0: tensor<1x512x64x64xf16, {order = #NHWC}
    %high = const.Declare tensor<1x1x1x1xf16> = dense<5.930200e+00> : tensor<1x1x1x1xf16>
 
    %reshape0 = IE.AffineReshape(%arg0) {dim_mapping = [[0, 1], [2], [3], [3]], shape_value = [1, 1, 512, 4096]} : tensor<1x512x64x64xf16, {order = #NHWC}> -> tensor<1x1x512x4096xf16, {order = #NCWH}>
-   %fq = IE.FakeQuantize(%reshape0, %low, %high, %low, %high) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 65536 : i64} : tensor<1x1x512x4096xf16, {order = #NCWH}>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<1x1x512x4096xf16, {order = #NCWH}>
+   %fq = IE.FakeQuantize(%reshape0, %low, %high, %low, %high) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 65536 : i64} : tensor<1x1x512x4096xf16, {order = #NCWH}>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<1x1x512x4096xf16, {order = #NCWH}>
    %reshape1 = IE.AffineReshape(%fq) {dim_mapping = [[0], [0], [1], [2, 3]], shape_value = [1, 512, 4096, 1]} : tensor<1x1x512x4096xf16, {order = #NCWH}> -> tensor<1x512x4096x1xf16, {order = #NHWC}>
 
    return %reshape1 : tensor<1x512x4096x1xf16, {order = #NHWC}>
@@ -904,7 +904,7 @@ func.func @NotSwapWithPerAxisFQ(%arg0: tensor<3x30x30x1xf16>) -> tensor<1x3x30x3
    %high = const.Declare tensor<1x3x1x1xf16> = dense<[[[[5.0]],[[6.0]], [[5.0]]]]>  : tensor<1x3x1x1xf16>
 
    %reshape = IE.AffineReshape(%arg0) {dim_mapping = [[0, 1], [2], [3], [3]], shape_value = [1, 3, 30, 30]} : tensor<3x30x30x1xf16> -> tensor<1x3x30x30xf16>
-   %fq = IE.FakeQuantize(%reshape, %low, %high, %low, %high) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i64} : tensor<1x3x30x30xf16>, tensor<1x3x1x1xf16>, tensor<1x3x1x1xf16>, tensor<1x3x1x1xf16>, tensor<1x3x1x1xf16> -> tensor<1x3x30x30xf16>
+   %fq = IE.FakeQuantize(%reshape, %low, %high, %low, %high) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256 : i64} : tensor<1x3x30x30xf16>, tensor<1x3x1x1xf16>, tensor<1x3x1x1xf16>, tensor<1x3x1x1xf16>, tensor<1x3x1x1xf16> -> tensor<1x3x30x30xf16>
 
    return %fq : tensor<1x3x30x30xf16>
 
@@ -920,7 +920,7 @@ func.func @NotSwapWithPerAxisFQ(%arg0: tensor<3x30x30x1xf16>) -> tensor<1x3x30x3
 func.func @FQInputIsBlockArgument(%arg0: tensor<1x1x77x1024xf16>) -> tensor<1x1x77x1024xf16> {
    %low = const.Declare tensor<1x1x1x1xf16> = dense<-5.12660551> : tensor<1x1x1x1xf16>
    %high = const.Declare tensor<1x1x1x1xf16> = dense<5.930200e+00> : tensor<1x1x1x1xf16>
-   %fq = IE.FakeQuantize(%arg0, %low, %high, %low, %high) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 65536 : i64} : tensor<1x1x77x1024xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<1x1x77x1024xf16>
+   %fq = IE.FakeQuantize(%arg0, %low, %high, %low, %high) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 65536 : i64} : tensor<1x1x77x1024xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<1x1x77x1024xf16>
    return %fq : tensor<1x1x77x1024xf16>
 
    // CHECK: IE.FakeQuantize

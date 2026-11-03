@@ -101,6 +101,8 @@ def OneShotBufferizeVPU2VPUIP : PassBase<"one-shot-bufferize-VPU-to-VPUIP", "vpu
         One shot bufferize ops from VPU to VPUIP dialect, include converting:
         (1) software ops from VPU to VPUIP::SWKernel ops. (37XX+)
         (2) ops which can be executed on NCE to VPUIP::NCEClusterTask ops. (37XX+)
+        (3) residual tensor.extract_slice/insert_slice/cast ops to memref subview/copy/cast,
+            preserving MemRefAttr bounds and offset. (37XX+)
     }];
 
     let constructor = "vpux::createOneShotBufferizeVPU2VPUIPPass()";
@@ -210,6 +212,26 @@ def ExpandLayers : PassBase<"expand-layers", "vpux::ModulePass"> {
     ];
 }
 
+
+//
+// ExpandNonContiguousMemRefCopy
+//
+
+def ExpandNonContiguousMemRefCopy : PassBase<"expand-non-contiguous-memref-copy", "vpux::ModulePass"> {
+    let summary = "Expand memref.copy ops that would lower to a memrefCopy runtime call";
+
+    let description = [{
+        Rewrites non-contiguous memref.copy ops in the VPU.SW module into linalg.generic
+        ops. These would otherwise be lowered to memrefCopy calls.
+    }];
+
+    let constructor = "vpux::ShaveCodeGen::createExpandNonContiguousMemRefCopyPass()";
+
+    let dependentDialects = [
+        "mlir::linalg::LinalgDialect",
+        "mlir::memref::MemRefDialect"
+    ];
+}
 
 //
 // ConvertAffine2LLVM

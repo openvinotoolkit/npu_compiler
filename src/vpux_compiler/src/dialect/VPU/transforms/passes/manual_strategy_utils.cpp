@@ -17,7 +17,8 @@
 
 #include <llvm/Support/MD5.h>
 
-#include <map>
+#include <cassert>
+#include <limits>
 #include <mutex>
 #include <shared_mutex>
 
@@ -35,7 +36,6 @@ namespace {
 // mutex to protect file r/w for multi-threading
 static std::shared_mutex writeStrategyFileMutex;
 static std::shared_mutex dumpStrategyFileMutex;
-static std::mutex loopIndexMutex;
 
 // Function to get the model ID based on the NetworkInfoOp
 std::string getModelID(mlir::ModuleOp moduleOp) {
@@ -454,37 +454,41 @@ void vpux::copyLoopAttributes(mlir::Operation* srcOp, mlir::Operation* dstOp) {
 
 namespace {
 
-int64_t getNextLoopIndex(mlir::ModuleOp module, StringRef loopIndexAttrName, StringRef loopType) {
-    VPUX_THROW_UNLESS(module != nullptr, "Cannot allocate {0} loop index without a module", loopType);
-    std::lock_guard<std::mutex> guard(loopIndexMutex);
+int64_t getNextLoopIndex(int64_t& nextIndex) {
+    assert(nextIndex != std::numeric_limits<int64_t>::max() && "Loop index values are exhausted");
+    return nextIndex++;
+}
 
-    // The next index is always derived from the IR, so that it cannot be affected by the state
-    // left over from another module. Every caller stores the returned index into the IR before
-    // requesting the next one, which keeps the allocated indices unique.
-    int64_t nextIndex = 0;
-    bool hasLoopIndex = false;
-    int64_t maxLoopIndex = std::numeric_limits<int64_t>::min();
-    module.walk([&](mlir::Operation* op) {
-        if (const auto loopIndex = op->getAttrOfType<I64Attr>(loopIndexAttrName)) {
-            maxLoopIndex = std::max(maxLoopIndex, mlir::cast<mlir::IntegerAttr>(loopIndex).getInt());
-            hasLoopIndex = true;
+std::pair<int64_t, int64_t> getInitialLoopIndices(mlir::func::FuncOp func) {
+    int64_t maxTilingLoopIndex = -1;
+    int64_t maxVFLoopIndex = -1;
+    func.walk([&](mlir::Operation* op) {
+        if (const auto tilingLoopIndex = op->getAttrOfType<I64Attr>(TILING_LOOP_INDEX_ATTR_NAME)) {
+            maxTilingLoopIndex = std::max(maxTilingLoopIndex, mlir::cast<mlir::IntegerAttr>(tilingLoopIndex).getInt());
+        }
+        if (const auto vfLoopIndex = op->getAttrOfType<I64Attr>(VF_LOOP_INDEX_ATTR_NAME)) {
+            maxVFLoopIndex = std::max(maxVFLoopIndex, mlir::cast<mlir::IntegerAttr>(vfLoopIndex).getInt());
         }
     });
-    if (hasLoopIndex) {
-        VPUX_THROW_WHEN(maxLoopIndex == std::numeric_limits<int64_t>::max(),
-                        "Cannot allocate {0} loop index: all int64_t values are exhausted", loopType);
-        nextIndex = maxLoopIndex + 1;
-    }
 
-    return nextIndex;
+    return {maxTilingLoopIndex + 1, maxVFLoopIndex + 1};
 }
 
 }  // namespace
 
-int64_t vpux::getNextTilingLoopIndex(mlir::ModuleOp module) {
-    return getNextLoopIndex(module, TILING_LOOP_INDEX_ATTR_NAME, "tiling");
+vpux::LoopIndexAllocator::LoopIndexAllocator(mlir::func::FuncOp func) {
+    VPUX_THROW_UNLESS(func != nullptr, "Cannot allocate tiling loop index without a function");
+    const auto [nextTilingLoopIndex, nextVFLoopIndex] = getInitialLoopIndices(func);
+    _nextTilingLoopIndex = nextTilingLoopIndex;
+    _nextVFLoopIndex = nextVFLoopIndex;
 }
 
-int64_t vpux::getNextVFLoopIndex(mlir::ModuleOp module) {
-    return getNextLoopIndex(module, VF_LOOP_INDEX_ATTR_NAME, "VF");
+int64_t vpux::LoopIndexAllocator::getNextTilingLoopIndex() {
+    std::lock_guard<std::mutex> lock(_mutex);
+    return getNextLoopIndex(_nextTilingLoopIndex);
+}
+
+int64_t vpux::LoopIndexAllocator::getNextVFLoopIndex() {
+    std::lock_guard<std::mutex> lock(_mutex);
+    return getNextLoopIndex(_nextVFLoopIndex);
 }

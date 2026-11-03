@@ -14,6 +14,7 @@
 #include "vpux/compiler/dialect/VPU/utils/concat_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/const_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/conv_utils.hpp"
+#include "vpux/compiler/dialect/VPU/utils/distributed_tensor_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/generate_tiling.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_invariant.hpp"
 #include "vpux/compiler/dialect/config/IR/resources.hpp"
@@ -98,21 +99,43 @@ static int64_t getAlignmentFromDynamicDequantize(mlir::Operation* op, bool enabl
 
     auto filterShape = getShape(weights);
     auto dequantInShape = getShape(currentOp->getOperand(0));
-    if (filterShape.size() != 4 || dequantInShape.size() != 4) {
+    const auto filterRank = filterShape.size();
+    const auto actRank = dequantInShape.size();
+    if (filterRank != 4 || actRank != 4) {
         return 0;
     }
 
-    bool mergedIC =
-            filterShape[Dims4D::Filter::OC] == dequantInShape[Dims4D::Act::C] &&
-            filterShape[Dims4D::Filter::IC] == dequantInShape[Dims4D::Act::H] * dequantInShape[Dims4D::Act::W] &&
-            filterShape[Dims4D::Filter::KY] == 1 && filterShape[Dims4D::Filter::KX] == 1;
+    const auto actC = VPU::NCEInvariant::getActChannelDim(actRank);
+    const auto actH = VPU::NCEInvariant::getActHeightDim(actRank);
+    const auto actW = VPU::NCEInvariant::getActWidthDim(actRank);
+
+    bool mergedIC = filterShape[VPU::NCEInvariant::getFilterChannelDim(filterRank)] == dequantInShape[actC] &&
+                    filterShape[VPU::NCEInvariant::getFilterInputChannelDim(filterRank)] ==
+                            dequantInShape[actH] * dequantInShape[actW] &&
+                    filterShape[VPU::NCEInvariant::getFilterKernelYDim(filterRank)] == 1 &&
+                    filterShape[VPU::NCEInvariant::getFilterKernelXDim(filterRank)] == 1;
     if (!mergedIC) {
         return 0;
     }
 
     // The post AffineReshape of DynamicDequantize merges [H, W] into IC, so alignment is set to W for
     // making pattern SplitMemPermuteAndDynamicDequantizeOp work
-    return dequantInShape[Dims4D::Act::W];
+    const auto groupSize = dequantInShape[actW];
+
+    // A sub-byte packed operand (e.g. a 2-bit zero-point with groupSize=1) may not be byte-aligned
+    // per individual group, so splitting IC on a group boundary alone isn't enough: the group count
+    // per split must also keep every operand byte-addressable. Exclude operands that broadcast along H from this
+    // alignment calculation.
+    int64_t subByteGroupFactor = 1;
+    for (auto operand : currentOp->getOperands()) {
+        const auto operandShape = getShape(operand);
+        if (operandShape.size() <= static_cast<size_t>(actH.ind()) || operandShape[actH] == 1) {
+            continue;
+        }
+        subByteGroupFactor = std::lcm(subByteGroupFactor, getByteAddressableTileAlignment(operand, actH));
+    }
+
+    return groupSize * subByteGroupFactor;
 }
 
 // Matches the subgraph pattern for NCEConvolutionOp:
@@ -215,6 +238,7 @@ mlir::LogicalResult EnsureNCEOpSizeRequirements::matchAndRewrite(VPU::TilingBuil
     const auto moduleOp = op->getParentOfType<mlir::ModuleOp>();
     const auto numClusters = config::getTileExecutor(moduleOp).getCount();
     const int64_t concatInputAlignment = getAlignmentFromConcatSlicePattern(op);
+    const auto outChannelDim = VPU::NCEInvariant::getActChannelDim(outputShape.size());
 
     const auto getTilesWithOptionalConcatAlignment = [&](ShapeRef tilesOnDim) -> mlir::FailureOr<OutputTiling> {
         if (concatInputAlignment == 0) {
@@ -224,7 +248,7 @@ mlir::LogicalResult EnsureNCEOpSizeRequirements::matchAndRewrite(VPU::TilingBuil
         // Preserve op-specific alignment and tile-unroll order, then LCM the C-dimension
         // alignment with the concat input alignment to respect concat boundaries.
         auto alignment = getAlignment(op, tilesOnDim, outputShape);
-        alignment[Dims4D::Act::C.ind()] = std::lcm(alignment[Dims4D::Act::C.ind()], concatInputAlignment);
+        alignment[outChannelDim.ind()] = std::lcm(alignment[outChannelDim.ind()], concatInputAlignment);
         auto optionalAlignment = std::optional<ArrayRef<int64_t>>(alignment);
         auto unrollSpatialFirst = isSpatialFirstNestedTiling(op, tilesOnDim);
         return fillDividedTiles(tilesOnDim, outputShape, optionalAlignment, unrollSpatialFirst);
@@ -241,7 +265,7 @@ mlir::LogicalResult EnsureNCEOpSizeRequirements::matchAndRewrite(VPU::TilingBuil
             }
             auto inputTiling = origOp.backInferTileInfo(tile, log);
             auto& inTiles = inputTiling.tiles;
-            if ((dimToTile != Dims4D::Act::C) &&
+            if ((dimToTile != outChannelDim) &&
                 (inTiles.begin()->shape[dimToTile] > VPU::NCEInvariant::VPU_DIMENSION_LIMIT)) {
                 return false;
             }
@@ -254,7 +278,7 @@ mlir::LogicalResult EnsureNCEOpSizeRequirements::matchAndRewrite(VPU::TilingBuil
     // operations when the number of clusters is greater than 2
     SmallVector<int64_t> outputDimThresholds(outputShape.size(), VPU::NCEInvariant::VPU_DIMENSION_LIMIT);
     if (hasSplitOverKernelStrategy(op) && numClusters > 2) {
-        outputDimThresholds[(Dims4D::Act::C).ind()] = VPU::NCEInvariant::VPU_DIMENSION_LIMIT * numClusters;
+        outputDimThresholds[outChannelDim.ind()] = VPU::NCEInvariant::VPU_DIMENSION_LIMIT * numClusters;
     }
 
     for (auto tileDimIter = tileDimOrder.begin(); tileDimIter < tileDimOrder.end(); ++tileDimIter) {
@@ -291,8 +315,9 @@ static bool shouldSkipICSplitDueToConcatAlignment(VPU::NCEConvolutionOp convOp, 
         return true;
     }
 
+    const auto inputShape = getShape(convOp.getInput());
     const int64_t icAlign = getAlignmentFromConcatSlicePattern(convOp);
-    const int64_t inputC = getShape(convOp.getInput())[Dims4D::Act::C];
+    const int64_t inputC = inputShape[VPU::NCEInvariant::getActChannelDim(inputShape.size())];
     return icAlign > 0 && icAlign > maxTileIC && inputC <= VPU::NCEInvariant::VPU_DIMENSION_LIMIT;
 }
 
@@ -341,13 +366,22 @@ static int64_t computeMaxPipelinableIC(VPU::NCEConvolutionOp op) {
     const auto inType = mlir::cast<vpux::NDTypeInterface>(op.getInput().getType());
     const auto weightsType = mlir::cast<vpux::NDTypeInterface>(op.getFilter().getType());
     const auto kernelShape = getShape(op.getFilter());
-    const auto kernelH = kernelShape[Dims4D::Filter::KY];
-    const auto kernelW = kernelShape[Dims4D::Filter::KX];
+    const auto filterRank = kernelShape.size();
+    const auto kernelH = kernelShape[VPU::NCEInvariant::getFilterKernelYDim(filterRank)];
+    const auto kernelW = kernelShape[VPU::NCEInvariant::getFilterKernelXDim(filterRank)];
+
+    const auto inRank = inputShape.size();
+    const auto outRank = outputShape.size();
+    const auto inBatchDim = VPU::NCEInvariant::getActBatchDim(inRank);
+    const auto inHeightDim = VPU::NCEInvariant::getActHeightDim(inRank);
+    const auto inWidthDim = VPU::NCEInvariant::getActWidthDim(inRank);
+    const auto outBatchDim = VPU::NCEInvariant::getActBatchDim(outRank);
+    const auto outChannelDim = VPU::NCEInvariant::getActChannelDim(outRank);
 
     // IC alignment derived from data types (matches the existing tiling alignment logic).
     const auto inAlignment = VPU::NCEInvariant::getAlignment(inType.getElementType());
     const auto weightsAlignment = VPU::NCEInvariant::getAlignment(weightsType.getElementType());
-    const int64_t icAlignment =
+    const auto icAlignment =
             ((inAlignment * kernelW * kernelH) % weightsAlignment == 0) ? inAlignment : weightsAlignment;
 
     // Per-IC-slice byte footprints use the minimum efficient tile dimensions (minH, minW, minOC)
@@ -356,9 +390,9 @@ static int64_t computeMaxPipelinableIC(VPU::NCEConvolutionOp op) {
     // efficient?" so that any tile meeting the H/W/OC guard above can be pipelined.
     // If the actual dimension is smaller than the minimum threshold, use the actual dimension.
     // (round bits up to whole bytes).
-    const int64_t tileH = std::min(inputShape[Dims4D::Act::H], minH);
-    const int64_t tileW = std::min(inputShape[Dims4D::Act::W], minW);
-    const int64_t tileOC = std::min(outputShape[Dims4D::Act::C], minOC);
+    const int64_t tileH = std::min(inputShape[inHeightDim], minH);
+    const int64_t tileW = std::min(inputShape[inWidthDim], minW);
+    const int64_t tileOC = std::min(outputShape[outChannelDim], minOC);
 
     const auto strides = parseIntArrayAttr<int64_t>(op.getStrides());
     const int64_t strideH = strides[0];
@@ -366,10 +400,10 @@ static int64_t computeMaxPipelinableIC(VPU::NCEConvolutionOp op) {
     const int64_t outTileH = (tileH + strideH - 1) / strideH;
     const int64_t outTileW = (tileW + strideW - 1) / strideW;
 
-    const int64_t inBytesPerIC = computeTileBytes(inputShape[Dims4D::Act::N] * tileH * tileW, inType.getElementType());
+    const int64_t inBytesPerIC = computeTileBytes(inputShape[inBatchDim] * tileH * tileW, inType.getElementType());
     const int64_t weightBytesPerIC = computeTileBytes(tileOC * kernelH * kernelW, weightsType.getElementType());
     const int64_t outBytes =
-            computeTileBytes(outputShape[Dims4D::Act::N] * tileOC * outTileH * outTileW, outType.getElementType());
+            computeTileBytes(outputShape[outBatchDim] * tileOC * outTileH * outTileW, outType.getElementType());
 
     const int64_t cmxBytes = VPU::getTotalCMXSize(op).count();
     const int64_t cmxForTiles = cmxBytes - 2 * outBytes;
@@ -425,7 +459,8 @@ mlir::LogicalResult EnsureConvICRequirements::matchAndRewrite(VPU::NCEConvolutio
     // TODO: E#70421
 
     const auto inputShape = getShape(origOp.getInput());
-    const auto inputC = inputShape[Dims4D::Act::C];
+    const auto inChannelDim = VPU::NCEInvariant::getActChannelDim(inputShape.size());
+    const auto inputC = inputShape[inChannelDim];
 
     // Compute the maximum IC per tile that still allows CMX pipelining with sufficient
     // spatial workload size for good DPU efficiency (H/W >= 8, OC >= 64).
@@ -445,18 +480,43 @@ mlir::LogicalResult EnsureConvICRequirements::matchAndRewrite(VPU::NCEConvolutio
     }
 
     const auto kernelShape = getShape(origOp.getFilter());
-    const auto kernelW = kernelShape[Dims4D::Filter::KX];
-    const auto kernelH = kernelShape[Dims4D::Filter::KY];
+    const auto filterRank = kernelShape.size();
+    const auto kernelW = kernelShape[VPU::NCEInvariant::getFilterKernelXDim(filterRank)];
+    const auto kernelH = kernelShape[VPU::NCEInvariant::getFilterKernelYDim(filterRank)];
 
-    const int64_t icAlign = combineOptionalAlignments(
-            getAlignmentFromConcatSlicePattern(origOp),
-            getAlignmentFromDynamicDequantize(origOp, _enableSplitChannelForDynamicDequantize));
-    const int64_t effectiveMaxTileIC = (icAlign > maxTileIC) ? icAlign : maxTileIC;
+    const auto concatAlignment = getAlignmentFromConcatSlicePattern(origOp);
+    const auto dynamicDequantizeAlignment =
+            getAlignmentFromDynamicDequantize(origOp, _enableSplitChannelForDynamicDequantize);
+    const auto icAlign = combineOptionalAlignments(concatAlignment, dynamicDequantizeAlignment);
 
-    if (effectiveMaxTileIC == 0) {
-        _log.trace("[{0}] Invalid effectiveMaxTileIC=0 at '{1}'", this->getDebugName(), origOp->getLoc());
+    auto weightsType = mlir::cast<vpux::NDTypeInterface>(origOp.getFilter().getType());
+    auto alignedOp = mlir::dyn_cast<IE::AlignedChannelsOpInterface>(origOp.getOperation());
+    const auto inAlignment = alignedOp.getInputChannelAlignment();
+    const auto weightsAlignment =
+            VPU::NCEInvariant::getWeightSetAlignment(origOp.getOperation(), weightsType.getElementType());
+
+    // Weights alignment applies to IC * KH * KW, so reduce it to an IC-only requirement.
+    const auto kernelSpatialSize = kernelH * kernelW;
+    const auto weightsICAlignmentDivisor = std::gcd(weightsAlignment, kernelSpatialSize);
+    if (weightsICAlignmentDivisor == 0) {
         return mlir::failure();
     }
+    const auto weightsICAlignment = weightsAlignment / weightsICAlignmentDivisor;
+
+    auto tileICAlignment = std::lcm(inAlignment, weightsICAlignment);
+    if (icAlign != 0) {
+        tileICAlignment = std::lcm(tileICAlignment, icAlign);
+    }
+
+    // Keep concat-sized tiles when concat alignment meets or exceeds the pipelining budget
+    // and satisfies the full IC alignment; otherwise round down before fillDividedTiles.
+    const bool preserveConcatAlignedSplit = concatAlignment >= maxTileIC && tileICAlignment == concatAlignment;
+    const auto roundedMaxTileIC = alignValDown(maxTileIC, tileICAlignment);
+    const auto effectiveMaxTileIC = preserveConcatAlignedSplit ? tileICAlignment : roundedMaxTileIC;
+    VPUX_THROW_WHEN(effectiveMaxTileIC == 0,
+                    "Cannot split IC for '{0}' at '{1}': alignment requirement (tileICAlignment={2}) exceeds the "
+                    "pipelining budget (maxTileIC={3})",
+                    origOp->getName(), origOp->getLoc(), tileICAlignment, maxTileIC);
 
     const auto maxTiles = vpux::divUp(inputC, effectiveMaxTileIC);
 
@@ -465,32 +525,10 @@ mlir::LogicalResult EnsureConvICRequirements::matchAndRewrite(VPU::NCEConvolutio
     }
 
     Shape nTilesOnDim(inputShape.size(), 1);
-    nTilesOnDim[Dims4D::Act::C] = maxTiles;
+    nTilesOnDim[inChannelDim] = maxTiles;
 
     SmallVector<int64_t> alignment(inputShape.size(), 1);
-    auto weightsType = mlir::cast<vpux::NDTypeInterface>(origOp.getFilter().getType());
-    auto alignedOp = mlir::dyn_cast<IE::AlignedChannelsOpInterface>(origOp.getOperation());
-    const auto inAlignment = alignedOp.getInputChannelAlignment();
-    const auto weightsAlignment =
-            VPU::NCEInvariant::getWeightSetAlignment(origOp.getOperation(), weightsType.getElementType());
-
-    // Weights alignment requirement is IC * KH * KW aligned with weightsAlignment. For
-    // int4 case, weightsAlignment = 32, if KH = 2, then IC = 16 can meet the requirement.
-    // So here we first check if inAlignment can meet the requirement or not.
-    const auto kernelSpatialSize = kernelH * kernelW;
-    const auto weightsICAlignmentDivisor = std::gcd(weightsAlignment, kernelSpatialSize);
-    if (weightsICAlignmentDivisor == 0) {
-        return mlir::failure();
-    }
-    const auto weightsICAlignment = weightsAlignment / weightsICAlignmentDivisor;
-
-    // The IC tile must satisfy both input activation alignment and weight-set alignment.
-    alignment[Dims4D::Act::C.ind()] = std::lcm(inAlignment, weightsICAlignment);
-
-    if (icAlign != 0) {
-        alignment[Dims4D::Act::C.ind()] = std::lcm(alignment[Dims4D::Act::C.ind()], icAlign);
-    }
-
+    alignment[inChannelDim.ind()] = tileICAlignment;
     auto optionalAlignment = std::optional<ArrayRef<int64_t>>(alignment);
     _log.trace("[{0}] op '{1}' nTilesOnDim={2} alignment={3} icAlign={4}", this->getDebugName(), origOp->getLoc(),
                nTilesOnDim, alignment, icAlign);
@@ -513,9 +551,9 @@ mlir::LogicalResult EnsureConvICRequirements::matchAndRewrite(VPU::NCEConvolutio
     auto results = VPU::splitNCEConvolutionOverIC(origOp, weightInput, convOps, addOps, dequantizeOps, tiles.value(),
                                                   weightDequantizeOp, rewriter, _log.nest());
 
-    if (getAlignmentFromConcatSlicePattern(origOp) > maxTileIC) {
+    if (preserveConcatAlignedSplit) {
         for (auto [tile, convOp] : llvm::zip_equal(tiles.value(), convOps)) {
-            if (tile.shape[Dims4D::Act::C] == VPU::NCEInvariant::VPU_DIMENSION_LIMIT) {
+            if (tile.shape[inChannelDim] == concatAlignment) {
                 convOp->setAttr(preserveConcatAlignedICSplitAttr, rewriter.getUnitAttr());
             }
         }
@@ -778,8 +816,9 @@ void EnsureNCEOpsSizeRequirementsPass::safeRunOnFunc() {
         }
 
         const auto inputShape = getShape(op->getOperand(0));
+        const auto inChannelDim = VPU::NCEInvariant::getActChannelDim(inputShape.size());
         if (mlir::isa<VPU::NCEMatMulOp>(op)) {
-            return inputShape[DimsGroups5D::Act::C] <= VPU::NCEInvariant::VPU_DIMENSION_LIMIT;
+            return inputShape[inChannelDim] <= VPU::NCEInvariant::VPU_DIMENSION_LIMIT;
         }
 
         // For NCEConvolutionOp use the dynamic pipelining-aware IC threshold.
@@ -788,7 +827,7 @@ void EnsureNCEOpsSizeRequirementsPass::safeRunOnFunc() {
         if (shouldSkipICSplitDueToConcatAlignment(convOp, maxTileIC)) {
             return true;
         }
-        return inputShape[Dims4D::Act::C] <= maxTileIC;
+        return inputShape[inChannelDim] <= maxTileIC;
     });
 
     patterns.add<EnsureConvICRequirements>(&ctx, enableSplitChannelForDynamicDequantize, _log);
@@ -823,6 +862,8 @@ void EnsureNCEOpsSizeRequirementsPass::safeRunOnFunc() {
             const auto inputShape = getShape(op->getOperand(0));
             const auto outputShape = getShape(op->getResult(0));
             const auto numClusters = config::getTileExecutor(moduleOp).getCount();
+            const auto inChannelDim = VPU::NCEInvariant::getActChannelDim(inputShape.size());
+            const auto outChannelDim = VPU::NCEInvariant::getActChannelDim(outputShape.size());
 
             // Construct dim-specific thresholds for input and output shapes
             // In our test, extending the threshold on Dim C can improve performance by reducing workloads for SOK NCE
@@ -830,8 +871,8 @@ void EnsureNCEOpsSizeRequirementsPass::safeRunOnFunc() {
             SmallVector<int64_t> inputDimThresholds(inputShape.size(), VPU::NCEInvariant::VPU_DIMENSION_LIMIT);
             SmallVector<int64_t> outputDimThresholds(outputShape.size(), VPU::NCEInvariant::VPU_DIMENSION_LIMIT);
             if (hasSplitOverKernelStrategy(op) && numClusters > 2) {
-                inputDimThresholds[(Dims4D::Act::C).ind()] = VPU::NCEInvariant::VPU_DIMENSION_LIMIT * numClusters;
-                outputDimThresholds[(Dims4D::Act::C).ind()] = VPU::NCEInvariant::VPU_DIMENSION_LIMIT * numClusters;
+                inputDimThresholds[inChannelDim.ind()] = VPU::NCEInvariant::VPU_DIMENSION_LIMIT * numClusters;
+                outputDimThresholds[outChannelDim.ind()] = VPU::NCEInvariant::VPU_DIMENSION_LIMIT * numClusters;
             }
 
             auto inSizeWrongDims = getDimsOverKHWLimit(inputShape, inputDimThresholds);
@@ -842,6 +883,7 @@ void EnsureNCEOpsSizeRequirementsPass::safeRunOnFunc() {
             if (!outSizeWrongDims.empty()) {
                 _log.nest(2).debug("Output size has dims greater than HW requirements: {0}", outSizeWrongDims);
             }
+
             // Skip slicing conv with dequant weight input before strategy is assigned : this allows for more vertical
             // fusion for large convs
             if (enableDequantWeightEnsuranceBeforeStrategy) {
@@ -856,16 +898,33 @@ void EnsureNCEOpsSizeRequirementsPass::safeRunOnFunc() {
                 }
             }
 
+            const auto eraseChannel = [](SmallVector<Dim>& wrongDims, Dim channelDim) {
+                wrongDims.erase(std::remove(wrongDims.begin(), wrongDims.end(), channelDim), wrongDims.end());
+            };
+
+            // For SOK-compatible MatMuls defer channel split until multicluster strategy has been assigned. For some
+            // workloads SOK can limit the number of channels processed by each tile to a safe limit.
+            if (auto clusteredOp = mlir::dyn_cast<VPU::ClusteredOpInterface>(op); clusteredOp && numClusters > 1) {
+                const auto isCoveredByChannelSegmentation = [&](int64_t channels) {
+                    return divUp(channels, numClusters) <= VPU::NCEInvariant::VPU_DIMENSION_LIMIT;
+                };
+                if (mlir::isa<VPU::NCEMatMulOp>(op) && !clusteredOp.getMultiClusterStrategy().has_value() &&
+                    clusteredOp.isOperationSplitOverKernelCompatible(ShapeRef(), ShapeRef(), ShapeRef())) {
+                    if (isCoveredByChannelSegmentation(outputShape[outChannelDim])) {
+                        _log.nest(2).debug("Defer output C split of {0} at {1} to strategy assignment", op->getName(),
+                                           op->getLoc());
+                        eraseChannel(outSizeWrongDims, outChannelDim);
+                    }
+                }
+            }
+
             // Skip slicing C for per-channel based NCE ops, which will be handled later in tiling pass
             // This will benefit vertical fusion
-            const auto eraseChannel = [&](SmallVector<Dim>& wrongDims) {
-                wrongDims.erase(std::remove(wrongDims.begin(), wrongDims.end(), Dims4D::Act::C), wrongDims.end());
-            };
             if (mlir::isa<VPU::NCEDepthConvolutionOp, VPU::NCEMaxPoolOp, VPU::NCEAveragePoolOp>(op)) {
                 _log.nest(2).debug("Skip checking C dimension for per-channel based NCE op {0} at {1}", op->getName(),
                                    op->getLoc());
-                eraseChannel(inSizeWrongDims);
-                eraseChannel(outSizeWrongDims);
+                eraseChannel(inSizeWrongDims, inChannelDim);
+                eraseChannel(outSizeWrongDims, outChannelDim);
             }
 
             // For NCEConvolutionOp and NCEEltwiseOp, conditionally skip slicing OC based on mode:
@@ -879,21 +938,22 @@ void EnsureNCEOpsSizeRequirementsPass::safeRunOnFunc() {
                 if (mode == SkipOCMode::SKIP_NONE) {
                     return;
                 }
-                const bool ocIsInWrongDims = llvm::is_contained(outSizeWrongDims, Dims4D::Act::C);
+                const bool ocIsInWrongDims = llvm::is_contained(outSizeWrongDims, outChannelDim);
                 if (!ocIsInWrongDims) {
                     return;
                 }
                 constexpr int64_t kSpatialLimit = 4;
-                const bool largeSpatial =
-                        outputShape[Dims4D::Act::H] > kSpatialLimit || outputShape[Dims4D::Act::W] > kSpatialLimit;
+                const auto outRank = outputShape.size();
+                const bool largeSpatial = outputShape[VPU::NCEInvariant::getActHeightDim(outRank)] > kSpatialLimit ||
+                                          outputShape[VPU::NCEInvariant::getActWidthDim(outRank)] > kSpatialLimit;
                 const bool doSkip =
                         (mode == SkipOCMode::SKIP_ALL) || (mode == SkipOCMode::SKIP_LARGE_SPATIAL && largeSpatial);
                 if (doSkip) {
                     _log.nest(2).debug("Skip checking OC dimension for {0} at {1} (mode={2})", op->getName(),
                                        op->getLoc(), mode);
-                    eraseChannel(outSizeWrongDims);
+                    eraseChannel(outSizeWrongDims, outChannelDim);
                     if (isEltwise) {
-                        eraseChannel(inSizeWrongDims);
+                        eraseChannel(inSizeWrongDims, inChannelDim);
                     }
                 }
             };

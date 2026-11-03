@@ -336,7 +336,7 @@ std::tuple<vpux::OV::Config, bool> autoDetectBatchedModelIfPossible(const std::s
 
     bool batchDetected;
     std::string debatchingCoefficients;
-    auto enableDebatcher = [&logger, &config](const std::string& debatcherParams) {
+    auto enableDebatcher = [logger, &config](const std::string& debatcherParams) {
         std::string debatchingCompileMethodParams =
                 "batch-compile-method=debatch debatcher-settings={debatcher-input-coefficients-partitions=" +
                 debatcherParams +
@@ -392,7 +392,7 @@ bool checkCfgOnBatchOptionConsistency(const vpux::OV::Config& config, std::ostre
 std::shared_ptr<ov::Model> debatchDynamicModel(const std::shared_ptr<ov::Model>& origModel, Logger& logger) {
     bool batchDetected = false;
     std::string debatchingCoefficients;
-    auto debatchModel = [&logger, &origModel](const std::string& debatcherParams) -> std::shared_ptr<ov::Model> {
+    auto debatchModel = [logger, &origModel](const std::string& debatcherParams) -> std::shared_ptr<ov::Model> {
         logger.debug("Trying to apply model debatching coefficients: {0}", debatcherParams);
         auto debatchedModel = origModel->clone();
         auto coefficients = DebatchCoefficients::create(debatcherParams);

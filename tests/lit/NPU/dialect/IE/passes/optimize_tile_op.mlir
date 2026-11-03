@@ -708,9 +708,9 @@ func.func @NotFoldSpatialBroadcastTileNonConstantBiasWithClamp(
 
 // -----
 
-// CHECK-LABEL: @NotFuseGroupConvWithBiasAddPromotedOutputPrecision
+// CHECK-LABEL: @FuseGroupConvWithBiasAddPromotedOutputPrecision
 // CHECK-SAME:    [[INPUT:%.+]]: tensor<1x4x4x4xf16>
-func.func @NotFuseGroupConvWithBiasAddPromotedOutputPrecision(%arg0: tensor<1x4x4x4xf16>) -> tensor<1x4x4x4xf32> {
+func.func @FuseGroupConvWithBiasAddPromotedOutputPrecision(%arg0: tensor<1x4x4x4xf16>) -> tensor<1x4x4x4xf32> {
     %filter = const.Declare tensor<4x1x1x1xf16> = dense<1.000000e+00> : tensor<4x1x1x1xf16>
     %bias   = const.Declare tensor<1x4x1x1xf32> = dense<5.000000e-01> : tensor<1x4x1x1xf32>
     %tiled  = IE.Tile(%bias) {repeats_values = [1, 1, 4, 4]} : tensor<1x4x1x1xf32> -> tensor<1x4x4x4xf32>
@@ -722,8 +722,55 @@ func.func @NotFuseGroupConvWithBiasAddPromotedOutputPrecision(%arg0: tensor<1x4x
 
     // CHECK-DAG: [[FILTER:%.+]] = const.Declare tensor<4x1x1x1xf16> = dense<1.000000e+00>
     // CHECK-DAG: [[BIAS:%.+]]   = const.Declare tensor<1x4x1x1xf32> = dense<5.000000e-01>
-    // CHECK:     [[GCONV:%.+]] = IE.GroupConvolution([[INPUT]], [[FILTER]])
-    // CHECK-SAME:    : tensor<1x4x4x4xf16>, tensor<4x1x1x1xf16> -> tensor<1x4x4x4xf32>
-    // CHECK:     [[ADD:%.+]] = IE.Add([[GCONV]], [[BIAS]])
-    // CHECK:     return [[ADD]] : tensor<1x4x4x4xf32>
+    // CHECK:     [[GCONV:%.+]] = IE.GroupConvolution([[INPUT]], [[FILTER]], [[BIAS]])
+    // CHECK-SAME:    : tensor<1x4x4x4xf16>, tensor<4x1x1x1xf16>, tensor<1x4x1x1xf32> -> tensor<1x4x4x4xf32>
+    // CHECK-NOT: IE.Add
+    // CHECK:     return [[GCONV]] : tensor<1x4x4x4xf32>
 }
+
+// -----
+
+!qElemType = !quant.uniform<u8:f16, 0.13731617647058825:128>
+!qElemType1 = !quant.uniform<u8:f16, 1.7263375076593138E-4:128>
+!qElemType2 = !quant.uniform<u8:f16, 0.0056295955882352941:128>
+!qElemType3 = !quant.uniform<u8:f16, 0.086213235294117646>
+
+// CHECK-LABEL: @NotFoldTileBeforeQuantizedAdd
+// CHECK-SAME:    [[INPUT:%[^:]+]]: tensor<1x64x136x240x
+// CHECK-SAME:    [[WEIGHTS:%[^:]+]]: tensor<64x1x1x1x
+// CHECK-SAME:    [[BIAS:%[^:]+]]: tensor<1x64x1x1x
+func.func @NotFoldTileBeforeQuantizedAdd(%arg0: tensor<1x64x136x240x!qElemType2>, %arg1: tensor<64x1x1x1x!qElemType3>, %arg2: tensor<1x64x1x1x!qElemType1>) -> tensor<1x64x136x240x!qElemType> {
+    %0 = IE.GroupConvolution(%arg0, %arg1) {dilations = [1, 1], groups = 64 : i64, pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]} : tensor<1x64x136x240x!qElemType2>, tensor<64x1x1x1x!qElemType3> -> tensor<1x64x136x240x!qElemType>
+    %1 = IE.Tile(%arg2) {repeats_values = [1, 1, 136, 240]} : tensor<1x64x1x1x!qElemType1> -> tensor<1x64x136x240x!qElemType1>
+    %2 = IE.Add(%0, %1) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x64x136x240x!qElemType>, tensor<1x64x136x240x!qElemType1> -> tensor<1x64x136x240x!qElemType>
+    return %2 : tensor<1x64x136x240x!qElemType>
+
+    // CHECK:     [[GCONV:%.+]] = IE.GroupConvolution([[INPUT]], [[WEIGHTS]])
+    // CHECK:     [[TILE:%.+]] = IE.Tile([[BIAS]]) {repeats_values = [1, 1, 136, 240]}
+    // CHECK:     [[ADD:%.+]] = IE.Add([[GCONV]], [[TILE]])
+    // CHECK:     return [[ADD]]
+}
+
+// -----
+
+!qElemType = !quant.uniform<u8:f16, 0.13731617647058825:128>
+!qElemType1 = !quant.uniform<u8:f16, 1.7263375076593138E-4:128>
+!qElemType2 = !quant.uniform<u8:f16, 0.0056295955882352941:128>
+!qElemType3 = !quant.uniform<u8:f16, 0.086213235294117646>
+
+// CHECK-LABEL: @NotFoldTileBeforeQuantizedMultiply
+// CHECK-SAME:    [[INPUT:%[^:]+]]: tensor<1x64x136x240x
+// CHECK-SAME:    [[WEIGHTS:%[^:]+]]: tensor<64x1x1x1x
+// CHECK-SAME:    [[SCALE:%[^:]+]]: tensor<1x64x1x1x
+func.func @NotFoldTileBeforeQuantizedMultiply(%arg0: tensor<1x64x136x240x!qElemType2>, %arg1: tensor<64x1x1x1x!qElemType3>, %arg2: tensor<1x64x1x1x!qElemType1>) -> tensor<1x64x136x240x!qElemType> {
+    %0 = IE.GroupConvolution(%arg0, %arg1) {dilations = [1, 1], groups = 64 : i64, pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]} : tensor<1x64x136x240x!qElemType2>, tensor<64x1x1x1x!qElemType3> -> tensor<1x64x136x240x!qElemType>
+    %1 = IE.Tile(%arg2) {repeats_values = [1, 1, 136, 240]} : tensor<1x64x1x1x!qElemType1> -> tensor<1x64x136x240x!qElemType1>
+    %2 = IE.Multiply(%0, %1) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x64x136x240x!qElemType>, tensor<1x64x136x240x!qElemType1> -> tensor<1x64x136x240x!qElemType>
+    return %2 : tensor<1x64x136x240x!qElemType>
+
+    // CHECK:     [[GCONV:%.+]] = IE.GroupConvolution([[INPUT]], [[WEIGHTS]])
+    // CHECK:     [[TILE:%.+]] = IE.Tile([[SCALE]]) {repeats_values = [1, 1, 136, 240]}
+    // CHECK:     [[MULTIPLY:%.+]] = IE.Multiply([[GCONV]], [[TILE]])
+    // CHECK:     return [[MULTIPLY]]
+}
+

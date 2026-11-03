@@ -1,0 +1,55 @@
+#
+# Copyright (C) 2026 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
+#
+
+# =====================================================================
+# General / Default Configuration
+# =====================================================================
+default: false
+
+# =====================================================================
+# Structural & Integrity Checks
+# =====================================================================
+
+# Broken internal anchor links: Flag invalid #heading targets
+MD051: true
+
+# Undefined reference links: Flag broken [text][ref-label] definitions
+MD052: true
+
+# Broken table structure: Flag rows with mismatched column counts
+MD056: true
+
+# Allow duplicate headings if under different parent headings
+MD024:
+  siblings_only: true
+
+# Multiple H1 headings: set false if your HLD docs use top-level sections
+MD025: false
+
+# ---------------------------------------------------------------------
+# HTML Control (Keep enabled, but whitelist common doc tags)
+# ---------------------------------------------------------------------
+MD033:
+  allowed_elements:
+    - p           # Common for diagrams / image positioning
+    - u           # Underline
+    - em          # Italic captions under images
+    - details     # Collapsible sections
+    - summary     # Collapsible headers
+    - br          # Line breaks inside table cells
+    - sub         # Subscript
+    - sup         # Superscript
+    - kbd         # Key shortcuts
+    - a           # Custom anchor links
+    - img         # Images with explicit sizing
+
+# ---------------------------------------------------------------------
+# Style Enforcement
+# ---------------------------------------------------------------------
+MD049:
+  style: "asterisk"   # Enforces *italics* instead of _italics_
+
+MD050:
+  style: "asterisk"   # Enforces **bold** instead of __bold__

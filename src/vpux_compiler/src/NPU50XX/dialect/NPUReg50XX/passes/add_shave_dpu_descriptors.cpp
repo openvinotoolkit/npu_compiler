@@ -249,11 +249,14 @@ SmallVector<uint32_t> buildDpuParamsPayload(uint32_t dpuParamsCmxOffset) {
     return words;
 }
 
-// SHAVE kernels which drive the DPU expect the DPU parameters block to be already present in CMX.
-// This is the VPUMI40XX counterpart of VPURT::EnqueueBarrierHandler::findShvTasksWithDpu - at this
-// point in the pipeline VPURT::TaskOp is gone, but DeclareKernelEntryOp still carries the very same
-// "VPU.kernel_entry" string that VPUIP::isSwKernelUseDpu matches against.
-bool hasDpuShaveTasks(mlir::func::FuncOp netFunc) {
+// True if any ActShave range runs a SW kernel that drives the DPU; such kernels need the DPU
+// parameters block preloaded in CMX. VPUMI40XX counterpart of
+// VPURT::EnqueueBarrierHandler::findShvTasksWithDpu. SW_KERNELS_USE_DPU is keyed on VPU.kernel_name,
+// but only VPU.kernel_entry survives to VPUMI40XX, so recover kernel_name from the matching @VPU.SW
+// declaration (as VPUIP::getSwKernelEntryNameOpt does), falling back to kernel_entry itself.
+bool hasDpuShaveTasks(mlir::func::FuncOp netFunc, mlir::ModuleOp parentModule) {
+    auto vpuSwModule = parentModule.lookupSymbol<mlir::ModuleOp>("VPU.SW");
+
     for (auto rangeOp : netFunc.getOps<VPUMI40XX::ActKernelRangeOp>()) {
         auto kernelEntryIndex = rangeOp.getKernelEntryIndex();
         if (kernelEntryIndex == nullptr) {
@@ -265,7 +268,22 @@ bool hasDpuShaveTasks(mlir::func::FuncOp netFunc) {
             continue;
         }
 
-        if (llvm::is_contained(VPUIP::SW_KERNELS_USE_DPU, entryOp.getKernelPath())) {
+        // Fall back to kernel_entry (when kernel_name == kernel_entry), else recover the real kernel_name.
+        auto kernelName = entryOp.getKernelPath();
+        if (vpuSwModule != nullptr) {
+            for (auto kernelFunc : vpuSwModule.getOps<mlir::func::FuncOp>()) {
+                auto kernelEntryAttr = kernelFunc->getAttrOfType<mlir::StringAttr>("VPU.kernel_entry");
+                if (kernelEntryAttr == nullptr || kernelEntryAttr.getValue() != entryOp.getKernelPath()) {
+                    continue;
+                }
+                if (auto kernelNameAttr = kernelFunc->getAttrOfType<mlir::StringAttr>("VPU.kernel_name")) {
+                    kernelName = kernelNameAttr.getValue();
+                }
+                break;
+            }
+        }
+
+        if (llvm::is_contained(VPUIP::SW_KERNELS_USE_DPU, kernelName)) {
             return true;
         }
     }
@@ -352,13 +370,13 @@ VPUMI40XX::NNDMAOp AddShaveDpuDescriptors::createDpuParamsDmaOp(mlir::OpBuilder&
 
 void AddShaveDpuDescriptors::safeRunOnFunc() {
     auto netFunc = getOperation();
+    auto parentModule = netFunc.getOperation()->getParentOfType<mlir::ModuleOp>();
 
-    if (!hasDpuShaveTasks(netFunc)) {
-        _log.trace("No SHAVE task uses the DPU, skip creating the DPU parameters buffers");
+    if (!hasDpuShaveTasks(netFunc, parentModule)) {
+        _log.debug("No SHAVE task uses the DPU, skip creating the DPU parameters buffers");
         return;
     }
 
-    auto parentModule = netFunc.getOperation()->getParentOfType<mlir::ModuleOp>();
     const auto tilesCount = config::getTileExecutor(parentModule).getCount();
 
     // The metadata region's own base offset is not fixed - it depends on which other bottom

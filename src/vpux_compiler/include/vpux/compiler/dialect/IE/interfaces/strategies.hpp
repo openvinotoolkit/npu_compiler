@@ -33,6 +33,7 @@ public:
             const bool interpolateAsSEOpInStrategy) = 0;
     virtual std::unique_ptr<IGreedilyPassStrategy> getFuseQuantizedOpsStrategy(const bool seOpsEnabled) = 0;
     virtual std::unique_ptr<IGreedilyPassStrategy> getFuseOutstandingQuantStrategy() = 0;
+    virtual std::unique_ptr<IGreedilyPassStrategy> getFuseOutstandingDequantStrategy() = 0;
     virtual std::unique_ptr<IExpandActivationChannelsStrategy> getExpandActivationChannelsStrategy(bool _seOpsEnabled,
                                                                                                    Logger& _log) = 0;
     virtual std::unique_ptr<IConversionPassStrategy> getConvertToPalletizationLUTStrategy() = 0;

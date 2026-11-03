@@ -26,8 +26,6 @@ size_t VPUASM::DeclareTaskBufferOp::getBinarySize([[maybe_unused]] config::ArchK
         return sizeof(npu40xx::nn_public::VpuDPUInvariant);
     case VPURegMapped::TaskType::DPUVariant:
         return sizeof(npu40xx::nn_public::VpuDPUVariant);
-    case VPURegMapped::TaskType::M2I:
-        return sizeof(npu40xx::nn_public::VpuMediaTask);
     default:
         VPUX_THROW("Invalid task type for DeclareTaskBufferOp {0}", *this);
     }

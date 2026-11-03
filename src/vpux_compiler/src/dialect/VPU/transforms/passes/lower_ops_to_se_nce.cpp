@@ -73,7 +73,7 @@ mlir::Value createWeightsConstantImpl(vpux::NDTypeInterface inputType, SmallVect
         const auto quantScale = static_cast<double>(minVal);
 
         std::transform(weightsKernel.begin(), weightsKernel.end(), weightsKernel.begin(),
-                       [&quantScale](float kernelVal) {
+                       [quantScale](float kernelVal) {
                            return static_cast<float>(kernelVal / quantScale);
                        });
 
@@ -1217,7 +1217,7 @@ void LowerOpsToSENCEPass::safeRunOnFunc() {
     const auto seOpsEnabled = config::hasEnableSEPtrsOperations(module);
     const auto seExperimentalOpsEnabled = config::hasEnableExperimentalSEPtrsOperations(module);
 
-    const auto logCb = [&](const formatv_object_base& msg) {
+    const auto logCb = [this](const formatv_object_base& msg) {
         _log.trace("{0}", msg.str());
     };
 

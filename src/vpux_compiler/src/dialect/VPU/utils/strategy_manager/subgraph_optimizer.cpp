@@ -4,6 +4,7 @@
 //
 
 #include "vpux/compiler/dialect/VPU/utils/strategy_manager/subgraph_optimizer.hpp"
+#include "vpux/compiler/dialect/VPU/IR/attributes.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/data_movement.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/internal.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/shape_manipulation.hpp"
@@ -20,6 +21,25 @@
 
 using namespace vpux;
 using namespace VPU;
+
+namespace {
+
+// HKSwitch keeps a full output copy in every cluster; above this CMX share the long-lived buffer causes heavy spilling
+constexpr double HK_SWITCH_MAX_OUTPUT_CMX_RATIO = 0.6;
+
+bool hasLargeMulticastedOutputWithMultipleUsers(VPU::ClusteredOpInterface op) {
+    auto output = op->getResult(0);
+    // Don't consider outputs that are only used by a single consumer
+    if (llvm::all_equal(output.getUsers())) {
+        return false;
+    }
+    const auto outputSize = mlir::cast<vpux::NDTypeInterface>(output.getType()).getTotalAllocSize();
+    const auto cmxSize = VPU::getTotalCMXSize(op.getOperation());
+    return static_cast<double>(outputSize.count()) >
+           HK_SWITCH_MAX_OUTPUT_CMX_RATIO * static_cast<double>(cmxSize.count());
+}
+
+}  // namespace
 
 SubgraphOptimizer::SubgraphOptimizer(mlir::func::FuncOp func, bool enablePrefetchTiling,
                                      SiblingOpsAnalysis& siblingsOpsAnalysis,
@@ -82,6 +102,11 @@ bool SubgraphOptimizer::isValidStrategy(VPU::ClusteredOpInterface clusteredOp, V
         case MultiClusterStrategy::HKSwitch: {
             isCompatible = op.isOperationSplitOverHeightCompatible(/*vpux::TileInfo=*/vpux::TileInfo(ShapeRef())) &&
                            op.doesLayerFitIntoCMX(MultiClusterStrategy::HKSwitch, _siblingsOpsAnalysis, Byte(0));
+            if (isCompatible && hasLargeMulticastedOutputWithMultipleUsers(op)) {
+                _log.trace("[Subgraph Optimizer] Skip HKSwitch for {0}: large multicasted output with multiple users",
+                           op->getLoc());
+                isCompatible = false;
+            }
             break;
         }
         case MultiClusterStrategy::Clustering:

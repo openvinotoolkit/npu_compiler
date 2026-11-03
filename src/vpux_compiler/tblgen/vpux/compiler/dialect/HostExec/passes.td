@@ -30,37 +30,6 @@ def SerializeELFToBinary : PassBase<"serialize-elf-to-binary", "vpux::ModulePass
 }
 
 //
-// ConvertToLLVMUMDCalls
-//
-
-def ConvertToLLVMUMDCalls : PassBase<"convert-to-llvm-umd-calls", "vpux::ModulePass"> {
-    let summary = "Converts MLIR operations to LLVM UMD runtime API calls";
-
-    let description = [{
-        This pass converts higher-level MLIR operations into LLVM dialect operations that make calls
-        to the UMD (User Mode Driver) runtime API. The resulting code can be executed by the host CPU
-        and interfaces with the NPU device through the UMD wrapper library.
-
-        The pass handles (through level zero wrapper):
-         - Converting memref.alloc operations to Level Zero memory allocations
-         - Converting memref.copy operations to Level Zero memory copies
-         - Converting async operations (Execute, Await, AwaitAll, CreateGroup, AddToGroup) to appropriate
-           Level Zero command list operations
-         - Managing command list creation, submission, and synchronization
-    }];
-
-    let constructor = "vpux::HostExec::createConvertToLLVMUMDCallsPass()";
-
-    let dependentDialects = [
-        "vpux::HostExec::HostExecDialect",
-        "mlir::memref::MemRefDialect",
-        "mlir::LLVM::LLVMDialect",
-        "mlir::func::FuncDialect",
-        "mlir::async::AsyncDialect"
-    ];
-}
-
-//
 // InlineMainBatchingCalls
 //
 
@@ -218,27 +187,6 @@ def ReplaceAllocsWithSingleAllocAndViews : PassBase<"replace-allocs-with-single-
 }
 
 //
-// SerializeNetworkMetadata
-//
-
-def SerializeNetworkMetadata : PassBase<"serialize-network-metadata", "vpux::ModulePass"> {
-    let summary = "Converts MLIR operations to LLVM UMD runtime API calls";
-
-    let description = [{
-        This pass construct network metadata and serialize it. Which is required
-        as "main" function is llvm function to coordinate inference execution of
-        subgraphs of a given model.
-    }];
-
-    let constructor = "vpux::HostExec::createSerializeNetworkMetadataPass()";
-
-    let dependentDialects = [
-        "vpux::HostExec::HostExecDialect",
-        "mlir::func::FuncDialect",
-    ];
-}
-
-//
 // ExtractReturnShapes
 //
 
@@ -372,26 +320,6 @@ def OutlineDimOperations : PassBase<"outline-dim-operations", "vpux::ModulePass"
         "mlir::func::FuncDialect",
         "mlir::tensor::TensorDialect",
         "mlir::arith::ArithDialect"
-    ];
-}
-
-//
-// GenerateExecutionContextFuncs
-//
-
-def GenerateExecutionContextFuncs : PassBase<"generate-execution-context-funcs", "vpux::ModulePass"> {
-    let summary = "Generates functions to handle an execution context for L0 wrapper";
-
-    let description = [{
-        This pass generates LLVM functions to create, reset, destroy an execution context and update mutable commandlists
-    }];
-
-    let constructor = "vpux::HostExec::createGenerateExecutionContextFuncsPass()";
-
-    let dependentDialects = [
-        "vpux::HostExec::HostExecDialect",
-        "mlir::LLVM::LLVMDialect",
-        "mlir::func::FuncDialect"
     ];
 }
 

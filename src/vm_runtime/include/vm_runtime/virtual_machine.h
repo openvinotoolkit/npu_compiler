@@ -104,6 +104,9 @@ typedef struct _npu_vm_module_load_params {
     // If true, the runtime will create an internal command queue for the engine to use.
     // If false, the runtime will use the command queue provided in create_execution_context_params
     bool internalCommandQueue;
+
+    // If true, the runtime will use counter-based events for synchronization between subgraphs.
+    bool counterBasedEventSupported;
 } npu_vm_module_load_params;
 
 typedef struct _npu_vm_module npu_vm_module;

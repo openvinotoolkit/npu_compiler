@@ -40,6 +40,11 @@ constexpr llvm::StringLiteral UPPERBOUND_ATTR = "upperbound";
 // Attribute name for setting unique static blocks count
 constexpr llvm::StringLiteral UNIQUE_STATIC_BLOCKS_ATTR = "uniqueStaticBlocks";
 
+// Attribute name marking the dynamic sub-tile fallback path: the scf.for loops that form it and the dedicated kernel
+// functions they call. Such loops keep their original dynamic slice sizes; passes that legalize loop bodies or kernels
+// to static shapes must skip them.
+constexpr llvm::StringLiteral SUB_TILE_FALLBACK_ATTR = "sub_tile_fallback";
+
 using ValueRangeMap = llvm::DenseMap<mlir::Value, SmallVector<int64_t>>;
 
 struct InputRange {

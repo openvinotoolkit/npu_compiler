@@ -17,3 +17,5 @@ add_npu_library(${TARGET_NAME}
         npu_compiler_utils
         npu_core_utils
 )
+enable_lto_if_possible(${TARGET_NAME})
+

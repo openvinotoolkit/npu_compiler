@@ -573,6 +573,7 @@ mlir::LogicalResult GatherDMARewriter::matchAndRewrite(VPUIP::GatherDMAOp gather
             nullptr,                              // enqueueDMAAttr
             nullptr,                              // fetchDmaAttr
             gatherDMAOp.getAddressingModeAttr(),  // addressingMode
+            gatherDMAOp.getListOOBModeAttr(),     // listOOBMode
             nullptr,                              // skipDmaAttr
             nullptr,                              // taskDynId
             nullptr                               // dynamicSequenceLengthBuff
@@ -581,11 +582,9 @@ mlir::LogicalResult GatherDMARewriter::matchAndRewrite(VPUIP::GatherDMAOp gather
     if (auto stridedInput = gatherDMAOp->getAttr(vpux::stridedInputAttrName)) {
         newOp->setAttr(vpux::stridedInputAttrName, stridedInput);
     }
-
     if (auto stridedOutput = gatherDMAOp->getAttr(vpux::stridedOutputAttrName)) {
         newOp->setAttr(vpux::stridedOutputAttrName, stridedOutput);
     }
-
     return mlir::success();
 }
 
@@ -724,6 +723,7 @@ mlir::LogicalResult BarrierProgDMARewriter::matchAndRewrite(VPUIP::BarProgDMAOp 
             nullptr,                                     // enqueueDMAAttr
             nullptr,                                     // fetchDMAAttr
             nullptr,                                     // addressingMode
+            nullptr,                                     // listOOBMode
             nullptr,                                     // skipDmaAttr
             nullptr,                                     // taskDynId
             nullptr                                      // dynamicSequenceLengthBuff
@@ -781,6 +781,7 @@ mlir::LogicalResult FetchDMARewriter::matchAndRewrite(VPUIP::FetchDMAOp fetchDMA
             nullptr,                       // enqueueDMAAttr
             fetchDMAOp.getFetchDmaAttr(),  // fetchDmaAttr
             nullptr,                       // addressingMode
+            nullptr,                       // listOOBMode
             nullptr,                       // skipDmaAttr
             nullptr,                       // taskDynId
             nullptr                        // dynamicSequenceLengthBuff
@@ -838,6 +839,7 @@ mlir::LogicalResult EnqueueDMARewriter::matchAndRewrite(VPUIP::EnqueueDMAOp enqu
             enqueueDMAOp.getEnqueueDmaAttr(),  // enqueueDMAAttr
             nullptr,                           // fetchDmaAttr
             nullptr,                           // addressingMode
+            nullptr,                           // listOOBMode
             nullptr,                           // skipDmaAttr
             nullptr,                           // taskDynId
             nullptr                            // dynamicSequenceLengthBuff
@@ -895,6 +897,7 @@ mlir::LogicalResult SkipDMARewriter::matchAndRewrite(VPUIP::SkipDMAOp skipDMAOp,
             nullptr,                     // enqueueDMAAttr
             nullptr,                     // fetchDmaAttr
             nullptr,                     // addressingMode
+            nullptr,                     // listOOBMode
             skipDMAOp.getSkipDmaAttr(),  // skipDmaAttr
             nullptr,                     // taskDynId
             nullptr                      // dynamicSequenceLengthBuff

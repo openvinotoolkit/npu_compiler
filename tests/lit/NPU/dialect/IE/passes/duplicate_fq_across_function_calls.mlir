@@ -19,9 +19,9 @@ module @DoNotDuplicateUnusedFQ {
         %in_high = const.Declare tensor<1x1x1x1xf32> = dense<2.540000e+02> : tensor<1x1x1x1xf32>
         %out_low = const.Declare tensor<1x1x1x1xf32> = dense<1.000000e+00> : tensor<1x1x1x1xf32>
         %out_high = const.Declare tensor<1x1x1x1xf32> = dense<2.550000e+02> : tensor<1x1x1x1xf32>
-        %fq_in = IE.FakeQuantize(%arg0, %in_low, %in_high, %in_low, %in_high) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i32} : tensor<1x48x60x60xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32> -> tensor<1x48x60x60xf32>
+        %fq_in = IE.FakeQuantize(%arg0, %in_low, %in_high, %in_low, %in_high) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256 : i32} : tensor<1x48x60x60xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32> -> tensor<1x48x60x60xf32>
         %relu = IE.ReLU(%fq_in) : tensor<1x48x60x60xf32> -> tensor<1x48x60x60xf32>
-        %fq_out = IE.FakeQuantize(%relu, %out_low, %out_high, %out_low, %out_high) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i32} : tensor<1x48x60x60xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32> -> tensor<1x48x60x60xf32>
+        %fq_out = IE.FakeQuantize(%relu, %out_low, %out_high, %out_low, %out_high) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256 : i32} : tensor<1x48x60x60xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32> -> tensor<1x48x60x60xf32>
         return %fq_out : tensor<1x48x60x60xf32>
     }
     func.func @main(%arg0: tensor<1x48x60x60xf32>) -> tensor<1x48x60x60xf32> {
@@ -62,9 +62,9 @@ module @DoNotDuplicateUnusedFQBetweenCallOps {
         %in_high = const.Declare tensor<1x1x1x1xf32> = dense<2.540000e+02> : tensor<1x1x1x1xf32>
         %out_low = const.Declare tensor<1x1x1x1xf32> = dense<1.000000e+00> : tensor<1x1x1x1xf32>
         %out_high = const.Declare tensor<1x1x1x1xf32> = dense<2.550000e+02> : tensor<1x1x1x1xf32>
-        %fq_in = IE.FakeQuantize(%arg0, %in_low, %in_high, %in_low, %in_high) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i32} : tensor<1x48x60x60xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32> -> tensor<1x48x60x60xf32>
+        %fq_in = IE.FakeQuantize(%arg0, %in_low, %in_high, %in_low, %in_high) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256 : i32} : tensor<1x48x60x60xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32> -> tensor<1x48x60x60xf32>
         %relu = IE.ReLU(%fq_in) : tensor<1x48x60x60xf32> -> tensor<1x48x60x60xf32>
-        %fq_out = IE.FakeQuantize(%relu, %out_low, %out_high, %out_low, %out_high) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i32} : tensor<1x48x60x60xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32> -> tensor<1x48x60x60xf32>
+        %fq_out = IE.FakeQuantize(%relu, %out_low, %out_high, %out_low, %out_high) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256 : i32} : tensor<1x48x60x60xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32> -> tensor<1x48x60x60xf32>
         return %fq_out : tensor<1x48x60x60xf32>
     }
     func.func @main(%arg0: tensor<1x48x60x60xf32>) -> tensor<1x48x60x60xf32> {
@@ -106,9 +106,9 @@ module @DuplicateOutside {
         %in_high = const.Declare tensor<1x1x1x1xf32> = dense<2.540000e+02> : tensor<1x1x1x1xf32>
         %out_low = const.Declare tensor<1x1x1x1xf32> = dense<1.000000e+00> : tensor<1x1x1x1xf32>
         %out_high = const.Declare tensor<1x1x1x1xf32> = dense<2.550000e+02> : tensor<1x1x1x1xf32>
-        %fq_in = IE.FakeQuantize(%arg0, %in_low, %in_high, %in_low, %in_high) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i32} : tensor<1x48x60x60xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32> -> tensor<1x48x60x60xf32>
+        %fq_in = IE.FakeQuantize(%arg0, %in_low, %in_high, %in_low, %in_high) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256 : i32} : tensor<1x48x60x60xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32> -> tensor<1x48x60x60xf32>
         %relu = IE.ReLU(%fq_in) : tensor<1x48x60x60xf32> -> tensor<1x48x60x60xf32>
-        %fq_out = IE.FakeQuantize(%relu, %out_low, %out_high, %out_low, %out_high) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i32} : tensor<1x48x60x60xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32> -> tensor<1x48x60x60xf32>
+        %fq_out = IE.FakeQuantize(%relu, %out_low, %out_high, %out_low, %out_high) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256 : i32} : tensor<1x48x60x60xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32> -> tensor<1x48x60x60xf32>
         return %fq_out : tensor<1x48x60x60xf32>
     }
     func.func @main(%arg0: tensor<1x48x60x60xf32>) -> tensor<1x48x60x60xf32> {
@@ -158,9 +158,9 @@ module @DuplicateOutsideWithReshapes {
         %out_low = const.Declare tensor<1x1x1xf32> = dense<1.000000e+00> : tensor<1x1x1xf32>
         %out_high = const.Declare tensor<1x1x1xf32> = dense<2.550000e+02> : tensor<1x1x1xf32>
         %in_reshape = IE.AffineReshape(%arg0) {dim_mapping = [[0], [0], [1], [2]], shape_value = [48, 60, 60]} : tensor<1x48x60x60xf32> -> tensor<48x60x60xf32>
-        %fq_in = IE.FakeQuantize(%in_reshape, %in_low, %in_high, %in_low, %in_high) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i32} : tensor<48x60x60xf32>, tensor<1x1x1xf32>, tensor<1x1x1xf32>, tensor<1x1x1xf32>, tensor<1x1x1xf32> -> tensor<48x60x60xf32>
+        %fq_in = IE.FakeQuantize(%in_reshape, %in_low, %in_high, %in_low, %in_high) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256 : i32} : tensor<48x60x60xf32>, tensor<1x1x1xf32>, tensor<1x1x1xf32>, tensor<1x1x1xf32>, tensor<1x1x1xf32> -> tensor<48x60x60xf32>
         %relu = IE.ReLU(%fq_in) : tensor<48x60x60xf32> -> tensor<48x60x60xf32>
-        %fq_out = IE.FakeQuantize(%relu, %out_low, %out_high, %out_low, %out_high) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i32} : tensor<48x60x60xf32>, tensor<1x1x1xf32>, tensor<1x1x1xf32>, tensor<1x1x1xf32>, tensor<1x1x1xf32> -> tensor<48x60x60xf32>
+        %fq_out = IE.FakeQuantize(%relu, %out_low, %out_high, %out_low, %out_high) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256 : i32} : tensor<48x60x60xf32>, tensor<1x1x1xf32>, tensor<1x1x1xf32>, tensor<1x1x1xf32>, tensor<1x1x1xf32> -> tensor<48x60x60xf32>
         %out_reshape = IE.AffineReshape(%fq_out) {dim_mapping = [[0, 1], [2], [3]], shape_value = [1, 48, 60, 60]} : tensor<48x60x60xf32> -> tensor<1x48x60x60xf32>
         return %out_reshape : tensor<1x48x60x60xf32>
     }
@@ -231,9 +231,9 @@ module @DuplicateInside {
         %in_high = const.Declare tensor<1x1x1x1xf32> = dense<2.540000e+02> : tensor<1x1x1x1xf32>
         %out_low = const.Declare tensor<1x1x1x1xf32> = dense<1.000000e+00> : tensor<1x1x1x1xf32>
         %out_high = const.Declare tensor<1x1x1x1xf32> = dense<2.550000e+02> : tensor<1x1x1x1xf32>
-        %fq_in = IE.FakeQuantize(%arg0, %in_low, %in_high, %in_low, %in_high) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i32} : tensor<1x48x60x60xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32> -> tensor<1x48x60x60xf32>
+        %fq_in = IE.FakeQuantize(%arg0, %in_low, %in_high, %in_low, %in_high) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256 : i32} : tensor<1x48x60x60xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32> -> tensor<1x48x60x60xf32>
         %call = call @function(%fq_in) : (tensor<1x48x60x60xf32>) -> tensor<1x48x60x60xf32>
-        %fq_out = IE.FakeQuantize(%call, %out_low, %out_high, %out_low, %out_high) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i32} : tensor<1x48x60x60xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32> -> tensor<1x48x60x60xf32>
+        %fq_out = IE.FakeQuantize(%call, %out_low, %out_high, %out_low, %out_high) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256 : i32} : tensor<1x48x60x60xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32> -> tensor<1x48x60x60xf32>
         return %fq_out : tensor<1x48x60x60xf32>
     }
 
@@ -272,11 +272,11 @@ module @DuplicateInsideWithReshapes {
         %in_high = const.Declare tensor<1x1x1x1xf32> = dense<2.540000e+02> : tensor<1x1x1x1xf32>
         %out_low = const.Declare tensor<1x1x1x1xf32> = dense<1.000000e+00> : tensor<1x1x1x1xf32>
         %out_high = const.Declare tensor<1x1x1x1xf32> = dense<2.550000e+02> : tensor<1x1x1x1xf32>
-        %fq_in = IE.FakeQuantize(%arg0, %in_low, %in_high, %in_low, %in_high) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i32} : tensor<1x48x60x60xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32> -> tensor<1x48x60x60xf32>
+        %fq_in = IE.FakeQuantize(%arg0, %in_low, %in_high, %in_low, %in_high) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256 : i32} : tensor<1x48x60x60xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32> -> tensor<1x48x60x60xf32>
         %fq_in_reshape = IE.AffineReshape(%fq_in) {dim_mapping = [[0], [0], [1], [2]], shape_value = [48, 60, 60]} : tensor<1x48x60x60xf32> -> tensor<48x60x60xf32>
         %call = call @function(%fq_in_reshape) : (tensor<48x60x60xf32>) -> tensor<48x60x60xf32>
         %fq_out_reshape = IE.AffineReshape(%call) {dim_mapping = [[0, 1], [2], [3]], shape_value = [1, 48, 60, 60]} : tensor<48x60x60xf32> -> tensor<1x48x60x60xf32>
-        %fq_out = IE.FakeQuantize(%fq_out_reshape, %out_low, %out_high, %out_low, %out_high) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i32} : tensor<1x48x60x60xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32> -> tensor<1x48x60x60xf32>
+        %fq_out = IE.FakeQuantize(%fq_out_reshape, %out_low, %out_high, %out_low, %out_high) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256 : i32} : tensor<1x48x60x60xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32> -> tensor<1x48x60x60xf32>
         return %fq_out : tensor<1x48x60x60xf32>
     }
 
@@ -332,9 +332,9 @@ module @DuplicateFQInsideBetweenCalls {
         %in_high = const.Declare tensor<1x1x1x1xf32> = dense<2.540000e+02> : tensor<1x1x1x1xf32>
         %out_low = const.Declare tensor<1x1x1x1xf32> = dense<1.000000e+00> : tensor<1x1x1x1xf32>
         %out_high = const.Declare tensor<1x1x1x1xf32> = dense<2.550000e+02> : tensor<1x1x1x1xf32>
-        %fq_in = IE.FakeQuantize(%arg0, %in_low, %in_high, %in_low, %in_high) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i32} : tensor<1x48x60x60xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32> -> tensor<1x48x60x60xf32>
+        %fq_in = IE.FakeQuantize(%arg0, %in_low, %in_high, %in_low, %in_high) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256 : i32} : tensor<1x48x60x60xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32> -> tensor<1x48x60x60xf32>
         %relu = IE.ReLU(%fq_in) : tensor<1x48x60x60xf32> -> tensor<1x48x60x60xf32>
-        %fq_out = IE.FakeQuantize(%relu, %out_low, %out_high, %out_low, %out_high) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i32} : tensor<1x48x60x60xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32> -> tensor<1x48x60x60xf32>
+        %fq_out = IE.FakeQuantize(%relu, %out_low, %out_high, %out_low, %out_high) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256 : i32} : tensor<1x48x60x60xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32> -> tensor<1x48x60x60xf32>
         return %fq_out : tensor<1x48x60x60xf32>
     }
     func.func nested @function3(%arg0: tensor<1x48x60x60xf32>) -> tensor<1x48x60x60xf32> {

@@ -35,7 +35,7 @@ func.func @UnrollThreeAxesF8E4M3FN(%input: tensor<1x2x2x32xf16>) -> tensor<1x2x2
     // CHECK-DAG:    [[OUT_HIGH_1_1:%.+]] = const.Declare tensor<1x1x1x32xf16> = dense<6.400000e+01> : tensor<1x2x2x32xf16>, [#const.SubView<[0, 1, 1, 0], [1, 1, 1, 32]>]
 
     %0 = IE.FakeQuantize(%input, %in_low, %in_high, %out_low, %out_high) {
-        auto_broadcast = #IE.auto_broadcast_type<NUMPY>, low_fp_type = f8E4M3FN
+        auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = f8E4M3FN
     } : tensor<1x2x2x32xf16>, tensor<1x2x2x32xf16>, tensor<1x2x2x32xf16>, tensor<1x2x2x32xf16>, tensor<1x2x2x32xf16> -> tensor<1x2x2x32xf16>
 
     return %0 : tensor<1x2x2x32xf16>
@@ -46,9 +46,9 @@ func.func @UnrollThreeAxesF8E4M3FN(%input: tensor<1x2x2x32xf16>) -> tensor<1x2x2
     // CHECK:    [[SLICE_3:%.+]] = IE.Slice [[SLICE_0]] [0, 0, 1, 0] [1, 1, 1, 32] : tensor<1x1x2x32xf16> to tensor<1x1x1x32xf16>
 
     // CHECK:    [[FQ_0:%.+]] = IE.FakeQuantize([[SLICE_2]], [[IN_LOW_0_0]], [[IN_HIGH_0_0]], [[OUT_LOW_0_0]], [[OUT_HIGH_0_0]])
-    // CHECK-SAME:  {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, low_fp_type = f8E4M3FN} : tensor<1x1x1x32xf16>, tensor<1x1x1x32xf16>, tensor<1x1x1x32xf16>, tensor<1x1x1x32xf16>, tensor<1x1x1x32xf16> -> tensor<1x1x1x32xf16>
+    // CHECK-SAME:  {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = f8E4M3FN} : tensor<1x1x1x32xf16>, tensor<1x1x1x32xf16>, tensor<1x1x1x32xf16>, tensor<1x1x1x32xf16>, tensor<1x1x1x32xf16> -> tensor<1x1x1x32xf16>
     // CHECK:    [[FQ_1:%.+]] = IE.FakeQuantize([[SLICE_3]], [[IN_LOW_0_1]], [[IN_HIGH_0_1]], [[OUT_LOW_0_1]], [[OUT_HIGH_0_1]])
-    // CHECK-SAME:  {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, low_fp_type = f8E4M3FN} : tensor<1x1x1x32xf16>, tensor<1x1x1x32xf16>, tensor<1x1x1x32xf16>, tensor<1x1x1x32xf16>, tensor<1x1x1x32xf16> -> tensor<1x1x1x32xf16>
+    // CHECK-SAME:  {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = f8E4M3FN} : tensor<1x1x1x32xf16>, tensor<1x1x1x32xf16>, tensor<1x1x1x32xf16>, tensor<1x1x1x32xf16>, tensor<1x1x1x32xf16> -> tensor<1x1x1x32xf16>
 
     // CHECK:    [[CONCAT_0:%.+]] = IE.Concat([[FQ_0]], [[FQ_1]]) {per_axis = #IE.Concat<axis = 2 : i64>} : tensor<1x1x1x32xf16>, tensor<1x1x1x32xf16> -> tensor<1x1x2x32xf16>
 
@@ -56,9 +56,9 @@ func.func @UnrollThreeAxesF8E4M3FN(%input: tensor<1x2x2x32xf16>) -> tensor<1x2x2
     // CHECK:    [[SLICE_5:%.+]] = IE.Slice [[SLICE_1]] [0, 0, 1, 0] [1, 1, 1, 32] : tensor<1x1x2x32xf16> to tensor<1x1x1x32xf16>
 
     // CHECK:    [[FQ_2:%.+]] = IE.FakeQuantize([[SLICE_4]], [[IN_LOW_1_0]], [[IN_HIGH_1_0]], [[OUT_LOW_1_0]], [[OUT_HIGH_1_0]])
-    // CHECK-SAME:  {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, low_fp_type = f8E4M3FN} : tensor<1x1x1x32xf16>, tensor<1x1x1x32xf16>, tensor<1x1x1x32xf16>, tensor<1x1x1x32xf16>, tensor<1x1x1x32xf16> -> tensor<1x1x1x32xf16>
+    // CHECK-SAME:  {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = f8E4M3FN} : tensor<1x1x1x32xf16>, tensor<1x1x1x32xf16>, tensor<1x1x1x32xf16>, tensor<1x1x1x32xf16>, tensor<1x1x1x32xf16> -> tensor<1x1x1x32xf16>
     // CHECK:    [[FQ_3:%.+]] = IE.FakeQuantize([[SLICE_5]], [[IN_LOW_1_1]], [[IN_HIGH_1_1]], [[OUT_LOW_1_1]], [[OUT_HIGH_1_1]])
-    // CHECK-SAME:  {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, low_fp_type = f8E4M3FN} : tensor<1x1x1x32xf16>, tensor<1x1x1x32xf16>, tensor<1x1x1x32xf16>, tensor<1x1x1x32xf16>, tensor<1x1x1x32xf16> -> tensor<1x1x1x32xf16>
+    // CHECK-SAME:  {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = f8E4M3FN} : tensor<1x1x1x32xf16>, tensor<1x1x1x32xf16>, tensor<1x1x1x32xf16>, tensor<1x1x1x32xf16>, tensor<1x1x1x32xf16> -> tensor<1x1x1x32xf16>
 
     // CHECK:    [[CONCAT_1:%.+]] = IE.Concat([[FQ_2]], [[FQ_3]]) {per_axis = #IE.Concat<axis = 2 : i64>} : tensor<1x1x1x32xf16>, tensor<1x1x1x32xf16> -> tensor<1x1x2x32xf16>
 

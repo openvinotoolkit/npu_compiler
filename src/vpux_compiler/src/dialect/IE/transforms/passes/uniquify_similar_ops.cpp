@@ -135,7 +135,7 @@ void RemoveDuplicatingPermute::eliminateDuplicatedOperation(IE::MemPermuteOp fir
 
     // Set destination order
     auto outputType = mlir::cast<vpux::NDTypeInterface>(secondOp.getOutput().getType());
-    const auto outPermuteCastLoc = appendLoc(secondOp.getLoc(), "out_perm_cast");
+    const auto outPermuteCastLoc = takeOpLoc(secondOp, "permute_out");
     auto permuteCast = IE::tryToFindPermuteCastOp(outPermuteCastLoc, firstOp.getOutput(), outputType.getDimsOrder(),
                                                   outputType.getShape(), rewriter);
     assert(permuteCast.has_value() && "Valid PermuteCast must be generated. Condition checked beforehand.");

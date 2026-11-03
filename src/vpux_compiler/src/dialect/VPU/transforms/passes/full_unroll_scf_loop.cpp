@@ -887,29 +887,13 @@ private:
     void unrollMulticlustering(mlir::ModuleOp moduleOp);
 };
 
-static std::optional<int64_t> getConstantTripCount(mlir::scf::ForOp forOp) {
-    std::optional<int64_t> lbCstOp = getConstantIntValue(forOp.getLowerBound());
-    std::optional<int64_t> ubCstOp = getConstantIntValue(forOp.getUpperBound());
-    std::optional<int64_t> stepCstOp = getConstantIntValue(forOp.getStep());
-    if (!lbCstOp.has_value() || !ubCstOp.has_value() || !stepCstOp.has_value()) {
-        return {};
-    }
-
-    // Constant loop bounds computation.
-    int64_t lbCst = lbCstOp.value();
-    int64_t ubCst = ubCstOp.value();
-    int64_t stepCst = stepCstOp.value();
-    assert(lbCst >= 0 && ubCst >= 0 && stepCst > 0 && "expected positive loop bounds and step");
-    return llvm::divideCeilSigned(ubCst - lbCst, stepCst);
-}
-
 void FullUnrollSCFLoopPass::unrollTiling(ArrayRef<mlir::scf::ForOp> loopVector,
                                          [[maybe_unused]] mlir::ModuleOp moduleOp) {
     _log.trace("unrollTiling: unrolling {0} tiling loop(s)", loopVector.size());
 
     // full unrolling of tiling loops
     for (auto& loop : loopVector) {
-        const auto tripCountOpt = getConstantTripCount(loop);
+        const auto tripCountOpt = VPU::getConstantTripCount(loop);
 
         VPUX_THROW_WHEN(!tripCountOpt.has_value(),
                         "Full unrolling is not supported for loop {0} with dynamic trip count", loop);
@@ -944,7 +928,7 @@ void FullUnrollSCFLoopPass::unrollTiling(ArrayRef<mlir::scf::ForOp> loopVector,
 
             // skip interring Eltwise type one of its inputs has static shape and pther one has dynamic shape
             // due to having padded operation on one of Eltwise branches before padding is merged to the operation
-            const auto isEltwiseWithPaddedDynamicInput = [&operation]() {
+            const auto isEltwiseWithPaddedDynamicInput = [operation]() {
                 if (!operation->hasTrait<VPU::EltwiseOp>() || operation->getNumOperands() != 2) {
                     return false;
                 }
@@ -958,7 +942,7 @@ void FullUnrollSCFLoopPass::unrollTiling(ArrayRef<mlir::scf::ForOp> loopVector,
                     return false;
                 }
 
-                const auto isPaddedInput = [&in1Shape](auto value1, auto value2) {
+                const auto isPaddedInput = [in1Shape](auto value1, auto value2) {
                     auto opFirstInput = value1.getDefiningOp();
                     auto opSecondInput = value2.getDefiningOp();
 
@@ -1065,7 +1049,7 @@ void FullUnrollSCFLoopPass::unrollTiling(ArrayRef<mlir::scf::ForOp> loopVector,
 VPU::DistributionMode getInputNonDuplicatedMode(VPU::ClusteredOpInterface clusteredOp, mlir::OpOperand* input,
                                                 NDTypeInterface inputType, const VPU::MultiClusterStrategy& strategy) {
     if (mlir::isa<SWOpInterface>(clusteredOp.getOperation())) {
-        return VPU::getSWInputTensorDistributionMode(clusteredOp, strategy, input->get(), inputType);
+        return VPU::getSWInputTensorDistributionMode(clusteredOp, strategy, *input, inputType);
     }
 
     if (auto gatherDMA = mlir::dyn_cast<VPU::GatherDMAOp>(clusteredOp.getOperation())) {

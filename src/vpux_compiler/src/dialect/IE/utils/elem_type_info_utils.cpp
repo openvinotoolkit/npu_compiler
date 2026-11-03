@@ -5,8 +5,12 @@
 
 #include "vpux/compiler/dialect/IE/utils/elem_type_info_utils.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/data_movement.hpp"
+#include "vpux/compiler/dialect/IE/IR/ops/data_type.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/image.hpp"
+#include "vpux/compiler/dialect/IE/IR/ops/pooling.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/shape_manipulation.hpp"
+#include "vpux/compiler/dialect/IE/IR/ops/specialized.hpp"
+#include "vpux/compiler/dialect/IE/IR/ops_interfaces.hpp"
 #include "vpux/compiler/dialect/const/utils/affine_reshape.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
 #include "vpux/compiler/utils/permute_utils.hpp"
@@ -16,6 +20,16 @@
 
 using namespace vpux;
 using namespace IE;
+
+bool vpux::IE::isElemTypeTransparentViewLikeOp(mlir::Operation* op) {
+    if (op == nullptr || op->getNumOperands() != 1 || mlir::isa<IE::MaxPoolOp>(op)) {
+        return false;
+    }
+    if (IE::isPureViewOp(op) || mlir::isa<IE::ElemTypeInfoOpInterface>(op)) {
+        return true;
+    }
+    return false;
+}
 
 void vpux::IE::propagateElementTypeDown(IE::LayerDataInfo<mlir::Type>& info) {
     const auto inputElemType = info.getInput(0);

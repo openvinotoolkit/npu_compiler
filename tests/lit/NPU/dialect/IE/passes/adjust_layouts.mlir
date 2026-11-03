@@ -339,6 +339,46 @@ func.func @main(%arg0: tensor<1x3x30x30xf16>) -> tensor<1x3x60x60xf16> {
 
 // -----
 
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+
+// CHECK-LABEL: @YuvToRgbRequiresNHWC
+module @YuvToRgbRequiresNHWC {
+
+net.NetworkInfo
+    entryPoint : @main
+    inputsInfo : {
+        DataInfo "y" : tensor<1x1x180x1280xf16>
+        DataInfo "uv" : tensor<1x2x90x640xf16>
+    }
+    outputsInfo : {
+        DataInfo "prob" : tensor<1x3x180x1280xf16>
+    }
+
+// CHECK: func.func @main([[Y:%arg[0-9]+]]: tensor<1x1x180x1280xf16>, [[UV:%arg[0-9]+]]: tensor<1x2x90x640xf16>) -> tensor<1x3x180x1280xf16> {
+func.func @main(%y: tensor<1x1x180x1280xf16>, %uv: tensor<1x2x90x640xf16>) -> tensor<1x3x180x1280xf16> {
+    %0 = IE.YuvToRgb(%y, %uv) {
+        inFmt = #IE.color_fmt<NV12>,
+        operandSegmentSizes = array<i32: 1, 1, 0>,
+        outFmt = #IE.color_fmt<BGR>,
+        scale = 0.00373366661 : f32
+    } : tensor<1x1x180x1280xf16>, tensor<1x2x90x640xf16> -> tensor<1x3x180x1280xf16>
+    return %0 : tensor<1x3x180x1280xf16>
+
+    // CHECK: [[Y_REORDER:%.+]] = IE.Reorder([[Y]]) {dstOrder = #NHWC} : tensor<1x1x180x1280xf16> -> tensor<1x1x180x1280xf16, {order = #NHWC}>
+    // CHECK: [[UV_REORDER:%.+]] = IE.Reorder([[UV]]) {dstOrder = #NHWC} : tensor<1x2x90x640xf16> -> tensor<1x2x90x640xf16, {order = #NHWC}>
+    // CHECK: [[YUV:%.+]] = IE.YuvToRgb([[Y_REORDER]], [[UV_REORDER]]) {
+    // CHECK-SAME: inFmt = #IE.color_fmt<NV12>,
+    // CHECK-SAME: operandSegmentSizes = array<i32: 1, 1, 0>,
+    // CHECK-SAME: outFmt = #IE.color_fmt<BGR>
+    // CHECK-SAME: : tensor<1x1x180x1280xf16, {order = #NHWC}>, tensor<1x2x90x640xf16, {order = #NHWC}> -> tensor<1x3x180x1280xf16, {order = #NHWC}>
+    // CHECK: [[OUT_REORDER:%.+]] = IE.Reorder([[YUV]]) {dstOrder = #NCHW} : tensor<1x3x180x1280xf16, {order = #NHWC}> -> tensor<1x3x180x1280xf16>
+    // CHECK: return [[OUT_REORDER]] : tensor<1x3x180x1280xf16>
+}
+
+}
+
+// -----
+
 #HWC = affine_map<(d0, d1, d2) -> (d1, d2, d0)>
 #NC = affine_map<(d0, d1) -> (d0, d1)>
 
@@ -440,49 +480,6 @@ func.func @AdjustForPReluNWCH(%arg0: tensor<1x64x1x41xf16, {order = #NWCH}>,
     // CHECK: [[REORDER_OUT:%.+]] = IE.Reorder([[PRELU]]) {dstOrder = #NWCH} : tensor<1x64x1x41xf16> -> tensor<1x64x1x41xf16, {order = #NWCH}>
 
     // CHECK: return [[REORDER_OUT]] : tensor<1x64x1x41xf16, {order = #NWCH}>
-}
-
-// -----
-
-#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
-#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
-
-// CHECK-LABEL:   @AdjustForExternalKernel
-// CHECK-SAME:    ([[INPUT0:%.+]]: tensor<1x64x1x41xf16>, [[INPUT1:%.+]]: tensor<1x64x1x1xf16>)
-func.func @AdjustForExternalKernel(%arg0: tensor<1x64x1x41xf16>,
-                                   %arg1: tensor<1x64x1x1xf16>)
-                              -> tensor<1x64x1x41xf16> {
-    %0 = Shave.ExternalKernel "dummy_kernel" inputs(%arg0, %arg1 : tensor<1x64x1x41xf16>, tensor<1x64x1x1xf16>) attrs({}) -> tensor<1x64x1x41xf16>
-    return %0 : tensor<1x64x1x41xf16>
-
-    // CHECK:      [[REORDER_IN0:%.+]] = IE.Reorder([[INPUT0]]) {dstOrder = #NHWC} : tensor<1x64x1x41xf16> -> tensor<1x64x1x41xf16, {order = #NHWC}>
-    // CHECK:      [[REORDER_IN1:%.+]] = IE.Reorder([[INPUT1]]) {dstOrder = #NHWC} : tensor<1x64x1x1xf16> -> tensor<1x64x1x1xf16, {order = #NHWC}>
-    // CHECK:      [[EXT_KERNEL:%.+]] = Shave.ExternalKernel "dummy_kernel"
-    // CHECK-SAME: inputs([[REORDER_IN0]], [[REORDER_IN1]] : tensor<1x64x1x41xf16, {order = #NHWC}>, tensor<1x64x1x1xf16, {order = #NHWC}>)
-    // CHECK-SAME: -> tensor<1x64x1x41xf16, {order = #NHWC}>
-    // CHECK:      [[REORDER_OUT:%.+]] = IE.Reorder([[EXT_KERNEL]]) {dstOrder = #NCHW} : tensor<1x64x1x41xf16, {order = #NHWC}> -> tensor<1x64x1x41xf16>
-    // CHECK:      return [[REORDER_OUT]] : tensor<1x64x1x41xf16>
-}
-
-// -----
-
-#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
-#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
-
-// CHECK-LABEL:   @NoAdjustForExternalKernel
-// CHECK-SAME:    ([[INPUT0:%.+]]: tensor<1x64x1x41xf16, {order = #NHWC}>, [[INPUT1:%.+]]: tensor<1x64x1x1xf16, {order = #NHWC}>)
-func.func @NoAdjustForExternalKernel(%arg0: tensor<1x64x1x41xf16, {order = #NHWC}>,
-                                   %arg1: tensor<1x64x1x1xf16, {order = #NHWC}>)
-                              -> tensor<1x64x1x41xf16, {order = #NHWC}> {
-    %0 = Shave.ExternalKernel "dummy_kernel" inputs(%arg0, %arg1 : tensor<1x64x1x41xf16, {order = #NHWC}>, tensor<1x64x1x1xf16, {order = #NHWC}>) attrs({}) -> tensor<1x64x1x41xf16, {order = #NHWC}>
-    return %0 : tensor<1x64x1x41xf16, {order = #NHWC}>
-
-    // CHECK-NOT:  IE.Reorder
-    // CHECK:      [[EXT_KERNEL:%.+]] = Shave.ExternalKernel "dummy_kernel"
-    // CHECK-SAME: inputs([[INPUT0]], [[INPUT1]] : tensor<1x64x1x41xf16, {order = #NHWC}>, tensor<1x64x1x1xf16, {order = #NHWC}>)
-    // CHECK-SAME: -> tensor<1x64x1x41xf16, {order = #NHWC}>
-    // CHECK-NOT:  IE.Reorder
-    // CHECK:      return [[EXT_KERNEL]] : tensor<1x64x1x41xf16, {order = #NHWC}>
 }
 
 // Following tests make use of the EnableSEPtrsOperations option.
@@ -728,5 +725,89 @@ func.func @main(%arg0: tensor<1x64x30x30xf16>) -> tensor<1x64x33x33xf16> {
     // CHECK:       [[OUTPUT:%.+]] = IE.Reorder([[PAD]]) {dstOrder = #NCHW} : tensor<1x64x33x33xf16, {order = #NHWC}> -> tensor<1x64x33x33xf16>
 
     // CHECK:       return [[OUTPUT]]
+}
+}
+
+// -----
+
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+
+// CHECK-LABEL: @SpaceToDepthDepthFirstFromNCHW
+module @SpaceToDepthDepthFirstFromNCHW {
+
+net.NetworkInfo
+    entryPoint : @main
+    inputsInfo : {
+        DataInfo "data" : tensor<1x3x224x224xf16>
+    }
+    outputsInfo : {
+        DataInfo "prob" : tensor<1x768x14x14xf16>
+    }
+
+// CHECK: func.func @main([[ARG0:%arg[0-9]+]]: tensor<1x3x224x224xf16>) -> tensor<1x768x14x14xf16> {
+func.func @main(%arg0: tensor<1x3x224x224xf16>) -> tensor<1x768x14x14xf16> {
+    %0 = IE.SpaceToDepthOp(%arg0) {block_size = 16 : i64, mode = #IE.space_to_depth_mode<DEPTH_FIRST>} : tensor<1x3x224x224xf16> -> tensor<1x768x14x14xf16>
+    return %0 : tensor<1x768x14x14xf16>
+
+    // CHECK:       [[S2D:%.+]] = IE.SpaceToDepthOp([[ARG0]]) {block_size = 16 : i64, mode = #IE.space_to_depth_mode<DEPTH_FIRST>} : tensor<1x3x224x224xf16> -> tensor<1x768x14x14xf16, {order = #NHWC}>
+    // CHECK:       [[OUTPUT:%.+]] = IE.Reorder([[S2D]]) {dstOrder = #NCHW} : tensor<1x768x14x14xf16, {order = #NHWC}> -> tensor<1x768x14x14xf16>
+    // CHECK:       return [[OUTPUT]]
+}
+}
+
+// -----
+
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+
+// A DEPTH_FIRST SpaceToDepth must be fed NCHW even when the producer is NHWC: NCHW->NHWC is the
+// only layout pair whose SpaceToDepthDMA moves a whole block row per transfer instead of one element.
+
+// CHECK-LABEL: @SpaceToDepthDepthFirstFromNHWC
+module @SpaceToDepthDepthFirstFromNHWC {
+
+net.NetworkInfo
+    entryPoint : @main
+    inputsInfo : {
+        DataInfo "data" : tensor<1x3x224x224xf16>
+    }
+    outputsInfo : {
+        DataInfo "prob" : tensor<1x768x14x14xf16>
+    }
+
+// CHECK: func.func @main([[ARG0:%arg[0-9]+]]: tensor<1x3x224x224xf16, {order = #NHWC}>) -> tensor<1x768x14x14xf16, {order = #NHWC}> {
+func.func @main(%arg0: tensor<1x3x224x224xf16, {order = #NHWC}>) -> tensor<1x768x14x14xf16, {order = #NHWC}> {
+    %0 = IE.SpaceToDepthOp(%arg0) {block_size = 16 : i64, mode = #IE.space_to_depth_mode<DEPTH_FIRST>} : tensor<1x3x224x224xf16, {order = #NHWC}> -> tensor<1x768x14x14xf16, {order = #NHWC}>
+    return %0 : tensor<1x768x14x14xf16, {order = #NHWC}>
+
+    // CHECK:       [[INPUT_REORDERED:%.+]] = IE.Reorder([[ARG0]]) {dstOrder = #NCHW} : tensor<1x3x224x224xf16, {order = #NHWC}> -> tensor<1x3x224x224xf16>
+    // CHECK:       [[S2D:%.+]] = IE.SpaceToDepthOp([[INPUT_REORDERED]]) {block_size = 16 : i64, mode = #IE.space_to_depth_mode<DEPTH_FIRST>} : tensor<1x3x224x224xf16> -> tensor<1x768x14x14xf16, {order = #NHWC}>
+    // CHECK:       return [[S2D]]
+}
+}
+
+// -----
+
+// CHECK-LABEL: @SpaceToDepthBlocksFirstKeepsOrder
+module @SpaceToDepthBlocksFirstKeepsOrder {
+
+net.NetworkInfo
+    entryPoint : @main
+    inputsInfo : {
+        DataInfo "data" : tensor<1x3x224x224xf16>
+    }
+    outputsInfo : {
+        DataInfo "prob" : tensor<1x768x14x14xf16>
+    }
+
+// CHECK: func.func @main([[ARG0:%arg[0-9]+]]: tensor<1x3x224x224xf16>) -> tensor<1x768x14x14xf16> {
+func.func @main(%arg0: tensor<1x3x224x224xf16>) -> tensor<1x768x14x14xf16> {
+    %0 = IE.SpaceToDepthOp(%arg0) {block_size = 16 : i64, mode = #IE.space_to_depth_mode<BLOCKS_FIRST>} : tensor<1x3x224x224xf16> -> tensor<1x768x14x14xf16>
+    return %0 : tensor<1x768x14x14xf16>
+
+    // CHECK-NOT:   IE.Reorder
+    // CHECK:       [[S2D:%.+]] = IE.SpaceToDepthOp([[ARG0]]) {block_size = 16 : i64, mode = #IE.space_to_depth_mode<BLOCKS_FIRST>} : tensor<1x3x224x224xf16> -> tensor<1x768x14x14xf16>
+    // CHECK-NOT:   IE.Reorder
+
+    // CHECK:       return [[S2D]]
 }
 }

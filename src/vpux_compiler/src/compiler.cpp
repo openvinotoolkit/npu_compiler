@@ -3,14 +3,15 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
+#include <chrono>
 #include <optional>
 #include <utility>
+#include <vector>
 
 #ifdef ENABLE_PROFILING_ITT
 #include <ittnotify.h>  // __itt_release_resources
 #endif
 
-#include "intel_npu/profiling.hpp"
 #include "vpux/compiler/compiler.hpp"
 #include "vpux/compiler/icompiler.hpp"
 #include "vpux/utils/ov/options.hpp"
@@ -85,6 +86,7 @@
 #include <openvino/pass/serialize.hpp>
 #include <openvino/runtime/core.hpp>
 #include <openvino/runtime/iplugin.hpp>
+#include <openvino/runtime/profiling_info.hpp>
 #include <openvino/runtime/shared_buffer.hpp>
 #include <openvino/util/xml_parse_utils.hpp>
 
@@ -162,6 +164,20 @@ std::unique_ptr<IBackendPipelineStrategy> createBackendPipelineStrategy(config::
     }
 }
 
+// Resolves the compile's optimization level. Checks the dedicated OV::OPTIMIZATION_LEVEL config property
+// first, falling back to the legacy optimization-level=N value inside COMPILATION_MODE_PARAMS.
+int getOptimizationLevel(const vpux::OV::Config& config) {
+    if (config.has<vpux::OV::OPTIMIZATION_LEVEL>()) {
+        return config.get<vpux::OV::OPTIMIZATION_LEVEL>();
+    }
+
+    // Matches PublicOptions::optimizationLevel's own default when parsing fails or is unset.
+    constexpr int defaultOptimizationLevel = 1;
+    const auto publicOptions = parseCompilationModeParams<PublicOptions>(
+            config.get<vpux::OV::COMPILATION_MODE_PARAMS>(), getArchKind(config));
+    return publicOptions != nullptr ? publicOptions->optimizationLevel.getValue() : defaultOptimizationLevel;
+}
+
 auto importNetwork(mlir::MLIRContext* ctx, const std::shared_ptr<ov::Model>& model,
                    const std::vector<std::shared_ptr<const ov::Node>>& originalParameters,
                    const std::vector<std::shared_ptr<const ov::Node>>& originalResults, const vpux::OV::Config& config,
@@ -176,8 +192,11 @@ auto importNetwork(mlir::MLIRContext* ctx, const std::shared_ptr<ov::Model>& mod
     importCfg.dynamicShapeToStatic = config.get<vpux::OV::DYNAMIC_SHAPE_TO_STATIC>();
     importCfg.enableWeightsSeparationPath = enableWeightsSeparationPath;
     importCfg.enableDecomposeSDPA = getEnableDecomposeSDPA(config).value_or(false);
+    importCfg.enableConvertNMSToStatic = getEnableConvertNMSToStatic(config).value_or(kDefaultConvertNMSToStatic);
     importCfg.executionModeAccuracy = config.get<vpux::OV::EXECUTION_MODE_HINT>() == vpux::OV::ExecutionMode::ACCURACY;
     importCfg.ioWithDynamicStrides = getIoWithDynamicStrides(config);
+    importCfg.optimizationLevel = getOptimizationLevel(config);
+    importCfg.arch = getArchKind(config);
 
     return IE::importNetwork(ctx, model, originalParameters, originalResults, importTiming, importCfg, log.nest());
 }
@@ -200,20 +219,6 @@ void middleendCompilation(mlir::OwningOpRef<mlir::ModuleOp>& module, const Devel
     VPUX_THROW_WHEN(mlir::failed(compileResult), "Compilation failed");
 
     devConf.dump(pm);
-}
-
-void backendHostCompilation(mlir::OwningOpRef<mlir::ModuleOp>& hostModule, const DeveloperConfig& devConf,
-                            const vpux::OV::Config& config, mlir::TimingScope& compileNetworkTiming, Logger log) {
-    auto hostExecTiming = compileNetworkTiming.nest("HostExec pipeline");
-    mlir::PassManager hostExecPm(hostModule.get()->getName(), mlir::OpPassManager::Nesting::Implicit);
-    devConf.setup(hostExecPm, config);
-
-    auto enablePipelinedCmdListRecording =
-            getEnablePipelinedCmdListRecording(config).value_or(HostExec::defaultEnablePipelinedCmdListRecording);
-    vpux::HostExec::buildHostExecPipeline(hostExecPm, enablePipelinedCmdListRecording, log);
-
-    auto compileResult = compileNetwork(hostModule.get(), hostExecPm, hostExecTiming);
-    VPUX_THROW_WHEN(mlir::failed(compileResult), "Compilation failed");
 }
 
 void backendBytecodeCompilation(mlir::OwningOpRef<mlir::ModuleOp>& hostModule, const DeveloperConfig& devConf,
@@ -261,29 +266,6 @@ auto exportToELF(mlir::ModuleOp module, Logger log, BlobAllocator& allocator, st
     default:
         return ELF::exportToELF(module, allocator, compatibilityString, log);
     }
-}
-
-vpux::BlobView exportLLVM(mlir::ModuleOp module, BlobAllocator& allocator) {
-    std::string streamStr;
-    llvm::raw_string_ostream output(streamStr);
-    output << *module;
-
-    auto blob = allocator.allocate(vpux::Byte{static_cast<int64_t>(streamStr.size())});
-    memcpy(blob, streamStr.c_str(), streamStr.size());
-
-    return {blob, static_cast<uint64_t>(streamStr.size())};
-}
-
-auto exportLLVM(mlir::ModuleOp module) {
-    std::string streamStr;
-    llvm::raw_string_ostream output(streamStr);
-
-    output << *module;
-
-    auto blob = std::vector<uint8_t>(streamStr.size());
-    memcpy(blob.data(), streamStr.c_str(), streamStr.size());
-
-    return blob;
 }
 
 BlobView exportBytecode(mlir::ModuleOp module, BlobAllocator& allocator, Logger /*log*/) {
@@ -364,11 +346,6 @@ NetworkDescription exportNetwork(mlir::ModuleOp module, const vpux::OV::Config& 
     NetworkMetadata meta;
     std::vector<uint8_t> blob;
     switch (compilationMode) {
-    case config::CompilationMode::HostCompile:
-    case config::CompilationMode::HostCompile_JIT:
-        blob = exportLLVM(module);
-        meta = VPUMI37XX::getHostCompileNetworkMetadata(module);
-        break;
     case config::CompilationMode::HostCompile_Interpreter: {
         blob = exportBytecode(module, log);
         auto metadata = intel_npu::vm::parseNetworkMetadata(blob.data(), blob.size());
@@ -388,12 +365,6 @@ NetworkDescriptionView exportNetwork(mlir::ModuleOp module, const vpux::OV::Conf
     const auto compilationMode = getCompilationMode(config);
 
     switch (compilationMode) {
-    case config::CompilationMode::HostCompile:
-    case config::CompilationMode::HostCompile_JIT: {
-        auto blob = exportLLVM(module, allocator);
-        auto meta = VPUMI37XX::getHostCompileNetworkMetadata(module);
-        return NetworkDescriptionView(blob, std::move(meta));
-    }
     case config::CompilationMode::HostCompile_Interpreter: {
         auto blob = exportBytecode(module, allocator, log);
         auto metadata = intel_npu::vm::parseNetworkMetadata(blob.ptr, static_cast<size_t>(blob.size));
@@ -629,11 +600,7 @@ mlir::OwningOpRef<mlir::ModuleOp> compileModel(mlir::MLIRContext& ctx, const std
         // split into subgraphs. The ELF pipeline is nested under a child ModuleOp anchor so MLIR
         // dispatches it to each submodule concurrently when multi-threading is enabled.
         backendCompilation(module, devConf, config, compileNetworkTiming, log, /*nested=*/true);
-        if (compilationMode == config::CompilationMode::HostCompile_Interpreter) {
-            backendBytecodeCompilation(module, devConf, config, compileNetworkTiming, log);
-        } else {
-            backendHostCompilation(module, devConf, config, compileNetworkTiming, log);
-        }
+        backendBytecodeCompilation(module, devConf, config, compileNetworkTiming, log);
     } else {
         backendCompilation(module, devConf, config, compileNetworkTiming, log);
     }
@@ -859,6 +826,35 @@ std::shared_ptr<ModelData> prepareAndPreprocessModelFromDesc(const vcl_executabl
     return modelData;
 }
 
+// This function is a copy from openvino/src/intel_npu/src/al/include/intel_npu/profiling.hpp
+// Reference OV commit: a4b1ef7632b7bc389f4daa68dbdff018fd47a09f
+template <typename LayerInfo>
+std::vector<ov::ProfilingInfo> convertLayersToIeProfilingInfo(const std::vector<LayerInfo>& layerInfo) {
+    std::vector<ov::ProfilingInfo> perfCounts;
+
+    perfCounts.reserve(layerInfo.size());
+    for (const auto& layer : layerInfo) {
+        ov::ProfilingInfo& info = perfCounts.emplace_back();
+        info.status = ov::ProfilingInfo::Status::EXECUTED;
+        info.start_time =
+                std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::nanoseconds(layer.start_time_ns));
+        const auto real_time_ns = std::chrono::nanoseconds(layer.duration_ns);
+        info.real_time = std::chrono::duration_cast<std::chrono::microseconds>(real_time_ns);
+        const auto cpu_time_ns = std::chrono::nanoseconds(layer.dma_ns + layer.sw_ns + layer.dpu_ns);
+        info.cpu_time = std::chrono::duration_cast<std::chrono::microseconds>(cpu_time_ns);
+        info.node_name = layer.name;
+        if (layer.sw_ns > 0) {
+            info.exec_type = "Shave";
+        } else if (layer.dpu_ns > 0) {
+            info.exec_type = "DPU";
+        } else {
+            info.exec_type = "DMA";
+        }
+        info.node_type = layer.layer_type;
+    }
+    return perfCounts;
+}
+
 }  // namespace
 
 CompilerImpl::CompilerImpl() {
@@ -903,6 +899,8 @@ ov::SupportedOpsMap vpux::CompilerImpl::query(const std::shared_ptr<const ov::Mo
     auto rootTiming = tm.getRootScope();
     // query is executed with the default values of the config
     IE::ImportNetworkConfig importCfg;
+    importCfg.optimizationLevel = getOptimizationLevel(config);
+    importCfg.arch = getArchKind(config);
 
     log.trace("Get supported nodes.");
     auto supportedNodes = ov::get_supported_nodes(
@@ -1522,9 +1520,8 @@ NetworkDescriptionView CompilerImpl::compileWsIterative(const std::shared_ptr<ov
 //
 enum class BlobFormat {
     UNKNOWN,
-    ELF,       //<- ELF binary for static models
-    LLVM_TXT,  //<- LLVM text generated from HostCompile mode for dynamic models
-    BYTECODE   //<- LLVM bytecode generated from HostCompile mode for dynamic models
+    ELF,      //<- ELF binary for static models
+    BYTECODE  //<- Bytecode generated from HostCompile mode for dynamic models
 };
 
 inline BlobFormat getBlobFormat(const uint8_t* data, size_t dataSize) {
@@ -1537,8 +1534,6 @@ inline BlobFormat getBlobFormat(const uint8_t* data, size_t dataSize) {
 
         if (header.find("ELF") != std::string::npos) {
             return BlobFormat::ELF;
-        } else if (header.find("module") != std::string::npos) {
-            return BlobFormat::LLVM_TXT;
         } else {
             if (headerSize >= intel_npu::vm::MAGIC_NUMBER_SIZE) {
                 intel_npu::vm::Span<const uint8_t> header(data, intel_npu::vm::MAGIC_NUMBER_SIZE);
@@ -1558,36 +1553,6 @@ NetworkMetadata CompilerImpl::parse(const std::vector<uint8_t>& compiledNetwork,
     switch (format) {
     case BlobFormat::ELF:
         return VPUMI37XX::getNetworkMetadata(mlir::ArrayRef(compiledNetwork));
-    case BlobFormat::LLVM_TXT: {
-        mlir::DialectRegistry registry;
-        mlir::registerBuiltinDialectTranslation(registry);
-        mlir::registerLLVMDialectTranslation(registry);
-        auto context = std::make_unique<mlir::MLIRContext>(registry);
-
-        // Metadata<METADATA_VERSION_X_X> is stored after LLVM code in CompiledModel::export_model
-        // So, the file size needs to be adjusted to avoid compilation error
-        auto getLLVMIRSize = [](const std::vector<uint8_t>& llvmIR) {
-            if (llvmIR.empty()) {
-                return static_cast<uint64_t>(0);
-            }
-            for (int64_t index = static_cast<int64_t>(llvmIR.size()) - 1; index >= 0LL; --index) {
-                if (llvmIR[index] == static_cast<uint8_t>('}')) {
-                    return static_cast<uint64_t>(index + 1LL);
-                }
-            }
-
-            return static_cast<uint64_t>(0);
-        };
-
-        llvm::SMDiagnostic err;
-        llvm::StringRef content(reinterpret_cast<const char*>(compiledNetwork.data()), getLLVMIRSize(compiledNetwork));
-        std::unique_ptr<llvm::MemoryBuffer> buffer = llvm::MemoryBuffer::getMemBufferCopy(content, "LLVMBlob");
-        auto sourceMgr = std::make_shared<llvm::SourceMgr>();
-        sourceMgr->AddNewSourceBuffer(std::move(buffer), llvm::SMLoc());
-        mlir::OwningOpRef<mlir::ModuleOp> module = mlir::parseSourceFile<mlir::ModuleOp>(*sourceMgr, context.get());
-
-        return VPUMI37XX::getHostCompileNetworkMetadata(module.get());
-    }
     case BlobFormat::BYTECODE: {
         auto metadata = intel_npu::vm::parseNetworkMetadata(compiledNetwork.data(), compiledNetwork.size());
         VPUX_THROW_UNLESS(metadata.has_value(), "Failed to parse metadata from bytecode");
@@ -1607,7 +1572,7 @@ std::vector<ov::ProfilingInfo> CompilerImpl::processProfilingOutput(const std::v
                                                                     const std::vector<uint8_t>& network,
                                                                     const vpux::OV::Config&) const {
     auto layerInfo = profiling::getLayerProfilingInfoHook(profData, network);
-    return intel_npu::profiling::convertLayersToIeProfilingInfo(layerInfo);
+    return convertLayersToIeProfilingInfo(layerInfo);
 }
 
 std::vector<ze::ze_profiling_layer_info> CompilerImpl::getLayerInfo(const uint8_t* blobData, uint64_t blobSize,

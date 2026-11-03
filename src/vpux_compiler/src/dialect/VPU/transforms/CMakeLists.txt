@@ -40,3 +40,4 @@ add_npu_library(npu_compiler_dialect_vpu_transforms
         npu_compiler_dialect_shave
         npu_compiler_dialect_shave_transforms
 )
+enable_lto_if_possible(npu_compiler_dialect_vpu_transforms)

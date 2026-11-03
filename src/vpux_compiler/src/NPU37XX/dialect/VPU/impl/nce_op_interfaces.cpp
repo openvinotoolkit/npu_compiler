@@ -6,66 +6,16 @@
 #include "vpux/compiler/dialect/VPU/interfaces/nce_op_interfaces.hpp"
 #include "vpux/compiler/NPU37XX/dialect/VPU/IR/ops_interfaces.hpp"
 #include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
-
-#include "vpux/compiler/dialect/config/IR/utils.hpp"
+#include "vpux/compiler/dialect/VPU/utils/nce_utils.hpp"
 
 using namespace vpux;
 
 namespace {
 
-std::vector<unsigned int> getNTHWNTKGrid(VPU::MPEMode mode) {
-    switch (mode) {
-    case VPU::MPEMode::CUBOID_4x16:
-        return {8, 8, 256};
-    case VPU::MPEMode::CUBOID_8x16:
-        return {16, 8, 128};
-    default:
-        return {16, 16, 64};
-    }
-}
-std::vector<unsigned int> getNTHWNTKGrid50XX(VPU::MPEMode mode) {
-    switch (mode) {
-    case VPU::MPEMode::CUBOID_4x16:
-        return {8, 8, 128};
-    case VPU::MPEMode::CUBOID_8x16:
-        return {16, 8, 64};
-    default:
-        return {16, 16, 32};
-    }
-}
-VPU::MPEMode getMpeModeForConv([[maybe_unused]] config::ArchKind arch, ShapeRef shape) {
-    std::vector<std::pair<double, VPU::MPEMode>> MPECost = {{0.0, VPU::MPEMode::CUBOID_4x16},
-                                                            {0.0, VPU::MPEMode::CUBOID_8x16},
-                                                            {0.0, VPU::MPEMode::CUBOID_16x16}};
-
-    for (unsigned int idx = 0; idx < MPECost.size(); idx++) {
-        auto grid = getNTHWNTKGrid(MPECost[idx].second);
-        // Only NPU5 has the temporary reduction in output channel accumulator contexts.
-        // All previous and subsequent platforms have the same x2 amount;
-        if (arch == config::ArchKind::NPU50XX) {
-            grid = getNTHWNTKGrid50XX(MPECost[idx].second);
-        }
-        // Get the number of weights and activation grid reads
-        double numWtGrids = std::ceil((double)shape[Dims4D::Act::C] / (double)grid[2]);
-        double numActGrids = std::ceil((double)shape[Dims4D::Act::H] / (double)grid[1]) *
-                             std::ceil((double)shape[Dims4D::Act::W] / (double)grid[0]);
-
-        // Compute the simplfied number of reads
-        double actReads = numWtGrids * shape[Dims4D::Act::H] * shape[Dims4D::Act::W];
-        double wtReads = numActGrids * shape[Dims4D::Act::C];
-
-        MPECost[idx].first = actReads + wtReads;
-    }
-
-    // Select the one that has min number of reads
-    return (*std::min_element(MPECost.begin(), MPECost.end())).second;
-}
-
 class ConvMpeModeModel {
 public:
-    VPU::MPEMode getMpeModeImpl(mlir::Operation* op, mlir::Type, mlir::Type, ShapeRef shape) const {
-        auto archKind = config::getArch(op);
-        return getMpeModeForConv(archKind, shape);
+    VPU::MPEMode getMpeModeImpl(mlir::Operation*, mlir::Type, mlir::Type, ShapeRef shape) const {
+        return VPU::getMpeModeForConv(shape, VPU::getCuboidMpeGrids());
     }
 };
 
@@ -104,6 +54,14 @@ class InterpolateOpModel :
 
 class MatMulOpModel : public VPU::NCEMatMulOpModel<MatMulOpModel, VPU::NCEMatMulOp>, public ConvMpeModeModel {
 public:
+    VPU::MPEMode getMpeModeImpl(mlir::Operation* op, mlir::Type inElemType, mlir::Type outElemType,
+                                ShapeRef shape) const {
+        if (shape.size() == DimsGroups5D::Act::numDims) {
+            return VPU::MPEMode::CUBOID_16x16;
+        }
+        return ConvMpeModeModel::getMpeModeImpl(op, inElemType, outElemType, shape);
+    }
+
     std::optional<vpux::VPU::MPEEngineAttr> getMpeEngine(mlir::Operation* op) const {
         return mlir::cast<VPU::NCEMatMulOp>(op).getMpeEngine();
     }
@@ -141,14 +99,20 @@ class PermuteOpModel : public VPU::NCEEltwiseOpModel<PermuteOpModel, VPU::NCEPer
 void vpux::VPU::arch37xx::registerNCEOpInterface(mlir::DialectRegistry& registry) {
     registry.addExtension(+[](mlir::MLIRContext* ctx, VPU::VPUDialect*) {
         VPU::NCEConvolutionOp::attachInterface<ConvolutionOpModel>(*ctx);
+        VPU::NCEMatMulOp::attachInterface<MatMulOpModel>(*ctx);
+        VPU::NCEReduceOp::attachInterface<ReduceOpModel>(*ctx);
+        VPU::NCEInterpolateOp::attachInterface<InterpolateOpModel>(*ctx);
         VPU::NCECompressConvolutionOp::attachInterface<CompressConvolutionOpModel>(*ctx);
+    });
+    registerCommonNCEOpInterfaces(registry);
+}
+
+void vpux::VPU::arch37xx::registerCommonNCEOpInterfaces(mlir::DialectRegistry& registry) {
+    registry.addExtension(+[](mlir::MLIRContext* ctx, VPU::VPUDialect*) {
         VPU::NCEDepthConvolutionOp::attachInterface<DepthConvolutionOpModel>(*ctx);
         VPU::NCEMaxPoolOp::attachInterface<MaxPoolOpModel>(*ctx);
         VPU::NCEAveragePoolOp::attachInterface<AveragePoolOpModel>(*ctx);
         VPU::NCEEltwiseOp::attachInterface<EltwiseOpModel>(*ctx);
         VPU::NCEPermuteOp::attachInterface<PermuteOpModel>(*ctx);
-        VPU::NCEInterpolateOp::attachInterface<InterpolateOpModel>(*ctx);
-        VPU::NCEMatMulOp::attachInterface<MatMulOpModel>(*ctx);
-        VPU::NCEReduceOp::attachInterface<ReduceOpModel>(*ctx);
     });
 }

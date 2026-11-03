@@ -1488,3 +1488,27 @@ func.func @NoFuseChainedConvertsThroughSlicesWhenTrafficIncreases(%arg0: tensor<
     // CHECK: [[C1:%.+]] = IE.Convert([[SLICE1]]) {dstElemType = si64} : tensor<1xf16> -> tensor<1xsi64>
     // CHECK: return [[C0]], [[C1]] : tensor<1xsi64>, tensor<1xsi64>
 }
+
+// -----
+
+#map = affine_map<(d0, d1, d2, d3) -> (d1, d2, d3, d0)>
+#map1 = affine_map<(d0, d1, d2, d3) -> (d1, d0, d3, d2)>
+
+// CHECK-LABEL: @MovePermuteCastBeforeSlicesNonIdentityOrders
+// CHECK-SAME:  [[INPUT:%.+]]: tensor<10240x1280x1x1xf16, {order = #map}>
+func.func @MovePermuteCastBeforeSlicesNonIdentityOrders(%arg0: tensor<10240x1280x1x1xf16, {order = #map}>)
+        -> (tensor<1x1280x5120x1xf16, {order = #map1}>, tensor<1x1280x5120x1xf16, {order = #map1}>) {
+    %0 = IE.Slice %arg0 [0, 0, 0, 0] [5120, 1280, 1, 1] : tensor<10240x1280x1x1xf16, {order = #map}> to tensor<5120x1280x1x1xf16, {order = #map}>
+    %1 = IE.Slice %arg0 [5120, 0, 0, 0] [5120, 1280, 1, 1] : tensor<10240x1280x1x1xf16, {order = #map}> to tensor<5120x1280x1x1xf16, {order = #map}>
+
+    %2 = IE.PermuteCast(%0) {dst_order = #map1, mem_perm = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>} : tensor<5120x1280x1x1xf16, {order = #map}> -> tensor<1x1280x5120x1xf16, {order = #map1}>
+    %3 = IE.PermuteCast(%1) {dst_order = #map1, mem_perm = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>} : tensor<5120x1280x1x1xf16, {order = #map}> -> tensor<1x1280x5120x1xf16, {order = #map1}>
+
+    return %2, %3 : tensor<1x1280x5120x1xf16, {order = #map1}>, tensor<1x1280x5120x1xf16, {order = #map1}>
+
+    // CHECK: [[PERMUTECAST:%.+]] = IE.PermuteCast([[INPUT]])
+    // CHECK-SAME:  : tensor<10240x1280x1x1xf16, {order = #map}> -> tensor<1x1280x10240x1xf16, {order = #map1}>
+    // CHECK-DAG: [[SLICE0:%.+]] = IE.Slice [[PERMUTECAST]] [0, 0, 0, 0] [1, 1280, 5120, 1]
+    // CHECK-DAG: [[SLICE1:%.+]] = IE.Slice [[PERMUTECAST]] [0, 0, 5120, 0] [1, 1280, 5120, 1]
+    // CHECK: return [[SLICE0]], [[SLICE1]]
+}

@@ -819,7 +819,7 @@ mlir::LogicalResult SwapAffineReshapeFakeQuantize::matchAndRewrite(IE::FakeQuant
     auto newFakeQuantizeOp = IE::FakeQuantizeOp::create(
             rewriter, fakeQuantizeOp->getLoc(), affineReshapeOp.getInput(), fakeQuantizeOp.getInputLow(),
             fakeQuantizeOp.getInputHigh(), fakeQuantizeOp.getOutputLow(), fakeQuantizeOp.getOutputHigh(),
-            fakeQuantizeOp.getLevelsAttr(), fakeQuantizeOp.getLowFpTypeAttr(), fakeQuantizeOp.getAutoBroadcastAttr());
+            fakeQuantizeOp.getLevelsOrLowFpTypeAttr(), fakeQuantizeOp.getAutoBroadcastAttr());
 
     auto newAffineReshapeOp =
             IE::AffineReshapeOp::create(rewriter, affineReshapeOp.getLoc(), newFakeQuantizeOp.getOutput(),

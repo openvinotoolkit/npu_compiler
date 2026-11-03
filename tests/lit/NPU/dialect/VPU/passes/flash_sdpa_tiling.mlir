@@ -4,6 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="platform=%platform% compilation-mode=DefaultHW allow-custom-values=true" --flash-sdpa-tiling %s | FileCheck %s
+// RUN: vpux-opt --split-input-file --init-compiler="platform=%platform% compilation-mode=DefaultHW allow-custom-values=true" --flash-sdpa-tiling %s | FileCheck %s --check-prefix=COUNT
 // REQUIRES: platform-NPU5010
 
 #NCWH = affine_map<(d0, d1, d2, d3) -> (d0, d1, d3, d2)>
@@ -52,8 +53,8 @@ func.func @FlashSDPA8kSeqLen(%arg0: tensor<1x8x8192x32xf16>, %arg1: tensor<1x8x1
     // CHECK:       [[VAL0:%.+]] = VPU.Slice [[VALUE_REORDERED]] [0, 0, 0, 0] [1, 1, 128, 64]
     // CHECK:       [[Q0:%.+]] = VPU.Slice [[HEAD0_Q]] [0, 0, 0, 0] [1, 1, 2736, 32]
     // CHECK:       VPU.FlashSDPA
-    // CHECK-SAME:      loop_tile_coord = {axes = array<i64: 2>, indices = array<i64: 0>}
-    // CHECK-SAME:      tiling_loop_index = 1
+    // CHECK-SAME:      loop_tile_coord = {axes = array<i64: 1, 2>, indices = array<i64: 0, 0>}
+    // CHECK-SAME:      tiling_loop_index = 0
     // CHECK-SAME:      -> tensor<1x1x2736x64xf16>, tensor<1x1x2736x1xf16>, tensor<1x1x2736x1xf32>
 
     // Seq tile 1 of head 0, then heads 1-7 with 3 seq tiles each
@@ -134,7 +135,7 @@ func.func @FlashSDPAKeyValueTilingWithNoQueryTiling(%arg0: tensor<1x1x1x128xf16>
     // CHECK-SAME:      is_head = false
     // CHECK-SAME:      is_tail = true
     // CHECK-SAME:      loop_tile_coord = {axes = array<i64>, indices = array<i64>}
-    // CHECK-SAME:      tiling_loop_index = [[LOOP_INDEX_2:[0-9]+]]
+    // CHECK-SAME:      tiling_loop_index = 0
     // CHECK-SAME:      -> tensor<1x1x1x128xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf32>
     // CHECK:       return
 }
@@ -261,7 +262,7 @@ func.func @FlashSDPA_GQA_1024(%arg0: tensor<1x32x1024x128xf16>, %arg1: tensor<1x
     // CHECK:       [[VAL0:%.+]] = VPU.Slice [[VALUE_REORDERED]] [0, 0, 0, 0] [1, 1, 1024, 128]
     // CHECK:       [[Q0:%.+]] = VPU.Slice [[HEAD0_Q]] [0, 0, 0, 0] [1, 4, 192, 128]
     // CHECK:       VPU.FlashSDPA([[Q0]], [[KEY0]], [[VAL0]],
-    // CHECK-SAME:      tiling_loop_index = 1
+    // CHECK-SAME:      tiling_loop_index = 0
     // CHECK-SAME:      -> tensor<1x4x192x128xf16>, tensor<1x4x192x1xf16>, tensor<1x4x192x1xf32>
 
     // Total: 8 KV groups x 6 seq tiles = 48 FlashSDPA ops (1 checked above, 47 remaining)
@@ -325,17 +326,15 @@ func.func @FlashSDPA_MHA_SplitOverKernel_27Heads(%arg0: tensor<1x27x1x64xf16>, %
     // CHECK:       [[KEY0:%.+]] = VPU.Slice [[KEY:%.+]] [0, 0, 0, 0] [1, 3, 1024, 64]
     // CHECK:       [[VAL0:%.+]] = VPU.Slice [[VALUE_REORDERED]] [0, 0, 0, 0] [1, 3, 1024, 64]
     // CHECK:       VPU.FlashSDPA
-    // CHECK-SAME:      loop_tile_coord = {axes = array<i64>, indices = array<i64>}
-    // CHECK-SAME:      tiling_loop_index = 1
+    // CHECK-SAME:      loop_tile_coord = {axes = array<i64: 1>, indices = array<i64: 0>}
+    // CHECK-SAME:      tiling_loop_index = 0
     // CHECK-SAME:      -> tensor<1x3x1x64xf16>, tensor<1x3x1x1xf16>, tensor<1x3x1x1xf32>
 
     // Second head tile
-    // CHECK:       VPU.Slice [[QUERY]] [0, 3, 0, 0] [1, 3, 1, 64]
-    // CHECK:       VPU.FlashSDPA
-    // CHECK-SAME:      loop_tile_coord = {axes = array<i64>, indices = array<i64>}
-    // CHECK-SAME:      tiling_loop_index = 2
+    // CHECK-DAG:   VPU.Slice [[QUERY]] [0, 3, 0, 0] [1, 3, 1, 64]
+    // CHECK-DAG:   VPU.FlashSDPA{{.*}}loop_tile_coord = {axes = array<i64: 1>, indices = array<i64: 1>}{{.*}}tiling_loop_index = 1 : i64{{.*}}-> tensor<1x3x1x64xf16>, tensor<1x3x1x1xf16>, tensor<1x3x1x1xf32>
 
-    // Tiles 3-9: 3 heads each
+    // Remaining tiles: 7 more 3-head tiles.
     // CHECK-COUNT-7: -> tensor<1x3x1x64xf16>
 
     // CHECK:       [[CONCAT:%.+]] = VPU.Concat(
@@ -455,17 +454,10 @@ func.func @FlashSDPA_GQA_SplitOverKernel_ResidualTile(%arg0: tensor<1x32x1x128xf
     // Second tile: 12 Q heads / 3 KV heads, SOK on 3 clusters.
     // CHECK:       VPU.Slice {{%.+}} [0, 12, 0, 0] [1, 12, 1, 128]
     // CHECK:       VPU.Slice {{%.+}} [0, 3, 0, 0] [1, 3, 1024, 128]
-    // CHECK:       VPU.FlashSDPA
-    // CHECK-SAME:      SplitOverKernel
-    // CHECK-SAME:      -> tensor<1x12x1x128xf16>, tensor<1x12x1x1xf16>, tensor<1x12x1x1xf32>
-
-    // Residual tile: 8 Q heads / 2 KV heads, SOK on 2 clusters (cluster count is
-    // resolved later by getOptimalNumClusters; the strategy attribute remains SOK).
-    // CHECK:       VPU.Slice {{%.+}} [0, 24, 0, 0] [1, 8, 1, 128]
-    // CHECK:       VPU.Slice {{%.+}} [0, 6, 0, 0] [1, 2, 1024, 128]
-    // CHECK:       VPU.FlashSDPA
-    // CHECK-SAME:      SplitOverKernel
-    // CHECK-SAME:      -> tensor<1x8x1x128xf16>, tensor<1x8x1x1xf16>, tensor<1x8x1x1xf32>
+    // CHECK-DAG:   VPU.Slice {{%.+}} [0, 24, 0, 0] [1, 8, 1, 128]
+    // CHECK-DAG:   VPU.Slice {{%.+}} [0, 6, 0, 0] [1, 2, 1024, 128]
+    // CHECK-DAG:   VPU.FlashSDPA{{.*}}SplitOverKernel{{.*}}-> tensor<1x12x1x128xf16>, tensor<1x12x1x1xf16>, tensor<1x12x1x1xf32>
+    // CHECK-DAG:   VPU.FlashSDPA{{.*}}SplitOverKernel{{.*}}-> tensor<1x8x1x128xf16>, tensor<1x8x1x1xf16>, tensor<1x8x1x1xf32>
 
     // CHECK:       [[CONCAT:%.+]] = VPU.Concat(
     // CHECK-SAME:      -> tensor<1x32x1x128xf16>
@@ -562,6 +554,7 @@ config.Resources 3 of @NCE at 2.100000e+03 MHz {
 }
 
 // CHECK-LABEL: @FlashSDPA_MQA_SubGroupHeadTiling
+// COUNT-LABEL: @FlashSDPA_MQA_SubGroupHeadTiling
 func.func @FlashSDPA_MQA_SubGroupHeadTiling(%arg0: tensor<1x16x1024x512xf16>, %arg1: tensor<1x1x1024x512xf16>, %arg2: tensor<1x1x1024x512xf16>, %arg3: tensor<1x16x1024x1024xf16>)
                                   -> tensor<1x16x1024x512xf16> {
     %cst = const.Declare tensor<1x1x512x4xsi32> = dense<0> : tensor<1x1x512x4xsi32>
@@ -593,18 +586,17 @@ func.func @FlashSDPA_MQA_SubGroupHeadTiling(%arg0: tensor<1x16x1024x512xf16>, %a
     // KV blocks: 4 x 208 + 1 x 192 (alignValUp(divUp(1024, 5), 16) = 208)
     // Query tiles: 21 x 48 + 1 x 16
 
-    // First head tile, first KV block, first query tile
+    // First head tile (Q heads 0-7, KV head 0), first KV block, first query tile.
     // CHECK-DAG:   [[VALUE_REORDERED:%.+]] = VPU.MemPermute({{%.+}}) {dst_order = #NCWH, mem_perm = #NCWH}
     // CHECK:       [[HEAD0_Q:%.+]] = VPU.Slice {{%.+}} [0, 0, 0, 0] [1, 8, 1024, 512] : tensor<1x16x1024x512xf16>
     // CHECK:       [[HEAD0_MASK:%.+]] = VPU.Slice {{%.+}} [0, 0, 0, 0] [1, 8, 1024, 1024] : tensor<1x16x1024x1024xf16>
+    // CHECK-DAG:   [[Q0:%.+]] = VPU.Slice [[HEAD0_Q]] [0, 0, 0, 0] [1, 8, 48, 512]
     // CHECK:       [[KEY0:%.+]] = VPU.Slice {{%.+}} [0, 0, 0, 0] [1, 1, 208, 512]
     // CHECK:       [[VAL0:%.+]] = VPU.Slice [[VALUE_REORDERED]] [0, 0, 0, 0] [1, 1, 208, 512]
-    // CHECK:       [[MASK0:%.+]] = VPU.Slice [[HEAD0_MASK]] [0, 0, 0, 0] [1, 8, 1024, 208]
-    // CHECK:       [[Q0:%.+]] = VPU.Slice [[HEAD0_Q]] [0, 0, 0, 0] [1, 8, 48, 512]
-    // CHECK:       VPU.FlashSDPA([[Q0]], [[KEY0]], [[VAL0]],
+    // CHECK:       [[MASK0:%.+]] = VPU.Slice {{%.+}} [0, 0, 0, 0] [1, 8, 48, 208]
+    // CHECK:       VPU.FlashSDPA
     // CHECK-SAME:      -> tensor<1x8x48x512xf16>, tensor<1x8x48x1xf16>, tensor<1x8x48x1xf32>
-
-    // CHECK-COUNT-219: VPU.FlashSDPA
+    // COUNT-COUNT-220: VPU.FlashSDPA
 
     // CHECK:       [[CONCAT:%.+]] = VPU.Concat{{.*}}-> tensor<1x16x1024x512xf16>
     // CHECK:       return [[CONCAT]]
@@ -659,29 +651,101 @@ func.func @FlashSDPA_GQA_SubGroupHeadTiling(%arg0: tensor<1x32x192x512xf16>, %ar
     // Head tiles: 4 x 8 Q heads at C offsets 0, 8, 16, 24 - half of the 16-head GQA group.
     // KV blocks: 4 x 208 + 1 x 192. Query tiles: 4 x 48.
 
-    // First head tile (Q heads 0-7, KV head 0), first KV block, first query tile
+    // First head tile, first KV block, first query tile.
     // CHECK-DAG:   [[VALUE_REORDERED:%.+]] = VPU.MemPermute({{%.+}}) {dst_order = #NCWH, mem_perm = #NCWH}
-    // CHECK:       [[HEAD0_Q:%.+]] = VPU.Slice {{%.+}} [0, 0, 0, 0] [1, 8, 192, 512] : tensor<1x32x192x512xf16>
-    // CHECK:       [[HEAD0_KEY:%.+]] = VPU.Slice {{%.+}} [0, 0, 0, 0] [1, 1, 1024, 512] : tensor<1x2x1024x512xf16>
-    // CHECK:       [[HEAD0_VAL:%.+]] = VPU.Slice [[VALUE_REORDERED]] [0, 0, 0, 0] [1, 1, 1024, 512]
-    // CHECK:       [[HEAD0_MASK:%.+]] = VPU.Slice {{%.+}} [0, 0, 0, 0] [1, 8, 192, 1024] : tensor<1x32x192x1024xf16>
-    // CHECK:       [[KEY0:%.+]] = VPU.Slice [[HEAD0_KEY]] [0, 0, 0, 0] [1, 1, 208, 512]
-    // CHECK:       [[VAL0:%.+]] = VPU.Slice [[HEAD0_VAL]] [0, 0, 0, 0] [1, 1, 208, 512]
-    // CHECK:       [[MASK0:%.+]] = VPU.Slice [[HEAD0_MASK]] [0, 0, 0, 0] [1, 8, 192, 208]
-    // CHECK:       [[Q0:%.+]] = VPU.Slice [[HEAD0_Q]] [0, 0, 0, 0] [1, 8, 48, 512]
-    // CHECK:       VPU.FlashSDPA([[Q0]], [[KEY0]], [[VAL0]],
+    // CHECK-DAG:   [[HEAD1_Q:%.+]] = VPU.Slice {{%.+}} [0, 8, 0, 0] [1, 8, 192, 512] : tensor<1x32x192x512xf16>
+    // CHECK-DAG:   [[HEAD1_MASK:%.+]] = VPU.Slice {{%.+}} [0, 8, 0, 0] [1, 8, 192, 1024] : tensor<1x32x192x1024xf16>
+    // CHECK-DAG:   [[HEAD2_Q:%.+]] = VPU.Slice {{%.+}} [0, 16, 0, 0] [1, 8, 192, 512] : tensor<1x32x192x512xf16>
+    // CHECK-DAG:   [[HEAD2_KEY:%.+]] = VPU.Slice {{%.+}} [0, 1, 0, 0] [1, 1, 1024, 512] : tensor<1x2x1024x512xf16>
+    // CHECK-DAG:   [[HEAD3_Q:%.+]] = VPU.Slice {{%.+}} [0, 24, 0, 0] [1, 8, 192, 512] : tensor<1x32x192x512xf16>
+    // CHECK-DAG:   [[HEAD0_Q:%.+]] = VPU.Slice {{%.+}} [0, 0, 0, 0] [1, 8, 192, 512] : tensor<1x32x192x512xf16>
+    // CHECK-DAG:   [[HEAD0_KEY:%.+]] = VPU.Slice {{%.+}} [0, 0, 0, 0] [1, 1, 1024, 512] : tensor<1x2x1024x512xf16>
+    // CHECK-DAG:   [[HEAD0_VAL:%.+]] = VPU.Slice [[VALUE_REORDERED]] [0, 0, 0, 0] [1, 1, 1024, 512]
+    // CHECK-DAG:   [[HEAD0_MASK:%.+]] = VPU.Slice {{%.+}} [0, 0, 0, 0] [1, 8, 192, 1024] : tensor<1x32x192x1024xf16>
+    // CHECK-DAG:   [[Q0:%.+]] = VPU.Slice [[HEAD0_Q]] [0, 0, 0, 0] [1, 8, 48, 512]
+    // CHECK-DAG:   [[KEY0:%.+]] = VPU.Slice [[HEAD0_KEY]] [0, 0, 0, 0] [1, 1, 208, 512]
+    // CHECK-DAG:   [[VAL0:%.+]] = VPU.Slice [[HEAD0_VAL]] [0, 0, 0, 0] [1, 1, 208, 512]
+    // CHECK-DAG:   [[MASK0:%.+]] = VPU.Slice {{%.+}} [0, 0, 0, 0] [1, 8, 48, 208]
+    // CHECK:       VPU.FlashSDPA
     // CHECK-SAME:      -> tensor<1x8x48x512xf16>, tensor<1x8x48x1xf16>, tensor<1x8x48x1xf32>
-
-    // The second head tile starts inside the same GQA group, so it reads KV head 0 as well
-    // CHECK:       [[HEAD1_Q:%.+]] = VPU.Slice {{%.+}} [0, 8, 0, 0] [1, 8, 192, 512] : tensor<1x32x192x512xf16>
-    // CHECK:       [[HEAD1_MASK:%.+]] = VPU.Slice {{%.+}} [0, 8, 0, 0] [1, 8, 192, 1024] : tensor<1x32x192x1024xf16>
-
-    // The third head tile crosses into the second group and switches to KV head 1
-    // CHECK:       [[HEAD2_Q:%.+]] = VPU.Slice {{%.+}} [0, 16, 0, 0] [1, 8, 192, 512] : tensor<1x32x192x512xf16>
-    // CHECK:       [[HEAD2_KEY:%.+]] = VPU.Slice {{%.+}} [0, 1, 0, 0] [1, 1, 1024, 512] : tensor<1x2x1024x512xf16>
-
-    // CHECK:       [[HEAD3_Q:%.+]] = VPU.Slice {{%.+}} [0, 24, 0, 0] [1, 8, 192, 512] : tensor<1x32x192x512xf16>
 
     // CHECK:       [[CONCAT:%.+]] = VPU.Concat{{.*}}-> tensor<1x32x192x512xf16>
     // CHECK:       return [[CONCAT]]
+}
+
+// -----
+
+#NCWH = affine_map<(d0, d1, d2, d3) -> (d0, d1, d3, d2)>
+
+config.Resources 3 of @NCE at 2.100000e+03 MHz {
+    config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
+    config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
+    config.ExecutorResource 2 of @SHAVE_ACT
+    config.ExecutorResource 1 of @DPU
+}
+
+// Four KV blocks are already materialized before FlashSDPA tiling. Their
+// running states are chained and all blocks belong to loop 0.
+// CHECK-LABEL: @FlashSDPAPreassignedLoopIndex
+func.func @FlashSDPAPreassignedLoopIndex(
+        %query: tensor<1x32x1x128xf16>,
+        %key0: tensor<1x4x1024x128xf16>, %key1: tensor<1x4x1024x128xf16>,
+        %key2: tensor<1x4x1024x128xf16>, %key3: tensor<1x4x1024x128xf16>,
+        %value0: tensor<1x4x1024x128xf16, {order = #NCWH}>,
+        %value1: tensor<1x4x1024x128xf16, {order = #NCWH}>,
+        %value2: tensor<1x4x1024x128xf16, {order = #NCWH}>,
+        %value3: tensor<1x4x1024x128xf16, {order = #NCWH}>,
+        %aux: tensor<1x8x1x1024xf16>,
+        %descriptors: tensor<1x1x2x256xsi32>,
+        %weights0: tensor<1x1x1024x4xsi32>,
+        %weights1: tensor<1x1x128x4xsi32>,
+        %initial_output: tensor<1x32x1x128xf16>,
+        %initial_max: tensor<1x32x1x1xf16>,
+        %initial_sum: tensor<1x32x1x1xf32>,
+        %mask0: tensor<1x1x1x1024xf16>, %mask1: tensor<1x1x1x1024xf16>,
+        %mask2: tensor<1x1x1x1024xf16>, %mask3: tensor<1x1x1x1024xf16>)
+        -> tensor<1x32x1x128xf16> {
+    %out0, %max0, %sum0 = VPU.FlashSDPA(%query, %key0, %value0, %aux, %descriptors, %weights0, %weights1,
+                                            %initial_output, %initial_max, %initial_sum, %mask0) {
+        is_head = true, is_tail = false, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>,
+        source_seq_len_pad_size = 0 : i64, tiling_loop_index = 0 : i64
+    } : tensor<1x32x1x128xf16>, tensor<1x4x1024x128xf16>, tensor<1x4x1024x128xf16, {order = #NCWH}>,
+        tensor<1x8x1x1024xf16>, tensor<1x1x2x256xsi32>, tensor<1x1x1024x4xsi32>, tensor<1x1x128x4xsi32>,
+        tensor<1x32x1x128xf16>, tensor<1x32x1x1xf16>, tensor<1x32x1x1xf32>, tensor<1x1x1x1024xf16>
+        -> tensor<1x32x1x128xf16>, tensor<1x32x1x1xf16>, tensor<1x32x1x1xf32>
+
+    %out1, %max1, %sum1 = VPU.FlashSDPA(%query, %key1, %value1, %aux, %descriptors, %weights0, %weights1,
+                                            %out0, %max0, %sum0, %mask1) {
+        is_head = false, is_tail = false, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>,
+        source_seq_len_pad_size = 0 : i64, tiling_loop_index = 0 : i64
+    } : tensor<1x32x1x128xf16>, tensor<1x4x1024x128xf16>, tensor<1x4x1024x128xf16, {order = #NCWH}>,
+        tensor<1x8x1x1024xf16>, tensor<1x1x2x256xsi32>, tensor<1x1x1024x4xsi32>, tensor<1x1x128x4xsi32>,
+        tensor<1x32x1x128xf16>, tensor<1x32x1x1xf16>, tensor<1x32x1x1xf32>, tensor<1x1x1x1024xf16>
+        -> tensor<1x32x1x128xf16>, tensor<1x32x1x1xf16>, tensor<1x32x1x1xf32>
+
+    %out2, %max2, %sum2 = VPU.FlashSDPA(%query, %key2, %value2, %aux, %descriptors, %weights0, %weights1,
+                                            %out1, %max1, %sum1, %mask2) {
+        is_head = false, is_tail = false, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>,
+        source_seq_len_pad_size = 0 : i64, tiling_loop_index = 0 : i64
+    } : tensor<1x32x1x128xf16>, tensor<1x4x1024x128xf16>, tensor<1x4x1024x128xf16, {order = #NCWH}>,
+        tensor<1x8x1x1024xf16>, tensor<1x1x2x256xsi32>, tensor<1x1x1024x4xsi32>, tensor<1x1x128x4xsi32>,
+        tensor<1x32x1x128xf16>, tensor<1x32x1x1xf16>, tensor<1x32x1x1xf32>, tensor<1x1x1x1024xf16>
+        -> tensor<1x32x1x128xf16>, tensor<1x32x1x1xf16>, tensor<1x32x1x1xf32>
+
+    %out3, %max3, %sum3 = VPU.FlashSDPA(%query, %key3, %value3, %aux, %descriptors, %weights0, %weights1,
+                                            %out2, %max2, %sum2, %mask3) {
+        is_head = false, is_tail = true, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>,
+        source_seq_len_pad_size = 0 : i64, tiling_loop_index = 0 : i64
+    } : tensor<1x32x1x128xf16>, tensor<1x4x1024x128xf16>, tensor<1x4x1024x128xf16, {order = #NCWH}>,
+        tensor<1x8x1x1024xf16>, tensor<1x1x2x256xsi32>, tensor<1x1x1024x4xsi32>, tensor<1x1x128x4xsi32>,
+        tensor<1x32x1x128xf16>, tensor<1x32x1x1xf16>, tensor<1x32x1x1xf32>, tensor<1x1x1x1024xf16>
+        -> tensor<1x32x1x128xf16>, tensor<1x32x1x1xf16>, tensor<1x32x1x1xf32>
+
+    // Eight source operations are materialized as four 24-head SOK operations
+    // followed by four 8-head Clustering operations. The preassigned loop index
+    // is retained while loop_tile_coord keeps the two head-tile ordinals distinct.
+    // CHECK-COUNT-4: VPU.FlashSDPA{{.*}}loop_tile_coord = {axes = array<i64: 1>, indices = array<i64: 0>}{{.*}}tiling_loop_index = 0 : i64
+    // CHECK-COUNT-4: VPU.FlashSDPA{{.*}}loop_tile_coord = {axes = array<i64: 1>, indices = array<i64: 1>}{{.*}}tiling_loop_index = 0 : i64
+
+    return %out3 : tensor<1x32x1x128xf16>
 }

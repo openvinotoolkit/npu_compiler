@@ -40,6 +40,7 @@ def IE_GeluOp :
             "Gelu",
             [
                 DeclareOpInterfaceMethods<IE_ShaveCodeGenSupportedOpInterface>,
+                DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface, ["reifyResultShapes"]>,
                 IE_EltwiseOp
             ]
         > {
@@ -58,6 +59,7 @@ def IE_HardSigmoidOp :
         IE_LayerOp<
             "HardSigmoid",
             [
+                DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface, ["reifyResultShapes"]>,
                 AttrSizedOperandSegments
             ]
         > {
@@ -256,6 +258,7 @@ def IE_SigmoidOp :
         IE_LayerOp<
             "Sigmoid",
             [
+                DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface, ["reifyResultShapes"]>,
                 IE_EltwiseOp
             ]
         > {

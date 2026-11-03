@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-// RUN: vpux-opt --split-input-file --init-compiler="platform=%platform% compilation-mode=HostCompile allow-custom-values=true" --unroll-scf-loop="loop-unroll-factor=1,1,1,1 enable-cascaded-unrolling=false" %s | FileCheck %s
+// RUN: vpux-opt --split-input-file --init-compiler="platform=%platform% compilation-mode=HostCompile_Interpreter allow-custom-values=true" --unroll-scf-loop="loop-unroll-factor=1,1,1,1 enable-cascaded-unrolling=false" %s | FileCheck %s
 // REQUIRES: platform-NPU4000 || platform-NPU5010
 
 // When all manual unroll factors are <= 1, the pass should be skipped entirely.

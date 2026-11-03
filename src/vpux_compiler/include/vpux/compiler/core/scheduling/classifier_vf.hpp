@@ -34,7 +34,7 @@ struct BufferRecord {
     mlir::Value rootValue;
     BufferCategory category = BufferCategory::TEMPORARY;
     vpux::AddressType size = 0;
-    vpux::AddressType alignment = 1;
+    vpux::AddressType offsetAlignment = 1;
 
     // One live range per buffer in the template iteration (by op index).
     // We store only first and last use.

@@ -45,7 +45,10 @@ func.func private @generated_0(%arg0: tensor<1x?x?x?xf32>, %arg1: index, %arg2: 
     kernelInfo = #VPU.KernelInfo<
        tilingInfoFunc = @generated_info_0,
        tilingAxes = [1, 2, 3],
-       numSlicedInputs = 1 : i64
+       numSlicedInputs = 1 : i64,
+       numTensorInputs = 1 : i64,
+       numAuxBuffers = 0 : i64,
+       inputSegmentationAxes = []
     >}
 func.func private @generated_info_0(%arg0: index, %arg1: index, %arg2: index, %arg3: index, %arg4: index, %arg5: index) -> (index, index, index, index, index, index, index, index)
 
@@ -69,7 +72,10 @@ func.func private @generated_0(%arg0: tensor<1x?x?x?xf32>, %arg1: index, %arg2: 
     kernelInfo = #VPU.KernelInfo<
        tilingInfoFunc = @generated_info_0,
        tilingAxes = [1, 2, 3],
-       numSlicedInputs = 1 : i64
+       numSlicedInputs = 1 : i64,
+       numTensorInputs = 1 : i64,
+       numAuxBuffers = 0 : i64,
+       inputSegmentationAxes = []
     >}
 
 func.func private @generated_info_0(%arg0: index, %arg1: index, %arg2: index, %arg3: index, %arg4: index, %arg5: index) -> (index, index, index, index, index, index, index, index)
@@ -112,7 +118,10 @@ func.func private @generated_0(%arg0: tensor<1x?x?x?xf32>, %arg1: index, %arg2: 
     kernelInfo = #VPU.KernelInfo<
        tilingInfoFunc = @generated_info_0,
        tilingAxes = [1, 2, 3],
-       numSlicedInputs = 1 : i64
+       numSlicedInputs = 1 : i64,
+       numTensorInputs = 1 : i64,
+       numAuxBuffers = 0 : i64,
+       inputSegmentationAxes = []
     >}
 func.func private @generated_info_0(%arg0: index, %arg1: index, %arg2: index, %arg3: index, %arg4: index, %arg5: index) -> (index, index, index, index, index, index, index, index)
 
@@ -192,11 +201,14 @@ func.func @WithMultipleScratchInputs(%arg0: tensor<1x16x4000x200xf32>) -> tensor
 // -----
 
 // CHECK-LABEL: @WithScratchAndTiling
-func.func private @generated_0(%arg0: tensor<1x?x?x?xf32>, %arg1: index, %arg2: index, %arg3: index, %arg4: index, %arg5: index, %arg6: index) -> tensor<1x?x?x?xf32> attributes {
+func.func private @generated_0(%arg0: tensor<1x?x?x?xf32>, %arg1: tensor<1x?x?xf32>, %arg2: index, %arg3: index, %arg4: index, %arg5: index, %arg6: index, %arg7: index) -> tensor<1x?x?x?xf32> attributes {
     kernelInfo = #VPU.KernelInfo<
        tilingInfoFunc = @generated_info_0,
        tilingAxes = [1, 2, 3],
-       numSlicedInputs = 1 : i64
+       numSlicedInputs = 1 : i64,
+       numTensorInputs = 1 : i64,
+       numAuxBuffers = 1 : i64,
+       inputSegmentationAxes = []
     >}
 func.func private @generated_info_0(%arg0: index, %arg1: index, %arg2: index, %arg3: index, %arg4: index, %arg5: index) -> (index, index, index, index, index, index, index, index, index, index, index, index, index, index)
 

@@ -45,8 +45,7 @@ class FakeQuantizeLayerTestSWCommon : public FakeQuantizeLayerTestCommon {
         const float extra = 0.2f;
         std::uniform_real_distribution<float> dist(low - extra, high + extra);
         for (int i = 0; i < totalSize; i++) {
-            auto f16 = static_cast<ov::fundamental_type_for<ov::element::f16>>(dist(gen));
-            inputData[i] = f16.to_bits();
+            inputData[i] = static_cast<ov::fundamental_type_for<ov::element::f16>>(dist(gen));
         }
         inputs = {
                 {funcInputs[0].get_node_shared_ptr(), inputTensor},
@@ -65,6 +64,30 @@ class ShaveCodeGenFakeQuantizeLayerTest_SW : public FakeQuantizeLayerTestSWCommo
     void configure_model() override {
         configuration[ov::intel_npu::compilation_mode_params.name()] =
                 "enable-shave-code-gen=true enable-convert-quantize-ops-to-nce=false disabled-passes=merge-fake-quant";
+    }
+};
+
+class FakeQuantizeLayerTestLargeScale_HW_NPU5010 : public FakeQuantizeLayerTestCommon {
+    // Real device activations for this FQ (InferenceManagerDemo input-0.bin) fall within [-0.1, 0.1], well
+    // inside the FQ's [inLow, inHigh] = [-0.2359, 0.2359] clamp region, so the test reflects actual usage
+    // instead of only exercising the input clamp boundary.
+    void generate_inputs(const std::vector<ov::Shape>& inputShapes) override {
+        inputs.clear();
+        const auto& funcInputs = function->inputs();
+        const float low = -0.1f;
+        const float high = 0.1f;
+
+        const auto& inputStaticShape = inputShapes[0];
+        const auto totalSize = ov::shape_size(inputStaticShape);
+        auto inputTensor = ov::Tensor{ov::element::f16, inputStaticShape};
+        auto inputData = inputTensor.data<ov::element_type_traits<ov::element::f16>::value_type>();
+        for (size_t i = 0; i < totalSize; i++) {
+            const float ratio = static_cast<float>(i % 255) / 254.0f;
+            inputData[i] = static_cast<ov::fundamental_type_for<ov::element::f16>>(low + ratio * (high - low));
+        }
+        inputs = {
+                {funcInputs[0].get_node_shared_ptr(), inputTensor},
+        };
     }
 };
 
@@ -97,6 +120,12 @@ TEST_P(ShaveCodeGenFakeQuantizeLayerTest_SW, NPU4000) {
     setReferenceSoftwareMode();
     setPluginCompilerType();
     run(Platform::NPU4000);
+}
+
+TEST_P(FakeQuantizeLayerTestLargeScale_HW_NPU5010, HW) {
+    abs_threshold = 1.0f;
+    setDefaultHardwareMode();
+    run(Platform::NPU5010);
 }
 
 TEST_P(ShaveCodeGenFakeQuantizeLayerTest_SW, NPU5010) {
@@ -238,4 +267,18 @@ INSTANTIATE_TEST_SUITE_P(
                            ::testing::ValuesIn(static_shapes_to_test_representation(inputShapes37204d)),
                            ::testing::Values(test_utils::TARGET_DEVICE)),
         FakeQuantizeLayerTest_HW_NPU3720::getTestCaseName);
+const std::vector<size_t> u16LargeScaleLevels = {65536};
+const std::vector<float> fqArgsLargeScale = {-0.235911921f, 0.235904723f, -32768.0f, 32767.0f};
+const std::vector<std::vector<ov::Shape>> inputShapesU16LargeScale = {{{1, 12, 8, 128}}};
+
+const auto paramsLargeScale =
+        ::testing::Combine(::testing::ValuesIn(u16LargeScaleLevels), ::testing::Values(constShapes3720[0]),
+                           ::testing::Values(fqArgsLargeScale), ::testing::Values(ov::op::AutoBroadcastType::NUMPY));
+
+INSTANTIATE_TEST_SUITE_P(
+        smoke_FakeQuantize_U16LargeScale, FakeQuantizeLayerTestLargeScale_HW_NPU5010,
+        ::testing::Combine(paramsLargeScale, ::testing::ValuesIn(modelTypes3720),
+                           ::testing::ValuesIn(static_shapes_to_test_representation(inputShapesU16LargeScale)),
+                           ::testing::Values(test_utils::TARGET_DEVICE)),
+        FakeQuantizeLayerTestLargeScale_HW_NPU5010::getTestCaseName);
 }  // namespace

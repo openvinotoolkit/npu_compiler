@@ -1,0 +1,286 @@
+<?xml version="1.0" ?>
+<net name="YuvToRgbImport" version="11">
+  <rt_info/>
+  <layers>
+    <layer id="0" name="y_nv12" type="Parameter" version="opset1">
+      <data shape="1,4,8,1" element_type="u8"/>
+      <output>
+        <port id="0" precision="U8">
+          <dim>1</dim>
+          <dim>4</dim>
+          <dim>8</dim>
+          <dim>1</dim>
+        </port>
+      </output>
+    </layer>
+    <layer id="1" name="uv_nv12" type="Parameter" version="opset1">
+      <data shape="1,2,4,2" element_type="u8"/>
+      <output>
+        <port id="0" precision="U8">
+          <dim>1</dim>
+          <dim>2</dim>
+          <dim>4</dim>
+          <dim>2</dim>
+        </port>
+      </output>
+    </layer>
+    <layer id="2" name="nv12_to_rgb" type="NV12toRGB" version="opset8">
+      <input>
+        <port id="0" precision="U8">
+          <dim>1</dim>
+          <dim>4</dim>
+          <dim>8</dim>
+          <dim>1</dim>
+        </port>
+        <port id="1" precision="U8">
+          <dim>1</dim>
+          <dim>2</dim>
+          <dim>4</dim>
+          <dim>2</dim>
+        </port>
+      </input>
+      <output>
+        <port id="0" precision="U8">
+          <dim>1</dim>
+          <dim>3</dim>
+          <dim>4</dim>
+          <dim>8</dim>
+        </port>
+      </output>
+    </layer>
+    <layer id="3" name="Result_nv12_rgb" type="Result" version="opset1">
+      <input>
+        <port id="0" precision="U8">
+          <dim>1</dim>
+          <dim>3</dim>
+          <dim>4</dim>
+          <dim>8</dim>
+        </port>
+      </input>
+    </layer>
+
+    <layer id="4" name="y_nv12_bgr" type="Parameter" version="opset1">
+      <data shape="1,4,8,1" element_type="u8"/>
+      <output>
+        <port id="0" precision="U8">
+          <dim>1</dim>
+          <dim>4</dim>
+          <dim>8</dim>
+          <dim>1</dim>
+        </port>
+      </output>
+    </layer>
+    <layer id="5" name="uv_nv12_bgr" type="Parameter" version="opset1">
+      <data shape="1,2,4,2" element_type="u8"/>
+      <output>
+        <port id="0" precision="U8">
+          <dim>1</dim>
+          <dim>2</dim>
+          <dim>4</dim>
+          <dim>2</dim>
+        </port>
+      </output>
+    </layer>
+    <layer id="6" name="nv12_to_bgr" type="NV12toBGR" version="opset8">
+      <input>
+        <port id="0" precision="U8">
+          <dim>1</dim>
+          <dim>4</dim>
+          <dim>8</dim>
+          <dim>1</dim>
+        </port>
+        <port id="1" precision="U8">
+          <dim>1</dim>
+          <dim>2</dim>
+          <dim>4</dim>
+          <dim>2</dim>
+        </port>
+      </input>
+      <output>
+        <port id="0" precision="U8">
+          <dim>1</dim>
+          <dim>3</dim>
+          <dim>4</dim>
+          <dim>8</dim>
+        </port>
+      </output>
+    </layer>
+    <layer id="7" name="Result_nv12_bgr" type="Result" version="opset1">
+      <input>
+        <port id="0" precision="U8">
+          <dim>1</dim>
+          <dim>3</dim>
+          <dim>4</dim>
+          <dim>8</dim>
+        </port>
+      </input>
+    </layer>
+
+    <layer id="8" name="y_i420_rgb" type="Parameter" version="opset1">
+      <data shape="1,4,8,1" element_type="u8"/>
+      <output>
+        <port id="0" precision="U8">
+          <dim>1</dim>
+          <dim>4</dim>
+          <dim>8</dim>
+          <dim>1</dim>
+        </port>
+      </output>
+    </layer>
+    <layer id="9" name="u_i420_rgb" type="Parameter" version="opset1">
+      <data shape="1,2,4,1" element_type="u8"/>
+      <output>
+        <port id="0" precision="U8">
+          <dim>1</dim>
+          <dim>2</dim>
+          <dim>4</dim>
+          <dim>1</dim>
+        </port>
+      </output>
+    </layer>
+    <layer id="10" name="v_i420_rgb" type="Parameter" version="opset1">
+      <data shape="1,2,4,1" element_type="u8"/>
+      <output>
+        <port id="0" precision="U8">
+          <dim>1</dim>
+          <dim>2</dim>
+          <dim>4</dim>
+          <dim>1</dim>
+        </port>
+      </output>
+    </layer>
+    <layer id="11" name="i420_to_rgb" type="I420toRGB" version="opset8">
+      <input>
+        <port id="0" precision="U8">
+          <dim>1</dim>
+          <dim>4</dim>
+          <dim>8</dim>
+          <dim>1</dim>
+        </port>
+        <port id="1" precision="U8">
+          <dim>1</dim>
+          <dim>2</dim>
+          <dim>4</dim>
+          <dim>1</dim>
+        </port>
+        <port id="2" precision="U8">
+          <dim>1</dim>
+          <dim>2</dim>
+          <dim>4</dim>
+          <dim>1</dim>
+        </port>
+      </input>
+      <output>
+        <port id="0" precision="U8">
+          <dim>1</dim>
+          <dim>3</dim>
+          <dim>4</dim>
+          <dim>8</dim>
+        </port>
+      </output>
+    </layer>
+    <layer id="12" name="Result_i420_rgb" type="Result" version="opset1">
+      <input>
+        <port id="0" precision="U8">
+          <dim>1</dim>
+          <dim>3</dim>
+          <dim>4</dim>
+          <dim>8</dim>
+        </port>
+      </input>
+    </layer>
+
+    <layer id="13" name="y_i420_bgr" type="Parameter" version="opset1">
+      <data shape="1,4,8,1" element_type="u8"/>
+      <output>
+        <port id="0" precision="U8">
+          <dim>1</dim>
+          <dim>4</dim>
+          <dim>8</dim>
+          <dim>1</dim>
+        </port>
+      </output>
+    </layer>
+    <layer id="14" name="u_i420_bgr" type="Parameter" version="opset1">
+      <data shape="1,2,4,1" element_type="u8"/>
+      <output>
+        <port id="0" precision="U8">
+          <dim>1</dim>
+          <dim>2</dim>
+          <dim>4</dim>
+          <dim>1</dim>
+        </port>
+      </output>
+    </layer>
+    <layer id="15" name="v_i420_bgr" type="Parameter" version="opset1">
+      <data shape="1,2,4,1" element_type="u8"/>
+      <output>
+        <port id="0" precision="U8">
+          <dim>1</dim>
+          <dim>2</dim>
+          <dim>4</dim>
+          <dim>1</dim>
+        </port>
+      </output>
+    </layer>
+    <layer id="16" name="i420_to_bgr" type="I420toBGR" version="opset8">
+      <input>
+        <port id="0" precision="U8">
+          <dim>1</dim>
+          <dim>4</dim>
+          <dim>8</dim>
+          <dim>1</dim>
+        </port>
+        <port id="1" precision="U8">
+          <dim>1</dim>
+          <dim>2</dim>
+          <dim>4</dim>
+          <dim>1</dim>
+        </port>
+        <port id="2" precision="U8">
+          <dim>1</dim>
+          <dim>2</dim>
+          <dim>4</dim>
+          <dim>1</dim>
+        </port>
+      </input>
+      <output>
+        <port id="0" precision="U8">
+          <dim>1</dim>
+          <dim>3</dim>
+          <dim>4</dim>
+          <dim>8</dim>
+        </port>
+      </output>
+    </layer>
+    <layer id="17" name="Result_i420_bgr" type="Result" version="opset1">
+      <input>
+        <port id="0" precision="U8">
+          <dim>1</dim>
+          <dim>3</dim>
+          <dim>4</dim>
+          <dim>8</dim>
+        </port>
+      </input>
+    </layer>
+  </layers>
+  <edges>
+    <edge from-layer="0" from-port="0" to-layer="2" to-port="0"/>
+    <edge from-layer="1" from-port="0" to-layer="2" to-port="1"/>
+    <edge from-layer="2" from-port="0" to-layer="3" to-port="0"/>
+
+    <edge from-layer="4" from-port="0" to-layer="6" to-port="0"/>
+    <edge from-layer="5" from-port="0" to-layer="6" to-port="1"/>
+    <edge from-layer="6" from-port="0" to-layer="7" to-port="0"/>
+
+    <edge from-layer="8" from-port="0" to-layer="11" to-port="0"/>
+    <edge from-layer="9" from-port="0" to-layer="11" to-port="1"/>
+    <edge from-layer="10" from-port="0" to-layer="11" to-port="2"/>
+    <edge from-layer="11" from-port="0" to-layer="12" to-port="0"/>
+
+    <edge from-layer="13" from-port="0" to-layer="16" to-port="0"/>
+    <edge from-layer="14" from-port="0" to-layer="16" to-port="1"/>
+    <edge from-layer="15" from-port="0" to-layer="16" to-port="2"/>
+    <edge from-layer="16" from-port="0" to-layer="17" to-port="0"/>
+  </edges>
+</net>

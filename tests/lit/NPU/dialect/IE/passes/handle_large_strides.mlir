@@ -211,7 +211,7 @@ func.func @HandleLargeStridesAvgPoolWithSameKernelSizeAndStride(%arg0: tensor<1x
 func.func @HandleLargeStridesAvgPoolWithFQinput(%arg0: tensor<1x32x22x22xf16>) -> tensor<1x32x2x2xf16> {
     %cst_0 = const.Declare tensor<1x1x1x1xf16> = dense<40.2778358> : tensor<1x1x1x1xf32>, [#const.CastElemType<f16>]
     %cst_1 = const.Declare tensor<1x1x1x1xf16> = dense<-40.594986> : tensor<1x1x1x1xf32>, [#const.CastElemType<f16>]
-    %0 = IE.FakeQuantize(%arg0, %cst_1, %cst_0, %cst_1, %cst_0) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i64} : tensor<1x32x22x22xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<1x32x22x22xf16>
+    %0 = IE.FakeQuantize(%arg0, %cst_1, %cst_0, %cst_1, %cst_0) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256 : i64} : tensor<1x32x22x22xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<1x32x22x22xf16>
     %avg_pool = IE.AvgPool(%0) {
         kernel_size = [11, 11],
         pads_begin = [0, 0],
@@ -219,33 +219,33 @@ func.func @HandleLargeStridesAvgPoolWithFQinput(%arg0: tensor<1x32x22x22xf16>) -
         rounding_type = #IE.rounding_type<FLOOR>,
         strides = [11, 11]
     } : tensor<1x32x22x22xf16> -> tensor<1x32x2x2xf16>
-    %fq = IE.FakeQuantize(%avg_pool, %cst_1, %cst_0, %cst_1, %cst_0) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i64} : tensor<1x32x2x2xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<1x32x2x2xf16>
+    %fq = IE.FakeQuantize(%avg_pool, %cst_1, %cst_0, %cst_1, %cst_0) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256 : i64} : tensor<1x32x2x2xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<1x32x2x2xf16>
 
     return %fq : tensor<1x32x2x2xf16>
 
     // CHECK-DAG: [[CST:%.+]] = const.Declare tensor<1x1x1x1xf16> = dense<40.2778358> : tensor<1x1x1x1xf32>, [#const.CastElemType<f16>]
     // CHECK-DAG: [[CST_0:%.+]] = const.Declare tensor<1x1x1x1xf16> = dense<-40.594986> : tensor<1x1x1x1xf32>, [#const.CastElemType<f16>]
-    // CHECK: [[FQ0:%.+]] = IE.FakeQuantize([[ARG_0]], [[CST_0]], [[CST]], [[CST_0]], [[CST]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i64} : tensor<1x32x22x22xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<1x32x22x22xf16>
+    // CHECK: [[FQ0:%.+]] = IE.FakeQuantize([[ARG_0]], [[CST_0]], [[CST]], [[CST_0]], [[CST]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256 : i64} : tensor<1x32x22x22xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<1x32x22x22xf16>
     // CHECK: [[SLICE0:%.+]] = IE.Slice [[FQ0:%.+]] [0, 0, 0, 0] [1, 32, 11, 11] : tensor<1x32x22x22xf16> to tensor<1x32x11x11xf16>
-    // CHECK: [[FQ1:%.+]] = IE.FakeQuantize([[SLICE0:%.+]], [[CST_0]], [[CST]], [[CST_0]], [[CST]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i64} : tensor<1x32x11x11xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<1x32x11x11xf16>
+    // CHECK: [[FQ1:%.+]] = IE.FakeQuantize([[SLICE0:%.+]], [[CST_0]], [[CST]], [[CST_0]], [[CST]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256 : i64} : tensor<1x32x11x11xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<1x32x11x11xf16>
     // CHECK: [[AVGPOOL0:%.+]] = IE.AvgPool([[FQ1:%.+]]) {kernel_size = [11, 11], pads_begin = [0, 0], pads_end = [0, 0], rounding_type = #IE.rounding_type<FLOOR>, strides = [1, 1]} : tensor<1x32x11x11xf16> -> tensor<1x32x1x1xf16>
-    // CHECK: [[FQX:%.+]] = IE.FakeQuantize([[AVGPOOL0:%.+]], [[CST_0]], [[CST]], [[CST_0]], [[CST]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i64} : tensor<1x32x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<1x32x1x1xf16>
+    // CHECK: [[FQX:%.+]] = IE.FakeQuantize([[AVGPOOL0:%.+]], [[CST_0]], [[CST]], [[CST_0]], [[CST]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256 : i64} : tensor<1x32x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<1x32x1x1xf16>
     // CHECK: [[SLICE1:%.+]] = IE.Slice [[FQ0:%.+]] [0, 0, 0, 11] [1, 32, 11, 10] : tensor<1x32x22x22xf16> to tensor<1x32x11x10xf16>
-    // CHECK: [[FQ2:%.+]] = IE.FakeQuantize([[SLICE1:%.+]], [[CST_0]], [[CST]], [[CST_0]], [[CST]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i64} : tensor<1x32x11x10xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<1x32x11x10xf16>
+    // CHECK: [[FQ2:%.+]] = IE.FakeQuantize([[SLICE1:%.+]], [[CST_0]], [[CST]], [[CST_0]], [[CST]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256 : i64} : tensor<1x32x11x10xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<1x32x11x10xf16>
     // CHECK: [[AVGPOOL1:%.+]] = IE.AvgPool([[FQ2:%.+]]) {kernel_size = [11, 11], pads_begin = [0, 0], pads_end = [0, 1], rounding_type = #IE.rounding_type<FLOOR>, strides = [1, 1]} : tensor<1x32x11x10xf16> -> tensor<1x32x1x1xf16>
-    // CHECK: [[FQY:%.+]] = IE.FakeQuantize([[AVGPOOL1:%.+]], [[CST_0]], [[CST]], [[CST_0]], [[CST]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i64} : tensor<1x32x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<1x32x1x1xf16>
+    // CHECK: [[FQY:%.+]] = IE.FakeQuantize([[AVGPOOL1:%.+]], [[CST_0]], [[CST]], [[CST_0]], [[CST]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256 : i64} : tensor<1x32x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<1x32x1x1xf16>
     // CHECK: [[CONCAT1:%.+]] = IE.Concat([[FQX:%.+]], [[FQY:%.+]]) {static_offsets = {{\[\[}}0, 0, 0, 0], [0, 0, 0, 1]]} : tensor<1x32x1x1xf16>, tensor<1x32x1x1xf16> -> tensor<1x32x1x2xf16>
     // CHECK: [[SLICE2:%.+]] = IE.Slice [[FQ0:%.+]] [0, 0, 11, 0] [1, 32, 10, 11] : tensor<1x32x22x22xf16> to tensor<1x32x10x11xf16>
-    // CHECK: [[FQ3:%.+]] = IE.FakeQuantize([[SLICE2:%.+]], [[CST_0]], [[CST]], [[CST_0]], [[CST]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i64} : tensor<1x32x10x11xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<1x32x10x11xf16>
+    // CHECK: [[FQ3:%.+]] = IE.FakeQuantize([[SLICE2:%.+]], [[CST_0]], [[CST]], [[CST_0]], [[CST]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256 : i64} : tensor<1x32x10x11xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<1x32x10x11xf16>
     // CHECK: [[AVGPOOL2:%.+]] = IE.AvgPool([[FQ3:%.+]]) {kernel_size = [11, 11], pads_begin = [0, 0], pads_end = [1, 0], rounding_type = #IE.rounding_type<FLOOR>, strides = [1, 1]} : tensor<1x32x10x11xf16> -> tensor<1x32x1x1xf16>
-    // CHECK: [[FQV:%.+]] = IE.FakeQuantize([[AVGPOOL2:%.+]], [[CST_0]], [[CST]], [[CST_0]], [[CST]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i64} : tensor<1x32x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<1x32x1x1xf16>
+    // CHECK: [[FQV:%.+]] = IE.FakeQuantize([[AVGPOOL2:%.+]], [[CST_0]], [[CST]], [[CST_0]], [[CST]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256 : i64} : tensor<1x32x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<1x32x1x1xf16>
     // CHECK: [[SLICE3:%.+]] = IE.Slice [[FQ0:%.+]] [0, 0, 11, 11] [1, 32, 10, 10] : tensor<1x32x22x22xf16> to tensor<1x32x10x10xf16>
-    // CHECK: [[FQ4:%.+]] = IE.FakeQuantize([[SLICE3:%.+]], [[CST_0]], [[CST]], [[CST_0]], [[CST]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i64} : tensor<1x32x10x10xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<1x32x10x10xf16>
+    // CHECK: [[FQ4:%.+]] = IE.FakeQuantize([[SLICE3:%.+]], [[CST_0]], [[CST]], [[CST_0]], [[CST]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256 : i64} : tensor<1x32x10x10xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<1x32x10x10xf16>
     // CHECK: [[AVGPOOL3:%.+]] = IE.AvgPool([[FQ4:%.+]]) {kernel_size = [11, 11], pads_begin = [0, 0], pads_end = [1, 1], rounding_type = #IE.rounding_type<FLOOR>, strides = [1, 1]} : tensor<1x32x10x10xf16> -> tensor<1x32x1x1xf16>
-    // CHECK: [[FQW:%.+]] = IE.FakeQuantize([[AVGPOOL3:%.+]], [[CST_0]], [[CST]], [[CST_0]], [[CST]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i64} : tensor<1x32x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<1x32x1x1xf16>
+    // CHECK: [[FQW:%.+]] = IE.FakeQuantize([[AVGPOOL3:%.+]], [[CST_0]], [[CST]], [[CST_0]], [[CST]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256 : i64} : tensor<1x32x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<1x32x1x1xf16>
     // CHECK: [[CONCAT2:%.+]] = IE.Concat([[FQV:%.+]], [[FQW:%.+]]) {static_offsets = {{\[\[}}0, 0, 0, 0], [0, 0, 0, 1]]} : tensor<1x32x1x1xf16>, tensor<1x32x1x1xf16> -> tensor<1x32x1x2xf16>
     // CHECK: [[CONCAT3:%.+]] = IE.Concat([[CONCAT1:%.+]], [[CONCAT2:%.+]]) {static_offsets = {{\[\[}}0, 0, 0, 0], [0, 0, 1, 0]]} : tensor<1x32x1x2xf16>, tensor<1x32x1x2xf16> -> tensor<1x32x2x2xf16>
-    // CHECK: [[FQ5:%.+]] = IE.FakeQuantize([[CONCAT3:%.+]], [[CST_0]], [[CST]], [[CST_0]], [[CST]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i64} : tensor<1x32x2x2xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<1x32x2x2xf16>
+    // CHECK: [[FQ5:%.+]] = IE.FakeQuantize([[CONCAT3:%.+]], [[CST_0]], [[CST]], [[CST_0]], [[CST]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256 : i64} : tensor<1x32x2x2xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<1x32x2x2xf16>
     // CHECK: return [[FQ5]]
   }
 

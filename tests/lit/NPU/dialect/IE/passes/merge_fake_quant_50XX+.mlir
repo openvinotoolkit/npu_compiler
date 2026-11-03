@@ -20,7 +20,7 @@ func.func @MergeQuantizeDequantizeF8E4M3FN(%arg0 : tensor<1x4xf32>) -> tensor<1x
     // CHECK-DAG:       [[MAX:%.+]] = const.Declare tensor<1x1xf32> = dense<4.480000e+02> : tensor<1x1xf32>
 
     // CHECK:       [[FQ:%.+]] = IE.FakeQuantize([[ARG_0]], [[MIN]], [[MAX]], [[MIN]], [[MAX]])
-    // CHECK-SAME:      low_fp_type = f8E4M3FN
+    // CHECK-SAME:      levels_or_low_fp_type = f8E4M3FN
 
     // CHECK:       return [[FQ]]
 }
@@ -43,7 +43,7 @@ func.func @MergeQuantizeCastF8E5M2(%arg0 : tensor<1x4xf32>) -> tensor<1x4xf32> {
     // CHECK-DAG:       [[MAX2:%.+]] = const.Declare tensor<1x1xf32> = dense<5.734400e+04> : tensor<1x1xf32>
 
     // CHECK:       [[FQ:%.+]] = IE.FakeQuantize([[ARG_0]], [[MIN1]], [[MAX1]], [[MIN2]], [[MAX2]])
-    // CHECK-SAME:      low_fp_type = f8E5M2
+    // CHECK-SAME:      levels_or_low_fp_type = f8E5M2
 
     // CHECK:       return [[FQ]]
 }

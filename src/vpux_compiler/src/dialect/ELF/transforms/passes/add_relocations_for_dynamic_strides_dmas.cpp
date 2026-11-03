@@ -50,7 +50,8 @@ ELF::DmaSymbolOp AddRelocationsForDynamicStridesDmas::createDynamicStridesDmaSym
     auto dmaBufferShape = dimsOrder.toMemoryOrder(dmaBufferType.getShape());
     auto argBufferStrides = argumentBufferType.getMemStrides();
     auto argumentShape = argumentBufferType.getShape();
-    int64_t dmaSize = Byte(dmaBufferType.getElemTypeSize()).count();
+    int64_t dmaSizeBits = dmaBufferType.getElemTypeSize().count();
+    int64_t dmaSize = dmaSizeBits % 8 == 0 ? Byte(dmaBufferType.getElemTypeSize()).count() : dmaSizeBits;
 
     for (auto& argBufferStride : argBufferStrides) {
         argBufferStride /= argumentBufferType.getElemTypeSize().count();
@@ -158,8 +159,12 @@ void AddRelocationsForDynamicStridesDmas::safeRunOnFunc() {
                                                                  mlir::StringAttr::get(&getContext(), symbolName));
                 auto newSymRef = mlir::SymbolRefAttr::get(&getContext(), inputSymbol.getSymName());
                 auto inputSymbolName = mlir::SymbolRefAttr::get(&getContext(), section.getSymName(), {newSymRef});
-                relocs.emplace_back(inputSymbolName, targetSection, 0, ELF::RelocationType::R_VPU_DMA_DESCRIPTOR_INPUT,
-                                    0, "DMA descriptor relocation for strided input");
+                auto bufferType = mlir::cast<NDTypeInterface>(declareOp.getBufferType().getMemref());
+                auto isSubByte = bufferType.getElemTypeSize().count() < 8;
+                auto relocType = isSubByte ? ELF::RelocationType::R_VPU_DMA_DESCRIPTOR_INPUT_BIT
+                                           : ELF::RelocationType::R_VPU_DMA_DESCRIPTOR_INPUT;
+                relocs.emplace_back(inputSymbolName, targetSection, 0, relocType, 0,
+                                    "DMA descriptor relocation for strided input");
             }
 
             if (relocatableOp->getAttr(vpux::stridedOutputAttrName)) {
@@ -177,8 +182,11 @@ void AddRelocationsForDynamicStridesDmas::safeRunOnFunc() {
                                                                   mlir::StringAttr::get(&getContext(), symbolName));
                 auto newSymRef = mlir::SymbolRefAttr::get(&getContext(), outputSymbol.getSymName());
                 auto outputSymbolName = mlir::SymbolRefAttr::get(&getContext(), section.getSymName(), {newSymRef});
-                relocs.emplace_back(outputSymbolName, targetSection, 0,
-                                    ELF::RelocationType::R_VPU_DMA_DESCRIPTOR_OUTPUT, 0,
+                auto bufferType = mlir::cast<NDTypeInterface>(declareOp.getBufferType().getMemref());
+                auto isSubByte = bufferType.getElemTypeSize().count() < 8;
+                auto relocType = isSubByte ? ELF::RelocationType::R_VPU_DMA_DESCRIPTOR_OUTPUT_BIT
+                                           : ELF::RelocationType::R_VPU_DMA_DESCRIPTOR_OUTPUT;
+                relocs.emplace_back(outputSymbolName, targetSection, 0, relocType, 0,
                                     "DMA descriptor relocation for strided output");
             }
 

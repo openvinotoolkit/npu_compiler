@@ -89,6 +89,7 @@ def NPUReg40XX_NNDMAOp :
                 Symbol,
                 IsolatedFromAbove,
                 DeclareOpInterfaceMethods<VPURegMapped_NPURegDescriptorOpInterface>,
+                DMAOpTrait,
             ],
             "DmaDescriptorProp",
             "vpux::NPUReg40XX::Descriptors::DMARegister"
@@ -98,12 +99,12 @@ def NPUReg40XX_NNDMAOp :
     let arguments = (ins
         SymbolNameAttr:$sym_name,
         DmaDescriptorProp:$descriptor,
-        SymbolRefAttr:$input,
+        OptionalAttr<SymbolRefAttr>:$input,
         SymbolRefArrayAttr:$output_buffs,
         OptionalAttr<SymbolRefAttr>:$next_link,
         OptionalAttr<SymbolRefAttr>:$act_compression_size_entry,
         OptionalAttr<SymbolRefAttr>:$indices,
-        OptionalAttr<VPUIP_GatherAddressingMode>:$addressing_mode
+        OptionalAttr<VPUIP_GatherAddressingModeAttr>:$addressing_mode
     );
 
     let skipDefaultBuilders = 1;
@@ -147,7 +148,6 @@ def NPUReg40XX_MappedInferenceOp :
         I64ArrayAttr:$variantCount,
         I64ArrayAttr:$actKernelRangesCount,
         I64ArrayAttr:$actKernelInvocationsCount,
-        I64Attr:$mediaCount,
         I64Attr:$barrierCount,
         SymbolRefAttr:$mappedInferenceVersion,
         OptionalAttr<SymbolRefAttr>:$actShaveRt,
@@ -160,7 +160,6 @@ def NPUReg40XX_MappedInferenceOp :
         OptionalAttr<SymbolRefArrayAttr>:$variantTasks,
         OptionalAttr<SymbolRefArrayAttr>:$actKernelRanges,
         OptionalAttr<SymbolRefArrayAttr>:$actKernelInvocations,
-        OptionalAttr<SymbolRefAttr>:$mediaTasks,
         OptionalAttr<SymbolRefAttr>:$barrierTasks,
         MIDescriptorProp:$descriptor
     );
@@ -176,7 +175,6 @@ def NPUReg40XX_MappedInferenceOp :
             "mlir::ArrayAttr":$variantCount,
             "mlir::ArrayAttr":$actKernelRangesCount,
             "mlir::ArrayAttr":$actKernelInvocationsCount,
-            "mlir::IntegerAttr":$mediaCount,
             "mlir::IntegerAttr":$barrierCount,
             "mlir::SymbolRefAttr":$mappedInferenceVersion,
             "mlir::SymbolRefAttr":$actShaveRt,
@@ -189,7 +187,6 @@ def NPUReg40XX_MappedInferenceOp :
             "mlir::ArrayAttr":$variantTasks,
             "mlir::ArrayAttr":$actKernelRanges,
             "mlir::ArrayAttr":$actKernelInvocations,
-            "mlir::SymbolRefAttr":$mediaTasks,
             "mlir::SymbolRefAttr":$barrierTasks,
             "vpux::NPUReg40XX::Descriptors::VpuMappedInference&&":$descriptor
 

@@ -1,5 +1,5 @@
 //
-// Copyright (C) 2026 Intel Corporation.
+// Copyright (C) 2026 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -7,6 +7,7 @@
 
 #include "vpux/compiler/dialect/Shave/IR/attributes.hpp"
 #include "vpux/compiler/dialect/Shave/IR/ops_interfaces.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops_interfaces.hpp"
 
 #include <mlir/IR/Builders.h>
 #include <mlir/IR/RegionKindInterface.h>

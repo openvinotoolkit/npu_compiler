@@ -51,6 +51,21 @@ set(kernels_to_build)
 add_custom_target(act_shave_kernels_build)
 add_custom_target(act_shave_kernels_asm)
 
+# CMake operator model (replacement for descrip/*.txt): the vpux integration
+# module provides sw_operator_vpux_kernel() and pulls in the integration-agnostic
+# sw_operator_core() from the toolkit core layer. Used by sw_operators/<op>/**.
+#
+# Optional: the sw_operators/ toolkit is an add-on to a standalone sw_runtime_kernels
+# build. Some trees (e.g. the open-source-export the compliance CI builds) contain
+# sw_runtime_kernels/ without a sibling sw_operators/, so only include the module when
+# it is present. The operator-model section below is glob-guarded and simply builds no
+# operators when the toolkit is absent, so the standalone build stays self-contained.
+set(_sw_operator_vpux_module
+    "${CMAKE_CURRENT_SOURCE_DIR}/../../sw_operators/toolkit/vpux/cmake/SwOperatorVpux.cmake")
+if(EXISTS "${_sw_operator_vpux_module}")
+  include("${_sw_operator_vpux_module}")
+endif()
+
 if(build_kernels)
   if(NOT DEFINED MV_TOOLS_PATH AND DEFINED ENV{MV_TOOLS_DIR} AND DEFINED ENV{MV_TOOLS_VERSION})
     set(MV_TOOLS_PATH $ENV{MV_TOOLS_DIR}/$ENV{MV_TOOLS_VERSION})
@@ -172,6 +187,7 @@ foreach(kernel_descrip IN LISTS kernel_descrip_list)
   set(cppflags_list "-mllvm" "-shave-align-stack=32")
   set(always_inline "no")
   set(firmware_kernel "no")
+  set(use_toolkit "no")
   set(extra_src_list "")
   set(asm_src_list "")
   set(asm_include_list "")
@@ -206,6 +222,7 @@ foreach(kernel_descrip IN LISTS kernel_descrip_list)
      (NOT firmware_kernel AND NOT ENABLE_SHAVE_BINARIES_BUILD))
     continue()
   endif()
+
   if(kernel_cpunum STREQUAL "3720")
     list(APPEND define_symbols_list "USE_3720_INSTRUCTIONS")
     set(link_libraries_list ${link_libraries_list_VPU3720})
@@ -220,6 +237,63 @@ foreach(kernel_descrip IN LISTS kernel_descrip_list)
   endif()
 
   list(INSERT include_dirs_list 0 "${CMAKE_CURRENT_SOURCE_DIR}/inc")
+
+  # The vpux param base (common_types.h, kernel_params.hpp) lives in the toolkit
+  # vpux layer. Add it for every kernel so legacy descriptors resolve it without
+  # modification. (kernels/inc keeps forwarding shims for these param headers.)
+  list(INSERT include_dirs_list 0 "${CMAKE_CURRENT_SOURCE_DIR}/../../sw_operators/toolkit/vpux/include")
+
+  # The SHAVE DMA driver is a single source of truth in the toolkit core layer
+  # (drv/ = driver headers, lib/ = dma_utils). Expose it to every kernel so
+  # DMA-consuming kernels resolve <dma_drv.hpp> / <dma_base.hpp> / <dma_utils.hpp>
+  # by short name directly from the toolkit -- there are no forwarding shims in
+  # inc/ for the DMA driver. Appended (lowest precedence, after inc/) on purpose:
+  # headers that are duplicated in inc/ (shave_info.hpp, linear_allocator.hpp) and
+  # the toolkit's non-DMA headers that share a name with inc/ ones (dpu_drv.hpp,
+  # shave_hal.hpp, shave_sync.hpp, tiling_utils.hpp) keep resolving from inc/ for
+  # non-toolkit kernels, exactly as the old dma_* shims did. The dma_* headers
+  # exist only in the toolkit now, so they resolve here regardless of order.
+  # The 'core' root and core/common/include are added too so the DMA headers'
+  # own dependencies -- the core/common building blocks (pragmas.hpp,
+  # linear_allocator.hpp, shave_info.hpp), included flat or as <common/include/..>
+  # -- always resolve from the toolkit, even for kernels with no inc/ copy (e.g.
+  # pragmas.hpp is toolkit-only). This keeps the DMA headers self-contained.
+  # Still appended (lowest precedence): inc/ copies win for non-toolkit kernels.
+  list(APPEND include_dirs_list
+    "${CMAKE_CURRENT_SOURCE_DIR}/../../sw_operators/toolkit/core"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../../sw_operators/toolkit/core/common/include"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../../sw_operators/toolkit/core/drv/include"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../../sw_operators/toolkit/core/lib/include")
+
+  # Opt-in to the sw_operators SHAVE toolkit via a single line in a descriptor:
+  #   set(use_toolkit "yes")
+  # The toolkit is header-only and its public headers self-select the arch
+  # implementation from the '__npu_major__' compiler builtin (4/5 -> *_40xx), 
+  # so only the single toolkit include root is required here;
+  # there are no per-arch source files to compile. If the toolkit later ships
+  # arch-specific .cpp sources, append them to extra_src_list here based on
+  # ${kernel_cpunum}.
+  if(use_toolkit)
+    set(sw_operators_toolkit_dir "${CMAKE_CURRENT_SOURCE_DIR}/../../sw_operators/toolkit")
+    if(NOT EXISTS "${sw_operators_toolkit_dir}")
+      message(SEND_ERROR "use_toolkit is set in ${kernel_descrip}, but the toolkit was not found at ${sw_operators_toolkit_dir}")
+    endif()
+    # The toolkit is layered into core/ (generic) and vpux/ (vpux-specific).
+    # The 'core' root is required so core headers can cross-include each other
+    # via their full <layer/module/include/...> paths (e.g. <hw/dma/include/..>).
+    set(toolkit_include_dirs "${sw_operators_toolkit_dir}/core")
+    # Also expose each module's include/ dir (core and vpux) so kernels can use
+    # short includes (e.g. <dma_drv.hpp> instead of <hw/dma/include/dma_drv.hpp>).
+    file(GLOB toolkit_module_incs LIST_DIRECTORIES true CONFIGURE_DEPENDS
+      "${sw_operators_toolkit_dir}/core/*/include"
+      "${sw_operators_toolkit_dir}/core/*/*/include"
+      "${sw_operators_toolkit_dir}/vpux/include")
+    list(APPEND toolkit_include_dirs ${toolkit_module_incs})
+    # Insert ahead of 'inc' so the toolkit headers take precedence over any
+    # legacy flat-named drivers in inc/.
+    list(INSERT include_dirs_list 0 ${toolkit_include_dirs})
+  endif()
+
   list(INSERT define_symbols_list 0 "__act_shave__")
 
   ### RESOLVE FILE NAMES ###
@@ -449,6 +523,31 @@ foreach(kernel_descrip IN LISTS kernel_descrip_list)
   endif()
 
 endforeach()
+
+# ---------------------------------------------------------------------------
+# CMake operator model — builds operators declared under sw_operators/<op>/ via
+# the toolkit functions (SwOperator.cmake). Coexists with the descriptor loop
+# above; migrated operators drop their descrip/*.txt. Each operator registers
+# its ELFs on GLOBAL properties, which we fold into the existing prebuilt/embed
+# pipeline so nothing downstream changes.
+# ---------------------------------------------------------------------------
+if(build_kernels)
+  file(GLOB sw_operator_cmakes CONFIGURE_DEPENDS
+    "${CMAKE_CURRENT_SOURCE_DIR}/../../sw_operators/*/CMakeLists.txt")
+  foreach(op_cmake IN LISTS sw_operator_cmakes)
+    get_filename_component(op_dir "${op_cmake}" DIRECTORY)
+    get_filename_component(op_name "${op_dir}" NAME)
+    if(op_name STREQUAL "toolkit")
+      continue()  # the toolkit is not an operator
+    endif()
+    add_subdirectory("${op_dir}" "${CMAKE_CURRENT_BINARY_DIR}/sw_operators/${op_name}")
+  endforeach()
+
+  get_property(_sw_op_kernels GLOBAL PROPERTY sw_operator_kernels_to_build)
+  get_property(_sw_op_all GLOBAL PROPERTY sw_operator_all_kernels)
+  list(APPEND kernels_to_build ${_sw_op_kernels})
+  list(APPEND all_kernels ${_sw_op_all})
+endif()
 
 ### UPDATE PREBUILT KERNELS ###
 file(GLOB prebuild_kernels RELATIVE "${prebuild_binary_dir}" CONFIGURE_DEPENDS "${prebuild_binary_dir}/*")

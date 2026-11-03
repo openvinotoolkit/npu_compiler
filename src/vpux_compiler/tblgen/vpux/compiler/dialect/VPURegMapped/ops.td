@@ -270,8 +270,7 @@ def VPURegMapped_TaskBufferLayoutOp :
                 DMA = [[#VPURegMapped.TaskGroup<dynamicTaskListSize(0 : ui64), staticTaskListSize(32 : ui64), startOffset(59904 : ui64), binaryTaskSize(224 : ui64)>,
                         #VPURegMapped.TaskGroup<dynamicTaskListSize(0 : ui64), staticTaskListSize(32 : ui64), startOffset(67072 : ui64), binaryTaskSize(224 : ui64)>]],
                 DPUInvariant = [[#VPURegMapped.TaskGroup<dynamicTaskListSize(0 : ui64), staticTaskListSize(64 : ui64), startOffset(0 : ui64), binaryTaskSize(352 : ui64)>]],
-                DPUVariant = [[#VPURegMapped.TaskGroup<dynamicTaskListSize(0 : ui64), staticTaskListSize(128 : ui64), startOffset(22528 : ui64), binaryTaskSize(224 : ui64)>]],
-                M2I = [[#VPURegMapped.TaskGroup<dynamicTaskListSize(0 : ui64), staticTaskListSize(4 : ui64), startOffset(74240 : ui64), binaryTaskSize(240 : ui64)>]]
+                DPUVariant = [[#VPURegMapped.TaskGroup<dynamicTaskListSize(0 : ui64), staticTaskListSize(128 : ui64), startOffset(22528 : ui64), binaryTaskSize(224 : ui64)>]]
             }
         ```
 

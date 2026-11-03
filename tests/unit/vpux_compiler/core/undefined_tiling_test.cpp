@@ -1385,6 +1385,36 @@ TEST_F(MLIR_UndefinedTiling, DataUpdateInLoopAndPrefetch) {
     EXPECT_EQ(findEntry(scheduleResult.schedule[1], 10), scheduleResult.schedule[1].end());
 }
 
+TEST_F(MLIR_UndefinedTiling, DataUpdateInputExceedingCMXReturnsEmptySchedule) {
+    auto schedulingLoop = std::make_unique<SchedulingLoop>();
+    schedulingLoop->type = LoopType::Tiling;
+
+    VPURT::TaskQueueType dmaQt{config::ExecutorKind::DMA_NN, 0};
+    const auto externalUpdateInput0 = createBuffer(3072, 64);
+    const auto externalUpdateInput1 = createBuffer(2048, 64);
+    const auto makeIteration = [&](size_t baseOpIdx, mlir::Value externalUpdateInput) {
+        const auto externalUpdateOutput = createBuffer(512, 64);
+        const auto computeOutput = createBuffer(512, 64);
+
+        LoopBody iteration;
+        iteration.emplace_back(baseOpIdx, dmaQt, SmallVector<mlir::Value>{externalUpdateInput},
+                               SmallVector<mlir::Value>{externalUpdateOutput}, AllocationType::DATA_UPDATE);
+        iteration.push_back(createComputeOp(baseOpIdx + 1, {externalUpdateOutput}, {computeOutput}));
+        return iteration;
+    };
+
+    schedulingLoop->loopBodies = {makeIteration(0, externalUpdateInput0), makeIteration(10, externalUpdateInput1)};
+
+    ComputeRegion region(std::move(schedulingLoop));
+    vpux::VPU::UndefinedTiling scenario;
+    LoopScheduleResult scheduleResult;
+
+    EXPECT_NO_THROW(scheduleResult = scenario.getScheduleStrategy(region, /*memorySize=*/4096));
+    EXPECT_TRUE(scheduleResult.schedule.empty());
+    EXPECT_EQ(scheduleResult.reservedSize, 0);
+    EXPECT_TRUE(scheduleResult.sharedExternalBuffers.empty());
+}
+
 TEST_F(MLIR_UndefinedTiling, CollectComputeOpBuffers_FrequencyTableDrivesSharedDetection) {
     // Verify that the frequency table computed by collectComputeOpBuffers
     // correctly identifies globally shared buffers (those used by ALL compute ops).
@@ -1515,6 +1545,65 @@ TEST_F(MLIR_UndefinedTiling, PartialDoubleBufferingSuppressed) {
     // Only one set consumed: reservedSize = 4096, not 5120.
     EXPECT_EQ(scheduleResult.reservedSize, 4096);
     EXPECT_TRUE(scheduleResult.sharedExternalBuffers.empty());
+}
+
+TEST_F(MLIR_UndefinedTiling, RejectsReuseOfSlotStillUsedByCurrentComputeOp) {
+    // Regression test for FlashSDPA-like loop-carried state.
+    //
+    // The predefined allocator keys reusable slots by flattened usedBuffers index:
+    //   usedBuffers = inputs + unique outputs + extra DATA_IN buffers
+    //
+    // The running state below moves between flattened positions:
+    //   op0: idx 11 -> runningState0  (output)
+    //   op1: idx 7  -> runningState0  (input)
+    //   op1: idx 11 -> runningState1  (new output)
+    //
+    // With tight memory, idx 11 cannot allocate a second ping-pong slot for runningState1.
+    // Reusing the old idx 11 slot would deallocate runningState0 even though op1 still uses it
+    // at idx 7, so UndefinedTiling must reject the predefined schedule.
+
+    auto makeBuffers = [&](size_t count) {
+        SmallVector<mlir::Value> buffers;
+        buffers.reserve(count);
+        for (size_t idx = 0; idx < count; ++idx) {
+            buffers.push_back(createBuffer(1024, 64));
+        }
+        return buffers;
+    };
+
+    auto schedulingLoop = std::make_unique<SchedulingLoop>();
+    schedulingLoop->type = LoopType::Tiling;
+
+    auto op0Inputs = makeBuffers(11);
+    auto runningState0 = createBuffer(1024, 64);
+    auto op0Out1 = createBuffer(1024, 64);
+    auto op0Out2 = createBuffer(1024, 64);
+
+    LoopBody iteration0;
+    iteration0.push_back(createComputeOp(0, op0Inputs, {runningState0, op0Out1, op0Out2}));
+
+    auto op1Inputs = makeBuffers(11);
+    op1Inputs[7] = runningState0;
+    auto runningState1 = createBuffer(1024, 64);
+    auto op1Out1 = createBuffer(1024, 64);
+    auto op1Out2 = createBuffer(1024, 64);
+
+    LoopBody iteration1;
+    iteration1.push_back(createComputeOp(1, op1Inputs, {runningState1, op1Out1, op1Out2}));
+
+    schedulingLoop->loopBodies = {std::move(iteration0), std::move(iteration1)};
+
+    ComputeRegion region(std::move(schedulingLoop));
+    vpux::VPU::UndefinedTiling scenario;
+
+    // One full flattened set needs 14 * 1024 bytes. The second set starts to allocate, then
+    // reaches the memory limit before idx 11, forcing slot reuse for runningState1.
+    const auto scheduleResult = scenario.getScheduleStrategy(region, /*memorySize=*/20 * 1024);
+
+    EXPECT_TRUE(scheduleResult.schedule.empty());
+    EXPECT_EQ(scheduleResult.reservedSize, 0);
+    EXPECT_TRUE(scheduleResult.sharedExternalBuffers.empty());
+    EXPECT_EQ(scheduleResult.baseAlignment, vpux::DEFAULT_CMX_ALIGNMENT);
 }
 
 TEST_F(MLIR_UndefinedTiling, InsufficientLocalMemoryReturnsEmptySchedule) {

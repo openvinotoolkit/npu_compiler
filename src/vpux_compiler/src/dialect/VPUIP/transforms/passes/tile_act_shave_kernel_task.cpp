@@ -3,7 +3,6 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-#include "vpux/compiler/core/attributes/stride_reqs.hpp"
 #include "vpux/compiler/core/layers.hpp"
 #include "vpux/compiler/core/tiling.hpp"
 #include "vpux/compiler/dialect/VPU/IR/tiling_info.hpp"
@@ -314,6 +313,37 @@ Dim getSwKernelTileDim(VPUIP::SwKernelOp swKernelOp) {
         return Dim(tileDim);
     } else if (kernelEntryName == "cum_sum") {
         return getHighestNonAxisDimOfSwKernel(swKernelOp);
+    } else if (kernelEntryName == "onehot") {
+        // OneHot must not tile on the depth (axis) dimension — each tile needs to
+        // see the full depth range to decide which index to "light up".
+        // Recover the logical axis from attrs[0]. actualAxis is encoded using
+        // the input rank, while a non-rank-expanded output has one extra depth
+        // dimension.
+        auto taskArgs = kernelArgsRange(swKernelOp);
+        const int64_t actualAxis = mlir::cast<mlir::IntegerAttr>(taskArgs.front()).getInt();
+        const auto inputType = mlir::cast<vpux::NDTypeInterface>(swKernelOp->getOperand(0).getType());
+        const auto outType = mlir::cast<vpux::NDTypeInterface>(swKernelOp->getResult(0).getType());
+        const int64_t logicalAxis = inputType.getRank() - actualAxis;
+        const auto outOrder = outType.getDimsOrder();
+        const auto outShape = outType.getShape();
+        const auto numShaves = config::getTotalNumOfEngines(swKernelOp, config::ExecutorKind::SHAVE_ACT);
+        std::optional<Dim> mostOuterNonTrivialDim;
+        for (auto i : irange(outOrder.numDims())) {
+            auto dim = outOrder.dimAt(i);
+            if (dim.ind() == logicalAxis) {
+                continue;
+            }
+            if (outShape[dim] != 1 && !mostOuterNonTrivialDim.has_value()) {
+                mostOuterNonTrivialDim = dim;
+            }
+            if (outShape[dim] >= numShaves) {
+                return dim;
+            }
+        }
+
+        // There may be no non-axis dimension large enough for all SHAVEs. In that
+        // case, use the most outer non-trivial non-axis dimension.
+        return mostOuterNonTrivialDim.value_or(Dim(0));
     } else if (kernelEntryName == "scatter_elements_update") {
         const auto output = swKernelOp->getResult(0);
         const auto outputType = mlir::cast<vpux::NDTypeInterface>(output.getType());
@@ -332,8 +362,10 @@ Dim getSwKernelTileDim(VPUIP::SwKernelOp swKernelOp) {
             }
         }
     } else if (kernelEntryName == "group_quant_correction") {
-        const auto outputType = mlir::cast<vpux::NDTypeInterface>(swKernelOp->getResult(0).getType());
-        return getHighestNonTrivialDim(outputType.getShape(), outputType.getDimsOrder()).value_or(Dim(0));
+        if (getShape(swKernelOp.getResult(0))[Dims4D::Act::N] > 1 && hasOnlyOneOffset(swKernelOp, Dims4D::Act::N)) {
+            return Dims4D::Act::N;
+        }
+        return Dims4D::Act::C;
     }
 
     auto isHighestDimTilingPerformant = [&]() {
@@ -543,7 +575,7 @@ bool isDynamicTilingSupported(StringRef kernelEntryName) {
 bool doesSwKernelSupportTiling(VPUIP::SwKernelOp swKernelOp, vpux::Logger log) {
     auto kernelEntryName = getSwKernelEntryName(swKernelOp);
 
-    if (VPUIP::hasBoundedBuffers(swKernelOp)) {
+    if (VPUIP::hasUngroupedBoundedBuffers(swKernelOp)) {
         return isDynamicTilingSupported(kernelEntryName);
     }
 
@@ -744,8 +776,8 @@ bool doesSwKernelSupportTiling(VPUIP::SwKernelOp swKernelOp, vpux::Logger log) {
             log.trace("random_uniform cannot be tiled with non-zero seeds");
             return false;
         }
-    } else if (kernelEntryName == "eltwise_mul" || kernelEntryName == "eltwise_mul_quantized_output" ||
-               kernelEntryName == "eltwise_select") {
+    } else if (kernelEntryName == "eltwise_mul" || kernelEntryName == "eltwise_mul_inner_bcst3" ||
+               kernelEntryName == "eltwise_mul_quantized_output" || kernelEntryName == "eltwise_select") {
         const auto outputSize = getTotalSize(swKernelOp.getOutputs()[0]);
         const auto minimalSize = Byte(1024);
         if (outputSize < minimalSize) {
@@ -845,47 +877,6 @@ bool doesSwKernelSupportTiling(VPUIP::SwKernelOp swKernelOp, vpux::Logger log) {
     }
 
     return true;
-}
-
-bool isNonContiguous(vpux::NDTypeInterface typeIf) {
-    return !vpux::StrideReqs::compact(typeIf.getRank()).checkStrides(typeIf);
-}
-
-int64_t getByteAddressableTileAlignment(mlir::Value value, Dim tileDim) {
-    const auto valueType = mlir::dyn_cast<vpux::NDTypeInterface>(value.getType());
-    if (valueType == nullptr || valueType.getRank() <= tileDim.ind()) {
-        return 1;
-    }
-
-    const auto elemTypeSizeBits = valueType.getElemTypeSize().count();
-    if (elemTypeSizeBits % CHAR_BIT == 0) {
-        return 1;
-    }
-
-    const auto dimOrder = valueType.getDimsOrder();
-    const auto memDim = dimOrder.toMemDim(tileDim);
-    const auto strides = valueType.getStrides();
-    if (!strides.empty()) {
-        const auto strideOnTilingDimBits = strides[tileDim].count();
-        if (strideOnTilingDimBits % CHAR_BIT == 0) {
-            return 1;
-        }
-        VPUX_THROW_WHEN(isNonContiguous(valueType),
-                        "Non-contiguous strides must be byte-aligned for SwKernel at '{0}'.", value.getLoc());
-    }
-
-    const auto memShape = dimOrder.toMemoryOrder(valueType.getShape());
-    int64_t strideOnTilingDim = 1;
-    for (auto i = static_cast<size_t>(memDim.ind()) + 1; i < memShape.size(); ++i) {
-        strideOnTilingDim *= memShape[MemDim(i)];
-    }
-
-    const auto bitsPerStep = strideOnTilingDim * elemTypeSizeBits;
-    if (bitsPerStep % CHAR_BIT == 0) {
-        return 1;
-    }
-
-    return CHAR_BIT / std::gcd<int64_t>(bitsPerStep, CHAR_BIT);
 }
 
 int64_t getSwKernelByteAddressableTileAlignment(VPUIP::SwKernelOp swKernelOp, Dim tileDim) {
@@ -1206,7 +1197,7 @@ mlir::LogicalResult SwKernelRewriterBase::matchAndRewrite(VPUIP::SwKernelOp swKe
         }
 
         auto inputs = swKernelOp.getInputs();
-        auto outputs = swKernelOp.getOutputs();
+        auto outputs = swKernelOp.getOutputBuffs();
 
         SmallVector<mlir::Value> newInputs;
         SmallVector<mlir::Value> newOutputs;
@@ -1223,7 +1214,19 @@ mlir::LogicalResult SwKernelRewriterBase::matchAndRewrite(VPUIP::SwKernelOp swKe
         auto newSwKernelOp = createNewSwKernelOp(swKernelOp, newInputs, newOutputs, false, rewriter);
         // 'newSwKernelOp' contains duplicated outputs for multiple runs
         //  using 1st run outputs to replace original op
-        rewriter.replaceOp(swKernelOp, newSwKernelOp.getResults().slice(0, outputs.size()));
+        auto firstRunResults = newSwKernelOp.getResults().slice(0, outputs.size());
+        SmallVector<mlir::Value> newResults(firstRunResults.begin(), firstRunResults.end());
+        if (VPUIP::hasUngroupedBoundedBuffers(swKernelOp)) {
+            // Note: There is also a dynamic shape result which is the last
+            // result of the original op as well as the new op. The dynamic
+            // shape is not "tiled" (for whatever reason) so there is no need to
+            // do complicated replacement.
+            assert((swKernelOp.getDynamicOutputShapes().size() == newSwKernelOp.getDynamicOutputShapes().size()) &&
+                   "The amount of dynamic shape results should be unchanged (it is not tiled)");
+            auto newDynamicShapeResults = newSwKernelOp.getDynamicOutputShapes();
+            newResults.append(newDynamicShapeResults.begin(), newDynamicShapeResults.end());
+        }
+        rewriter.replaceOp(swKernelOp, newResults);
         return mlir::success();
     }
 
@@ -1665,8 +1668,13 @@ SmallVector<mlir::Value> SwKernelRewriter::createNewOutBuffs(
 VPUIP::SwKernelOp SwKernelRewriter::createNewSwKernelOp(VPUIP::SwKernelOp swKernelOp, ArrayRef<mlir::Value> newInputs,
                                                         ArrayRef<mlir::Value> newOutBufs, bool,
                                                         mlir::PatternRewriter& rewriter) const {
-    auto newSwKernelTask = VPUIP::SwKernelOp::create(rewriter, swKernelOp->getLoc(), newInputs, newOutBufs,
-                                                     swKernelOp.getKernelFunction(), swKernelOp.getTileIndexAttr());
+    auto newSwKernelTask = VPUIP::SwKernelOp::create(
+            rewriter, swKernelOp->getLoc(), newInputs, newOutBufs, swKernelOp.getDynamicInputShapes(),
+            swKernelOp.getDynamicInputShapesMap().value_or(ArrayRef<int32_t>{}),
+            swKernelOp.getDynamicOutputShapeBuffs(),
+            swKernelOp.getDynamicOutputShapesMap().value_or(ArrayRef<int32_t>{}), swKernelOp.getProfilingData(),
+            swKernelOp.getKernelFunction(), swKernelOp.getTileIndexAttr());
+    VPUIP::copyCustomKernelAttributes(swKernelOp, newSwKernelTask);
     auto swKernelRun = *swKernelOp.getBody().getOps<VPUIP::SwKernelRun>().begin();
     VPUIP::initSwKernel(newSwKernelTask, swKernelRun, _log);
 
@@ -1676,8 +1684,13 @@ VPUIP::SwKernelOp SwKernelRewriter::createNewSwKernelOp(VPUIP::SwKernelOp swKern
 
 void SwKernelRewriter::replaceOpWithConcatView(VPUIP::SwKernelOp origOp, VPUIP::SwKernelOp newSwKernelOp,
                                                bool insertSubview, mlir::PatternRewriter& rewriter) const {
-    const auto origNumberResults = origOp->getNumResults();
-    const auto newNumberResults = newSwKernelOp->getNumResults();
+    // Note: In case of dynamism, SW kernel returns extra results which
+    // represent dynamic shapes. Unlike normal results, these dynamic shapes are
+    // not duplicated for every tile.
+    auto origDynamicShapeResults = origOp.getDynamicOutputShapes();
+    const unsigned dynamicShapeOutputCount = origDynamicShapeResults.size();
+    const auto origNumberResults = origOp->getNumResults() - dynamicShapeOutputCount;
+    const auto newNumberResults = newSwKernelOp->getNumResults() - dynamicShapeOutputCount;
     VPUX_THROW_UNLESS(newNumberResults % origNumberResults == 0, "Invalid result number at {0}", origOp->getLoc());
     const auto numberActShaveTiles = newNumberResults / origNumberResults;
 
@@ -1708,14 +1721,14 @@ void SwKernelRewriter::replaceOpWithConcatView(VPUIP::SwKernelOp origOp, VPUIP::
             continue;
         }
 
-        auto handleOutputReplacement = [&](auto origOutBufOp) {
+        auto handleOutputReplacement = [&](mlir::Value origOutBuf) {
             if (insertSubview) {
                 SmallVector<mlir::Value> subResults;
                 subResults.reserve(numberActShaveTiles);
                 for (auto index : irange(numberActShaveTiles)) {
                     subResults.push_back(newSwKernelOp->getResult(origNumberResults * index + resultIndx));
                 }
-                auto concatOp = VPUIP::ConcatViewOp::create(rewriter, origOp->getLoc(), subResults, origOutBufOp);
+                auto concatOp = VPUIP::ConcatViewOp::create(rewriter, origOp->getLoc(), subResults, origOutBuf);
                 output.replaceAllUsesWith(concatOp.getOutput());
             } else {
                 auto outputType = mlir::cast<vpux::NDTypeInterface>(output.getType());
@@ -1740,19 +1753,26 @@ void SwKernelRewriter::replaceOpWithConcatView(VPUIP::SwKernelOp origOp, VPUIP::
 
                 auto concatOp = VPUIP::ConcatViewOp::create(rewriter, origOp->getLoc(), results, outBufOp);
                 output.replaceAllUsesWith(concatOp.getOutput());
-                if (origOutBufOp->use_empty()) {
+                if (auto origOutBufOp = origOutBuf.getDefiningOp(); origOutBuf.use_empty() && origOutBufOp != nullptr) {
                     rewriter.eraseOp(origOutBufOp);
                 }
             }
         };
 
-        auto origOutBufOp = origOp.getOutputBuffs()[resultIndx].getDefiningOp();
-        if (VPUIP::hasBoundedBuffers(origOutBufOp)) {
-            auto origOutBufOpCast = mlir::dyn_cast<VPUIP::GroupBoundedBufferOp>(origOutBufOp);
-            handleOutputReplacement(origOutBufOpCast);
-        } else {
-            auto origOutBufOpCast = mlir::dyn_cast<mlir::memref::AllocOp>(origOutBufOp);
-            handleOutputReplacement(origOutBufOpCast);
+        auto origOutBuf = origOp.getOutputBuffs()[resultIndx];
+        handleOutputReplacement(origOutBuf);
+    }
+    if (VPUIP::hasUngroupedBoundedBuffers(origOp)) {
+        // Note: There is also a dynamic shape result which is the last result
+        // of the original op as well as the new op. The dynamic shape is not
+        // "tiled" (for whatever reason) so there is no need to do complicated
+        // replacement.
+        assert(dynamicShapeOutputCount == newSwKernelOp.getDynamicOutputShapes().size() &&
+               "The amount of dynamic shape results should be unchanged (it is not tiled)");
+        auto newDynamicShapeResults = newSwKernelOp.getDynamicOutputShapes();
+        for (auto [origDynamicShapeResult, newDynamicShapeResult] :
+             llvm::zip(origDynamicShapeResults, newDynamicShapeResults)) {
+            origDynamicShapeResult.replaceAllUsesWith(newDynamicShapeResult);
         }
     }
     rewriter.eraseOp(origOp);
@@ -2845,9 +2865,13 @@ VPUIP::SwKernelOp ClusterSwKernelRewriter::createNewSwKernelOp(VPUIP::SwKernelOp
 
     SmallVector<mlir::Value> inputs(newOperands.begin(), newOperands.begin() + newInputs.size());
     SmallVector<mlir::Value> outputs(newOperands.begin() + newInputs.size(), newOperands.end());
-    auto newSwKernelTask =
-            VPUIP::SwKernelOp::create(rewriter, swKernelOp.getLoc(), inputs, outputs, swKernelOp.getKernelFunction(),
-                                      swKernelOp.getTileIndexAttr(), inputStrideAttr, outputStrideAttr);
+    auto newSwKernelTask = VPUIP::SwKernelOp::create(
+            rewriter, swKernelOp.getLoc(), inputs, outputs, swKernelOp.getDynamicInputShapes(),
+            swKernelOp.getDynamicInputShapesMap().value_or(ArrayRef<int32_t>{}),
+            swKernelOp.getDynamicOutputShapeBuffs(),
+            swKernelOp.getDynamicOutputShapesMap().value_or(ArrayRef<int32_t>{}), swKernelOp.getProfilingData(),
+            swKernelOp.getKernelFunction(), swKernelOp.getTileIndexAttr(), inputStrideAttr, outputStrideAttr);
+    VPUIP::copyCustomKernelAttributes(swKernelOp, newSwKernelTask);
     VPUIP::initSwKernel(newSwKernelTask, swKernelRun, _log);
 
     _log.trace("create new cluster shave {0}", newSwKernelTask);
@@ -2868,27 +2892,34 @@ void ClusterSwKernelRewriter::replaceOpWithConcatView(VPUIP::SwKernelOp origOp, 
         }
     }
 
-    const auto origOpResults = origOp.getResults();
-    const auto resultsNum = origOpResults.size();
+    auto origDynamicShapeResults = origOp.getDynamicOutputShapes();
+    const unsigned dynamicShapeOutputCount = origDynamicShapeResults.size();
+    const auto origNumberResults = origOp->getNumResults() - dynamicShapeOutputCount;
+    const auto newNumberResults = newSwKernelOp->getNumResults() - dynamicShapeOutputCount;
+    VPUX_THROW_UNLESS(newNumberResults % origNumberResults == 0, "Invalid result number at {0}", origOp->getLoc());
+    const auto numSplits = newNumberResults / origNumberResults;
+
     if (insertSubview) {
         llvm::SmallVector<mlir::Value> newConcats;
-        for (auto p : origOpResults | indexed) {
-            const auto index = p.index();
-            const auto newResults = newSwKernelOp->getResults();
-            const size_t numSplits = newResults.size() / resultsNum;
+        const auto newResults = newSwKernelOp->getResults();
+        for (size_t index = 0; index < origNumberResults; ++index) {
             llvm::SmallVector<mlir::Value> concatInputs;
             for (size_t i = 0; i < numSplits; i++) {
-                concatInputs.push_back(newResults[index + i * resultsNum]);
+                concatInputs.push_back(newResults[index + i * origNumberResults]);
             }
-            auto outBufOp = origOp.getOutputBuffs()[index].getDefiningOp();
-            auto concatOp = VPUIP::ConcatViewOp::create(rewriter, newSwKernelOp->getLoc(), concatInputs,
-                                                        outBufOp->getResult(0));
+            auto outBufValue = origOp.getOutputBuffs()[index];
+            auto concatOp = VPUIP::ConcatViewOp::create(rewriter, newSwKernelOp->getLoc(), concatInputs, outBufValue);
             newConcats.push_back(concatOp.getResult());
+        }
+        if (VPUIP::hasUngroupedBoundedBuffers(origOp)) {
+            const auto& dynamicOutputShapes = newSwKernelOp.getDynamicOutputShapes();
+            newConcats.append(dynamicOutputShapes.begin(), dynamicOutputShapes.end());
         }
         rewriter.replaceOp(origOp, mlir::ValueRange{newConcats});
         return;
     }
 
+    const auto origOpResults = origOp->getResults();
     auto firstOutputTiles = getOuterMostOutputTiling(origOp);
     const auto hasCopyUser = onlyHasCopyOpUser(origOp);
     mlir::DenseMap<int64_t, mlir::memref::AllocOp> newAllocDDROpsMap;
@@ -2926,9 +2957,8 @@ void ClusterSwKernelRewriter::replaceOpWithConcatView(VPUIP::SwKernelOp origOp, 
 
         auto outputTilesOnShave = computeOutputTiling(newSwKernelOp, kernelEntryName, firstOutputTile);
 
-        for (auto p : origOpResults | indexed) {
-            const auto result = p.value();
-            const auto resultIdx = static_cast<int64_t>(p.index());
+        for (size_t resultIdx = 0; resultIdx < origNumberResults; resultIdx++) {
+            const auto result = origOp->getResult(resultIdx);
 
             if (!result.getUsers().empty()) {
                 auto it = newAllocDDROpsMap.find(resultIdx);
@@ -2938,21 +2968,30 @@ void ClusterSwKernelRewriter::replaceOpWithConcatView(VPUIP::SwKernelOp origOp, 
 
                 auto outSubview =
                         VPUIP::SubViewOp::create(rewriter, newSwKernelOp->getLoc(), it->second, outOffset, outShape);
-                auto copyOp = VPUIP::CopyOp::create(
-                        rewriter, newSwKernelOp->getLoc(),
-                        newSwKernelOp.getResult(checked_cast<unsigned int>(firstOutputIndex * resultsNum + resultIdx)),
-                        outSubview);
-                resultMap[firstOutputIndex * resultsNum + resultIdx] = copyOp->getResult(0);
+                auto copyOp = VPUIP::CopyOp::create(rewriter, newSwKernelOp->getLoc(),
+                                                    newSwKernelOp.getResult(checked_cast<unsigned int>(
+                                                            firstOutputIndex * origNumberResults + resultIdx)),
+                                                    outSubview);
+                resultMap[firstOutputIndex * origNumberResults + resultIdx] = copyOp->getResult(0);
             }
         }
     }
 
     llvm::SmallVector<mlir::Value> newTilingCopys;
-    for (auto p : origOpResults | indexed) {
-        const auto index = p.index();
-        const auto value = p.value();
+    const auto numShaveSplits = firstOutputTiles.size();
+    for (size_t index = 0; index < origNumberResults; ++index) {
+        const auto value = origOp->getResult(index);
 
-        auto concatInputs = llvm::SmallVector<mlir::Value>{resultMap[index], resultMap[resultsNum + index]};
+        // Collect the DDR copy of every shave split as a ConcatView input. Each split's copy must feed the
+        // ConcatView so it has a consumer; otherwise the scheduler is free to order that copy after the DMA
+        // reading the concatenated buffer, yielding stale data.
+        llvm::SmallVector<mlir::Value> concatInputs;
+        for (size_t split = 0; split < numShaveSplits; ++split) {
+            auto resultIt = resultMap.find(split * origNumberResults + index);
+            if (resultIt != resultMap.end()) {
+                concatInputs.push_back(resultIt->second);
+            }
+        }
         if (hasCopyUser) {
             for (auto user : llvm::make_early_inc_range(value.getUsers())) {
                 if (auto userCopyOp = mlir::cast<VPUIP::CopyOp>(*user)) {

@@ -22,6 +22,7 @@
 // introduce them (e.g. CSE). This is why --one-shot-bufferize-sw-kernels
 // needs to use full one-shot bufferization and is expected to correctly bufferize
 // this IR.
+// E#235075 Add DPS conflict handling to one-shot-bufferize-VPU-to-VPUIP
 
 // CHECK: [[NCHW:#.+]] = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
 // CHECK: module @foo

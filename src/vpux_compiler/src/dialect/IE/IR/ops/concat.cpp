@@ -682,9 +682,9 @@ mlir::Value dispatchDynamicDim(mlir::OpBuilder& builder, const int64_t dimIdx, c
         return nullptr;
     }
     const auto firstDynamicOperand = *firstDynOpIter;
-    mlir::OpFoldResult firstDimOp = builder.createOrFold<mlir::tensor::DimOp>(
-            appendLoc(firstDynamicOperand.getLoc(), "dim_{0}", dimIdx), firstDynamicOperand, dimIdx);
-    return mlir::getValueOrCreateConstantIndexOp(builder, firstDynamicOperand.getLoc(), firstDimOp);
+    const auto dimLoc = appendLoc(firstDynamicOperand.getLoc(), "dim_{0}", dimIdx);
+    mlir::OpFoldResult firstDimOp = builder.createOrFold<mlir::tensor::DimOp>(dimLoc, firstDynamicOperand, dimIdx);
+    return mlir::getValueOrCreateConstantIndexOp(builder, dimLoc, firstDimOp);
 }
 };  // namespace
 

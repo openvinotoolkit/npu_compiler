@@ -5,7 +5,9 @@
 
 #include "vpux/compiler/dialect/IE/IR/ops/activation.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
+#include "vpux/compiler/dialect/core/IR/tensor_attr.hpp"
 #include "vpux/compiler/utils/error.hpp"
+#include "vpux/compiler/utils/infer_output_shape.hpp"
 
 #include <mlir/IR/PatternMatch.h>
 
@@ -48,10 +50,16 @@ mlir::LogicalResult vpux::IE::HardSigmoidOp::inferReturnTypeComponents(
         return mlir::failure();
     }
 
-    const auto inType = mlir::cast<mlir::ShapedType>(hardSigmoid.getInput().getType());
+    const auto inType = mlir::cast<mlir::RankedTensorType>(hardSigmoid.getInput().getType());
+    const auto outDesc = vpux::getTensorAttr(inType);
+    inferredReturnShapes.emplace_back(inType.getShape(), inType.getElementType(), outDesc);
 
-    inferredReturnShapes.emplace_back(inType.getShape(), inType.getElementType());
+    return mlir::success();
+}
 
+mlir::LogicalResult vpux::IE::HardSigmoidOp::reifyResultShapes(mlir::OpBuilder& builder,
+                                                               mlir::ReifiedRankedShapedTypeDims& reifiedReturnShapes) {
+    reifiedReturnShapes.emplace_back(reifyTrivialTensor(builder, getInput(), getLoc()));
     return mlir::success();
 }
 

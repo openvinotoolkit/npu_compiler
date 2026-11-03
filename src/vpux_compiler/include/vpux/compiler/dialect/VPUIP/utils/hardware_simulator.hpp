@@ -22,7 +22,7 @@ using ExecutorMask = std::bitset<MAX_EXECUTOR_COUNT>;
 ///    The Hardware Model:
 ///
 ///    - We assume that most operations operate on tensors big enough to be tiled across all tiles.
-///    - Based on that, we assume that every compute resource (DPU, Shave, M2I) exists exactly once, except for DMA.
+///    - Based on that, we assume that every compute resource (DPU, Shave) exists exactly once, except for DMA.
 ///    - DMA is split into the DMA type (DDR, CMX or unspecified (only NPU3XX)) and a number of channels per DMA type.
 ///    - All DMA channels can run in parallel.
 ///    - Jobs can overlap on the same executor. Consequently, the hardware simulator does not ensure legality of the
@@ -103,7 +103,7 @@ public:
 
 public:
     /// @brief Construct a HardwareSimulator with the given number of DMA channels per DMA type.
-    /// Other executor kinds (DPU, Shave, M2I) are assumed to exist exactly once.
+    /// Other executor kinds (DPU, Shave) are assumed to exist exactly once.
     /// @param dmaCount The number of DMA channels per DMA type.
     /// @param dmaChannelTypes The types of DMA channels to create.
     HardwareSimulator(int64_t dmaCount, ArrayRef<VPUIP::DmaChannelType> dmaChannelTypes);

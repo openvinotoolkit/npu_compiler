@@ -426,17 +426,6 @@ bool VPURT::addFinalBarrierIfNotExists(mlir::func::FuncOp funcOp, Logger log) {
     return true;
 }
 
-bool VPURT::isShareWaitAndUpdateBarriersNeeded(std::optional<WorkloadManagementMode> workloadManagementMode) {
-    // Disable sharing wait and update barriers for PWLM_V0_1_PAGES and FWLM_V1_PAGES modes.
-    if (workloadManagementMode.has_value() &&
-        (workloadManagementMode.value() == WorkloadManagementMode::FWLM_V1_PAGES ||
-         workloadManagementMode.value() == WorkloadManagementMode::PWLM_V0_1_PAGES)) {
-        return false;
-    }
-    // enable sharing wait and update barriers by default
-    return true;
-}
-
 SmallVector<size_t> VPURT::getBarriersOrder(mlir::func::FuncOp funcOp, BarrierInfo& barrierInfo,
                                             bool orderByConsumptionReady) {
     auto getBarsOrder = [&](mlir::func::FuncOp funcOp, BarrierInfo& barrierInfo, bool orderByConsumptionReady = false) {

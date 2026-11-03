@@ -468,7 +468,7 @@ func.func @Softmax4dFQ(%arg0: tensor<1x6x4x16xf16>, %arg1: tensor<1x6x32x16xf16>
     %0 = IE.MatMul(%arg0, %arg1) {transpose_b} : tensor<1x6x4x16xf16>, tensor<1x6x32x16xf16> -> tensor<1x6x4x32xf16>
     %1 = IE.Reshape(%0) {shape_value = [2, 3, 4, 32]} : tensor<1x6x4x32xf16> -> tensor<2x3x4x32xf16>
     %2 = IE.FakeQuantize(%1, %cst, %cst_0, %cst_1, %cst_2)
-      { auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i32 } :
+      { auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels_or_low_fp_type = 256 : i32 } :
       tensor<2x3x4x32xf16>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32> -> tensor<2x3x4x32xf16>
 
     %3 = IE.SoftMax(%2) {axisInd = 3 : i64} : tensor<2x3x4x32xf16> -> tensor<2x3x4x32xf16>

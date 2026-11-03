@@ -67,3 +67,29 @@ func.func @convertSpaceToDepth_DEPTH_FIRST(%arg0: tensor<1x3x520x520xf16>) -> te
     //CHECK: [[RESHAPE1:%.+]] = IE.Reshape([[TRANSPOSE]]) {shape_value = [1, 202800, 2, 2]} : tensor<1x3x260x260x2x2xf16> -> tensor<1x202800x2x2xf16>
     //CHECK: return [[RESHAPE1]] : tensor<1x202800x2x2xf16>
 }
+
+// -----
+
+// CHECK-LABEL: @keepBatchOneDepthFirstSpaceToDepth
+func.func @keepBatchOneDepthFirstSpaceToDepth(%arg0: tensor<1x3x8x8xf16>) -> tensor<1x12x4x4xf16> {
+    %0 = IE.SpaceToDepthOp(%arg0) {block_size = 2 : i64, mode = #IE.space_to_depth_mode<DEPTH_FIRST>} : tensor<1x3x8x8xf16> -> tensor<1x12x4x4xf16>
+    return %0 : tensor<1x12x4x4xf16>
+
+    // CHECK: [[SPACE_TO_DEPTH:%.+]] = IE.SpaceToDepthOp([[ARG:%.+]]) {block_size = 2 : i64, mode = #IE.space_to_depth_mode<DEPTH_FIRST>}
+    // CHECK-SAME: tensor<1x3x8x8xf16> -> tensor<1x12x4x4xf16>
+    // CHECK: return [[SPACE_TO_DEPTH]] : tensor<1x12x4x4xf16>
+}
+
+// -----
+
+// CHECK-LABEL: @decomposeBatchedDepthFirstSpaceToDepth
+func.func @decomposeBatchedDepthFirstSpaceToDepth(%arg0: tensor<2x3x8x8xf16>) -> tensor<2x12x4x4xf16> {
+    %0 = IE.SpaceToDepthOp(%arg0) {block_size = 2 : i64, mode = #IE.space_to_depth_mode<DEPTH_FIRST>} : tensor<2x3x8x8xf16> -> tensor<2x12x4x4xf16>
+    return %0 : tensor<2x12x4x4xf16>
+
+    // CHECK-NOT: IE.SpaceToDepthOp
+    // CHECK: [[RESHAPE_IN:%.+]] = IE.Reshape([[ARG:%.+]]) {shape_value = [2, 3, 4, 2, 4, 2]}
+    // CHECK: [[TRANSPOSE:%.+]] = IE.Transpose([[RESHAPE_IN]])
+    // CHECK: [[RESHAPE_OUT:%.+]] = IE.Reshape([[TRANSPOSE]]) {shape_value = [2, 12, 4, 4]}
+    // CHECK: return [[RESHAPE_OUT]] : tensor<2x12x4x4xf16>
+}

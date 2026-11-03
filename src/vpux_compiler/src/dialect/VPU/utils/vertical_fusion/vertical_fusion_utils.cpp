@@ -15,6 +15,7 @@
 #include "vpux/compiler/dialect/VPU/utils/vertical_fusion/v1/vertical_fusion_config.hpp"
 #include "vpux/compiler/dialect/VPU/utils/vertical_fusion/v2/vertical_fusion_config.hpp"
 #include "vpux/compiler/dialect/VPU/utils/vertical_fusion/vf_axis_increment.hpp"
+#include "vpux/compiler/dialect/config/utils/config_option_utils.hpp"
 #include "vpux/compiler/dialect/core/IR/tensor_attr.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
 #include "vpux/compiler/utils/dma.hpp"
@@ -848,6 +849,10 @@ bool vpux::VPU::isPrevOperationEarlyScheduled(mlir::Operation* prevOp, mlir::Ope
 bool vpux::VPU::spillingCopyOpsCanBeOverlapped(config::ArchKind arch) {
     return getDMAChannelsWithIndependentLinkAgents(arch) !=
            SmallVector<VPUIP::DmaChannelType>{VPUIP::DmaChannelType::NOT_SPECIFIED};
+}
+
+VFMergeCostMode vpux::VPU::getVFMergeCostMode(mlir::Operation* op) {
+    return config::isPowerOptimized(op) ? VFMergeCostMode::POWER : VFMergeCostMode::PERFORMANCE;
 }
 
 bool vpux::VPU::isOpTiled(mlir::Operation* op) {

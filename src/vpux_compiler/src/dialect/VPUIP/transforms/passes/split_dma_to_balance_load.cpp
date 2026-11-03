@@ -131,6 +131,12 @@ VPUIP::DMATypeOpInterface createDMATask(VPURT::TaskOp originalTaskOp, VPUIP::DMA
                 builder, originalTaskOp.getWaitBarriers(), originalTaskOp.getUpdateBarriers(), newLoc,
                 originalGatherDmaOp.getInput(), input, output, originalGatherDmaOp.getElementSize(),
                 originalGatherDmaOp.getPadding(), 0);
+        if (auto addressingMode = originalGatherDmaOp.getAddressingModeAttr()) {
+            newGatherDmaOp.setAddressingModeAttr(addressingMode);
+        }
+        if (auto listOOBMode = originalGatherDmaOp.getListOOBModeAttr()) {
+            newGatherDmaOp.setListOOBModeAttr(listOOBMode);
+        }
         return mlir::cast<VPUIP::DMATypeOpInterface>(newGatherDmaOp.getOperation());
     } else if (auto originalNNDMAOp = mlir::dyn_cast<VPUIP::NNDMAOp>(originalDmaOp.getOperation())) {
         auto newDmaOp = VPURT::wrapIntoTaskOp<VPUIP::NNDMAOp>(
@@ -333,77 +339,15 @@ mlir::Value getSplitInput(VPUIP::DMATypeOpInterface dmaOp) {
     return dmaOp.getInput();
 }
 
-int64_t getByteAlignedPartSizeAlignment(NDTypeInterface bufferType, Dim tileDim) {
-    const auto strideBits = bufferType.getStrides()[tileDim].count();
-    if (strideBits % CHAR_BIT == 0) {
-        return 1;
-    }
-
-    return CHAR_BIT / std::gcd(strideBits, static_cast<int64_t>(CHAR_BIT));
-}
-
-bool isByteAlignedSplit(NDTypeInterface bufferType, Dim tileDim, ArrayRef<int64_t> partSizes) {
-    const auto strideBits = bufferType.getStrides()[tileDim].count();
-    return llvm::all_of(partSizes, [&](int64_t partSize) {
-        return (partSize * strideBits) % CHAR_BIT == 0;
-    });
-}
-
-llvm::SmallVector<int64_t> getSplitPartSizes(NDTypeInterface inputType, NDTypeInterface outputType, Dim tileDim,
-                                             size_t partsNumber) {
-    const int64_t tileDimSize = outputType.getShape()[tileDim];
-
-    if (partsNumber == 0) {
-        return {tileDimSize};
-    }
-
-    const auto partsNumberInt = static_cast<int64_t>(partsNumber);
-
-    const auto inputAlignment = getByteAlignedPartSizeAlignment(inputType, tileDim);
-    const auto outputAlignment = getByteAlignedPartSizeAlignment(outputType, tileDim);
-    const auto splitAlignment = std::lcm(inputAlignment, outputAlignment);
-
-    if (splitAlignment <= 0) {
-        return {tileDimSize};
-    }
-
-    if (tileDimSize % splitAlignment != 0) {
-        return {tileDimSize};
-    }
-
-    int64_t partSize = tileDimSize / partsNumberInt;
-    partSize = alignValDown(partSize, splitAlignment);
-
-    llvm::SmallVector<int64_t> partSizes;
-    partSizes.reserve(partsNumber);
-
-    int64_t remainingSize = tileDimSize;
-    for (size_t i = 0; i < partsNumber - 1; ++i) {
-        // Sub-byte alignment can round partSize down to 0 (e.g., partSize=1 with alignment=2 yields 0).
-        // Skip creating 0-sized parts as they would cause invalid buffer splits.
-        if (partSize == 0) {
-            break;
-        }
-        partSizes.push_back(partSize);
-        remainingSize -= partSize;
-    }
-    if (remainingSize > 0) {
-        partSizes.push_back(remainingSize);
-    }
-
-    VPUX_THROW_WHEN(partSizes.empty(), "getSplitPartSizes mustn't return an empty vector");
-    return partSizes;
-}
-
 bool hasByteAlignedSplit(VPUIP::DMATypeOpInterface dmaOp, Dim tileDim, ArrayRef<int64_t> partSizes, Logger log) {
     const auto inputType = mlir::cast<NDTypeInterface>(getSplitInput(dmaOp).getType());
     const auto outputType = mlir::cast<NDTypeInterface>(dmaOp.getOutputBuff().getType());
 
-    if (!isByteAlignedSplit(inputType, tileDim, partSizes)) {
+    if (!VPUIP::isByteAlignedSplit(inputType, tileDim, partSizes)) {
         log.trace("Skip DMA split at '{0}': input split parts are not byte-aligned", dmaOp->getLoc());
         return false;
     }
-    if (!isByteAlignedSplit(outputType, tileDim, partSizes)) {
+    if (!VPUIP::isByteAlignedSplit(outputType, tileDim, partSizes)) {
         log.trace("Skip DMA split at '{0}': output split parts are not byte-aligned", dmaOp->getLoc());
         return false;
     }
@@ -468,7 +412,7 @@ void handleSingleDMASplit(VPURT::TaskOp taskOp, VPUIP::DMATypeOpInterface dmaOp,
 
     const auto inputType = mlir::cast<NDTypeInterface>(getSplitInput(dmaOp).getType());
     const auto outputType = mlir::cast<NDTypeInterface>(dmaOp.getOutputBuff().getType());
-    const auto partSizes = getSplitPartSizes(inputType, outputType, tileDim.value(), noOfParts);
+    const auto partSizes = VPUIP::getSplitPartSizes(inputType, outputType, tileDim.value(), noOfParts);
     if (partSizes.size() <= 1) {
         log.trace("Split is not beneficial, only one part");
         return;
@@ -512,11 +456,7 @@ bool isDmaSegmentedRead(const SmallVector<VPURT::TaskOp>& group) {
         }
     }
 
-    if (uniqueSourceClusters.size() == group.size()) {
-        return true;
-    }
-
-    return false;
+    return uniqueSourceClusters.size() == group.size();
 }
 
 //
@@ -662,7 +602,8 @@ void handleGroupSplit(std::map<uint64_t, SmallVector<VPURT::TaskOp>>& tasksByUnr
 
             const auto inputType = mlir::cast<NDTypeInterface>(getSplitInput(dmaOp).getType());
             const auto outputType = mlir::cast<NDTypeInterface>(dmaOp.getOutputBuff().getType());
-            const auto partSizes = getSplitPartSizes(inputType, outputType, tileDim.value(), noOfParts);
+            const auto partSizes =
+                    VPUIP::getSplitPartSizes(inputType, outputType, tileDim.value(), checked_cast<int64_t>(noOfParts));
             if (partSizes.size() <= 1) {
                 log.trace("Split is not beneficial for unroll idx {0}, only one part", unrollIdx);
                 continue;

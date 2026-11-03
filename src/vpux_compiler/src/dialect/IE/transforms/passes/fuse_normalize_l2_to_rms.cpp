@@ -45,12 +45,6 @@ private:
     void safeRunOnFunc() final;
 };
 
-Const::DeclareOp getMultiplyConstOperand(mlir::Operation* op) {
-    auto const1 = op->getOperand(0).getDefiningOp<Const::DeclareOp>();
-    auto const2 = op->getOperand(1).getDefiningOp<Const::DeclareOp>();
-    return const1 ? const1 : const2;
-}
-
 mlir::FailureOr<int64_t> getReducedSize(ArrayRef<int64_t> reduceAxes, vpux::ShapeRef reduceInputShape) {
     int64_t reduceSize = 1;
     const auto rank = checked_cast<int64_t>(reduceInputShape.size());
@@ -65,7 +59,8 @@ mlir::FailureOr<int64_t> getReducedSize(ArrayRef<int64_t> reduceAxes, vpux::Shap
 }
 
 mlir::FailureOr<mlir::Value> broadcastAndRescaleGamma(mlir::OpBuilder& builder, Const::DeclareOp constOp,
-                                                      int64_t targetSize, double rescaleFactor, mlir::Location loc) {
+                                                      int64_t targetSize, double rescaleFactor,
+                                                      mlir::Type targetElemType, mlir::Location loc) {
     auto shape = Shape(getShape(constOp->getResult(0)).raw());
     auto nonOneDims = getNonOneDim(shape);
     if (nonOneDims.size() > 1) {
@@ -91,13 +86,27 @@ mlir::FailureOr<mlir::Value> broadcastAndRescaleGamma(mlir::OpBuilder& builder, 
     if (rescaleFactor != 1.0) {
         contentAttrBuilder = contentAttrBuilder.rescale(rescaleFactor);
     }
+    // RMS kernel interprets gamma using the activation type, so fold gamma to it here.
+    if (mlir::cast<mlir::ShapedType>(constOp.getType()).getElementType() != targetElemType) {
+        contentAttrBuilder = contentAttrBuilder.convertElemType(targetElemType);
+    }
     contentAttrBuilder = contentAttrBuilder.reshape(ShapeRef({targetSize}));
     auto finalContentAttr = contentAttrBuilder.get();
 
-    auto gammaType =
-            mlir::RankedTensorType::get({targetSize}, mlir::cast<mlir::ShapedType>(constOp.getType()).getElementType());
+    auto gammaType = mlir::RankedTensorType::get({targetSize}, targetElemType);
     mlir::Value gamma = Const::DeclareOp::create(builder, appendLoc(loc, "gamma"), gammaType, finalContentAttr);
     return gamma;
+}
+
+// Returns the size of the single non-one dimension of gamma (or 1 if gamma is fully scalar).
+// Fails if gamma has more than one non-one dimension.
+mlir::FailureOr<int64_t> getGammaWidth(mlir::Value gamma) {
+    auto shape = Shape(getShape(gamma).raw());
+    auto nonOneDims = getNonOneDim(shape);
+    if (nonOneDims.size() > 1) {
+        return mlir::failure();
+    }
+    return nonOneDims.empty() ? int64_t(1) : shape[nonOneDims.back()];
 }
 
 IE::RMSOp createRMSOp(mlir::OpBuilder& builder, mlir::Operation* headOp, mlir::Value gamma, int64_t layerSize,
@@ -117,9 +126,10 @@ IE::RMSOp createRMSOp(mlir::OpBuilder& builder, mlir::Operation* headOp, mlir::V
 
 // Match pattern:
 // Input -> IE.NormalizeL2 -> IE.Multiply(scale)
-// Fuses to IE.RMSOp with gamma = scale / sqrt(reduceSize)
+// Fuses to IE.RMSOp with gamma = scale, using the *_SUM EpsMode so the kernel computes
+// rsqrt(Sum(x^2)+eps) directly instead of dividing by reduceSize.
 
-void fuseNormalizeL2Pattern(IE::NormalizeL2Op normalizeL2Op, mlir::MLIRContext& ctx, vpux::Logger /*log*/) {
+void fuseNormalizeL2Pattern(IE::NormalizeL2Op normalizeL2Op, mlir::MLIRContext& ctx, vpux::Logger log) {
     const auto epsMode = normalizeL2Op.getEpsMode();
     if (epsMode != IE::EpsMode::ADD && epsMode != IE::EpsMode::MAX) {
         return;
@@ -146,9 +156,8 @@ void fuseNormalizeL2Pattern(IE::NormalizeL2Op normalizeL2Op, mlir::MLIRContext& 
     int64_t reduceSize = reduceSizeResult.value();
 
     const float epsL2 = static_cast<float>(normalizeL2Op.getEps().convertToDouble());
-    // NormalizeL2 uses ReduceSum, RMS uses ReduceMean; scale epsilon accordingly
-    const auto epsilonAttr = getFPAttr(&ctx, epsL2 / static_cast<float>(reduceSize));
-    const float gammaScale = sqrtf(static_cast<float>(reduceSize));
+    const auto epsilonAttr = getFPAttr(&ctx, epsL2);
+    const auto sumEpsMode = (epsMode == IE::EpsMode::MAX) ? IE::EpsMode::MAX_SUM : IE::EpsMode::ADD_SUM;
 
     // NormalizeL2 must have a single use
     if (!normalizeL2Op->hasOneUse()) {
@@ -161,21 +170,46 @@ void fuseNormalizeL2Pattern(IE::NormalizeL2Op normalizeL2Op, mlir::MLIRContext& 
         return;
     }
 
-    Const::DeclareOp scaleConstOp = getMultiplyConstOperand(scaleMultiplyOp);
-    if (scaleConstOp == nullptr) {
-        return;
-    }
+    // Gamma is whichever operand of the Multiply is not the NormalizeL2 output.
+    mlir::Value gammaValue = (scaleMultiplyOp.getInput1() == normalizeL2Op.getOutput()) ? scaleMultiplyOp.getInput2()
+                                                                                        : scaleMultiplyOp.getInput1();
 
     mlir::OpBuilder builder(scaleMultiplyOp);
+    const auto inputElemType = mlir::cast<vpux::NDTypeInterface>(normalizeL2Op.getData().getType()).getElementType();
 
-    auto gammaResult = broadcastAndRescaleGamma(builder, scaleConstOp, reduceSize,
-                                                1.0 / static_cast<double>(gammaScale), normalizeL2Op->getLoc());
-    if (mlir::failed(gammaResult)) {
-        return;
+    mlir::Value gamma;
+    if (Const::DeclareOp scaleConstOp = gammaValue.getDefiningOp<Const::DeclareOp>()) {
+        auto gammaResult = broadcastAndRescaleGamma(builder, scaleConstOp, reduceSize, 1.0, inputElemType,
+                                                    normalizeL2Op->getLoc());
+        if (mlir::failed(gammaResult)) {
+            return;
+        }
+        gamma = gammaResult.value();
+    } else {
+        // Non-constant gamma: only supported when its width already matches reduceSize, since
+        // broadcasting a non-constant value would require inserting a new graph op, which is out
+        // of scope here.
+        auto gammaShape = Shape(getShape(gammaValue).raw());
+        auto nonOneDims = getNonOneDim(gammaShape);
+        const bool isTrailingVector =
+                gammaShape.size() <= static_cast<size_t>(inputRank) &&
+                (nonOneDims.empty() || nonOneDims.back().ind() == static_cast<int64_t>(gammaShape.size() - 1));
+        auto gammaWidthResult = getGammaWidth(gammaValue);
+        if (mlir::failed(gammaWidthResult) || !isTrailingVector || gammaWidthResult.value() != reduceSize) {
+            log.trace("Skipping NormalizeL2-to-RMS fusion: non-constant gamma must be a trailing broadcast vector of "
+                      "width {0}",
+                      reduceSize);
+            return;
+        }
+        // RMS kernel interprets gamma using the activation type, so reject mismatched non-constant gamma.
+        if (mlir::cast<vpux::NDTypeInterface>(gammaValue.getType()).getElementType() != inputElemType) {
+            log.trace("Skipping NormalizeL2-to-RMS fusion: non-constant gamma element type does not match input");
+            return;
+        }
+        gamma = gammaValue;
     }
-    mlir::Value gamma = gammaResult.value();
 
-    auto rmsOp = createRMSOp(builder, normalizeL2Op, gamma, reduceSize, epsilonAttr, epsMode);
+    auto rmsOp = createRMSOp(builder, normalizeL2Op, gamma, reduceSize, epsilonAttr, sumEpsMode);
     scaleMultiplyOp->replaceAllUsesWith(rmsOp);
 }
 

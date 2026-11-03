@@ -6,14 +6,15 @@
 // RUN: vpux-opt --split-input-file --init-compiler="platform=%platform%" --canonicalize %s | FileCheck %s
 // REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010
 
-// -----
-
 // CHECK-LABEL: @FoldConstantDynamicSizesAndOffsets
 func.func private @generated_0(%arg0: tensor<1x?x?x?xf32>, %arg1: index, %arg2: index, %arg3: index, %arg4: index, %arg5: index, %arg6: index) -> tensor<1x?x?x?xf32> attributes {
     kernelInfo = #VPU.KernelInfo<
        tilingInfoFunc = @generated_info_0,
        tilingAxes = [1, 2, 3],
-       numSlicedInputs = 1 : i64
+       numSlicedInputs = 1 : i64,
+       numTensorInputs = 1 : i64,
+       numAuxBuffers = 0 : i64,
+       inputSegmentationAxes = []
     >}
 
 func.func private @generated_info_0(%arg0: index, %arg1: index, %arg2: index, %arg3: index, %arg4: index, %arg5: index) -> (index, index, index, index, index, index, index, index)
@@ -43,7 +44,10 @@ func.func private @generated_1(%arg0: tensor<1x?x?xf32>, %arg1: index, %arg2: in
     kernelInfo = #VPU.KernelInfo<
        tilingInfoFunc = @generated_info_1,
        tilingAxes = [1, 2],
-       numSlicedInputs = 1 : i64
+       numSlicedInputs = 1 : i64,
+       numTensorInputs = 1 : i64,
+       numAuxBuffers = 0 : i64,
+       inputSegmentationAxes = []
     >}
 
 func.func private @generated_info_1(%arg0: index, %arg1: index, %arg2: index, %arg3: index) -> (index, index, index, index, index, index)

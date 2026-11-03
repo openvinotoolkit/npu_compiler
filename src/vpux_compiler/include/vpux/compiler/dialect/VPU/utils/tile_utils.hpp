@@ -7,6 +7,7 @@
 
 #pragma once
 
+#include "vpux/compiler/dialect/Shave/IR/ops/meta-ops.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/convolution.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/data_type.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/dpu.hpp"
@@ -116,6 +117,8 @@ Byte getRequiredCMX(VPU::NCEAveragePoolOp poolOp, const vpux::TileInfo& tiling,
                     const std::optional<InputTiling>& inputTiles = std::nullopt);
 
 Byte getRequiredCMX(VPU::NCEAveragePoolOp poolOp, const SmallVector<NDTypeInterface>& types);
+
+Byte getRequiredCMX(Shave::RepeatedExternalKernelOp op);
 
 Byte getEltwiseRequiredCMX(mlir::Operation* op, const vpux::TileInfo& tiling,
                            const std::optional<InputTiling>& inputTiles = std::nullopt);

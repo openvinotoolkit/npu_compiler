@@ -32,26 +32,42 @@ private:
 };
 
 void FixDynamicOpsLocationsPass::safeRunOnFunc() {
+    const auto isShapeReificationOp = [](mlir::Operation* op) {
+        return mlir::isa<mlir::tensor::TensorDialect, mlir::arith::ArithDialect>(op->getDialect());
+    };
+
     std::map<std::string, size_t> counter;
+
+    // Shape reification copies the location of the operation whose shape is computed onto the tensor/arith
+    // ops it introduces, so such an op clashes with the original operation and not only with its siblings.
+    // Register the locations of all the other operations first, otherwise the clash stays unnoticed here and
+    // is reported later by the locations verifier.
     getOperation()->walk([&](mlir::Operation* op) {
-        if (!mlir::isa<mlir::tensor::TensorDialect, mlir::arith::ArithDialect>(op->getDialect())) {
-            return mlir::WalkResult::advance();
+        if (isShapeReificationOp(op) || mlir::isa<mlir::UnknownLoc>(op->getLoc())) {
+            return;
+        }
+        counter.emplace(vpux::stringifyPrimaryLocation(op->getLoc()), 1);
+    });
+
+    getOperation()->walk([&](mlir::Operation* op) {
+        if (!isShapeReificationOp(op)) {
+            return;
         }
 
         auto loc = op->getLoc();
         if (mlir::isa<mlir::UnknownLoc>(loc)) {
-            return mlir::WalkResult::advance();
+            return;
         }
 
         std::string strLoc = vpux::stringifyPrimaryLocation(loc);
-        if (counter.count(strLoc) == 0) {
+        auto counterIt = counter.find(strLoc);
+        if (counterIt == counter.end()) {
             counter[strLoc] = 1;
-            return mlir::WalkResult::advance();
+            return;
         }
         _log.trace("Got op '{0}' with duplicate location at '{1}'", op->getName(), loc);
-        extendOpLoc(op, "duplicated_{0}", counter[strLoc]++);
+        extendOpLoc(op, "duplicated_{0}", counterIt->second++);
         _log.nest().trace("Extended loc '{0}'", op->getLoc());
-        return mlir::WalkResult::advance();
     });
 }
 

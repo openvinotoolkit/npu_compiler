@@ -774,20 +774,25 @@ func.func @ExpandConvolutionChannelsWithSoftMaxAfter(%arg0: tensor<1x512x56x56xf
 
     return %1 : tensor<1x510x56x56xf16, {order = #NHWC}>
 
-    // CHECK:    [[EXPAND:%.+]] = IE.Expand([[WEIGHTS]]) {pads_begin = [0, 0, 0, 0], pads_end = [2, 0, 0, 0]} : tensor<510x512x1x1xf16, {order = #NHWC}> -> tensor<512x512x1x1xf16, {order = #NHWC}>
+    // CHECK:    [[EXPAND0:%.+]] = IE.Expand([[WEIGHTS]]) {pads_begin = [0, 0, 0, 0], pads_end = [2, 0, 0, 0]} : tensor<510x512x1x1xf16, {order = #NHWC}> -> tensor<512x512x1x1xf16, {order = #NHWC}>
 
-    // CHECK:    [[CONV:%.+]] = IE.Convolution([[INPUT]], [[EXPAND]])
+    // CHECK:    [[CONV:%.+]] = IE.Convolution([[INPUT]], [[EXPAND0]])
     // CHECK-SAME:        -> tensor<1x512x56x56xf16, {order = #NHWC}>
 
-    // CHECK:    [[SOFTMAX:%.+]] = IE.SoftMax([[CONV]])
+    // CHECK:    [[SLICE0:%.+]] = IE.Slice [[CONV]]
+    // CHECK-SAME:        tensor<1x510x56x56xf16, {order = #NHWC}>
+
+    // CHECK:    [[EXPAND1:%.+]] = IE.Expand([[SLICE0]]) {pads_begin = [0, 0, 0, 0], pads_end = [0, 2, 0, 0]} : tensor<1x510x56x56xf16, {order = #NHWC}> -> tensor<1x512x56x56xf16, {order = #NHWC}>
+
+    // CHECK:    [[SOFTMAX:%.+]] = IE.SoftMax([[EXPAND1]])
     // CHECK-SAME:        axisInd = 1 : i64
     // CHECK-SAME:        padSize = 2 : i64
     // CHECK-SAME:        -> tensor<1x512x56x56xf16, {order = #NHWC}>
 
-    // CHECK:    [[SLICE:%.+]] = IE.Slice [[SOFTMAX]]
+    // CHECK:    [[SLICE1:%.+]] = IE.Slice [[SOFTMAX]]
     // CHECK-SAME:        tensor<1x510x56x56xf16, {order = #NHWC}>
 
-    // CHECK:    return [[SLICE]] : tensor<1x510x56x56xf16, {order = #NHWC}>
+    // CHECK:    return [[SLICE1]] : tensor<1x510x56x56xf16, {order = #NHWC}>
 }
 
 // -----

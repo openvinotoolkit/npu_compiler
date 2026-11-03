@@ -3,10 +3,6 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 
-if(ENABLE_LTO)
-    set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RELEASE ON)
-endif()
-
 if(ENABLE_PREBUILT_LLVM_MLIR_LIBS)
     find_package(MLIR REQUIRED CONFIG)
 endif()
@@ -43,6 +39,8 @@ endif()
 source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR} FILES ${SOURCES})
 
 add_library(${TARGET_NAME} STATIC ${SOURCES})
+
+enable_lto_if_possible(${TARGET_NAME})
 set_target_properties(${TARGET_NAME} PROPERTIES FOLDER "src")
 
 ov_build_target_faster(${TARGET_NAME} PCH PUBLIC "precomp.hpp")

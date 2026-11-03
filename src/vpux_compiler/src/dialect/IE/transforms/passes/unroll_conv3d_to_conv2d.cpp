@@ -11,6 +11,7 @@
 #include "vpux/compiler/dialect/IE/IR/ops/eltwise.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/shape_manipulation.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
+#include "vpux/compiler/dialect/IE/utils/dynamic_dequantize_utils.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
 #include "vpux/compiler/dialect/const/utils/utils.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
@@ -43,6 +44,7 @@ bool isOptimizedGroupConvOp(IE::GroupConvolutionOp groupConv) {
     return (inputShape.size() + hasGroups) != 6;
 }
 
+// Retained exclusively for activation FakeQuantize
 auto createFQ(mlir::PatternRewriter& rewriter, mlir::Value input, IE::FakeQuantizeOp fq, int64_t index,
               StringRef composedIndex) {
     const auto sliceFqConstInput = [&](mlir::Value fqInput, StringRef locSuffix) {
@@ -68,8 +70,8 @@ auto createFQ(mlir::PatternRewriter& rewriter, mlir::Value input, IE::FakeQuanti
     auto outputLow = sliceFqConstInput(fq.getOutputLow(), "out_low");
     auto outputHigh = sliceFqConstInput(fq.getOutputHigh(), "out_high");
     return IE::FakeQuantizeOp::create(rewriter, takeOpLoc(fq, "fq_in_dim{0}_{1}", index, composedIndex), input,
-                                      inputLow, inputHigh, outputLow, outputHigh, fq.getLevelsAttr(),
-                                      fq.getLowFpTypeAttr(), fq.getAutoBroadcast());
+                                      inputLow, inputHigh, outputLow, outputHigh, fq.getLevelsOrLowFpTypeAttr(),
+                                      fq.getAutoBroadcast());
 }
 
 auto createDQ(mlir::PatternRewriter& rewriter, IE::DequantizeOp dq, int64_t index, StringRef composedIndex) {
@@ -95,6 +97,62 @@ auto createDQ(mlir::PatternRewriter& rewriter, IE::DequantizeOp dq, int64_t inde
                                     dq.getDstElemTypeAttr());
 }
 
+auto createDynDeq(mlir::PatternRewriter& rewriter, IE::DynamicDequantizeOp ddq, int64_t index, int64_t offset,
+                  StringRef composedIndex) {
+    const auto sliceDdqInput = [&](mlir::Value val, StringRef locSuffix, bool isWeight) -> mlir::Value {
+        if (!val) {
+            return nullptr;
+        }
+
+        const auto valShape = mlir::cast<vpux::NDTypeInterface>(val.getType()).getShape();
+        if (static_cast<size_t>(index) >= valShape.size()) {
+            return val;
+        }
+
+        auto newValShape = to_small_vector(valShape);
+        Shape inputOffsets(valShape.size(), 0);
+        Dim indexDim(index);
+
+        if (isWeight || valShape[indexDim] > 1) {
+            inputOffsets[indexDim] = offset;
+        } else {
+            inputOffsets[indexDim] = 0;
+        }
+        newValShape[index] = 1;
+
+        const auto newValShapeAttr = getIntArrayAttr(rewriter.getContext(), newValShape);
+        const auto inputOffsetsAttr = getIntArrayAttr(rewriter.getContext(), inputOffsets);
+
+        const auto inputSlice = rewriter.createOrFold<IE::SliceOp>(
+                takeOpLoc(ddq, "slice_dim{0}_{1}_{2}", index, composedIndex, locSuffix), val, inputOffsetsAttr,
+                newValShapeAttr);
+
+        newValShape.erase(newValShape.begin() + index);
+        const auto newValShapeSqueezedAttr = getIntArrayAttr(rewriter.getContext(), newValShape);
+
+        return rewriter.createOrFold<IE::ReshapeOp>(
+                takeOpLoc(ddq, "reshape_in_dim{0}_{1}_{2}", index, composedIndex, locSuffix), inputSlice,
+                newValShapeSqueezedAttr);
+    };
+
+    auto slicedInput = sliceDdqInput(ddq.getInput(), "in_slice", /*isWeight=*/true);
+    auto slicedScale = sliceDdqInput(ddq.getScale(), "scale_slice", /*isWeight=*/false);
+    auto slicedZp = sliceDdqInput(ddq.getZp(), "zp_slice", /*isWeight=*/false);
+
+    auto dynDeqOp = IE::DynamicDequantizeOp::create(rewriter, takeOpLoc(ddq, "ddq_in_dim{0}_{1}", index, composedIndex),
+                                                    slicedInput, slicedScale, slicedZp, ddq.getDstElemType());
+
+    if (ddq->hasAttr(IE::WEIGHTS_IMPORT_DYN_DEQUANT_ATTR)) {
+        dynDeqOp->setAttr(IE::WEIGHTS_IMPORT_DYN_DEQUANT_ATTR, mlir::UnitAttr::get(rewriter.getContext()));
+    }
+
+    if (ddq->hasAttr(IE::SYNTHETIC_DYN_DEQUANT_ATTR)) {
+        dynDeqOp->setAttr(IE::SYNTHETIC_DYN_DEQUANT_ATTR, ddq->getAttr(IE::SYNTHETIC_DYN_DEQUANT_ATTR));
+    }
+
+    return dynDeqOp;
+}
+
 SmallVector<mlir::Value> getSlicedFilters(mlir::PatternRewriter& rewriter, mlir::Operation* origOp, mlir::Value input,
                                           ShapeRef filterShape, Logger log) {
     SmallVector<mlir::Value> slicedFilters;
@@ -106,26 +164,25 @@ SmallVector<mlir::Value> getSlicedFilters(mlir::PatternRewriter& rewriter, mlir:
     const auto subFilterSize = IC * OC * kernelY * kernelX;
     const Shape outputWeightShape = {OC, IC, kernelY, kernelX};
 
-    for (int64_t kz = 0; kz < kernelZ; kz++) {
-        Shape offsets(filterShape.size());
-        offsets[Dims5D::Filter::IC] = IC;
-        offsets[Dims5D::Filter::OC] = OC;
-        offsets[Dims5D::Filter::KZ] = kz;
-        offsets[Dims5D::Filter::KX] = kernelX;
-        offsets[Dims5D::Filter::KY] = kernelY;
+    auto weightsDDQ = input.getDefiningOp<IE::DynamicDequantizeOp>();
+    auto weightsDQ = input.getDefiningOp<IE::DequantizeOp>();
 
-        auto weightsCst = input.getDefiningOp<Const::DeclareOp>();
-        auto weightsDQ = input.getDefiningOp<IE::DequantizeOp>();
+    for (int64_t kz = 0; kz < kernelZ; kz++) {
+        if (weightsDDQ != nullptr) {
+            auto newConstInput = createDynDeq(rewriter, weightsDDQ, Dims5D::Filter::KZ.ind(), kz, std::to_string(kz));
+            slicedFilters.push_back(newConstInput);
+            continue;
+        }
+
         if (weightsDQ != nullptr) {
             auto newConstInput = createDQ(rewriter, weightsDQ, Dims5D::Filter::KZ.ind(), std::to_string(kz));
             slicedFilters.push_back(newConstInput);
             continue;
         }
 
-        auto weightsFQ = input.getDefiningOp<IE::FakeQuantizeOp>();
-        if (weightsFQ != nullptr) {
-            weightsCst = weightsFQ.getInput().getDefiningOp<Const::DeclareOp>();
-        }
+        auto weightsCst = input.getDefiningOp<Const::DeclareOp>();
+        VPUX_THROW_WHEN(weightsCst == nullptr, "Expected weights to be a constant or dequantized op, got {0}", input);
+
         auto weightsCstContent = weightsCst.getContent();
         auto contentValue = weightsCstContent.getValues<vpux::type::float16>();
         std::vector<vpux::type::float16> subWeights(subFilterSize, 0.0f);
@@ -149,9 +206,6 @@ SmallVector<mlir::Value> getSlicedFilters(mlir::PatternRewriter& rewriter, mlir:
         const auto dataStorageType = mlir::RankedTensorType::get(outputWeightShape.raw(), elemType);
         auto newConstInput =
                 Const::createConst(rewriter, takeOpLoc(origOp, "cst_in"), dataStorageType, ArrayRef(subWeights));
-        if (weightsFQ != nullptr) {
-            newConstInput = createFQ(rewriter, newConstInput, weightsFQ, Dims5D::Filter::KZ.ind(), std::to_string(kz));
-        }
         slicedFilters.push_back(newConstInput);
     }
     log.trace("Sliced filters size: '{0}'.", slicedFilters.size());
@@ -398,7 +452,7 @@ mlir::LogicalResult ConvGeneralRewriter<ConcreteOp>::matchAndRewrite(ConcreteOp 
                 auto conv = mlir::dyn_cast_or_null<IE::ConvolutionOp>(origOp.getOperation());
                 newConvOp = IE::ConvolutionOp::create(
                         rewriter, newLoc, lastOp->getResult(0), slicedFilters[depthIndex], /*bias=*/nullptr,
-                        /*scale*/ nullptr,
+                        /*scale=*/nullptr,
                         /*zero_points=*/nullptr, stridesAttr, padBeginAttr, padEndAttr, dilationsAttr,
                         /*post_opAttr=*/nullptr, /*clamp=*/nullptr, conv.getStaticScaleAttr(),
                         origOp.getOutputPaddingAttr(), origOp.getInputPaddingAttr());
@@ -566,7 +620,7 @@ mlir::LogicalResult TransposedConvGeneralRewriter::matchAndRewrite(IE::Transpose
                                                 conv->first, broadcastType,
                                                 /*post_opAttr=*/nullptr,
                                                 /*clamp=*/nullptr,
-                                                /*outputPadding*/ nullptr, /*inputPadding*/ nullptr)
+                                                /*outputPadding=*/nullptr, /*inputPadding=*/nullptr)
                                       ->getResult(0);
                     }
                 }

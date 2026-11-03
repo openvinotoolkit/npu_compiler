@@ -66,12 +66,18 @@ def NDTypeInterface : TypeInterface<"NDTypeInterface"> {
         >,
 
         InterfaceMethod<
-            "Returns the strides of the underlying type",
+            [{Returns the strides of the underlying type.
+
+            Throws if a dimension has no upper bound: such strides are unknown at compile time. A consumer that rebuilds
+            the type uses vpux::getStridesUnlessUnbounded instead.}],
             "vpux::Strides", "getStrides", (ins)
         >,
 
         InterfaceMethod<
-            "Returns the memory strides of the underlying type",
+            [{Returns the memory strides of the underlying type.
+
+            Throws if a dimension has no upper bound: such strides are unknown at compile time. A consumer that rebuilds
+            the type uses vpux::getStridesUnlessUnbounded instead.}],
             "vpux::MemStrides", "getMemStrides", (ins)
         >,
 

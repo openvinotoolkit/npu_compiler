@@ -210,6 +210,8 @@ void SerializeELFToBinaryPass::safeRunOnModule() {
                                          callOp.getOperands());
         callOp.erase();
     }
+
+    _log.info("Serialized ELF kernel modules: {0}", serializedFuncs.size());
 }
 }  // namespace
 

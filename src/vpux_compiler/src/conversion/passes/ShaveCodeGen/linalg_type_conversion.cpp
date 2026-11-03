@@ -9,7 +9,6 @@
 #include "vpux/compiler/dialect/core/interfaces/type_interfaces.hpp"
 
 #include <mlir/Dialect/Arith/IR/Arith.h>
-#include <mlir/Dialect/Linalg/IR/Linalg.h>
 #include <mlir/Dialect/Quant/IR/Quant.h>
 #include <mlir/Dialect/Quant/IR/QuantTypes.h>
 #include <mlir/Dialect/Tensor/IR/Tensor.h>
@@ -105,61 +104,60 @@ mlir::RankedTensorType normalizeType(mlir::RankedTensorType type) {
     return mlir::cast<mlir::RankedTensorType>(retTy);
 }
 
-mlir::Value removePadding(mlir::Value operand, mlir::Value typeConvertedOperand, mlir::PatternRewriter& rewriter,
-                          std::optional<mlir::ArrayAttr> padding) {
-    auto loc = operand.getLoc();
-    const auto opTy = mlir::cast<vpux::NDTypeInterface>(operand.getType());
-    auto rank = opTy.getRank();
+static bool hasNoPadding(llvm::ArrayRef<int64_t> padding) {
+    return llvm::all_of(padding, [](int64_t pad) {
+        return pad == 0;
+    });
+}
 
-    if (!padding) {
+// Convert a padding specification given in an operand's logical order to memory order.
+static Shape toMemoryPadding(mlir::Value operand, llvm::ArrayRef<int64_t> logicalPadding) {
+    return Shape(DimsOrder::fromValue(operand).toMemoryOrder(ShapeRef(logicalPadding)).raw());
+}
+
+mlir::Value removePadding(mlir::Value operand, mlir::Value typeConvertedOperand, mlir::PatternRewriter& rewriter,
+                          llvm::ArrayRef<int64_t> padding) {
+    if (hasNoPadding(padding)) {
         return typeConvertedOperand;
     }
 
-    auto shapedTy = mlir::cast<mlir::ShapedType>(operand.getType());
-    auto unpaddedShape = SmallVector<int64_t>(shapedTy.getShape());
-    if (mlir::failed(IE::unpadInputShape(unpaddedShape, *padding, loc))) {
-        return nullptr;
-    }
-    auto memUnpaddedShape = Shape(DimsOrder::fromValue(operand).toMemoryOrder(ShapeRef(unpaddedShape)).raw());
+    auto loc = operand.getLoc();
+    const auto paddedType = mlir::cast<mlir::ShapedType>(typeConvertedOperand.getType());
+    const auto rank = paddedType.getRank();
+    const auto memoryPadding = toMemoryPadding(operand, padding);
 
     SmallVector<mlir::OpFoldResult> offsets(rank, rewriter.getIndexAttr(0));
     SmallVector<mlir::OpFoldResult> strides(rank, rewriter.getIndexAttr(1));
     SmallVector<mlir::OpFoldResult> sizes(rank);
-    for (unsigned i = 0; i < rank; ++i) {
-        sizes[i] = rewriter.getIndexAttr(memUnpaddedShape.raw()[i]);
+    for (int64_t i = 0; i < rank; ++i) {
+        sizes[i] = rewriter.getIndexAttr(paddedType.getShape()[i] - memoryPadding.raw()[i]);
     }
 
     return mlir::tensor::ExtractSliceOp::create(rewriter, loc, typeConvertedOperand, offsets, sizes, strides);
 }
 
-std::tuple<mlir::Value, mlir::Value> emitTensorSlice(mlir::Location loc, SmallVectorImpl<int64_t>& sliceShape,
-                                                     mlir::RankedTensorType allocType,
-                                                     mlir::PatternRewriter& rewriter) {
-    auto rank = allocType.getRank();
-    auto outElemTy = allocType.getElementType();
-    mlir::Value zero = nullptr;
-
-    if (mlir::isa<mlir::FloatType>(outElemTy)) {
-        zero = mlir::arith::ConstantOp::create(rewriter, loc, rewriter.getFloatAttr(outElemTy, 0.));
-    } else {
-        zero = mlir::arith::ConstantOp::create(rewriter, loc, rewriter.getIntegerAttr(outElemTy, 0));
+mlir::Value addPadding(mlir::Value result, mlir::Value unpaddedResult, mlir::PatternRewriter& rewriter,
+                       llvm::ArrayRef<int64_t> padding) {
+    if (hasNoPadding(padding)) {
+        return unpaddedResult;
     }
 
-    auto outputEmptyTensor = mlir::tensor::EmptyOp::create(rewriter, loc, allocType.getShape(), outElemTy).getResult();
-    auto fillOp =
-            mlir::linalg::FillOp::create(rewriter, loc, mlir::ValueRange{zero}, mlir::ValueRange{outputEmptyTensor})
-                    .result();
+    auto loc = result.getLoc();
+    const auto elTy = mlir::cast<mlir::RankedTensorType>(unpaddedResult.getType()).getElementType();
+    const auto normalizedType = normalizeType(mlir::cast<mlir::RankedTensorType>(result.getType()));
+    const auto paddedType = mlir::RankedTensorType::get(normalizedType.getShape(), elTy);
+    const auto rank = paddedType.getRank();
+    const auto memoryPadding = toMemoryPadding(result, padding);
 
-    SmallVector<mlir::OpFoldResult> offsets(rank, rewriter.getIndexAttr(0));
-    SmallVector<mlir::OpFoldResult> sizes(rank);
-    for (unsigned i = 0; i < sliceShape.size(); ++i) {
-        sizes[i] = rewriter.getIndexAttr(sliceShape[i]);
+    SmallVector<mlir::OpFoldResult> low(rank, rewriter.getIndexAttr(0));
+    SmallVector<mlir::OpFoldResult> high(rank);
+    for (int64_t i = 0; i < rank; ++i) {
+        high[i] = rewriter.getIndexAttr(memoryPadding.raw()[i]);
     }
-    SmallVector<mlir::OpFoldResult> strides(rank, rewriter.getIndexAttr(1));
 
-    auto extractOp = mlir::tensor::ExtractSliceOp::create(rewriter, loc, fillOp, offsets, sizes, strides);
-
-    return {extractOp, fillOp};
+    auto zero = mlir::arith::ConstantOp::create(rewriter, loc, rewriter.getZeroAttr(elTy));
+    return mlir::tensor::PadOp::create(rewriter, loc, paddedType, unpaddedResult, low, high, zero, /*nofold=*/false)
+            ->getResult(0);
 }
 
 }  // namespace ShaveCodeGen

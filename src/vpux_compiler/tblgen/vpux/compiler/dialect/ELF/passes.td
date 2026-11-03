@@ -189,6 +189,22 @@ def RemoveEmptyELFSections : PassBase<"remove-empty-ELF-sections", "vpux::Functi
     ];
 }
 
+def RemoveRedundantRegisterSections : PassBase<"remove-redundant-register-sections", "vpux::FunctionPass"> {
+    let summary = "Remove register sections not referenced by relocations";
+
+    let description = [{
+        Removes ELF logical sections that represent register buffers (reg.*) when no relocation
+        references them as a source.
+    }];
+
+    let constructor = "vpux::ELF::createRemoveRedundantRegisterSectionsPass()";
+
+    let dependentDialects = [
+        "vpux::ELF::ELFDialect",
+        "vpux::VPUASM::VPUASMDialect"
+    ];
+}
+
 //
 // HandleAlignmentRequirements
 //

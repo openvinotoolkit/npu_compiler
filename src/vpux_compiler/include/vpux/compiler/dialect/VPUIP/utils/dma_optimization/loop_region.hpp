@@ -6,100 +6,150 @@
 #pragma once
 
 /// Summary:
-/// Declares the LoopRegion model used to cut unrolled tiled/VF compute groups
-/// out of the global DMA edge collection.
+/// Declares the LoopRegion model used to describe tiled/VF compute operations
+/// after their loops have been unrolled.
 ///
-/// A LoopRegion represents one logical compute region that was expanded into
-/// several tile lanes. The region kind is derived from the loop marker on its
-/// compute ops:
-/// - Kind::Tiling uses `tiling_loop_index`; each tile usually holds one layer.
+/// A LoopRegion groups the operations produced by unrolling one tiled or VF
+/// loop. The region kind is derived from attributes preserved on those ops:
+/// - Kind::Tiling uses `tiling_loop_index` and a structured tile coordinate.
 /// - Kind::VF uses `vf_loop_index`; each tile can hold a chain of VF layers.
 ///
-/// The global EdgeCollector stops at RegionPort boundaries. A logical input
-/// port describes one outside value feeding one or more per-tile input edges.
-/// A logical output port describes per-tile output edges assembled back into
-/// one outside value. Destination-buffer ports model shared output buffers that
-/// are consumed by tiled output operands.
-///
-/// Edges inside the region are ordinary Edge objects stored on RegionTile:
-/// inputEdges connect input ports to tile compute, outputEdges connect tile
-/// compute to output ports, intraTileEdges connect adjacent VF layers inside a
-/// tile, and destBufferEdges connect destination-buffer ports to tile compute.
-/// RegionPort::connectedEdges records which tile-local edges belong to a
-/// logical port.
+/// LoopRegionBuilder reconstructs the logical inputs, destination buffers,
+/// outputs, and tile membership that are no longer explicit after unrolling.
+/// ```mlir
+///   %logicalOutputs = LoopRegion inputs(%logicalInputs)
+///                                outputs(%destBuffers)
+/// ```
+/// EdgeCollector builds the Copy/View topology independently and attaches these
+/// LoopRegionInfo metadata to its nodes and boundaries.
 
-#include "vpux/compiler/dialect/VPUIP/utils/dma_optimization/edge_model.hpp"
+#include "vpux/compiler/core/loop_type.hpp"
+#include "vpux/compiler/dialect/VPU/utils/manual_strategy_utils.hpp"
 #include "vpux/utils/core/small_vector.hpp"
+#include "vpux/utils/core/string_ref.hpp"
+#include "vpux/utils/logger/logger.hpp"
 
+#include <llvm/ADT/DenseMap.h>
+#include <mlir/Dialect/Func/IR/FuncOps.h>
 #include <mlir/IR/Operation.h>
 #include <mlir/IR/Value.h>
 
 #include <cstdint>
+#include <string>
 
-namespace vpux {
-namespace VPUIP {
+namespace vpux::VPUIP::DmaOptimization {
 
-/// Address of one per-tile edge connected to a RegionPort.
-struct TileEdgeLocation {
-    /// Index in LoopRegion::tiles.
-    uint32_t tileIndex = 0;
+using LoopRegionKind = LoopType;
 
-    /// Index in the RegionTile edge vector selected by the port kind.
-    uint32_t edgeIndexInTile = 0;
+enum class LoopRegionPortKind : uint8_t {
+    Input,       ///< logical input port; data flows into the region
+    Output,      ///< logical output port; data flows out of the region
+    DestBuffer,  ///< destination-buffer port used to hold the results of logical outputs.
 };
 
-/// Outside-visible connection point of a LoopRegion.
-/// It records the boundary value and the tile-local edges attached to it.
-struct RegionPort {
-    mlir::Value externalValue;
-    EdgeBoundary externalBoundary;
-    SmallVector<TileEdgeLocation> connectedEdges;
-};
-
-/// One physical tile lane inside a LoopRegion.
-struct RegionTile {
-    /// Compute ops in this tile. VF tiles are ordered by layer index.
-    SmallVector<mlir::Operation*> ops;
-
-    /// Per-tile input chains from input ports to ops.front().
-    SmallVector<Edge, 0> inputEdges;
-
-    /// Per-tile output chains from ops.back() to output ports.
-    SmallVector<Edge, 0> outputEdges;
-
-    /// VF-only chains between adjacent compute layers in the same tile.
-    SmallVector<Edge, 0> intraTileEdges;
-
-    /// Per-tile destination-buffer chains from dest-buffer ports to compute ops.
-    SmallVector<Edge, 0> destBufferEdges;
-};
-
-/// Unrolled tiled/VF regions are split at RegionPorts.
-/// The global EdgeCollection owns edges outside those ports. LoopRegion owns
-/// the per-tile edge segments that run between ports and tile compute ops.
 struct LoopRegion {
-    enum class Kind {
-        Tiling,  ///< marked by `tiling_loop_index`; one compute op per tile
-        VF,      ///< marked by `vf_loop_index`; potentially multiple layers per tile
-    };
-
-    Kind kind = Kind::Tiling;
-
-    /// `tiling_loop_index` (Kind::Tiling) or `vf_loop_index` (Kind::VF).
+    LoopRegionKind kind = LoopRegionKind::None;
     int64_t loopIndex = -1;
-
-    /// Physical tile lanes in execution order.
-    SmallVector<RegionTile, 0> tiles;
-
-    /// Outside-visible input ports (one per logical region input).
-    SmallVector<RegionPort, 0> inputs;
-
-    /// Outside-visible output ports (one per logical region output).
-    SmallVector<RegionPort, 0> outputs;
-
-    /// Shared destination buffers used by tile output operands.
-    SmallVector<RegionPort, 0> destBuffers;
 };
 
-}  // namespace VPUIP
-}  // namespace vpux
+/// Describes where an operation, value, or operand participates in a
+/// LoopRegion. `hasPort` distinguishes a logical region port from an internal
+/// region/tile information.
+struct LoopRegionInfo : LoopRegion {
+    /// Structured tile identity for Tiling regions.
+    TileCoordinateAttr tileCoordinate = nullptr;
+    /// Scalar tile identity for VF regions.
+    int64_t tileIndex = -1;
+    LoopRegionPortKind portKind = LoopRegionPortKind::Input;
+    uint32_t portIdx = 0;
+    bool hasPort = false;
+
+    bool isValid() const {
+        return kind != LoopRegionKind::None && loopIndex >= 0;
+    }
+
+    bool hasTileIdentity() const {
+        if (kind == LoopRegionKind::Tiling) {
+            return tileCoordinate != nullptr;
+        }
+        if (kind == LoopRegionKind::VF) {
+            return tileIndex >= 0;
+        }
+        return false;
+    }
+
+    bool hasSameRegionIdentity(const LoopRegionInfo& other) const {
+        return kind == other.kind && loopIndex == other.loopIndex;
+    }
+
+    bool hasSameTileIdentity(const LoopRegionInfo& other) const {
+        if (kind != other.kind) {
+            return false;
+        }
+        if (kind == LoopRegionKind::Tiling) {
+            return tileCoordinate == other.tileCoordinate;
+        }
+        if (kind == LoopRegionKind::VF) {
+            return tileIndex == other.tileIndex;
+        }
+        return true;
+    }
+
+    bool operator==(const LoopRegionInfo& other) const {
+        return hasSameRegionIdentity(other) && hasSameTileIdentity(other) && hasPort == other.hasPort &&
+               (!hasPort || (portKind == other.portKind && portIdx == other.portIdx));
+    }
+};
+
+LoopRegionInfo createLoopRegionInfo(const LoopRegion& region);
+LoopRegionInfo createLoopRegionInfo(const LoopRegion& region, mlir::Operation* op);
+LoopRegionInfo createLoopRegionPortInfo(const LoopRegionInfo& regionInfo, uint32_t portIdx,
+                                        LoopRegionPortKind portKind);
+
+/// Read-only LoopRegionInfo entries reconstructed for all LoopRegions in one function.
+struct LoopRegionBoundaryInfo {
+    /// Example: a compute op tagged with `vf_loop_index = 4` and
+    /// `vf_loop_tile_index = 1` maps to VF(loop=4, tile=1).
+    llvm::DenseMap<mlir::Operation*, LoopRegionInfo> opToLoopRegion;
+
+    /// Records every LoopRegion role of an SSA value. For example,
+
+    /// A shared `%input` can have
+    /// `{VF, loop=4, Input port=0}` and
+    /// `{VF, loop=5, Input port=0}` when it enters two different regions.
+    llvm::DenseMap<mlir::Value, SmallVector<LoopRegionInfo, 1>> valueToLoopRegions;
+
+    /// Records the exact LoopRegion role of each use of a value. For example:
+    ///
+    /// %tile0 = VPUIP.SW.Kernel inputs(%shared as %input0) ... // VF tile 0
+    /// %tile1 = VPUIP.SW.Kernel inputs(%shared as %input1) ... // VF tile 1
+    //
+    /// Both operands reference `%shared`,
+    /// `%input0` maps to `{VF, loop=4, tile=0, Input port=0}`
+    /// `%input1` maps to `{VF, loop=4, tile=1, Input port=0}`.
+    llvm::DenseMap<mlir::OpOperand*, LoopRegionInfo> operandToLoopRegion;
+};
+
+LoopRegionInfo getLoopRegionInfo(const LoopRegionInfo& info, bool includeTile = true);
+StringRef stringifyLoopRegionPortKind(LoopRegionPortKind kind);
+std::string stringifyLoopRegionInfo(const LoopRegionInfo& info);
+
+/// Reconstructs logical LoopRegion inputs, outputs, destination buffers, and
+/// per-tile operation/value/operand info from attributes on unrolled VPUIP
+/// operations. The builder does not modify IR or build DMA Edge topology.
+class LoopRegionBuilder {
+public:
+    explicit LoopRegionBuilder(Logger log);
+
+    LoopRegionBoundaryInfo build(mlir::func::FuncOp funcOp);
+
+    const SmallVector<LoopRegion, 0>& getRegions() const {
+        return _regions;
+    }
+
+private:
+    SmallVector<LoopRegion, 0> _regions;
+    Logger _log;
+};
+
+}  // namespace vpux::VPUIP::DmaOptimization

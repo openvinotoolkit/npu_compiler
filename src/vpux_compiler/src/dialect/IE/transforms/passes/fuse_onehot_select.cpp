@@ -4,10 +4,12 @@
 //
 
 #include "vpux/compiler/core/attributes/shape.hpp"
+#include "vpux/compiler/dialect/IE/IR/ops/comparison.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/convolution.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/data_movement.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/data_type.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/eltwise.hpp"
+#include "vpux/compiler/dialect/IE/IR/ops/logical.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/reduce.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/shape_manipulation.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/specialized.hpp"
@@ -47,7 +49,7 @@ template <typename T>
 mlir::FailureOr<T> getScalarConstOrAttr(mlir::Value operand, mlir::Attribute attr) {
     if (operand) {
         auto cst = operand.getDefiningOp<Const::DeclareOp>();
-        if (cst == nullptr || !cst.getContentAttr().isSplat()) {
+        if (cst == nullptr || !cst.getContentAttr().isSplat() || cst.getContent().getType().getNumElements() != 1) {
             return mlir::failure();
         }
         const auto content = cst.getContent();
@@ -64,6 +66,298 @@ mlir::FailureOr<T> getScalarConstOrAttr(mlir::Value operand, mlir::Attribute att
         return checked_cast<T>(fpAttr.getValueAsDouble());
     }
     return mlir::failure();
+}
+
+// FuseOneHotFullyConnectedToGather
+//
+// Replaces the embedding lookup pattern
+//
+//   FC(Select(mask, NaN, OneHot(index, depth, 1, 0)), W)
+//
+// with a Gather from a transposed weight table. For a bias-free FullyConnected with weights
+// W[M, K], a one-hot input selects one row of the equivalent table T[K, M], where
+// T[k, m] = W[m, k]. This avoids materializing the K-element one-hot tensor and the FC operation.
+//
+// Because Gather has no default value for an invalid index, the rewrite replaces indices selected
+// by the original mask with zero before Gather and restores NaN afterward. It separately maps
+// negative indices to zero for Gather and restores their all-zero result. Under OneHot's
+// IGNORE_NEGATIVE mode, every negative index produces an all-zero one-hot vector and therefore an
+// all-zero output for a bias-free FC.
+// Supported weights are direct f16 or f32 constants.
+class FuseOneHotFullyConnectedToGather final : public mlir::OpRewritePattern<IE::FullyConnectedOp> {
+public:
+    FuseOneHotFullyConnectedToGather(mlir::MLIRContext* ctx, Logger log)
+            : mlir::OpRewritePattern<IE::FullyConnectedOp>(ctx), _log(log) {
+        setDebugName("FuseOneHotFullyConnectedToGather");
+    }
+
+    mlir::LogicalResult matchAndRewrite(IE::FullyConnectedOp fcOp, mlir::PatternRewriter& rewriter) const final {
+        return fuseOneHotFullyConnected(fcOp, rewriter, _log, getDebugName());
+    }
+
+private:
+    struct WeightTable final {
+        Const::DeclareOp source;
+        int64_t outputChannels = 0;
+        int64_t inputChannels = 0;
+    };
+
+    struct OneHotSelectMatch final {
+        IE::SelectOp select;
+        IE::OneHotOp oneHot;
+    };
+
+    static mlir::FailureOr<WeightTable> matchWeightChain(mlir::Value weightValue);
+    static mlir::FailureOr<mlir::Value> createOneHotTable(mlir::PatternRewriter& rewriter, mlir::Location loc,
+                                                          WeightTable weights);
+    static mlir::Value createIndexConst(mlir::PatternRewriter& rewriter, mlir::Location loc, mlir::Type elemType,
+                                        int64_t value);
+    static bool isSupportedFlattenReshape(IE::AffineReshapeOp reshapeOp);
+    static mlir::FailureOr<OneHotSelectMatch> matchOneHotSelectInput(mlir::Value linearInput);
+    static mlir::LogicalResult fuseOneHotFullyConnected(IE::FullyConnectedOp fcOp, mlir::PatternRewriter& rewriter,
+                                                        Logger log, StringRef debugName);
+
+    Logger _log;
+};
+
+mlir::FailureOr<FuseOneHotFullyConnectedToGather::WeightTable> FuseOneHotFullyConnectedToGather::matchWeightChain(
+        mlir::Value weightValue) {
+    auto source = weightValue.getDefiningOp<Const::DeclareOp>();
+    if (source == nullptr) {
+        return mlir::failure();
+    }
+
+    const auto sourceType = mlir::cast<NDTypeInterface>(source.getOutput().getType());
+    const auto weightShape = sourceType.getShape();
+    if (weightShape.size() != 2 || (!sourceType.getElementType().isF16() && !sourceType.getElementType().isF32())) {
+        return mlir::failure();
+    }
+
+    return WeightTable{source, weightShape[Dim(0)], weightShape[Dim(1)]};
+}
+
+mlir::FailureOr<mlir::Value> FuseOneHotFullyConnectedToGather::createOneHotTable(mlir::PatternRewriter& rewriter,
+                                                                                 mlir::Location loc,
+                                                                                 WeightTable weights) {
+    const int64_t M = weights.outputChannels;
+    const int64_t K = weights.inputChannels;
+    const auto weightContent = weights.source.getContent();
+    const auto sourceElemType = mlir::cast<NDTypeInterface>(weights.source.getOutput().getType()).getElementType();
+    const auto tableType = mlir::RankedTensorType::get({K, M}, sourceElemType);
+
+    const auto createTable = [&](auto inputValues, auto elemTag) -> mlir::FailureOr<mlir::Value> {
+        using ElemT = std::decay_t<decltype(elemTag)>;
+        const auto expectedSize = checked_cast<size_t>(M * K);
+        if (inputValues.size() != 1 && inputValues.size() != expectedSize) {
+            return mlir::failure();
+        }
+
+        SmallVector<ElemT> tableValues(checked_cast<size_t>(K * M));
+        for (int64_t m = 0; m < M; ++m) {
+            for (int64_t k = 0; k < K; ++k) {
+                const auto inputIndex = inputValues.size() == 1 ? 0 : checked_cast<size_t>(m * K + k);
+                tableValues[checked_cast<size_t>(k * M + m)] = inputValues[inputIndex];
+            }
+        }
+
+        return Const::createConst<ElemT>(rewriter, appendLoc(loc, "onehot_table"), tableType, ArrayRef(tableValues));
+    };
+
+    if (sourceElemType.isF16()) {
+        return createTable(weightContent.getValues<vpux::type::float16>(), vpux::type::float16{});
+    }
+    return createTable(weightContent.getValues<float>(), float{});
+}
+
+mlir::Value FuseOneHotFullyConnectedToGather::createIndexConst(mlir::PatternRewriter& rewriter, mlir::Location loc,
+                                                               mlir::Type elemType, int64_t value) {
+    const auto type = mlir::RankedTensorType::get({1}, elemType);
+    if (elemType.isInteger(64)) {
+        return Const::createConst<int64_t>(rewriter, loc, type, ArrayRef<int64_t>{value});
+    }
+    return Const::createConst<int32_t>(rewriter, loc, type, ArrayRef<int32_t>{checked_cast<int32_t>(value)});
+}
+
+bool FuseOneHotFullyConnectedToGather::isSupportedFlattenReshape(IE::AffineReshapeOp reshapeOp) {
+    const auto inputShape = getShape(reshapeOp.getInput());
+    const auto outputShape = getShape(reshapeOp.getOutput());
+    if (inputShape.isDynamic() || outputShape.isDynamic() || inputShape.size() != 3 || outputShape.size() != 2) {
+        return false;
+    }
+
+    // The OneHot output is [N, M, K]. The only supported reshape flattens the first two
+    // dimensions into the FC row dimension and preserves the one-hot depth as the last dimension.
+    const SmallVector<SmallVector<int64_t>> expectedMapping{{0}, {0}, {1}};
+    const auto dimMapping = parseIntArrayOfArrayAttr<int64_t>(reshapeOp.getDimMappingAttr());
+    return dimMapping == expectedMapping && inputShape[Dim(2)] == outputShape[Dim(1)] &&
+           inputShape.totalSize() == outputShape.totalSize();
+}
+
+mlir::FailureOr<FuseOneHotFullyConnectedToGather::OneHotSelectMatch>
+FuseOneHotFullyConnectedToGather::matchOneHotSelectInput(mlir::Value linearInput) {
+    auto value = linearInput;
+    auto* producer = value.getDefiningOp();
+    if (auto affineReshape = mlir::dyn_cast_if_present<IE::AffineReshapeOp>(producer)) {
+        if (!isSupportedFlattenReshape(affineReshape)) {
+            return mlir::failure();
+        }
+        value = producer->getOperand(0);
+    }
+
+    auto selectOp = value.getDefiningOp<IE::SelectOp>();
+    if (selectOp == nullptr || selectOp.getAutoBroadcast() != IE::AutoBroadcastType::NUMPY) {
+        return mlir::failure();
+    }
+    auto invalidValue = getScalarConstOrAttr<double>(selectOp.getInput2(), nullptr);
+    if (mlir::failed(invalidValue) || !std::isnan(invalidValue.value())) {
+        return mlir::failure();
+    }
+
+    auto oneHotOp = selectOp.getInput3().getDefiningOp<IE::OneHotOp>();
+    if (oneHotOp == nullptr || oneHotOp.getAxisAttr() != 2 || !oneHotOp.getMode().has_value() ||
+        oneHotOp.getMode().value() != IE::OneHotMode::IGNORE_NEGATIVE) {
+        return mlir::failure();
+    }
+
+    auto oneHotOnValue = getScalarConstOrAttr<double>(oneHotOp.getOnValue(), oneHotOp.getOnValueAttrAttr());
+    auto oneHotOffValue = getScalarConstOrAttr<double>(oneHotOp.getOffValue(), oneHotOp.getOffValueAttrAttr());
+    if (mlir::failed(oneHotOnValue) || mlir::failed(oneHotOffValue) || oneHotOnValue.value() != 1.0 ||
+        oneHotOffValue.value() != 0.0) {
+        return mlir::failure();
+    }
+
+    return OneHotSelectMatch{selectOp, oneHotOp};
+}
+
+mlir::LogicalResult FuseOneHotFullyConnectedToGather::fuseOneHotFullyConnected(IE::FullyConnectedOp fcOp,
+                                                                               mlir::PatternRewriter& rewriter,
+                                                                               Logger log, StringRef debugName) {
+    if (fcOp.getBias() != nullptr) {
+        return mlir::failure();
+    }
+
+    auto selector = matchOneHotSelectInput(fcOp.getInput());
+    if (mlir::failed(selector)) {
+        return mlir::failure();
+    }
+    auto selectOp = selector.value().select;
+    auto oneHotOp = selector.value().oneHot;
+    const auto index = oneHotOp.getInput();
+    const auto indexShape = getShape(index);
+    if (indexShape.isDynamic()) {
+        return mlir::failure();
+    }
+    const bool rankExpanded = oneHotOp.getRankExpanded().value_or(false);
+
+    Shape logicalIndexShape;
+    if (rankExpanded) {
+        if (indexShape.size() != 3 || indexShape[Dim(2)] != 1) {
+            return mlir::failure();
+        }
+        logicalIndexShape = Shape{indexShape[Dim(0)], indexShape[Dim(1)]};
+    } else {
+        if (indexShape.size() != 2) {
+            return mlir::failure();
+        }
+        logicalIndexShape = Shape{indexShape[Dim(0)], indexShape[Dim(1)]};
+    }
+
+    auto depth = getScalarConstOrAttr<int64_t>(oneHotOp.getDepth(), oneHotOp.getDepthAttrAttr());
+    if (mlir::failed(depth) || depth.value() <= 0) {
+        return mlir::failure();
+    }
+
+    const auto inputShape = getShape(fcOp.getInput());
+    const auto outputShape = getShape(fcOp.getResult());
+    if (inputShape.isDynamic() || outputShape.isDynamic()) {
+        return mlir::failure();
+    }
+    const int64_t logicalRows = logicalIndexShape.totalSize();
+    if (inputShape.back() != depth.value() || inputShape.totalSize() != logicalRows * depth.value()) {
+        return mlir::failure();
+    }
+    if (inputShape.size() != 2 || outputShape.size() != 2 || outputShape[Dim(0)] != logicalRows) {
+        return mlir::failure();
+    }
+
+    auto weights = matchWeightChain(fcOp.getWeights());
+    if (mlir::failed(weights) || weights.value().inputChannels != depth.value() ||
+        outputShape.back() != weights.value().outputChannels) {
+        return mlir::failure();
+    }
+
+    const auto outputElemType = mlir::cast<NDTypeInterface>(fcOp.getResult().getType()).getElementType();
+    const auto weightElemType = mlir::cast<NDTypeInterface>(fcOp.getWeights().getType()).getElementType();
+    if (outputElemType != weightElemType) {
+        return mlir::failure();
+    }
+
+    const int64_t M = weights.value().outputChannels;
+    const int64_t K = weights.value().inputChannels;
+
+    const Shape conditionShape{logicalIndexShape[Dim(0)], logicalIndexShape[Dim(1)], 1};
+    if (getShape(selectOp.getInput1()) != conditionShape) {
+        return mlir::failure();
+    }
+
+    auto* ctx = rewriter.getContext();
+    const auto loc = fcOp.getLoc();
+    auto table = createOneHotTable(rewriter, loc, weights.value());
+    if (mlir::failed(table)) {
+        return mlir::failure();
+    }
+
+    // Make indices safe for Gather. For positions selected by the original mask, zero is a harmless
+    // fallback because the result is replaced by NaN below. Negative and out-of-range indices
+    // represent all-off one-hot vectors and must therefore produce a zero vector after Gather.
+    mlir::Value logicalIndex = index;
+    if (rankExpanded) {
+        logicalIndex = IE::ReshapeOp::create(rewriter, appendLoc(loc, "onehot_index_2d"), index,
+                                             getIntArrayAttr(ctx, to_small_vector(logicalIndexShape)))
+                               .getOutput();
+    }
+    const auto indexElemType = mlir::cast<NDTypeInterface>(logicalIndex.getType()).getElementType();
+    auto zeroIndex = createIndexConst(rewriter, appendLoc(loc, "zero_index"), indexElemType, 0);
+    auto depthIndex = createIndexConst(rewriter, appendLoc(loc, "onehot_depth"), indexElemType, depth.value());
+    auto negativeIndex = IE::LessOp::create(rewriter, appendLoc(loc, "onehot_is_negative"), logicalIndex, zeroIndex,
+                                            IE::AutoBroadcastType::NUMPY);
+    auto outOfRangeIndex = IE::GreaterEqualOp::create(rewriter, appendLoc(loc, "onehot_is_out_of_range"), logicalIndex,
+                                                      depthIndex, IE::AutoBroadcastType::NUMPY);
+    auto invalidIndex =
+            IE::LogicalOrOp::create(rewriter, appendLoc(loc, "onehot_is_invalid"), negativeIndex.getOutput(),
+                                    outOfRangeIndex.getOutput(), IE::AutoBroadcastType::NUMPY);
+    auto invalidIndex3D =
+            IE::ReshapeOp::create(rewriter, appendLoc(loc, "onehot_is_invalid_3d"), invalidIndex.getOutput(),
+                                  getIntArrayAttr(ctx, to_small_vector(conditionShape)));
+    auto invalid2D = IE::ReshapeOp::create(rewriter, appendLoc(loc, "onehot_invalid_2d"), selectOp.getInput1(),
+                                           getIntArrayAttr(ctx, to_small_vector(logicalIndexShape)));
+    auto safeIndexForInvalid =
+            IE::SelectOp::create(rewriter, appendLoc(loc, "onehot_safe_invalid"), invalidIndex.getOutput(), zeroIndex,
+                                 logicalIndex, IE::AutoBroadcastType::NUMPY);
+    auto safeIndex = IE::SelectOp::create(rewriter, appendLoc(loc, "onehot_safe_index"), invalid2D.getOutput(),
+                                          zeroIndex, safeIndexForInvalid.getOutput(), IE::AutoBroadcastType::NUMPY);
+    auto gather = IE::GatherOp::create(rewriter, appendLoc(loc, "onehot_gather"), table.value(), safeIndex.getOutput(),
+                                       0, 0, nullptr);
+
+    const auto zeroVectorType = mlir::RankedTensorType::get({1, 1, M}, weightElemType);
+    auto zeroVector =
+            Const::createDenseConst<float>(rewriter, appendLoc(loc, "onehot_zero_vector"), zeroVectorType, 0.0f);
+    auto safeGather = IE::SelectOp::create(rewriter, appendLoc(loc, "onehot_zero_invalid"), invalidIndex3D.getOutput(),
+                                           zeroVector, gather.getOutput(), IE::AutoBroadcastType::NUMPY);
+
+    mlir::Value computed = safeGather.getOutput();
+
+    mlir::Value result = IE::SelectOp::create(rewriter, appendLoc(loc, "onehot_invalid_result"), selectOp.getInput1(),
+                                              selectOp.getInput2(), computed, IE::AutoBroadcastType::NUMPY)
+                                 .getOutput();
+    if (getShape(result) != outputShape) {
+        result = IE::ReshapeOp::create(rewriter, appendLoc(loc, "onehot_linear_output_reshape"), result,
+                                       getIntArrayAttr(ctx, to_small_vector(outputShape)))
+                         .getOutput();
+    }
+    rewriter.replaceOp(fcOp, result);
+    log.trace("[{0}] Replaced one-hot FullyConnected with Gather table [{1}, {2}]", debugName, K, M);
+    return mlir::success();
 }
 
 // Returns the one-hot depth N when `oneHotOp` is a plain index selector along axis 0 with
@@ -474,6 +768,7 @@ void FuseOneHotSelectPass::safeRunOnFunc() {
     auto func = getOperation();
 
     mlir::RewritePatternSet patterns(&ctx);
+    patterns.add<FuseOneHotFullyConnectedToGather>(&ctx, _log);
     patterns.add<FuseGroupedMatMulSelect>(&ctx, _log);
     patterns.add<FuseGroupedGatherSelect>(&ctx, _log);
 

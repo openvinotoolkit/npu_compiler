@@ -14,6 +14,7 @@
 #include "vpux/compiler/dialect/net/utils/network_info_utils.hpp"
 #include "vpux/compiler/utils/logging.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
+#include "vpux/compiler/utils/walk_utils.hpp"
 #include "vpux/utils/core/dense_map.hpp"
 
 #include <mlir/IR/IRMapping.h>
@@ -154,6 +155,7 @@ void VerticalFusionOutliner::buildCallOps(mlir::ModuleOp moduleOp, ArrayRef<Smal
 
 void VerticalFusionOutliner::updateMainFuncOp(mlir::ModuleOp moduleOp, ArrayRef<OutliningInstance> outlinedTargets) {
     VPU::removeUnusedConstantOutputs(moduleOp, _funcsInfo, outlinedTargets, getLogger());
+    vpux::runLocalDCE(net::getMainFunc(moduleOp));
 }
 
 }  // namespace outliner

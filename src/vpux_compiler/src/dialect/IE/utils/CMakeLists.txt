@@ -27,3 +27,5 @@ add_npu_library(npu_compiler_dialect_ie_utils
         npu_compiler_dialect_vpuip_interfaces
         npu_compiler_dialect_vpuip_utils
 )
+enable_lto_if_possible(npu_compiler_dialect_ie_utils)
+

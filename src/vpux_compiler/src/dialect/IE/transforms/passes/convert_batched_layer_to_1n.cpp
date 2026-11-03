@@ -296,6 +296,11 @@ mlir::LogicalResult PoolLayerConverter<ConcreteOp>::layerSpecificRewriter(Concre
         return mlir::failure();
     }
 
+    // Prefer the generic Transpose-based fallback when a free (size-1) dim exists, same as EltwiseLayerConverter
+    if (getDimEqualsToOne({poolOp.getInput()}).has_value()) {
+        return mlir::failure();
+    }
+
     auto inShape = getShape(poolOp.getInput());
     auto outShape = getShape(poolOp.getOutput());
 

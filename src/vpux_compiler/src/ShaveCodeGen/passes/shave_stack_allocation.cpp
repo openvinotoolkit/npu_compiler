@@ -216,8 +216,9 @@ mlir::func::FuncOp cloneInfoFuncForKernel(mlir::ModuleOp swModule, mlir::func::F
     symbolTable.insert(clonedInfoFunc);
 
     const auto newTilingInfoFunc = mlir::FlatSymbolRefAttr::get(clonedInfoFunc.getSymNameAttr());
-    const auto newKernelInfo = VPU::KernelInfoAttr::get(kernelFunc.getContext(), newTilingInfoFunc,
-                                                        kernelInfo.getTilingAxes(), kernelInfo.getNumSlicedInputs());
+    const auto newKernelInfo = VPU::KernelInfoAttr::get(
+            kernelFunc.getContext(), newTilingInfoFunc, kernelInfo.getTilingAxes(), kernelInfo.getNumSlicedInputs(),
+            kernelInfo.getNumTensorInputs(), kernelInfo.getNumAuxBuffers(), kernelInfo.getInputSegmentationAxes());
     kernelFunc->setAttr(VPU::KernelInfoAttr::kFuncAttrName, newKernelInfo);
     return clonedInfoFunc;
 }
@@ -301,6 +302,19 @@ mlir::LogicalResult ShaveStackAllocationPass::addScratchBuffers(
         inputTys.insert(inputTys.begin() + currentInsertPos, arg.getType());
         scratchMemRefTypes.push_back(allocTy);
         currentInsertPos++;
+    }
+
+    // Update numAuxBuffers on KernelInfoAttr once to reflect all added scratch args.
+    if (kernelInfo && !scratchMemRefTypes.empty()) {
+        const auto oldNumAuxBuffers = kernelInfo.getNumAuxBuffers().getInt();
+        const auto newNumAuxBuffers = oldNumAuxBuffers + static_cast<int64_t>(scratchMemRefTypes.size());
+
+        auto updatedKernelInfo =
+                VPU::KernelInfoAttr::get(&ctx, kernelInfo.getTilingInfoFunc(), kernelInfo.getTilingAxes(),
+                                         kernelInfo.getNumSlicedInputs(), kernelInfo.getNumTensorInputs(),
+                                         mlir::IntegerAttr::get(mlir::IntegerType::get(&ctx, 64), newNumAuxBuffers),
+                                         mlir::ArrayAttr::get(&ctx, {}));
+        func->setAttr(VPU::KernelInfoAttr::kFuncAttrName, updatedKernelInfo);
     }
 
     // The calling convention passes each scratch buffer twice: once as an input arg (the

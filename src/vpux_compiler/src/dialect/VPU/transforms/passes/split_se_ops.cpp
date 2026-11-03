@@ -96,7 +96,7 @@ bool SplitInterpolate::isLegalAndBenifitSplitInterpolate(NDTypeInterface inputTy
 
     const bool isBilinearHalfPixel = modeAttr.getValue() == VPU::NCEInterpolateMode::BILINEAR && isHalfPixelCoordMode;
 
-    const auto areFactorsLarge = llvm::all_of(factors, [&isBilinearHalfPixel](const auto factor) {
+    const auto areFactorsLarge = llvm::all_of(factors, [isBilinearHalfPixel](const auto factor) {
         // TODO: E156480 - accuracy issue seen for one model without the SE split for Interp Bilinear half pixel
         if (isBilinearHalfPixel) {
             return factor >= 2;

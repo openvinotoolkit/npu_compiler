@@ -51,9 +51,6 @@ void vpux::VPUIP::arch37xx::buildDefaultHWPipeline(mlir::OpPassManager& pm,
         pm.addPass(VPUIP::createWrapWithPermuteAsNNDMAPass(log));
     }
 
-    pm.addPass(VPUIP::createUngroupBoundedBuffersPass(log));
-    pm.addPass(mlir::createCanonicalizerPass(grc));
-
     pm.addPass(VPUIP::createOptimizeExpandSubviewPass(log));
     pm.addPass(VPUIP::createConvertExpandPass(options.deferExpandToExpandDMA, log));
     pm.addPass(mlir::createCanonicalizerPass(grc));
@@ -78,6 +75,7 @@ void vpux::VPUIP::arch37xx::buildDefaultHWPipeline(mlir::OpPassManager& pm,
                                                                          options.enableExperimentalSEPtrsOperations));
     }
 
+    pm.addPass(VPUIP::createOptimizeDMACopiesPass(log));
     VPUIP::buildOptimizeCopiesPipeline(pm, VPUIP::OptimizeCopiesOptionsBase(options), log);
 
     pm.addPass(VPUIP::createConvertDynamicReshapeToInPlacePass(log));
@@ -167,12 +165,13 @@ void vpux::VPUIP::arch37xx::buildDefaultHWPipeline(mlir::OpPassManager& pm,
         pm.addPass(VPUIP::createBarrierOptimizationPass(std::nullopt, log));
     }
 
-    pm.addPass(VPURT::createSimplifySchedulePass(options.reduceParallelControlFlows, std::nullopt, log));
+    pm.addPass(VPURT::createSimplifySchedulePass(options.reduceParallelControlFlows,
+                                                 /*shareWaitAndUpdateBarriers =*/true, log));
 
     pm.addPass(VPURT::createAddFinalBarrierPass(options.workloadManagementMode, log));
 
-    VPURT::buildBarrierLegalizationPipeline(pm, /* workloadManagementEnabled */ std::nullopt,
-                                            /* unevenVariantSplitFlag */ false, log);
+    pm.addPass(VPURT::createSplitExceedingBarrierSlotCountPass(log));
+    pm.addPass(VPURT::createReduceExceedingActiveCountBarriersPass(false, log));
 
     pm.addPass(Const::createApplySwizzlingPass());
 
@@ -220,6 +219,7 @@ void vpux::VPUIP::arch37xx::buildDefaultHWPipeline(mlir::OpPassManager& pm,
 void vpux::VPUIP::arch37xx::buildReferenceSWPipeline(mlir::OpPassManager& pm,
                                                      const VPUIP::arch37xx::DefaultHWOptions& options, Logger log) {
     const auto grc = getDefaultGreedyRewriteConfig();
+
     pm.addPass(VPUIP::createSetMemorySpacePass(VPU::getMemKind<VPU::MemoryKind::DDR>,
                                                options.setMemorySpaceForFunctionBoundaries, log));
 
@@ -227,8 +227,6 @@ void vpux::VPUIP::arch37xx::buildReferenceSWPipeline(mlir::OpPassManager& pm,
 
     pm.addPass(VPUIP::createCopyOpTilingPass(log));
     pm.addPass(mlir::createCanonicalizerPass(grc));
-
-    pm.addPass(VPUIP::createUngroupBoundedBuffersPass(log));
 
     pm.addPass(VPUIP::createConvertTransferOpsToDMAsPass(log));
 

@@ -21,3 +21,5 @@ add_npu_library(npu_compiler_shave_code_gen
         npu_compiler_dialect_vpuip
         npu_compiler_dialect_vpuip_utils
     )
+enable_lto_if_possible(npu_compiler_shave_code_gen)
+

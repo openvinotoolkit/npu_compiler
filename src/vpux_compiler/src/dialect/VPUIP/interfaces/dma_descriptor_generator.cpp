@@ -441,10 +441,8 @@ VPUIP::DMADescriptorAttr vpux::VPUIP::SpaceToDepthDmaDescriptorGenerator::genera
 
 VPUIP::DMADescriptorAttr vpux::VPUIP::SpaceToDepthDmaDescriptorGenerator::generateDepthFirstNCHW2NHWC(
         vpux::ShapeRef inShape, vpux::ShapeRef outShape, int64_t elemTypeSize, int64_t blockSize) const {
-    const auto IH = inShape[Dims4D::Act::H];
     const auto IW = inShape[Dims4D::Act::W];
     const auto OH = outShape[Dims4D::Act::H];
-    const auto OW = outShape[Dims4D::Act::W];
     const auto OC = outShape[Dims4D::Act::C];
 
     auto len = vpux::getIntAttr(_ctx, IW * OH * elemTypeSize);
@@ -453,7 +451,7 @@ VPUIP::DMADescriptorAttr vpux::VPUIP::SpaceToDepthDmaDescriptorGenerator::genera
     auto srcPlaneStride = vpux::getIntAttr(_ctx, IW * elemTypeSize);
     auto dstWidth = vpux::getIntAttr(_ctx, blockSize * elemTypeSize);
     auto dstStride = vpux::getIntAttr(_ctx, OC * elemTypeSize);
-    auto dstPlaneStride = vpux::getIntAttr(_ctx, OW * IH * elemTypeSize);
+    auto dstPlaneStride = vpux::getIntAttr(_ctx, blockSize * elemTypeSize);
     auto numPlanes = vpux::getIntAttr(_ctx, blockSize);
 
     return VPUIP::DMADescriptorAttr::get(_ctx, numPlanes, len, srcWidth, srcStride, srcPlaneStride, dstWidth, dstStride,
