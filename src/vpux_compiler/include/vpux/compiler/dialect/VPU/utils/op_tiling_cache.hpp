@@ -108,6 +108,10 @@ public:
 
     void cleanUp();
 
+    // Clears all entries and disables the cache. Called at compilation boundaries so that no entry outlives the
+    // compilation that wrote it.
+    void reset();
+
     void printStats(Logger& logger) const;
 
 private:

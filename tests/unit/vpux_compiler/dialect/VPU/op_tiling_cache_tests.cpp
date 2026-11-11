@@ -141,3 +141,23 @@ TEST_F(MLIR_OpTilingCacheTest, OpDPUCostTest) {
     ASSERT_TRUE(dpuCost2.has_value());
     ASSERT_EQ(dpuCost2.value(), dpuCost1);
 }
+
+TEST_F(MLIR_OpTilingCacheTest, ResetClearsAndDisablesCache) {
+    auto& cache = vpux::VPU::getGlobalOpTilingCache();
+    cache.enableIfNecessary(true);
+    // cleanUp() at the end of the tiling strategy search leaves the cache enabled, so later passes can still write.
+    cache.cleanUp();
+
+    const llvm::hash_code shapeHash = llvm::hash_value(42);
+    cache.updatePerClusterShape(shapeHash, SmallVector<Shape>{Shape{1, 16, 4, 8}, Shape{1, 16, 4, 8}});
+    ASSERT_TRUE(cache.getPerClusterMemoryShapes(shapeHash).has_value());
+
+    cache.reset();
+    EXPECT_FALSE(cache.isCacheSupported());
+
+    // Re-enable to check that the entry was removed, not just hidden by the disabled flag.
+    cache.enableIfNecessary(true);
+    EXPECT_FALSE(cache.getPerClusterMemoryShapes(shapeHash).has_value());
+
+    cache.reset();
+}

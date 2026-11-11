@@ -31,6 +31,7 @@
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
 #include "vpux/compiler/dialect/VPU/IR/attributes.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
+#include "vpux/compiler/dialect/VPU/utils/op_tiling_cache.hpp"
 #include "vpux/compiler/dialect/VPUIP/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPUIP/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPUIP/utils/utils.hpp"
@@ -654,7 +655,7 @@ struct CompilerSetup {
     std::unique_ptr<mlir::MLIRContext> ctx;
 
     static std::unique_ptr<CompilerSetup> create(const vpux::OV::Config& config, Logger& log);
-    ~CompilerSetup() = default;
+    ~CompilerSetup();
 
     CompilerSetup(CompilerSetup&&) = default;
     CompilerSetup& operator=(CompilerSetup&&) = default;
@@ -671,6 +672,9 @@ std::unique_ptr<CompilerSetup> CompilerSetup::create(const vpux::OV::Config& con
 }
 
 CompilerSetup::CompilerSetup(const vpux::OV::Config& config, Logger& log) {
+    // The op tiling cache is process-global; scope it to this compilation so nothing carries over between compilations.
+    VPU::getGlobalOpTilingCache().reset();
+
     registry = createDialectRegistry(getDummyOpReplacement(config).value_or(DummyOpMode::DISABLED));
     auto platform = getPlatform(config);
     config::registerConstraints(registry, platform);
@@ -689,6 +693,10 @@ CompilerSetup::CompilerSetup(const vpux::OV::Config& config, Logger& log) {
     }
 
     threadPoolLog.info("MLIR multi-threading is {0}", ctx->isMultithreadingEnabled() ? "enabled" : "disabled");
+}
+
+CompilerSetup::~CompilerSetup() {
+    VPU::getGlobalOpTilingCache().reset();
 }
 
 std::tuple<std::shared_ptr<ov::Model>, const vpux::OV::Config> debatchModel(const std::shared_ptr<ov::Model>& model,

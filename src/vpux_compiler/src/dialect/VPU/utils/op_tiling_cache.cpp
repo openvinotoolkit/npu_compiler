@@ -353,6 +353,11 @@ void OpTilingCache::cleanUp() {
     _temporalTilingCache.clear();
 }
 
+void OpTilingCache::reset() {
+    _enableCache.store(false, std::memory_order_seq_cst);
+    cleanUp();
+}
+
 bool OpTilingCache::isCacheSupported() {
     return _enableCache;
 }
