@@ -11,6 +11,7 @@
 - [ ] NPU37XX
 - [ ] NPU40XX
 - [ ] NPU50XX
+- [ ] NPU60XX
 - [ ] NONE (Not included in release notes)
 
 ## Classification of this Pull Request
