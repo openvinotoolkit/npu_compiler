@@ -211,6 +211,11 @@ TEST_P(AutoPaddingTest, NPU5020_HW) {
     run(Platform::NPU5020);
 }
 
+TEST_P(AutoPaddingTest, NPU6010_HW) {
+    setDefaultHardwareMode();
+    run(Platform::NPU6010);
+}
+
 INSTANTIATE_TEST_SUITE_P(IDU, AutoPaddingTest,
                          testing::ValuesIn({
                                  Params{ov::Shape{1, 3, 16, 16}, OpType::SOFTMAX, OpType::CONV, /*quantized=*/false},

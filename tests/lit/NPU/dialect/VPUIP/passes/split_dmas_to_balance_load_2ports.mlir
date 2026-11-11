@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="platform=%platform% allow-custom-values=true" --split-dma-to-balance-load %s | FileCheck %s
-// REQUIRES: platform-NPU4000 || platform-NPU5010
+// REQUIRES: platform-NPU4000 || platform-NPU5010 || platform-NPU6010
 !DummyT = memref<1x3x224x224xf16, @DDR>
 
 // CHECK-LABEL: @SplitBuffer2BufferDma

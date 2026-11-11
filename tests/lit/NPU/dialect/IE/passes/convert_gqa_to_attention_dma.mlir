@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="platform=%platform%" --convert-gqa-to-attention-dma %s | FileCheck %s
-// REQUIRES: platform-NPU4000 || platform-NPU5010
+// REQUIRES: platform-NPU4000 || platform-NPU5010 || platform-NPU6010
 
 // CHECK-LABEL: @ConvertGQAToAttentionDMA
 // CHECK-SAME:  ([[Q:%.+]]: tensor<1x8x1x64xf16>, [[K:%.+]]: tensor<1x2x1x64xf16>, [[V:%.+]]: tensor<1x2x1x64xf16>,

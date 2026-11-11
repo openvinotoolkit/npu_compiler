@@ -119,6 +119,17 @@ TEST_P(MatMulLayerTest_HW_NPU3720_ppe_fp16_clamp, HW) {
     setDefaultHardwareMode();
     run(Platform::NPU3720);
 }
+TEST_P(MatMulLayerTestCommon_SW, NPU6010) {
+    rel_threshold = 0.001;
+    setReferenceSoftwareMode();
+    run(Platform::NPU6010);
+}
+
+TEST_P(MatMulLayerTestCommon_HW, NPU6010) {
+    rel_threshold = 0.001;
+    setDefaultHardwareMode();
+    run(Platform::NPU6010);
+}
 
 }  // namespace test
 }  // namespace ov

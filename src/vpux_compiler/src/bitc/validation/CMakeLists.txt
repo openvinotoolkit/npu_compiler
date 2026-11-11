@@ -32,7 +32,6 @@ if(DEBUG)
     add_definitions(-D__BITC__EN_DBG__=1)
 endif()
 
-
 # Adding sources
 file(GLOB SOURCES "../src/*.cpp" "src/*.cpp")
 

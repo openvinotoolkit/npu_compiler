@@ -41,6 +41,7 @@ CMD_NPU3720_TESTS="python3 $PATH_LIT_TOOL --param platform=NPU3720 $PATH_TESTS/N
 CMD_NPU4000_TESTS="python3 $PATH_LIT_TOOL --param platform=NPU4000 $PATH_TESTS/NPU"
 CMD_NPU5010_TESTS="python3 $PATH_LIT_TOOL --param platform=NPU5010 $PATH_TESTS/NPU"
 CMD_NPU5020_TESTS="python3 $PATH_LIT_TOOL --param platform=NPU5020 $PATH_TESTS/NPU"
+CMD_NPU6010_TESTS="python3 $PATH_LIT_TOOL --param platform=NPU6010 $PATH_TESTS/NPU"
 
 EXIT_CODE=0
 
@@ -56,6 +57,9 @@ eval "$CMD_NPU5010_TESTS"; EXIT_CODE=$(($EXIT_CODE + $?))
 echo ""
 echo "Executing tests on NPU5020 platform: $CMD_NPU5020_TESTS"
 eval "$CMD_NPU5020_TESTS"; EXIT_CODE=$(($EXIT_CODE + $?))
+echo ""
+echo "Executing tests on NPU6010 platform: $CMD_NPU6010_TESTS"
+eval "$CMD_NPU6010_TESTS"; EXIT_CODE=$(($EXIT_CODE + $?))
 echo ""
 if [ $EXIT_CODE -ne 0 ]
 then

@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="platform=%platform% enable-experimental-se-ptrs-operations=true" --legalize-dilated-conv %s | FileCheck %s
-// REQUIRES: platform-NPU4000 || platform-NPU5010
+// REQUIRES: platform-NPU4000 || platform-NPU5010 || platform-NPU6010
 
 // CHECK-LABEL: @DontLegalizeDilatedGroupConvolution
 // CHECK-SAME: [[ARG0:%.+]]: tensor<1x3x30x30xf16>

@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="platform=%platform%" --initial-low-precision-transformations %s | FileCheck %s --strict-whitespace
-// REQUIRES: platform-NPU5010
+// REQUIRES: platform-NPU5010 || platform-NPU6010
 
 // CHECK-LABEL: @ScalarArgumentsWeightsDequantizeToFakeQuantize
 // CHECK-SAME:  [[INPUT:%.+]]: tensor<1x16x32x32xf32>

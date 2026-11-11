@@ -130,6 +130,10 @@ TEST_P(BroadcastWithShapeOfNPUTest, NPU5020_HW_TestKindSubgraph) {
     run(Platform::NPU5020);
 }
 
+TEST_P(BroadcastWithShapeOfNPUTest, NPU6010_HW_TestKindSubgraph) {
+    setDefaultHardwareMode();
+    run(Platform::NPU6010);
+}
 const std::vector<ov::element::Type> inputType = {ov::element::i64, ov::element::i32, ov::element::f16,
                                                   ov::element::f32};
 
@@ -293,6 +297,11 @@ TEST_P(BroadcastWithSelectNPUTest, NPU5010_HW_TestKindSubgraph) {
 TEST_P(BroadcastWithSelectNPUTest, NPU5020_HW_TestKindSubgraph) {
     setDefaultHardwareMode();
     run(Platform::NPU5020);
+}
+
+TEST_P(BroadcastWithSelectNPUTest, NPU6010_HW_TestKindSubgraph) {
+    setDefaultHardwareMode();
+    run(Platform::NPU6010);
 }
 
 // *----------------*

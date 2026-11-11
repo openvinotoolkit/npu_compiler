@@ -101,6 +101,11 @@ TEST_P(FuseReduceSquareTestCommon, NPU5020_HW) {
     run(Platform::NPU5020);
 }
 
+TEST_P(FuseReduceSquareTestCommon, NPU6010_HW) {
+    setDefaultHardwareMode();
+    run(Platform::NPU6010);
+}
+
 const std::vector<ReduceSquareParams> testValues = {
         // ReduceMean pattern (Power + ReduceMean + Sqrt)
         {{1, 32, 32, 96}, ReduceType::Mean, false},  // without epsilon

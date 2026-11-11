@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="platform=%platform%" --convert-gather-elements-to-gather %s | FileCheck %s
-// REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010
+// REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010 || platform-NPU6010
 
 // CHECK-LABEL: @ConvertGatherElementsOnHAndTileToGather
 // CHECK-SAME:    ([[INPUT0:%.+]]: tensor<1x1x5376x80xf16>, [[INPUT1:%.+]]: tensor<1x1x300x1xsi32>)

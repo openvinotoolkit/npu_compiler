@@ -138,6 +138,11 @@ TEST_P(FuseD2sExpandCommon, NPU5020_HW) {
     run(Platform::NPU5020);
 }
 
+TEST_P(FuseD2sExpandCommon, DISABLED_NPU6010_HW) {  // E#185453 fails to compile
+    setDefaultHardwareMode();
+    run(Platform::NPU6010);
+}
+
 }  // namespace ov::test::subgraph
 
 using namespace ov::test::subgraph;

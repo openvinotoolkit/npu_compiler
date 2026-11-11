@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --verify-diagnostics --init-compiler="platform=%platform%" %s
-// REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010
+// REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010 || platform-NPU6010
 
 func.func @NNDMAUnboundedInputRejected(%arg0: memref<1x1x1x?xf16, @DDR>, %arg1: memref<1x1x1x16xf16, @DDR>) -> memref<1x1x1x16xf16, @DDR> {
     // expected-error@+1 {{DMA cannot access 'memref<1x1x1x?xf16, @DDR>': a dimension has no upper bound}}

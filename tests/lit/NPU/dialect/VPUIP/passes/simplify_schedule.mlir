@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="platform=%platform%" --simplify-schedule %s | FileCheck %s
-// REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010
+// REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010 || platform-NPU6010
 
 // CHECK-LABEL: @tasksWithoutDeclareBuffer
 func.func @tasksWithoutDeclareBuffer(%arg0: memref<1x1x1x1xf16>, %arg1: memref<1x1x1x1xf16>) -> memref<1x1x1x1xf16> {

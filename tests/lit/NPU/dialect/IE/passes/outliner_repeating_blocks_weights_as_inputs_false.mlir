@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="platform=%platform%" --outliner="function-outlining=\"repeating-blocks='min-ops-in-block=2 max-num-iterations=10 weights-as-inputs=false'\"" --canonicalize %s | FileCheck %s
-// REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010
+// REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010 || platform-NPU6010
 
 module @TwoInstances {
     net.NetworkInfo entryPoint : @main

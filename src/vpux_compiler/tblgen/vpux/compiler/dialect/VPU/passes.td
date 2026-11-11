@@ -3581,6 +3581,7 @@ def DecomposeMVN : PassBase<"decompose-mvn", "vpux::FunctionPass"> {
         - tensor size is at least ceil(total CMX / number of tiles)
         This exists so a downstream pass (RunMVNNormalizeOnDPU) can convert the resulting
         MVN1NormalizeOp to a DPU NCE.MaxPool even for CMX-fitting MVN, which the pass would
+        otherwise never produce for such ops. Enabled by default on NPU50XX+ (NPU50XX, NPU60XX).
         Ops decomposed this way have MVN1NormalizeOp.from_force_decompose set to true,
         distinguishing them from MVN1NormalizeOps produced by the ordinary CMX-overflow
         decomposition.

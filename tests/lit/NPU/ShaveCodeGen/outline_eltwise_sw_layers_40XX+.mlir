@@ -9,7 +9,7 @@
 // RUN:     --canonicalize                                            \
 // RUN:     --outline-codegen-capsules                                \
 // RUN:   | FileCheck %s
-// REQUIRES: platform-NPU4000 || platform-NPU5010
+// REQUIRES: platform-NPU4000 || platform-NPU5010 || platform-NPU6010
 
 module @NoBitcastUI {
   net.NetworkInfo entryPoint : @main inputsInfo : {

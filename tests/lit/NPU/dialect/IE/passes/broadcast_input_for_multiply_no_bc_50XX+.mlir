@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="platform=%platform%" --broadcast-input-for-multiply="broadcast-input-for-multiply=false"  %s | FileCheck %s
-// REQUIRES: platform-NPU5010
+// REQUIRES: platform-NPU5010 || platform-NPU6010
 
 // CHECK-LABEL: @FuseMultiplyBroadcastRightInput
 // CHECK-SAME:      [[INPUT_0:%.+]]: tensor<1x64x64x128xf16>,

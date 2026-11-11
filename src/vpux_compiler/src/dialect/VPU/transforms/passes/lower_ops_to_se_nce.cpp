@@ -1064,6 +1064,15 @@ mlir::LogicalResult PadToNCE::matchAndRewrite(VPU::PadOp origOp, mlir::PatternRe
     auto convOp = mlir::dyn_cast<VPU::NCEConvolutionOp>(*origOp.getResult().getUsers().begin());
     auto isLegalFusedIntoConv =
             convOp && origOp.getResult().hasOneUse() && !mlir::isa<VPU::SparseTensorType>(convOp.getInput().getType());
+    if (convOp) {
+        if (convOp.getMpeEngineAttr()) {
+            if (auto engine60xx = mlir::dyn_cast<VPU::MPEEngine60XXAttr>(convOp.getMpeEngineAttr())) {
+                if (engine60xx.getMode().getValue() == VPU::MPEEngine60XXMode::DCIM) {
+                    isLegalFusedIntoConv = false;
+                }
+            }
+        }
+    }
     const auto padOutputShape = mlir::cast<NDTypeInterface>(origOp.getOutput().getType()).getShape();
     // SE Pad is enabled based on a input channel threshold. Most platforms reject any Pad that has a channel count
     // below the threshold. Some platforms however include the threshold as well, under some conditions.

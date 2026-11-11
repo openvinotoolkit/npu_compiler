@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="platform=%platform%" --move-reflect-pad-to-cmx %s | FileCheck %s
-// REQUIRES: platform-NPU4000 || platform-NPU5010
+// REQUIRES: platform-NPU4000 || platform-NPU5010 || platform-NPU6010
 
 !qElemType = !quant.uniform<u8:f16, 0.0038406767097173954>
 !qElemType1 = !quant.uniform<u8:f16, 0.0076813534194347909>

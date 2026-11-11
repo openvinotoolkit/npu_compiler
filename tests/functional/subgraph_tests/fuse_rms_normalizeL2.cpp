@@ -132,6 +132,12 @@ TEST_P(FuseNormalizeL2RMSTest, NPU5020_HW) {
     run(Platform::NPU5020);
 }
 
+TEST_P(FuseNormalizeL2RMSTest, NPU6010_HW) {
+    abs_threshold = 0.11f;
+    setDefaultHardwareMode();
+    run(Platform::NPU6010);
+}
+
 namespace {
 const std::vector<ov::element::Type> l2_input_precisions = {ov::element::f32};
 const std::vector<ov::op::EpsMode> eps_modes = {ov::op::EpsMode::ADD, ov::op::EpsMode::MAX};

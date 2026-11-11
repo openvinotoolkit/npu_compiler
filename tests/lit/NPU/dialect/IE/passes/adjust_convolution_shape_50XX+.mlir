@@ -5,7 +5,7 @@
 
 // RUN: vpux-opt --split-input-file --init-compiler="platform=%platform% enable-auto-padding-odu" --adjust-convolution-shape %s | FileCheck %s
 // RUN: vpux-opt --split-input-file --init-compiler="platform=%platform% enable-auto-padding-odu" --run-mem-permute-processing-rewriters="rewriter=adjust-convolution-shape-set" %s | FileCheck %s
-// REQUIRES: platform-NPU5010
+// REQUIRES: platform-NPU5010 || platform-NPU6010
 
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 // CHECK-LABEL: @FoldStrideIntoKernel

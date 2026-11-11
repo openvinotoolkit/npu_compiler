@@ -47,6 +47,11 @@ TEST_P(GatherLayerTestCommon, NPU5020_SW) {
     run(Platform::NPU5020);
 }
 
+TEST_P(GatherLayerTestCommon, NPU6010_SW) {
+    setReferenceSoftwareMode();
+    run(Platform::NPU6010);
+}
+
 TEST_P(GatherLayerTest_NPU3720, HW) {
     setDefaultHardwareMode();
     run(Platform::NPU3720);
@@ -75,6 +80,11 @@ TEST_P(Gather8LayerTestCommon, NPU5010_HW) {
 TEST_P(Gather8LayerTestCommon, NPU5020_HW) {
     setDefaultHardwareMode();
     run(Platform::NPU5020);
+}
+
+TEST_P(Gather8LayerTestCommon, NPU6010_HW) {
+    setDefaultHardwareMode();
+    run(Platform::NPU6010);
 }
 
 TEST_P(Gather8LayerTest_NPU3720, HW) {

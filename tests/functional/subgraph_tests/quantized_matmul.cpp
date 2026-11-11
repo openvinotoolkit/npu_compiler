@@ -90,6 +90,12 @@ public:
 
 const auto basicCases = ::testing::Combine(::testing::Values(ov::element::f16));
 
+TEST_P(MatMulQuantizedSubGraphTestCommon, NPU6010) {
+    rel_threshold = 0.1f;
+    setDefaultHardwareMode();
+    run(Platform::NPU6010);
+}
+
 INSTANTIATE_TEST_SUITE_P(matMulQuantized, MatMulQuantizedSubGraphTestCommon, basicCases,
                          MatMulQuantizedSubGraphTestCommon::getTestCaseName);
 

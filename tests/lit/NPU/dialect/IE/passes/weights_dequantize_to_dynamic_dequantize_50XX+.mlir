@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="platform=%platform%" --run-initial-low-precision-transformations-rewriters="rewriter=weights-dequantize-to-dynamic-dequantize" --mlir-print-elementsattrs-with-hex-if-larger -1 %s | FileCheck %s
-// REQUIRES: platform-NPU5010
+// REQUIRES: platform-NPU5010 || platform-NPU6010
 
 // CHECK-LABEL: @WeightsMultToDynamicDequantizeF8E4M3
 // CHECK-SAME:      [[INPUT:%.+]]: tensor<1x8x3000xf32>

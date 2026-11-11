@@ -8,6 +8,7 @@
 #include "vpux/compiler/NPU37XX/interfaces_registry.hpp"
 #include "vpux/compiler/NPU40XX/interfaces_registry.hpp"
 #include "vpux/compiler/NPU50XX/interfaces_registry.hpp"
+#include "vpux/compiler/NPU60XX/interfaces_registry.hpp"
 
 #include <memory>
 
@@ -29,6 +30,8 @@ std::unique_ptr<IInterfaceRegistry> createInterfacesRegistry(config::Platform pl
         return std::make_unique<InterfacesRegistry50XX>();
     case config::Platform::NPU5020:
         return std::make_unique<InterfacesRegistry50XX>();
+    case config::Platform::NPU6010:
+        return std::make_unique<InterfacesRegistry60XX>();
     default:
         VPUX_THROW("Unsupported platform: {0}", platform);
     }

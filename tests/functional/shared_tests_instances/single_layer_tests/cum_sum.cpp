@@ -37,6 +37,11 @@ TEST_P(CumSumLayerTestCommon, NPU5020_SW) {
     run(Platform::NPU5020);
 }
 
+TEST_P(CumSumLayerTestCommon, NPU6010_SW) {
+    setReferenceSoftwareMode();
+    run(Platform::NPU6010);
+}
+
 }  // namespace test
 }  // namespace ov
 
@@ -179,6 +184,11 @@ TEST_P(CumSumMatMulLayerTest, NPU5010_HW) {
 TEST_P(CumSumMatMulLayerTest, NPU5020_HW) {
     setDefaultHardwareMode();
     run(Platform::NPU5020);
+}
+
+TEST_P(CumSumMatMulLayerTest, NPU6010_HW) {
+    setDefaultHardwareMode();
+    run(Platform::NPU6010);
 }
 
 const std::vector<std::vector<ov::Shape>> matmulShapes = {

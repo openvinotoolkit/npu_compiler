@@ -38,6 +38,11 @@ TEST_P(GRNLayerTestCommon, NPU5020_HW) {
     run(Platform::NPU5020);
 }
 
+TEST_P(GRNLayerTestCommon, NPU6010_HW) {
+    setDefaultHardwareMode();
+    run(Platform::NPU6010);
+}
+
 }  // namespace test
 }  // namespace ov
 

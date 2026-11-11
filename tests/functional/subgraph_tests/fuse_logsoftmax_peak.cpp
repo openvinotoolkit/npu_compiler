@@ -89,6 +89,11 @@ TEST_P(FuseLogSoftmaxPeakTestCommon, NPU5010_HW) {
     run(Platform::NPU5010);
 }
 
+TEST_P(FuseLogSoftmaxPeakTestCommon, NPU6010_HW) {
+    setDefaultHardwareMode();
+    run(Platform::NPU6010);
+}
+
 }  // namespace ov::test
 
 namespace {

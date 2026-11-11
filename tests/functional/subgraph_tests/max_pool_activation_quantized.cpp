@@ -210,6 +210,16 @@ TEST_P(MaxPoolWithSwishQuantizedTest, NPU5020_HW) {
     run(Platform::NPU5020);
 }
 
+TEST_P(MaxPoolWithActivationQuantizedTest, NPU6010_HW) {
+    setDefaultHardwareMode();
+    run(Platform::NPU6010);
+}
+
+TEST_P(MaxPoolWithSwishQuantizedTest, NPU6010_HW) {
+    setDefaultHardwareMode();
+    run(Platform::NPU6010);
+}
+
 const std::vector<utils::ActivationTypes> activations = {utils::Tanh, utils::Sigmoid, utils::Gelu, utils::Exp,
                                                          utils::HSwish};
 

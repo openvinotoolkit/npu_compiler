@@ -91,6 +91,11 @@ TEST_P(DynDQTestCommon, NPU5020_TestKindSubgraph) {
     run(Platform::NPU5020);
 }
 
+TEST_P(DynDQTestCommon, NPU6010_TestKindSubgraph) {
+    setDefaultHardwareMode();
+    run(Platform::NPU6010);
+}
+
 const std::vector<DynDeQuantParams> params = {
         {{3, 30, 128}, {3, 30, 1}, ov::element::i4, ov::element::f16},
         {{3, 30, 128}, {3, 1, 128}, ov::element::i4, ov::element::f16},
@@ -155,6 +160,11 @@ TEST_P(DynDQTestGSSmall, NPU5010_TestKindSubgraph) {
 TEST_P(DynDQTestGSSmall, NPU5020_TestKindSubgraph) {
     setDefaultHardwareMode();
     run(Platform::NPU5020);
+}
+
+TEST_P(DynDQTestGSSmall, NPU6010_TestKindSubgraph) {
+    setDefaultHardwareMode();
+    run(Platform::NPU6010);
 }
 
 const std::vector<DynDeQuantParams> paramsGSSmall = {
@@ -248,6 +258,11 @@ TEST_P(DynDQAsymTestCommon, NPU5020_TestKindSubgraph) {
     run(Platform::NPU5020);
 }
 
+TEST_P(DynDQAsymTestCommon, NPU6010_TestKindSubgraph) {
+    setDefaultHardwareMode();
+    run(Platform::NPU6010);
+}
+
 const std::vector<DynDeQuantAsymParams> paramsAsym = {
         {{128, 128}, {128, 1}, ov::element::i8, ov::element::f16},
         {{128, 128}, {128, 1}, ov::element::u8, ov::element::f16},
@@ -325,6 +340,11 @@ TEST_P(DynDQU16Test, NPU5010_TestKindSubgraph) {
 TEST_P(DynDQU16Test, NPU5020_TestKindSubgraph) {
     setDefaultHardwareMode();
     run(Platform::NPU5020);
+}
+
+TEST_P(DynDQU16Test, NPU6010_TestKindSubgraph) {
+    setDefaultHardwareMode();
+    run(Platform::NPU6010);
 }
 
 const std::vector<DynDeQuantParams> paramsU16 = {

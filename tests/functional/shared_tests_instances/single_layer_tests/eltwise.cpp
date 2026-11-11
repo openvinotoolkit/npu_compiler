@@ -338,6 +338,33 @@ TEST_P(EltwiseLayerTestSCFTiling, NPU5020_HW) {
     run(Platform::NPU5020);
 }
 
+TEST_P(EltwiseLayerTestCommon, NPU6010_SW) {
+    abs_threshold = 0.6;
+    setReferenceSoftwareMode();
+    run(Platform::NPU6010);
+}
+
+TEST_P(EltwiseLayerTestInnerBroadcastSingleTile, NPU6010_SW) {
+    setReferenceSoftwareMode();
+    run(Platform::NPU6010);
+}
+
+TEST_P(EltwiseLayerTestF32Common, NPU6010_SW) {
+    setReferenceSoftwareMode();
+    run(Platform::NPU6010);
+}
+
+TEST_P(EltwiseLayerTestSCFTiling, NPU6010_HW) {
+    setDefaultHardwareMode();
+    run(Platform::NPU6010);
+}
+
+TEST_P(EltwiseLayerTestCrossBroadcast, NPU6010_SW) {
+    abs_threshold = 0.6;
+    setReferenceSoftwareMode();
+    run(Platform::NPU6010);
+}
+
 void setCommonSkipCompilationCallback(EltwiseIntegerLayerTest* test) {
     test->setSkipCompilationCallback([test](std::stringstream& skip) {
         const auto eltwiseType = std::get<1>(test->GetParam());
@@ -401,6 +428,13 @@ TEST_P(EltwiseIntegerLayerTest, NPU5020_SW) {
     run(Platform::NPU5020);
 }
 
+TEST_P(EltwiseIntegerLayerTest, NPU6010_SW) {
+    abs_threshold = 0.6;
+    setCommonSkipCompilationCallback(this);
+    setReferenceSoftwareMode();
+    run(Platform::NPU6010);
+}
+
 TEST_P(EltwiseLayerTestDynamic, NPU3720_HW) {
     abs_threshold = 0.3f;
     setDefaultHardwareMode();
@@ -417,6 +451,12 @@ TEST_P(EltwiseLayerTestDynamic, NPU5010_HW) {
     abs_threshold = 0.3f;
     setDefaultHardwareMode();
     run(Platform::NPU5010);
+}
+
+TEST_P(EltwiseLayerTestDynamic, NPU6010_HW) {
+    abs_threshold = 0.3f;
+    setDefaultHardwareMode();
+    run(Platform::NPU6010);
 }
 
 TEST_P(EltwiseLayerTestDynamicSCFUnroll, NPU5010_HC) {
@@ -960,6 +1000,34 @@ TEST_P(ShaveCodeGenTilingEltwiseLayerTestCommon, NPU5010_HW) {
     setDefaultHardwareMode();
     setPluginCompilerType();
     run(Platform::NPU5010);
+}
+
+TEST_P(ShaveCodeGenEltwiseLayerTestCommon, NPU6010_SW) {
+    abs_threshold = 0.6;
+    setReferenceSoftwareMode();
+    setPluginCompilerType();
+    run(Platform::NPU6010);
+}
+
+TEST_P(ShaveCodeGenEltwiseLayerTestF32Common, NPU6010_SW) {
+    setReferenceSoftwareMode();
+    setPluginCompilerType();
+    run(Platform::NPU6010);
+}
+
+TEST_P(ShaveCodeGenEltwiseIntegerLayerTest, NPU6010_SW) {
+    abs_threshold = 0.6;
+    setCommonSkipCompilationCallback(this);
+    setReferenceSoftwareMode();
+    setPluginCompilerType();
+    run(Platform::NPU6010);
+}
+
+TEST_P(ShaveCodeGenTilingEltwiseLayerTestCommon, NPU6010_HW) {
+    abs_threshold = 0.6;
+    setDefaultHardwareMode();
+    setPluginCompilerType();
+    run(Platform::NPU6010);
 }
 
 }  // namespace test

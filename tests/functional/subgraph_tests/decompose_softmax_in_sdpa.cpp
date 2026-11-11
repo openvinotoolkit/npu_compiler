@@ -98,6 +98,13 @@ TEST_P(DecomposeSoftmaxInSdpaCommon, NPU5010_HW) {
     run(Platform::NPU5010);
 }
 
+// NPU6010
+TEST_P(DecomposeSoftmaxInSdpaCommon, NPU6010_HW) {
+    setDefaultHardwareMode();
+    configuration[ov::intel_npu::compilation_mode_params.name()] = "enable-softmax-decomposition=true";
+    run(Platform::NPU6010);
+}
+
 INSTANTIATE_TEST_SUITE_P(precommit_DecomposeSoftmaxInSdpa, DecomposeSoftmaxInSdpaCommon,
                          ::testing::Values(DecomposeSoftmaxInSdpaParams{{1, 48, 1024, 4}, 4096, ov::element::f16}),
                          DecomposeSoftmaxInSdpaCommon::getTestCaseName);

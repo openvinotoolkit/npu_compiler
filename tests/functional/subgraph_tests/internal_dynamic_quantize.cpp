@@ -276,6 +276,12 @@ TEST_P(InternalDynamicQuantizeTestCommon, NPU5020_HW) {
     run(Platform::NPU5020);
 }
 
+TEST_P(InternalDynamicQuantizeTestCommon, NPU6010_HW) {
+    setDefaultHardwareMode();
+    setPluginCompilerType();
+    run(Platform::NPU6010);
+}
+
 TEST_P(UnsupportedInternalDynamicQuantizeTest, NPU4000) {
     setPluginCompilerType();
     runNegativeTest(Platform::NPU4000);

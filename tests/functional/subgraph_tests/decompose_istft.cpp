@@ -113,6 +113,11 @@ TEST_P(DecomposeISTFTTest, NPU5010_HW) {
     run(Platform::NPU5010);
 }
 
+TEST_P(DecomposeISTFTTest, NPU6010_HW) {
+    setDefaultHardwareMode();
+    run(Platform::NPU6010);
+}
+
 // {{signal}, {window}, frame_size, frame_step, signal_length, center, normalized}
 const std::vector<ISTFTParams> baseParams = {
         {{2, 3, 2}, {2}, 2, 1, 4, false, false},

@@ -5,7 +5,7 @@
 
 // RUN: vpux-translate --platform=%platform% --import-IE ./IR/mixed_precision_conv_nf4_wac.xml -o %t
 // RUN: FileCheck %s --input-file %t
-// REQUIRES: platform-NPU4000 || platform-NPU5010
+// REQUIRES: platform-NPU4000 || platform-NPU5010 || platform-NPU6010
 
 // Verifying that QuantileType const.Declare dense_resource is actually stored as u4 raw data
 

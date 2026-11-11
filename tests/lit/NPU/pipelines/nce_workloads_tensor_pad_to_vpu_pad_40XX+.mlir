@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --init-compiler="platform=%platform% compilation-mode=DefaultHW allow-custom-values=true" --cost-model-analysis-construct --nce-workloads="scf-tiling=true enable-print-statistics=false" --convert-tensor-pad-to-vpu-pad %s | FileCheck %s
-// REQUIRES: platform-NPU4000 || platform-NPU5010
+// REQUIRES: platform-NPU4000 || platform-NPU5010 || platform-NPU6010
 
 // Scheduling coverage for ConvertTensorPadToVPUPad in buildDefaultHWPipeline under scf-tiling.
 // A tensor.pad whose consumer is a SW op is not folded by RestorePadAttrAfterSCFTiling, so it

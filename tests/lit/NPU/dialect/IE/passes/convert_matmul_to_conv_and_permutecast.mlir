@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="platform=%platform%" --convert-matmul-to-conv %s | FileCheck %s
-// REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010
+// REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010 || platform-NPU6010
 
 // CHECK-LABEL: @Convert3dMatMulToConvAndPermutecast_transpose_b
 // CHECK-SAME:    ([[ARG_0:%[^:]+]]: tensor<64x100x64xf16>, [[ARG_1:%[^:]+]]: tensor<64x64xf16>)

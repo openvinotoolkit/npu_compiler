@@ -48,6 +48,8 @@ namespace {
 // to select which cluster to read from. The base pointer part of the SE pointers would do this.
 // Starting with NPU4, the base pointers no longer need to be configured differently for each cluster
 // as the DPU is only able to read from the local cluster, so they can be reset.
+// Starting with NPU6, it is necessary to reset the pointers when using the new invariant format,
+// as there is only one register remaining for configuring the address of the data in the cluster.
 
 bool resetBasePtrs(const vpux::config::ArchKind arch) {
     return arch >= config::ArchKind::NPU40XX;

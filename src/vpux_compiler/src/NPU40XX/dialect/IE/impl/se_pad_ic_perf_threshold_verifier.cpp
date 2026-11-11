@@ -31,7 +31,7 @@ bool SEPadICPerfThresholdVerifier::isBeneficialForPerformance(const Shape& newIn
         return false;
     }
 
-    // For 40XX SE Pad at the threshold boundary is beneficial only when the active tile count reaches the
+    // For 40XX and 60XX, SE Pad at the threshold boundary is beneficial only when the active tile count reaches the
     // platform-specific max-tile threshold (max DPU groups - 1).
     if (ic == SEP_PAD_IC_NUM_PERF_THRESHOLD) {
         auto module = op->getParentOfType<mlir::ModuleOp>();

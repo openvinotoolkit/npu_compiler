@@ -5,7 +5,7 @@
 
 
 // RUN: vpux-opt --split-input-file --init-compiler="platform=%platform% compilation-mode=DefaultHW weights-table-reuse-mode=VF_ENABLED" --vertical-fusion-outlining="vf-outlining-tile-threshold=1 vf-outlining-instance-threshold=1" %s | FileCheck %s
-// REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010
+// REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010 || platform-NPU6010
 
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 module @MultipleOpsInVF {

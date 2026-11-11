@@ -6,7 +6,7 @@
 // RUN: vpux-opt --split-input-file --init-compiler="platform=%platform%" --specialize-sw-kernels %s | FileCheck %s --check-prefixes=CHECK,UNIFORM
 // RUN: vpux-opt --split-input-file --init-compiler="platform=%platform%" --specialize-sw-kernels="heuristic=never" %s | FileCheck %s --check-prefixes=CHECK,UNIFORM
 // RUN: vpux-opt --split-input-file --init-compiler="platform=%platform%" --specialize-sw-kernels="heuristic=always" %s | FileCheck %s --check-prefixes=CHECK,ALWAYS
-// REQUIRES: platform-NPU4000 || platform-NPU5010
+// REQUIRES: platform-NPU4000 || platform-NPU5010 || platform-NPU6010
 
 // End-to-end specialization cases.
 

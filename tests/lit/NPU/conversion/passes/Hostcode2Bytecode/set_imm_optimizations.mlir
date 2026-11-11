@@ -9,7 +9,7 @@
 // RUN:   --convert-intermediate-bytecode-ops \
 // RUN:   --deduplicate-and-lower-imm-register-ops \
 // RUN:   %s | FileCheck %s
-// REQUIRES: platform-NPU4000 || platform-NPU5010
+// REQUIRES: platform-NPU4000 || platform-NPU5010 || platform-NPU6010
 
 module @demo attributes {config.compilationMode = #config.compilation_mode<HostCompile_Interpreter>} {
 

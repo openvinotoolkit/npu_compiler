@@ -106,6 +106,12 @@ TEST_P(DecomposeSTFTTest, NPU5010_HW) {
     run(Platform::NPU5010);
 }
 
+TEST_P(DecomposeSTFTTest, NPU6010_HW) {
+    abs_threshold = 0.02f;
+    setDefaultHardwareMode();
+    run(Platform::NPU6010);
+}
+
 const std::vector<STFTParams> stftTestParams = {
         {
                 {1024},           // signal: [1024] samples

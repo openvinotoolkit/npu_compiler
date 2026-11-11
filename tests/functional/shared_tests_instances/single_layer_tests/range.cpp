@@ -151,6 +151,16 @@ TEST_P(RangeLayerTestDynamic, NPU5020_HW) {
     VpuOv2LayerTest::run(Platform::NPU5020);
 }
 
+TEST_P(RangeLayerTestCommon, NPU6010_HW) {
+    VpuOv2LayerTest::setDefaultHardwareMode();
+    VpuOv2LayerTest::run(Platform::NPU6010);
+}
+
+TEST_P(RangeLayerTestDynamic, NPU6010_HW) {
+    VpuOv2LayerTest::setDefaultHardwareMode();
+    VpuOv2LayerTest::run(Platform::NPU6010);
+}
+
 }  // namespace test
 }  // namespace ov
 

@@ -222,6 +222,12 @@ TEST_P(InterpolateSAPStaticInputLayerTest, NPU5010_HC) {
     run(Platform::NPU5010);
 }
 
+TEST_P(InterpolateSAPStaticInputLayerTest, NPU6010_HW) {
+    abs_threshold = 0.0f;
+    setDefaultHardwareMode();
+    run(Platform::NPU6010);
+}
+
 // Subset of platforms for large-shape tests
 class InterpolateSAPStaticLargeShapeLayerTest : public InterpolateSAPStaticInputLayerTest {};
 
@@ -236,6 +242,12 @@ TEST_P(InterpolateSAPStaticLargeShapeLayerTest, NPU5010_HW) {
     abs_threshold = 0.0f;
     setDefaultHardwareMode();
     run(Platform::NPU5010);
+}
+
+TEST_P(InterpolateSAPStaticLargeShapeLayerTest, NPU6010_HW) {
+    abs_threshold = 0.0f;
+    setDefaultHardwareMode();
+    run(Platform::NPU6010);
 }
 
 // ===== Test parameters for InterpolateSAPStaticInputLayerTest =====
@@ -469,6 +481,12 @@ TEST_P(InterpolateSAPDynInputLayerTest, NPU5010_HC) {
     run(Platform::NPU5010);
 }
 
+TEST_P(InterpolateSAPDynInputLayerTest, NPU6010_HW) {
+    abs_threshold = 0.0f;
+    setDefaultHardwareMode();
+    run(Platform::NPU6010);
+}
+
 // Input data has bounded dynamic spatial dims; scales remain runtime parameters
 const std::vector<InputShape> interpDynamicInputShapes = {
         generateTestShape(1, 3, 50_Dyn, 50_Dyn),
@@ -513,6 +531,12 @@ TEST_P(InterpolateSAPDynNHWCLayerTest, NPU5010_HW) {
     abs_threshold = 0.02f;
     setDefaultHardwareMode();
     run(Platform::NPU5010);
+}
+
+TEST_P(InterpolateSAPDynNHWCLayerTest, NPU6010_HW) {
+    abs_threshold = 0.02f;
+    setDefaultHardwareMode();
+    run(Platform::NPU6010);
 }
 
 INSTANTIATE_TEST_SUITE_P(
@@ -594,6 +618,12 @@ TEST_P(InterpolateSAPStaticRealisticLayerTest, NPU5010_HW) {
     abs_threshold = 0.02f;
     setDefaultHardwareMode();
     run(Platform::NPU5010);
+}
+
+TEST_P(InterpolateSAPStaticRealisticLayerTest, NPU6010_HW) {
+    abs_threshold = 0.02f;
+    setDefaultHardwareMode();
+    run(Platform::NPU6010);
 }
 
 INSTANTIATE_TEST_SUITE_P(smoke_Interpolate_ScalesAsParam_Realistic, InterpolateSAPStaticRealisticLayerTest,

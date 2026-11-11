@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-translate --platform=%platform% --weights-separation-path=true --import-IE ./ws_unsqueeze.xml | FileCheck %s
-// REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010
+// REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010 || platform-NPU6010
 
 // This test checks that the following graph is correctly folded,
 // even in weights separation mode because Unsqueeze does not support non-constant axes:

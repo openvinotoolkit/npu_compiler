@@ -24,6 +24,7 @@ class InterpolateLayerTest_NPU3720 : public InterpolateLayerTestCommon {};
 class InterpolateLayerTest_NPU4000 : public InterpolateLayerTestCommon {};
 class InterpolateLayerTest_NPU5010 : public InterpolateLayerTestCommon {};
 class InterpolateLayerTest_NPU5020 : public InterpolateLayerTestCommon {};
+class InterpolateLayerTest_NPU6010 : public InterpolateLayerTestCommon {};
 
 class InterpolateSELayerTest_NPU3720 : public InterpolateLayerTestCommon {
     void configure_model() override {
@@ -64,6 +65,11 @@ TEST_P(InterpolateLayerTest_NPU5020, HW) {
     run(Platform::NPU5020);
 }
 
+TEST_P(InterpolateLayerTest_NPU6010, HW) {
+    setDefaultHardwareMode();
+    run(Platform::NPU6010);
+}
+
 TEST_P(InterpolateLayerTestCommon, NPU3720_HW) {
     setDefaultHardwareMode();
     run(Platform::NPU3720);
@@ -84,6 +90,11 @@ TEST_P(InterpolateLayerTestCommon, NPU5020_HW) {
     run(Platform::NPU5020);
 }
 
+TEST_P(InterpolateLayerTestCommon, NPU6010_HW) {
+    setDefaultHardwareMode();
+    run(Platform::NPU6010);
+}
+
 // SCF Tiling tests
 TEST_P(InterpolateLayerTest_SCFTiling, NPU5010_SW) {
     rel_threshold = 0.02;
@@ -95,6 +106,12 @@ TEST_P(InterpolateLayerTest_SCFTiling, NPU5020_SW) {
     rel_threshold = 0.02;
     setReferenceSoftwareMode();
     run(Platform::NPU5020);
+}
+
+TEST_P(InterpolateLayerTest_SCFTiling, NPU6010_SW) {
+    rel_threshold = 0.02;
+    setReferenceSoftwareMode();
+    run(Platform::NPU6010);
 }
 
 }  // namespace test
@@ -1050,6 +1067,8 @@ INSTANTIATE_TEST_SUITE_P(smoke_Interpolate_3axes_5D, InterpolateLayerTest_NPU400
                          InterpolateLayerTest_NPU4000::getTestCaseName);
 INSTANTIATE_TEST_SUITE_P(smoke_Interpolate_3axes_5D, InterpolateLayerTest_NPU5010, interpolate5D_3axes,
                          InterpolateLayerTest_NPU5010::getTestCaseName);
+INSTANTIATE_TEST_SUITE_P(smoke_Interpolate_3axes_5D, InterpolateLayerTest_NPU6010, interpolate5D_3axes,
+                         InterpolateLayerTest_NPU6010::getTestCaseName);
 
 // --------------------------------------------------
 // ------ Common NoTiling Interpolate Testing (all platforms) ------
@@ -1397,6 +1416,24 @@ auto interpolateScalesDivergenceParams =
 INSTANTIATE_TEST_SUITE_P(smoke_Interpolate_Scale_Accuracy_NonIntegerScale, InterpolateLayerTestCommon,
                          interpolateScalesDivergenceParams, InterpolateLayerTestCommon::getTestCaseName);
 
+INSTANTIATE_TEST_SUITE_P(smoke_Interpolate_Scale_Accuracy, InterpolateLayerTest_NPU6010,
+                         ::testing::Combine(bilinearInterpolateAccuracy(), ::testing::ValuesIn(modelTypes),
+                                            ::testing::ValuesIn(static_shapes_to_test_representation(
+                                                    interpolateAccuracyIssueInputShapes)),
+                                            ::testing::ValuesIn(interpolateEmptyTargetShapes),
+                                            ::testing::Values(test_utils::TARGET_DEVICE),
+                                            ::testing::Values(additional_config)),
+                         InterpolateLayerTest_NPU6010::getTestCaseName);
+
+INSTANTIATE_TEST_SUITE_P(smoke_Interpolate_Scale_OutputShape_Inference, InterpolateLayerTest_NPU6010,
+                         ::testing::Combine(bilinearInterpolateOutputShapeInference(), ::testing::ValuesIn(modelTypes),
+                                            ::testing::ValuesIn(static_shapes_to_test_representation(
+                                                    interpolateOutputShapeInferenceInputShapes)),
+                                            ::testing::ValuesIn(interpolateEmptyTargetShapes),
+                                            ::testing::Values(test_utils::TARGET_DEVICE),
+                                            ::testing::Values(additional_config)),
+                         InterpolateLayerTest_NPU6010::getTestCaseName);
+
 //
 // MapInterpolateOnDPU
 //
@@ -1641,6 +1678,21 @@ INSTANTIATE_TEST_SUITE_P(smoke_Interpolate_Tiling_NCHW_Downscale_axes12_tileH, I
                          interpolateLinearNCHWDownscaleAxes12TileH, InterpolateLayerTest_NPU4000::getTestCaseName);
 INSTANTIATE_TEST_SUITE_P(smoke_Interpolate_Tiling_NHWC_Downscale_axes12_tileW, InterpolateLayerTest_NPU4000,
                          interpolateLinearNHWCDownscaleAxes12TileW, InterpolateLayerTest_NPU4000::getTestCaseName);
+
+const std::vector<std::vector<ov::Shape>> inShapesSep = {
+        {{1, 16, 360, 64}},
+};
+const std::vector<ov::Shape> allScalesTargetShapesSep = {
+        {1, 16, 720, 128},
+};
+
+INSTANTIATE_TEST_SUITE_P(smoke_precommit_Interpolate_all_axes_sep, InterpolateLayerTest_NPU6010,
+                         ::testing::Combine(interpolateCasesAllAxes(allScales), ::testing::ValuesIn(modelTypes),
+                                            ::testing::ValuesIn(static_shapes_to_test_representation(inShapesSep)),
+                                            ::testing::ValuesIn(allScalesTargetShapesSep),
+                                            ::testing::Values(test_utils::TARGET_DEVICE),
+                                            ::testing::Values(additional_config)),
+                         InterpolateLayerTest_NPU6010::getTestCaseName);
 
 // ------ SCF Tiling Tests ------
 

@@ -199,6 +199,16 @@ TEST_P(SelfMultiHeadAttentionLayerTest, NPU5010_HW) {
     run(Platform::NPU5010);
 }
 
+TEST_P(CrossMultiHeadAttentionLayerTest, NPU6010_HW) {
+    abs_threshold = 0.01f;
+    run(Platform::NPU6010);
+}
+
+TEST_P(SelfMultiHeadAttentionLayerTest, NPU6010_HW) {
+    abs_threshold = 0.01f;
+    run(Platform::NPU6010);
+}
+
 //
 // MultiHeadAttentionLayerTest
 //

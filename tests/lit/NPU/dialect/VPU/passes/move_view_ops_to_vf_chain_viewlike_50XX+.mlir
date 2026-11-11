@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="platform=%platform% compilation-mode=DefaultHW" --move-view-ops-to-vf="workload-management-mode=FWLM_V1_PAGES" %s | FileCheck %s
-// REQUIRES: platform-NPU5010
+// REQUIRES: platform-NPU5010 || platform-NPU6010
 
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
@@ -97,7 +97,7 @@ func.func @MoveAttentionViewChain(
         -> tensor<32x1x96x1x1xf16, {order = #GNHWC}> {
         %inner = VPU.NCE.MatMul(%arg3, %arg4)
               rawFilterShape [32, 96, 1152, 1, 1]
-              {mpe_engine = #VPU.MPEEngine37XX<mode = <SCL>>,
+              {mpe_engine = #VPU.MPEEngine60XX<mode = <SCL>>,
                multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverGroup>,
                pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
                ppe = #VPU.PPEFp<mode = <NOOP>, clamp_low = -3.4028234663852886E+38 : f64,

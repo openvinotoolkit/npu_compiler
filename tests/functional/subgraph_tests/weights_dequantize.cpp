@@ -190,6 +190,11 @@ TEST_F(WeightsAsInputDequantizeSI8Matmul, NPU5010_TestKindSubgraph) {
     run(Platform::NPU5010);
 }
 
+TEST_F(WeightsAsInputDequantizeSI8Matmul, NPU6010_TestKindSubgraph) {
+    setDefaultHardwareMode();
+    run(Platform::NPU6010);
+}
+
 }  // namespace WeightsDequantizeDefinition
 
 // Sub-byte (u4/i4) weights dequantization via Convert -> Subtract(scalar ZP) -> Multiply(per-channel scale)
@@ -335,6 +340,11 @@ TEST_P(SubByteWeightsDequantize, NPU4000_HW) {
 TEST_P(SubByteWeightsDequantize, NPU5010_HW) {
     setDefaultHardwareMode();
     run(Platform::NPU5010);
+}
+
+TEST_P(SubByteWeightsDequantize, NPU6010_HW) {
+    setDefaultHardwareMode();
+    run(Platform::NPU6010);
 }
 
 // clang-format off

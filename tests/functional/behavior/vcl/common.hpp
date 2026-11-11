@@ -91,6 +91,7 @@ private:
 
         const std::vector<std::string> devices = [] {
             std::vector<std::string> d{"3720", "4000", "5010", "5020"};
+            d.push_back("6010");
             return d;
         }();
 

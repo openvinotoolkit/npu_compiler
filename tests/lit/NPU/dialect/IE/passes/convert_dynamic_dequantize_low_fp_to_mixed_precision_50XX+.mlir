@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="platform=%platform%" --convert-dq-raw-data-type-to-quantized --convert-const-dynamic-dequantize-to-dequantize --convert-to-mixed-precision="enable-float-in-quant-weights-mixed-mode=true" %s | FileCheck %s
-// REQUIRES: platform-NPU5010
+// REQUIRES: platform-NPU5010 || platform-NPU6010
 
 // Behavioural guard for the signedness of quant types rebuilt from low-FP storage types.
 //

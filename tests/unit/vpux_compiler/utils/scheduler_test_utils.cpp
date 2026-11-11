@@ -59,6 +59,10 @@ void printDebugIR(mlir::ModuleOp module, vpux::Logger log) {
 }
 
 VPU::MPEEngineAttr createMPEEngineAttr(mlir::MLIRContext* ctx, [[maybe_unused]] config::Platform platform) {
+    if (platform >= config::Platform::NPU6010) {
+        return VPU::MPEEngine60XXAttr::get(ctx, VPU::MPEEngine60XXModeAttr::get(ctx, VPU::MPEEngine60XXMode::SCL),
+                                           /*weightZp=*/nullptr, /*activationZp=*/nullptr);
+    }
     return VPU::MPEEngine37XXAttr::get(ctx, VPU::MPEEngine37XXModeAttr::get(ctx, VPU::MPEEngine37XXMode::SCL),
                                        /*weightZp=*/nullptr, /*activationZp=*/nullptr);
 }

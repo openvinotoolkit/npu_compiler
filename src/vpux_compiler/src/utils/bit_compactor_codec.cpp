@@ -19,6 +19,9 @@ vpux::BitCompactorCodec::BitCompactorCodec(config::ArchKind arch_kind) {
     case config::ArchKind::NPU50XX:
         arch_type_ = vpux::bitc::ArchType::NPU5;
         break;
+    case config::ArchKind::NPU60XX:
+        arch_type_ = vpux::bitc::ArchType::NPU6;
+        break;
     default:
         VPUX_THROW("Unsupported arck_kind provided to bitcompactor");
         break;

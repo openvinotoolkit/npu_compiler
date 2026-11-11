@@ -79,6 +79,12 @@ TEST_P(NonZeroLayerTestCommon, NPU5010_HW) {
     run(Platform::NPU5010);
 }
 
+TEST_P(NonZeroLayerTestCommon, NPU6010_HW) {
+    abs_threshold = 0.0f;
+    setDefaultHardwareMode();
+    run(Platform::NPU6010);
+}
+
 const std::vector<BoundedShape> inShapesDynamic = {generateTestShape(1, 768), generateTestShape(1, 300),
                                                    generateTestShape(1, 300, 32_Dyn)};
 

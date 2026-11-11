@@ -1004,7 +1004,7 @@ double getAnalyticalSpillingCostForDuplicated(vpux::NDTypeInterface tensorType,
 // the P DMA ports (segment i -> port i % P) and the wall-clock is the busiest port (ceil(N/P) worth
 // of segments). This deliberately does NOT credit tail-splitting: SplitDMAToBalanceLoad can split the
 // N % P leftover segments to reach a fully balanced sum/P, but that balance pass is exercised on
-// NPU5 (P=2), whose cost is computed by the VPUNN path (see modelSegmentedDMAPortCost in
+// NPU5/NPU6 (P=2), whose cost is computed by the VPUNN path (see modelSegmentedDMAPortCost in
 // cost_model_utils.cpp). Keeping this estimate conservative avoids over-crediting parallelism for the
 // arch handled here.
 double getAnalyticalSpillingCostForSegmented(vpux::NDTypeInterface tensorType,

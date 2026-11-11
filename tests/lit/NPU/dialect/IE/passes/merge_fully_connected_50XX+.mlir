@@ -6,7 +6,7 @@
 // RUN: vpux-opt --split-input-file --init-compiler="platform=%platform%" --merge-fully-connected="merge-unrolled-matmul-for-large-oc=true" %s | FileCheck %s --check-prefix=CHECK-ENABLED
 // RUN: vpux-opt --split-input-file --init-compiler="platform=%platform%" --merge-fully-connected="merge-unrolled-matmul-for-large-oc=false" %s | FileCheck %s --check-prefix=CHECK-DEFAULT
 // RUN: vpux-opt --split-input-file --init-compiler="platform=%platform% num-of-dpu-groups=1" --merge-fully-connected="merge-unrolled-matmul-for-large-oc=true" %s | FileCheck %s --check-prefix=CHECK-DEFAULT
-// REQUIRES: platform-NPU5010
+// REQUIRES: platform-NPU5010 || platform-NPU6010
 
 // This test exercises `merge-fully-connected` with `merge-unrolled-matmul-for-large-oc` explicitly enabled and disabled.
 // Each branch has OC = 8320 (> VPU_DIMENSION_LIMIT = 8192).

@@ -85,6 +85,16 @@ TEST_P(ConvertColorI420LayerTestCommon, NPU5020_SW) {
     run(Platform::NPU5020);
 }
 
+// NPU6010
+TEST_P(ConvertColorNV12LayerTestCommon, NPU6010_SW) {
+    setReferenceSoftwareMode();
+    run(Platform::NPU6010);
+}
+
+TEST_P(ConvertColorI420LayerTestCommon, NPU6010_SW) {
+    setReferenceSoftwareMode();
+    run(Platform::NPU6010);
+}
 }  // namespace test
 }  // namespace ov
 

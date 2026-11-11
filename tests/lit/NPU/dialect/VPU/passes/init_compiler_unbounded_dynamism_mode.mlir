@@ -8,7 +8,7 @@
 // RUN: vpux-opt --init-compiler="platform=%platform% unbounded-dynamism-mode=UPPER" %s | FileCheck --check-prefix=CHECK-UDM-UPPER %s
 // RUN: vpux-opt --init-compiler="platform=%platform% unbounded-dynamism-mode=LOWER_UPPER" %s | FileCheck --check-prefix=CHECK-UDM-LOWER-UPPER %s
 // RUN: vpux-opt --init-compiler="platform=%platform%" %s | FileCheck --check-prefix=CHECK-UDM-UNSET %s
-// REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010
+// REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010 || platform-NPU6010
 
 // CHECK-UDM-DISABLED: module @CheckUnboundedDynamismMode
 // CHECK-UDM-LOWER: module @CheckUnboundedDynamismMode

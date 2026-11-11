@@ -225,6 +225,16 @@ TEST_P(ConvWithSwishQuantizedTest, NPU5020_HW) {
     run(Platform::NPU5020);
 }
 
+TEST_P(ConvWithActivationQuantizedTest, NPU6010_HW) {
+    setDefaultHardwareMode();
+    run(Platform::NPU6010);
+}
+
+TEST_P(ConvWithSwishQuantizedTest, NPU6010_HW) {
+    setDefaultHardwareMode();
+    run(Platform::NPU6010);
+}
+
 const std::vector<utils::ActivationTypes> activations = {utils::Tanh, utils::Sigmoid, utils::Gelu, utils::Exp,
                                                          utils::HSwish};
 

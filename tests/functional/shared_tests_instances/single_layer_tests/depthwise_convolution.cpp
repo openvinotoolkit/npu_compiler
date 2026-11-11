@@ -53,6 +53,18 @@ TEST_P(DepthwiseConvolutionLayerTest_HW, NPU5020) {
     run(Platform::NPU5020);
 }
 
+TEST_P(DepthwiseConvolutionLayerTest_HW, NPU6010) {
+    rel_threshold = 0.01;
+    setDefaultHardwareMode();
+    run(Platform::NPU6010);
+}
+
+TEST_P(DepthwiseConvolutionSCFTilingLayerTest_HW, NPU6010) {
+    rel_threshold = 0.01;
+    setDefaultHardwareMode();
+    run(Platform::NPU6010);
+}
+
 }  // namespace test
 }  // namespace ov
 

@@ -25,6 +25,7 @@ add_npu_library(npu_compiler_dialect_vpuasm
         npu_elf
         # E#98178: remove dependency on firmware headers
         npu_40xx_firmware_headers
+        npu_60xx_firmware_headers
         npu_compiler_dialect_config
         npu_compiler_dialect_elfnpu37xx
         npu_compiler_dialect_net
@@ -35,3 +36,4 @@ add_npu_library(npu_compiler_dialect_vpuasm
         npu_core_utils
 )
 enable_lto_if_possible(npu_compiler_dialect_vpuasm)
+

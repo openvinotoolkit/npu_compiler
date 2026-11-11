@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt %s --split-input-file --init-compiler="platform=%platform%" --verify-diagnostics
-// REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010
+// REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010 || platform-NPU6010
 
 // expected-error@+1 {{'const.Rodata' op expects parent op 'const.Data'}}
 const.Rodata @weights dense_resource<blob> : tensor<2x2xf32>

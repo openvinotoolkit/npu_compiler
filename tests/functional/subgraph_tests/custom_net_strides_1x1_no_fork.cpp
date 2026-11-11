@@ -132,6 +132,13 @@ TEST_P(CustomNetStrides1x1NoForkTest, NPU5010_HC_TestKindSubgraph) {
     run(Platform::NPU5010);
 }
 
+TEST_P(CustomNetStrides1x1NoForkTest, NPU6010_HC_TestKindSubgraph) {
+    abs_threshold = 0.02f;
+    setHostCompileMode();
+    setPluginCompilerType();
+    run(Platform::NPU6010);
+}
+
 const std::vector<ov::test::InputShape> inShapes = {
         generateTestShape(1, 16, 1080, 1920),
         generateTestShape(std::vector<BoundedDim>{1, 16, 1080_Dyn, 1920_Dyn}, hostCompileSmallShapesLimitationCallback),

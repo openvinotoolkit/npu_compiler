@@ -368,7 +368,7 @@ class ConvWithSoftmaxTest : public DPUWithReduceTestBase {
 // Eltwise Add with an active reduce_xy_max output, exercising the inplace detection path.
 // One eltwise input is the single-use output of a Conv so the DetectInPlaceEltwise pass can
 // reuse that buffer. The three activation buffers (in1 + in2 + out) exceed the per-tile CMX
-// budget (~1951 KB), so the pass marks the op inplace. After the fix to
+// budget for NPU6010 (~1951 KB), so the pass marks the op inplace. After the fix to
 // fitIntoCMX, the reduce output buffer is included in the two-input CMX check, making the
 // estimate accurate. The two-buffer (inplace) footprint fits in CMX, allowing compilation.
 class EltwiseWithReduceMaxInplaceTest : public ConvWithReduceTestBase {
@@ -426,6 +426,42 @@ class EltwiseWithReduceMaxInplaceTest : public ConvWithReduceTestBase {
     }
 };
 
+TEST_P(MaxPoolWithReduceMaxTest, NPU6010_HW) {
+    setDefaultHardwareMode();
+    run(Platform::NPU6010);
+}
+
+TEST_P(MatMulWithReduceMaxTest, NPU6010_HW) {
+    setDefaultHardwareMode();
+    run(Platform::NPU6010);
+}
+
+TEST_P(ConvWithReduceMaxTest, NPU6010_HW) {
+    setDefaultHardwareMode();
+    run(Platform::NPU6010);
+}
+
+TEST_P(ConvWithReduceMinAndMaxTest, NPU6010_HW) {
+    setDefaultHardwareMode();
+    run(Platform::NPU6010);
+}
+
+TEST_P(ConvWithSoftmaxTest, NPU6010_HW) {
+    setDefaultHardwareMode();
+    configuration[ov::intel_npu::compilation_mode_params.name()] = "enable-softmax-decomposition=true";
+    run(Platform::NPU6010);
+}
+
+TEST_P(EltwiseWithReduceMaxInplaceTest, NPU6010_HW) {
+    setDefaultHardwareMode();
+    run(Platform::NPU6010);
+}
+
+TEST_P(DepthConvWithReduceMaxTest, NPU6010_HW) {
+    setDefaultHardwareMode();
+    run(Platform::NPU6010);
+}
+
 INSTANTIATE_TEST_SUITE_P(smoke_FuseReduceMaxInMaxPool, MaxPoolWithReduceMaxTest,
                          ::testing::ValuesIn({
                                  DpuReduceParams{{1, 16, 2, 16}, ov::element::f16, {1}, "channel axis reduction"},
@@ -462,6 +498,69 @@ INSTANTIATE_TEST_SUITE_P(DISABLED_smoke_FuseReduceMaxFromSoftmaxInConv, ConvWith
 INSTANTIATE_TEST_SUITE_P(smoke_FuseReduceMaxInDepthConv, DepthConvWithReduceMaxTest,
                          ::testing::ValuesIn({
                                  DpuReduceParams{{1, 16, 2, 16}, ov::element::f16, {1}, "channel axis reduction"},
+                         }),
+                         DPUWithReduceTestBase::getTestCaseName);
+
+// Tiling tests: shapes chosen so that activations + weights exceed the per-tile CMX budget
+// (~1.44 MB ), forcing the compiler to tile before executing.
+// These exercise the post-tile reduce-output reconstruction path via H-tiling:
+// partial reduce tiles have distinct H offsets and are combined with VPU.Concat.
+// C-axis tiling is explicitly forbidden for ops with active reduce outputs (tiling.cpp
+// removes C from the tile-dim order and getReducedDim() guards applyTileStrategy), so all
+// tiled cases here use H (or another non-reduced spatial axis).
+// TODO(E#207252): Add C-axis reconstruction via VPU.Concat + VPU.ReduceMax/Min once supported.
+
+// Conv + reduce_xy_max, H-tiling:
+// input(1×64×512×16)=1 MB + output=1 MB >> 1.44 MB CMX, small weights → compiler tiles on H.
+INSTANTIATE_TEST_SUITE_P(smoke_TiledReduceMaxInConvOnH, ConvWithReduceMaxTest,
+                         ::testing::ValuesIn({
+                                 DpuReduceParams{{1, 64, 512, 16}, ov::element::f16, {1}, "H-axis tiling"},
+                         }),
+                         DPUWithReduceTestBase::getTestCaseName);
+
+// Conv + reduce_xy_max, large-C shape with C-axis tiling forbidden:
+// weights(512×512×1×1)=512 KB + in(1×512×32×16 in f16)=512 KB + out=512 KB ≈ 1.52 MB > 1.44 MB CMX.
+// C-axis tiling is excluded for ops with active reduce outputs (getTileDimOrder in tiling.cpp
+// removes the C dim). The compiler falls back to H-tiling, verifying that the H-tile
+// reconstruction path produces correct reduce outputs.
+INSTANTIATE_TEST_SUITE_P(smoke_TiledReduceMaxInConvChannelTileForbidden, ConvWithReduceMaxTest,
+                         ::testing::ValuesIn({
+                                 DpuReduceParams{
+                                         {1, 512, 32, 16}, ov::element::f16, {1}, "H-tiling (C-axis forbidden)"},
+                         }),
+                         DPUWithReduceTestBase::getTestCaseName);
+
+// Conv + reduce_xy_max + reduce_xy_min, H-tiling: both reduce outputs reconstructed via Concat on H.
+INSTANTIATE_TEST_SUITE_P(smoke_TiledReduceMinMaxInConvOnH, ConvWithReduceMinAndMaxTest,
+                         ::testing::ValuesIn({
+                                 DpuReduceParams{{1, 64, 512, 16}, ov::element::f16, {1}, "H-axis tiling"},
+                         }),
+                         DPUWithReduceTestBase::getTestCaseName);
+
+// MaxPool + reduce_xy_max, tiling forced:
+// input(1×512×32×32)=1 MB + output=1 MB > 1.44 MB CMX → compiler tiles on H.
+INSTANTIATE_TEST_SUITE_P(smoke_TiledReduceMaxInMaxPool, MaxPoolWithReduceMaxTest,
+                         ::testing::ValuesIn({
+                                 DpuReduceParams{{1, 512, 32, 32}, ov::element::f16, {1}, "tiled"},
+                         }),
+                         DPUWithReduceTestBase::getTestCaseName);
+
+// Eltwise + reduce_xy_max, inplace triggered:
+// Each of the three activation buffers is 64*100*64*2 = 800 KB; three buffers
+// (2400 KB) exceed the NPU6010 per-tile CMX workspace (1951 KB), so DetectInPlaceEltwise
+// marks the op inplace. With the fix, the reduce output is included in the two-input
+// fitIntoCMX check; two buffers + tiny reduce (800 KB * 2 + ~13 KB < 1951 KB) still fit.
+INSTANTIATE_TEST_SUITE_P(smoke_InplaceEltwiseWithReduceMax, EltwiseWithReduceMaxInplaceTest,
+                         ::testing::ValuesIn({
+                                 DpuReduceParams{{1, 64, 100, 64}, ov::element::f16, {1}, "inplace with reduce_xy_max"},
+                         }),
+                         DPUWithReduceTestBase::getTestCaseName);
+
+// DepthConv + reduce_xy_max, H-tiling:
+// input(1×64×512×16)=1 MB + output=1 MB >> 1.44 MB CMX, small weights → compiler tiles on H.
+INSTANTIATE_TEST_SUITE_P(smoke_TiledReduceMaxInDepthConvOnH, DepthConvWithReduceMaxTest,
+                         ::testing::ValuesIn({
+                                 DpuReduceParams{{1, 64, 512, 16}, ov::element::f16, {1}, "H-axis tiling"},
                          }),
                          DPUWithReduceTestBase::getTestCaseName);
 

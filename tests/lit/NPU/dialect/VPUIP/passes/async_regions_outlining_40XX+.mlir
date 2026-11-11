@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="platform=%platform%" --async-regions-outlining="async-region-outlining-min-ops-in-block=2" %s | FileCheck %s
-// REQUIRES: platform-NPU4000 || platform-NPU5010
+// REQUIRES: platform-NPU4000 || platform-NPU5010 || platform-NPU6010
 
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 !DistributedBufferType0 = !VPUIP.DistributedBuffer<1x32x256x256xf16, #NHWC, @CMX_NN, {mode = "OVERLAPPED", num_tiles = [1, 1, 4, 1], num_clusters = 4 : i64, uniform_distributed_segments, compute_shapes = [[1, 32, 64, 256], [1, 32, 64, 256], [1, 32, 64, 256], [1, 32, 64, 256]], compute_offsets = [[0, 0, 0, 0], [0, 0, 64, 0], [0, 0, 128, 0], [0, 0, 192, 0]], memory_shapes = [[1, 32, 65, 256], [1, 32, 66, 256], [1, 32, 66, 256], [1, 32, 65, 256]], memory_offsets = [[0, 0, 0, 0], [0, 0, 63, 0], [0, 0, 127, 0], [0, 0, 191, 0]]}>

@@ -42,6 +42,11 @@ FrequenciesSetup getFreqSetupForDevice(TargetDevice device, uint16_t pllMult, Fr
         pllMultMax = 78;
         pllMultDefault = 74;  // 1057 / 1850 MHz
         break;
+    case TargetDevice::TargetDevice_VPUX60XX:
+        pllMultMin = 43;
+        pllMultMax = 101;
+        pllMultDefault = 84;  // 1200 / 2100 MHz
+        break;
     default:
         VPUX_THROW("TargetDevice {0} is not supported ", EnumNameTargetDevice(device));
     }

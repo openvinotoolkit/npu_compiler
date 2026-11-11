@@ -99,6 +99,11 @@ TEST_P(ConvertSelectToEltwiseTestCommon, NPU5020_HW) {
     run(Platform::NPU5020);
 }
 
+TEST_P(ConvertSelectToEltwiseTestCommon, NPU6010_HW) {
+    setDefaultHardwareMode();
+    run(Platform::NPU6010);
+}
+
 const std::vector<ConvertSelectToEltwiseParams> testValues = {
         {{1, 64, 5, 1}, {1, 1, 5, 5}, {1, 64, 5, 5}},
         {{64, 4, 256, 1}, {1, 1, 256, 256}, {64, 4, 256, 256}},

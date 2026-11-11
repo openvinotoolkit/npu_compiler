@@ -8,7 +8,7 @@
 // RUN: vpux-opt --split-input-file --init-compiler=platform=%platform% --construct-ws-analysis --introduce-init-function="ws-extraction-mode=gen-init memory-limit=0 init-part=0" --concat-init-results="ws-extraction-mode=gen-init memory-limit=0 init-part=0" %s | FileCheck --check-prefix=CHECK-INIT-PART0 %s
 // RUN: vpux-opt --split-input-file --init-compiler=platform=%platform% --construct-ws-analysis --introduce-init-function="ws-extraction-mode=gen-init memory-limit=0 init-part=1" --concat-init-results="ws-extraction-mode=gen-init memory-limit=0 init-part=1" %s | FileCheck --check-prefix=CHECK-INIT-PART1 %s
 // RUN: vpux-opt --split-input-file --init-compiler=platform=%platform% --construct-ws-analysis --introduce-init-function="ws-extraction-mode=gen-main memory-limit=0" --concat-init-results="ws-extraction-mode=gen-main memory-limit=0" %s | FileCheck --check-prefix=CHECK-MAIN-PARTS %s
-// REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010
+// REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010 || platform-NPU6010
 
 {-#
     dialect_resources: {

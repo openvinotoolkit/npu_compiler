@@ -204,6 +204,12 @@ TEST_P(FuseRMSTestCommon, NPU5020_HW) {
     run(Platform::NPU5020);
 }
 
+TEST_P(FuseRMSTestCommon, DISABLED_NPU6010_HW) {
+    setDefaultHardwareMode();
+    setBatchCompilerMode("unroll");
+    run(Platform::NPU6010);
+}
+
 namespace {
 const std::vector<ov::element::Type> input_precisions = {ov::element::f32};
 const std::vector<TestEpsMode> eps_mode_options = {

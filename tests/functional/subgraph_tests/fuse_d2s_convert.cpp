@@ -73,6 +73,11 @@ TEST_P(FuseD2sConvertCommon, NPU5020_HW) {
     run(Platform::NPU5020);
 }
 
+TEST_P(FuseD2sConvertCommon, NPU6010_HW) {
+    setDefaultHardwareMode();
+    run(Platform::NPU6010);
+}
+
 }  // namespace ov::test::subgraph
 
 using namespace ov::test::subgraph;

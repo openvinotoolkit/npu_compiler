@@ -59,4 +59,9 @@ TEST_F(GatherRepeatInterleaveTest, NPU5010_TestKindSubgraph) {
     run(Platform::NPU5010);
 }
 
+TEST_F(GatherRepeatInterleaveTest, NPU6010_TestKindSubgraph) {
+    setDefaultHardwareMode();
+    run(Platform::NPU6010);
+}
+
 }  // namespace ov::test

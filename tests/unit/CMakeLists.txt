@@ -13,6 +13,7 @@ include(${PROJECT_SOURCE_DIR}/cmake/bytecode/embed_bytecode_artifacts_header.cma
 set(MANDATORY_UNIT_TESTS_LIBS
     "npu_37xx_firmware_headers"
     "npu_40xx_firmware_headers"
+    "npu_60xx_firmware_headers"
     "npu_elf"
     "openvino::commonTestUtils"
     "openvino::gmock"

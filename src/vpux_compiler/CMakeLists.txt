@@ -17,6 +17,7 @@ set(gen_base_dst_include_dir "src/vpux_compiler/include/vpux/compiler")
 # These headers are needed by Unit tests
 add_subdirectory(include/vpux/compiler/NPU37XX/dialect/NPUReg37XX/firmware_headers)
 add_subdirectory(include/vpux/compiler/NPU40XX/dialect/NPUReg40XX/firmware_headers)
+add_subdirectory(include/vpux/compiler/NPU60XX/dialect/NPUReg60XX/firmware_headers)
 
 #
 # STATIC target

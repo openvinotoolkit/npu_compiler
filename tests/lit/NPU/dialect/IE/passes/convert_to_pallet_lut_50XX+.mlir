@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="platform=%platform%" --convert-to-pallet-lut --canonicalize %s | FileCheck %s
-// REQUIRES: platform-NPU5010
+// REQUIRES: platform-NPU5010 || platform-NPU6010
 
 !actType = !quant.uniform<f8E5M2:f16, 1.0>
 !wgtType = !quant.uniform<u4:f16, 2.0:0>

@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="platform=%platform%" --eltwise-fake-quantize-fusion %s | FileCheck %s
-// REQUIRES: platform-NPU5010
+// REQUIRES: platform-NPU5010 || platform-NPU6010
 
 // CHECK-LABEL: @AddFakeQuantizeFusionPerTensorFQRhs
 // CHECK-SAME:    [[INPUT:%.+]]: tensor<1x12x512x1xf32>

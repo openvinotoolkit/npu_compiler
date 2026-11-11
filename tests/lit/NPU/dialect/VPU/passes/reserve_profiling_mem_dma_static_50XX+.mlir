@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --init-compiler="platform=%platform% allow-custom-values=true" --reserve-profiling-mem="dma-profiling=static" %s | FileCheck %s
-// REQUIRES: platform-NPU5010
+// REQUIRES: platform-NPU5010 || platform-NPU6010
 
 module @SimpleGraph {
   net.NetworkInfo entryPoint : @main inputsInfo : {

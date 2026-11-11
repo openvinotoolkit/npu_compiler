@@ -5,7 +5,7 @@
 
 
 // RUN: vpux-opt --init-compiler="platform=%platform%" --convert-VPUASM-to-NPUReg40XX --create-elf-relocations %s | FileCheck %s
-// REQUIRES: dev-build && (platform-NPU4000 || platform-NPU5010)
+// REQUIRES: dev-build && (platform-NPU4000 || platform-NPU5010 || platform-NPU6010)
 
 module @Model20 {
   net.NetworkInfo entryPoint : @main inputsInfo : {

@@ -300,6 +300,20 @@ mlir::LogicalResult QuantizeWithNCEOp<ConcreteOp>::matchAndRewrite(ConcreteOp or
         return matchFailed(_log, rewriter, origOp, "OrigOp doesn't support mixed precision");
     }
 
+    const auto arch = config::getArch(origOp);
+    if (arch == config::ArchKind::NPU60XX && config::getRevisionID(origOp) >= config::RevisionID::REVISION_A0 &&
+        config::getRevisionID(origOp) < config::RevisionID::REVISION_B) {
+        const auto outType = mlir::cast<vpux::NDTypeInterface>(origOp.getOutput().getType());
+        const auto qType = mlir::dyn_cast<mlir::quant::QuantizedType>(outType.getElementType());
+        const bool hasNonZero16BitWithZeroPoint = qType != nullptr && qType.getStorageTypeIntegralWidth() == 16 &&
+                                                  !IE::areAllQuantTypeZeroPointsEqualToZero(qType);
+        // For NPU6, revision < B it is needed to mitigate the HW erratum related to PPE limitation of representing zero
+        // point in 16 bits. Details available on E-#182547
+        if (hasNonZero16BitWithZeroPoint && isInput16BitsQuantized) {
+            return matchFailed(_log, rewriter, origOp, "OrigOp's output is asymmetric 16bits quantize");
+        }
+    }
+
     SmallVector<mlir::Operation*> convToQuantizeOps;
     // Walk through FakeQuantize-agnostic ops and find quantize or quantized NCE task
     if (auto result = findQuantizeOrQuantizedNCE(origOp, rewriter, getInputVal(), convToQuantizeOps, _log);

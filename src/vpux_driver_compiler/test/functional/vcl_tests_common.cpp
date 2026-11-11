@@ -174,10 +174,9 @@ void VCLTestsCommon::postProcessNetOptions(const std::string& device) {
 
 vcl_device_desc_t VCLTestsCommon::getDeviceDesc() const {
     static const std::unordered_map<std::string, vcl_device_desc_t> deviceDescs = {
-            {"3720", {sizeof(vcl_device_desc_t), 0x7D1D, 3, 2}},
-            {"4000", {sizeof(vcl_device_desc_t), 0x643E, 3, 6}},
-            {"5010", {sizeof(vcl_device_desc_t), 0xB03E, 3, 3}},
-            {"5020", {sizeof(vcl_device_desc_t), 0xFD3E, 3, 1}},
+            {"3720", {sizeof(vcl_device_desc_t), 0x7D1D, 3, 2}}, {"4000", {sizeof(vcl_device_desc_t), 0x643E, 3, 6}},
+            {"5010", {sizeof(vcl_device_desc_t), 0xB03E, 3, 3}}, {"5020", {sizeof(vcl_device_desc_t), 0xFD3E, 3, 1}},
+            {"6010", {sizeof(vcl_device_desc_t), 0xD71D, 3, 4}},
     };
     const auto& netInfo = std::get<0>(GetParam());
     const auto& device = netInfo.at("device");

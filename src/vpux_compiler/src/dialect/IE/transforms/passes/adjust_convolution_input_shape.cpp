@@ -586,8 +586,7 @@ mlir::LogicalResult ReshapeConvInput<ConcreteOp>::matchAndRewrite(ConcreteOp con
                 if (IE::isPureViewOp(user) || mlir::isa<IE::AddOp>(user)) {
                     return true;
                 }
-                (void)arch;
-                return false;
+                return arch == vpux::config::ArchKind::NPU60XX && mlir::isa<IE::ExpandOp, IE::SliceOp>(user);
             };
 
             llvm::SmallPtrSet<mlir::Operation*, 16> visited;

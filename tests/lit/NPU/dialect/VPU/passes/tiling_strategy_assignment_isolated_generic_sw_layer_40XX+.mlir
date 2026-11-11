@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="platform=%platform% allow-custom-values=true" --tiling-strategy-assignment="tiling-mode=ISOLATED" %s | FileCheck %s
-// REQUIRES: platform-NPU4000 || platform-NPU5010
+// REQUIRES: platform-NPU4000 || platform-NPU5010 || platform-NPU6010
 
 // CHECK: module @IsolatedGenericSwLayerNCHW
 // CHECK: func.func @main([[ARG0:%.+]]: tensor<1x8x80x960xf16>, [[ARG1:%.+]]: tensor<1x8x1x1xf16>)

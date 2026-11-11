@@ -66,6 +66,12 @@ TEST_P(DftLayerTestCommon, NPU5020) {
     run(Platform::NPU5020);
 }
 
+TEST_P(DftLayerTestCommon, NPU6010) {
+    abs_threshold = 0.2;
+    setDefaultHardwareMode();
+    run(Platform::NPU6010);
+}
+
 }  // namespace test
 }  // namespace ov
 

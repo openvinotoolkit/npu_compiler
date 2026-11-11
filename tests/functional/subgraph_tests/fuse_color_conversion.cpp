@@ -416,6 +416,11 @@ TEST_P(FuseColorConversionTestCommon, NPU5020_HW) {
     run(Platform::NPU5020);
 }
 
+TEST_P(FuseColorConversionTestCommon, NPU6010_HW) {
+    setDefaultHardwareMode();
+    run(Platform::NPU6010);
+}
+
 namespace {
 
 static const std::vector<ColorConversionParams> precommit_testValues = {

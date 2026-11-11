@@ -169,6 +169,12 @@ TEST_P(DynamicTensorIteratorNPUTest, NPU5020_HW_TestKindSubgraph) {
     run(Platform::NPU5020);
 }
 
+// TODO: E#166634 - Enable dynamic shapes support for NPU6
+TEST_P(DynamicTensorIteratorNPUTest, DISABLED_NPU6010_HW_TestKindSubgraph) {
+    setDefaultHardwareMode();
+    run(Platform::NPU6010);
+}
+
 std::vector<InputShape> input_shapes = {
         InputShape(ov::PartialShape({1, ov::Dimension(1, 35), 512}), {{1, 30, 512}, {1, 10, 512}, {1, 5, 512}})};
 

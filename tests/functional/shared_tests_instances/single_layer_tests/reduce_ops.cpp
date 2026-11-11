@@ -223,6 +223,27 @@ TEST_P(ReduceLayerTest_SCFTiling_HW_FP16, NPU5020) {
     VpuOv2LayerTest::run(Platform::NPU5020);
 }
 
+TEST_P(ReduceLayerTest_SW_FP16, NPU6010) {
+    VpuOv2LayerTest::setReferenceSoftwareMode();
+    VpuOv2LayerTest::run(Platform::NPU6010);
+}
+
+TEST_P(ShaveCodeGenReduceLayerTest_FP16, NPU6010) {
+    VpuOv2LayerTest::setPluginCompilerType();
+    VpuOv2LayerTest::setReferenceSoftwareMode();
+    VpuOv2LayerTest::run(Platform::NPU6010);
+}
+
+TEST_P(ReduceLayerTest_SCFTiling_HW_Reduce_FP16, NPU6010) {
+    VpuOv2LayerTest::setDefaultHardwareMode();
+    VpuOv2LayerTest::run(Platform::NPU6010);
+}
+
+TEST_P(ReduceLayerTest_SCFTiling_HW_FP16, NPU6010) {
+    VpuOv2LayerTest::setDefaultHardwareMode();
+    VpuOv2LayerTest::run(Platform::NPU6010);
+}
+
 /// FP32 HW
 TEST_P(ReduceLayerTest_FP32, NPU3720_HW) {
     VpuOv2LayerTest::setDefaultHardwareMode();
@@ -262,6 +283,17 @@ TEST_P(ShaveCodeGenReduceLayerTest_FP32, NPU5020) {
     VpuOv2LayerTest::run(Platform::NPU5020);
 }
 
+TEST_P(ReduceLayerTest_FP32, NPU6010_HW) {
+    VpuOv2LayerTest::setDefaultHardwareMode();
+    VpuOv2LayerTest::run(Platform::NPU6010);
+}
+
+TEST_P(ShaveCodeGenReduceLayerTest_FP32, NPU6010) {
+    VpuOv2LayerTest::setPluginCompilerType();
+    VpuOv2LayerTest::setReferenceSoftwareMode();
+    VpuOv2LayerTest::run(Platform::NPU6010);
+}
+
 /// FP32 SW
 TEST_P(ReduceLayerTest_FP32, NPU3720_SW) {
     VpuOv2LayerTest::setReferenceSoftwareMode();
@@ -281,6 +313,11 @@ TEST_P(ReduceLayerTest_FP32, NPU5010_SW) {
 TEST_P(ReduceLayerTest_FP32, NPU5020_SW) {
     VpuOv2LayerTest::setReferenceSoftwareMode();
     VpuOv2LayerTest::run(Platform::NPU5020);
+}
+
+TEST_P(ReduceLayerTest_FP32, NPU6010_SW) {
+    VpuOv2LayerTest::setReferenceSoftwareMode();
+    VpuOv2LayerTest::run(Platform::NPU6010);
 }
 
 }  // namespace test

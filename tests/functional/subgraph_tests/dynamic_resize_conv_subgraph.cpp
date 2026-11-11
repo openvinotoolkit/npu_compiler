@@ -210,6 +210,13 @@ TEST_P(DynamicResizeConvSubgraphTest_TileAgnostic, NPU5010_HC_TestKindSubgraph) 
     run(Platform::NPU5010);
 }
 
+TEST_P(DynamicResizeConvSubgraphTest_TileAgnostic, NPU6010_HC_TestKindSubgraph) {
+    abs_threshold = 0.08f;
+    setHostCompileMode("HostCompile_Interpreter");
+    setPluginCompilerType();
+    run(Platform::NPU6010);
+}
+
 class DynamicResizeConvSubgraphTest_Interpreter : public DynamicResizeConvSubgraphTest {};
 
 TEST_P(DynamicResizeConvSubgraphTest_Interpreter, NPU4000_HC_TestKindSubgraph) {
@@ -225,6 +232,13 @@ TEST_P(DynamicResizeConvSubgraphTest_Interpreter, NPU5010_HC_TestKindSubgraph) {
     setHostCompileMode("HostCompile_Interpreter");
     setPluginCompilerType();
     run(Platform::NPU5010);
+}
+
+TEST_P(DynamicResizeConvSubgraphTest_Interpreter, NPU6010_HC_TestKindSubgraph) {
+    abs_threshold = 0.08f;
+    setHostCompileMode("HostCompile_Interpreter");
+    setPluginCompilerType();
+    run(Platform::NPU6010);
 }
 
 const std::vector<ov::element::Type> modelTypes = {ov::element::f16};

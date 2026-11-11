@@ -69,6 +69,7 @@ mlir::LogicalResult SetTargetIndependentPassOptionsPass::initialize(mlir::MLIRCo
     // It will be done as a part of E-149049, so this will be removed from common part
     _optionSet.push_back({config::SPRLUT_ENABLED, getAttributeFromOption(context, enableSprLUT)});
     _optionSet.push_back({config::POWER_OPTIMIZED, getAttributeFromOption(context, powerOptimized)});
+    _optionSet.push_back({config::ENABLE_DCIM, getAttributeFromOption(context, enableDCIM)});
 
     _optionSet.push_back({config::SOFTMAX_MASK_AWARE, getAttributeFromOption(context, enableSoftmaxMaskAware)});
     // Convert f64 to f32 for SOFTMAX_MASK_AWARE_THRESHOLD to satisfy config.Option verifier constraint
@@ -103,6 +104,9 @@ void SetTargetIndependentPassOptionsPass::safeRunOnModule() {
         if (auto platformAttr = moduleOp->getAttrOfType<config::PlatformAttr>(config::PlatformAttr::name)) {
             const auto platform = platformAttr.getValue();
             if (platform == config::Platform::NPU5010) {
+                defaultAlignment = 8;
+            }
+            if (platform == config::Platform::NPU6010) {
                 defaultAlignment = 8;
             }
         }

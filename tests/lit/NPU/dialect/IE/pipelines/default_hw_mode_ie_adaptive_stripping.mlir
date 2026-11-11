@@ -13,7 +13,7 @@
 
 // XFAIL: *
 // RUN: vpux-opt --platform=%platform% --default-hw-mode-ie="enable-adaptive-stripping" %s | FileCheck %s
-// REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010
+// REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010 || platform-NPU6010
 
 /// This is a dummy module with a dummy function to run the LIT test and expect a fail with
 /// enable-adaptive-stripping passed through default-hw-mode

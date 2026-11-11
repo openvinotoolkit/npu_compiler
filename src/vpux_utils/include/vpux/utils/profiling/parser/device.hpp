@@ -15,6 +15,7 @@ enum TargetDevice {
     TargetDevice_VPUX311X = 3,
     TargetDevice_VPUX40XX = 4,
     TargetDevice_VPUX50XX = 5,
+    TargetDevice_VPUX60XX = 6,
     TargetDevice_MAX
 };
 

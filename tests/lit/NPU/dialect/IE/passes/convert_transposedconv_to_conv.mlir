@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="platform=%platform% allow-custom-values=true" --convert-transposed-conv-to-conv %s | FileCheck %s
-// REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010
+// REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010 || platform-NPU6010
 
 // CHECK-LABEL: @ConvertTransposedConv2DToConv2D
 func.func @ConvertTransposedConv2DToConv2D(%input: tensor<1x32x23x30xf16>) -> tensor<1x16x46x60xf16> {

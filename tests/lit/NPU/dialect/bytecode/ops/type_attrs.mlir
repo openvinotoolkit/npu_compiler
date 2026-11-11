@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="platform=%platform%" %s | FileCheck %s
-// REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010
+// REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010 || platform-NPU6010
 
 // CHECK: bytecode.type @i64 #bytecode.integer_type<width = 64, is_signed = true>
 // CHECK: bytecode.type @i32 #bytecode.integer_type<width = 32, is_signed = true>

@@ -101,6 +101,16 @@ TEST_P(IfTestCommon, HW_NPU5010) {
     run(Platform::NPU5010);
 }
 
+TEST_P(IfTestCommon, SW_NPU6010) {
+    setReferenceSoftwareMode();
+    run(Platform::NPU6010);
+}
+
+TEST_P(IfTestCommon, HW_NPU6010) {
+    setDefaultHardwareMode();
+    run(Platform::NPU6010);
+}
+
 const TypeVector inType = {
         element::f16,
 };

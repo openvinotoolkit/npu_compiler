@@ -101,6 +101,13 @@ public:
 // Platform test definition
 //
 
+TEST_P(LegacyWTDepthwiseConvTest, NPU6010_HW) {
+    rel_threshold = 0.1;
+    configuration["NPU_COMPILATION_MODE_PARAMS"] = "enable-asymmetric-per-channel-zp=true";
+    setDefaultHardwareMode();
+    run(Platform::NPU6010);
+}
+
 // clang-format off
 // Per-channel case -> zero points will be put on 4 MS bits of DATA_PTR. ZP must be in range 0 - 15 (uint4). Otherwise dequantization will happen in SplitFakeQuantPass pass.
 const auto basicCasesM = ::testing::Combine(

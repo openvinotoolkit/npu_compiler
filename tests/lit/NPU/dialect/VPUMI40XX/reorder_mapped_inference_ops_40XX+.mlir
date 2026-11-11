@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="platform=%platform% allow-custom-values=true" --reorder-mapped-inference-ops %s | FileCheck %s
-// REQUIRES: platform-NPU4000 || platform-NPU5010
+// REQUIRES: platform-NPU4000 || platform-NPU5010 || platform-NPU6010
 
 module @test attributes {config.compilationMode = #config.compilation_mode<DefaultHW>} {
   config.Resources {activity_factor = 0.092296911622323521 : f64} 4 of @NCE at 1.700000e+03 MHz {

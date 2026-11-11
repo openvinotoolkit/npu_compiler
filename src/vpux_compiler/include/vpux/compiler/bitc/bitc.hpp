@@ -10,10 +10,12 @@
 namespace vpux::bitc {
 // clang-format off
 enum class ArchType : uint32_t { UNKNOWN, NPU27, NPU4, NPU5
+    , NPU6
 };
 
 struct BitCompactorConfig {
     ArchType arch_type{ArchType::UNKNOWN};
+    //NPU5 and NPU6 only
     bool sparse_mode_enable{false};
     bool weight_compress_enable{true};
     bool bypass_compression{false};

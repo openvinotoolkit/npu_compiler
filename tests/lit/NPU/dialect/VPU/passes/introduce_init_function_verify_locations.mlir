@@ -8,7 +8,7 @@
 // RUN: vpux-opt --split-input-file --init-compiler="platform=%platform%" --construct-ws-analysis --introduce-init-function="ws-extraction-mode=gen-init" --concat-init-results="ws-extraction-mode=gen-init" --mlir-print-debuginfo %s | FileCheck --check-prefix=CHECK-INIT-CONCAT %s
 // RUN: vpux-opt --split-input-file --init-compiler="platform=%platform%" --construct-ws-analysis --introduce-init-function="ws-extraction-mode=gen-main" --concat-init-results="ws-extraction-mode=gen-main" --mlir-print-debuginfo %s | FileCheck --check-prefix=CHECK-MAIN-CONCAT %s
 
-// REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010
+// REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010 || platform-NPU6010
 
 
 {-#

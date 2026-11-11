@@ -57,6 +57,18 @@ TEST_P(LSTMCellLayerTestCommon, NPU5020_HW) {
     run(Platform::NPU5020);
 }
 
+TEST_P(LSTMCellLayerTestCommon, NPU6010_HW) {
+    rel_threshold = 0.06;
+    setDefaultHardwareMode();
+    run(Platform::NPU6010);
+}
+
+TEST_P(LSTM_SCFTilingLayerTest, NPU6010_HW) {
+    rel_threshold = 0.06;
+    setDefaultHardwareMode();
+    run(Platform::NPU6010);
+}
+
 }  // namespace test
 }  // namespace ov
 

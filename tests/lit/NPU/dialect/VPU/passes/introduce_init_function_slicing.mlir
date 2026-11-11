@@ -5,7 +5,7 @@
 
 // RUN: vpux-opt --split-input-file --init-compiler="platform=%platform% allow-custom-values=true" --construct-ws-analysis --introduce-init-function="ws-extraction-mode=gen-init init-part=0 memory-limit=1000" --verify-diagnostics %s | FileCheck --check-prefix=CHECK-BIG-LIMIT %s
 // RUN: vpux-opt --split-input-file --init-compiler="platform=%platform% allow-custom-values=true" --construct-ws-analysis --introduce-init-function="ws-extraction-mode=gen-init init-part=0 memory-limit=4" --verify-diagnostics %s | FileCheck --check-prefix=CHECK-SMALL-LIMIT %s
-// REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010
+// REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010 || platform-NPU6010
 
 // Note: these tests verify init schedule slicing. They are not supposed to test
 // everything but rather test the bare minimum, focusing on the slicing logic.

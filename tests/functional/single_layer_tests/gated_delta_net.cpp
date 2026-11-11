@@ -84,6 +84,11 @@ TEST_P(GatedDeltaNetLayerTest, NPU5010_HW) {
     run(Platform::NPU5010);
 }
 
+TEST_P(GatedDeltaNetLayerTest, NPU6010_HW) {
+    setDefaultHardwareMode();
+    run(Platform::NPU6010);
+}
+
 INSTANTIATE_TEST_SUITE_P(smoke_GatedDeltaNet, GatedDeltaNetLayerTest,
                          ::testing::Values(GatedDeltaNetParams{Batch{1}, SeqLen{8}, QkHeads{2}, VHeads{2},
                                                                QkHeadSize{16}, VHeadSize{16}, Fuse{false}},
@@ -200,6 +205,11 @@ class GatedDeltaNetDynamicLayerTest :
 TEST_P(GatedDeltaNetDynamicLayerTest, NPU5010_HW) {
     setDefaultHardwareMode();
     run(Platform::NPU5010);
+}
+
+TEST_P(GatedDeltaNetDynamicLayerTest, NPU6010_HW) {
+    setDefaultHardwareMode();
+    run(Platform::NPU6010);
 }
 
 INSTANTIATE_TEST_SUITE_P(smoke_GatedDeltaNetDynamic, GatedDeltaNetDynamicLayerTest,

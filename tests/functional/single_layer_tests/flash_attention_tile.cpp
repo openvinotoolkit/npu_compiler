@@ -384,6 +384,12 @@ TEST_P(FlashAttentionTileMHALayerTest, NPU5010_HW) {
     run(Platform::NPU5010);
 }
 
+TEST_P(FlashAttentionTileMHALayerTest, NPU6010_HW) {
+    abs_threshold = 0.001;
+    rel_threshold = 0.001;
+    run(Platform::NPU6010);
+}
+
 INSTANTIATE_TEST_SUITE_P(smoke, FlashAttentionTileMHALayerTest,
                          ::testing::Combine(::testing::Values(Heads{8}),                                           //
                                             ::testing::Values(SourceSeqLen{160}),                                  //
@@ -433,6 +439,12 @@ TEST_P(FlashAttentionTileGQALayerTest, NPU5010_HW) {
     abs_threshold = 0.001;
     rel_threshold = 0.001;
     run(Platform::NPU5010);
+}
+
+TEST_P(FlashAttentionTileGQALayerTest, NPU6010_HW) {
+    abs_threshold = 0.001;
+    rel_threshold = 0.001;
+    run(Platform::NPU6010);
 }
 
 INSTANTIATE_TEST_SUITE_P(smoke_OneTargetSeqLen, FlashAttentionTileGQALayerTest,

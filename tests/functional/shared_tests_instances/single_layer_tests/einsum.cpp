@@ -36,6 +36,11 @@ TEST_P(EinsumLayerTestCommon, NPU5020) {
     run(Platform::NPU5020);
 }
 
+TEST_P(EinsumLayerTestCommon, NPU6010) {
+    setDefaultHardwareMode();
+    run(Platform::NPU6010);
+}
+
 }  // namespace test
 }  // namespace ov
 

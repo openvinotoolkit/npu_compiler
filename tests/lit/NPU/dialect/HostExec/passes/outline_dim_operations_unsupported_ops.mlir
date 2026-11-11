@@ -4,7 +4,7 @@
 //
 
 // RUN: not vpux-opt --platform=%platform% --outline-dim-operations %s 2>&1 | FileCheck %s
-// REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010
+// REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010 || platform-NPU6010
 
 // Verify that OutlineDimOperationsPass fails when IE dialect operations appear in the
 // output shape computation chain. This happens when an IE op does not implement

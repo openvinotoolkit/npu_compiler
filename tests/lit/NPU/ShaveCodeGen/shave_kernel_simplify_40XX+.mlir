@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="platform=%platform%" --shave-kernel-simplify %s | FileCheck %s
-// REQUIRES: platform-NPU4000 || platform-NPU5010
+// REQUIRES: platform-NPU4000 || platform-NPU5010 || platform-NPU6010
 
 
 func.func @PaddedInputSoftmax(%arg0: tensor<1x1x1x1008xf16>) -> tensor<1x1x1x1000xf16> {

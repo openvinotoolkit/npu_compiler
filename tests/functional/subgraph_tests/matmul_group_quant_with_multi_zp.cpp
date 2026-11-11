@@ -190,6 +190,11 @@ TEST_P(GroupQuantWithMultiZpTestCommon, NPU5010_DebugTestKindSubgraph) {
     run(Platform::NPU5010);
 }
 
+TEST_P(GroupQuantWithMultiZpTestCommon, NPU6010_DebugTestKindSubgraph) {
+    setDefaultHardwareMode();
+    run(Platform::NPU6010);
+}
+
 // --------------------------------------------------------------------------
 // Static-scale tests
 // --------------------------------------------------------------------------

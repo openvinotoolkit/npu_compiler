@@ -275,6 +275,26 @@ TEST_P(PoolingLayerTestCommonSOB, NPU5020_SOB) {
     run(Platform::NPU5020);
 }
 
+TEST_P(PoolingLayerTestCommon, NPU6010_SW) {
+    abs_threshold = 0.02;
+    setSkipCompilationCallback([](std::stringstream& skip) {
+        const auto& poolParams = std::get<0>(GetParam());
+        PoolingTypes poolType = std::get<0>(poolParams);
+        const auto netPrecision = std::get<1>(GetParam());
+        if (((poolType == PoolingTypes::MAX) || poolType == (PoolingTypes::AVG)) &&
+            (netPrecision == ov::element::i8 || netPrecision == ov::element::u8)) {
+            skip << "Max pool SingleLayerTest is not enabled with precision: " << netPrecision;
+        }
+    });
+    setReferenceSoftwareMode();
+    run(Platform::NPU6010);
+}
+
+TEST_P(PoolingLayerTestCommonSOB, NPU6010_SOB) {
+    setDefaultHardwareMode();
+    run(Platform::NPU6010);
+}
+
 // Suppression for gtest framework internal test
 GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(MaxPoolingV8LayerTest);
 
@@ -337,6 +357,17 @@ TEST_P(MaxPoolingV8LayerTestCommon, NPU5020_SW) {
     run(Platform::NPU5020);
 }
 
+TEST_P(MaxPoolingV8LayerTestCommon, NPU6010_SW) {
+    setSkipCompilationCallback([](std::stringstream& skip) {
+        const auto netPrecision = std::get<1>(GetParam());
+        if (netPrecision == ov::element::i8 || netPrecision == ov::element::u8) {
+            skip << "MaxPool8 SingleLayerTest is not enabled with precision: " << netPrecision;
+        }
+    });
+    setReferenceSoftwareMode();
+    run(Platform::NPU6010);
+}
+
 // Suppression for gtest framework internal test
 GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(AvgPoolingV16LayerTest);
 
@@ -384,6 +415,17 @@ TEST_P(AvgPoolingV16LayerTestCommon, NPU5020_SW) {
     });
     setReferenceSoftwareMode();
     run(Platform::NPU5020);
+}
+
+TEST_P(AvgPoolingV16LayerTestCommon, NPU6010_SW) {
+    setSkipCompilationCallback([](std::stringstream& skip) {
+        const auto netPrecision = std::get<1>(GetParam());
+        if (netPrecision == ov::element::i8 || netPrecision == ov::element::u8) {
+            skip << "AvgPool16 SingleLayerTest is not enabled with precision: " << netPrecision;
+        }
+    });
+    setReferenceSoftwareMode();
+    run(Platform::NPU6010);
 }
 
 class PoolingLayerTest_HostCompile : public PoolingLayerTest, virtual public VpuOv2LayerTest {

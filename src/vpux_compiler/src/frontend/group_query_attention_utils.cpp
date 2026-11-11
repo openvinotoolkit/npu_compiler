@@ -36,6 +36,8 @@ bool isPlatformCompatible(config::ArchKind arch, int optimizationLevel) {
         return optimizationLevel == kAttentionDmaFlashOptimizationLevel;
     case config::ArchKind::NPU50XX:
         return true;
+    case config::ArchKind::NPU60XX:
+        return true;
     default:
         return false;
     }

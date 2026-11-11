@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="platform=%platform%" -mlir-print-elementsattrs-with-hex-if-larger=-1 --fuse-input-scale-shift --canonicalize %s | FileCheck %s
-// REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010
+// REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010 || platform-NPU6010
 
 // The weights branch is imported as a marked IE.DynamicDequantize. The pass fuses the input scale/shift into the activation FakeQuantize and re-encodes
 // the rescaled weights as raw unsigned storage feeding a new marked IE.DynamicDequantize.

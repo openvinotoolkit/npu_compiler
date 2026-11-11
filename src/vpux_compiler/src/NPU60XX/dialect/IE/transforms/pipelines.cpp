@@ -1,0 +1,286 @@
+//
+// Copyright (C) 2024-2026 Intel Corporation
+// SPDX-License-Identifier: Apache-2.0
+//
+
+#include "vpux/compiler/NPU37XX/dialect/IE/transforms/passes.hpp"
+#include "vpux/compiler/NPU40XX/dialect/IE/transforms/passes.hpp"
+#include "vpux/compiler/NPU50XX/dialect/IE/transforms/passes.hpp"
+#include "vpux/compiler/NPU60XX/dialect/IE/transforms/passes.hpp"
+#include "vpux/compiler/conversion.hpp"
+#include "vpux/compiler/dialect/Shave/transforms/passes.hpp"
+#include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
+#include "vpux/compiler/dialect/core/transforms/passes.hpp"
+#include "vpux/compiler/locverif/passes.hpp"
+#include "vpux/compiler/utils/rewriter.hpp"
+
+#include <mlir/Pass/PassManager.h>
+#include <mlir/Transforms/Passes.h>
+
+using namespace vpux;
+
+void vpux::IE::arch60xx::buildFinalTransformationPipeline(mlir::OpPassManager& pm,
+                                                          const IE::arch60xx::DefaultHWOptions& options, Logger log) {
+    pm.addPass(IE::createFuseInefficientTileForAddPass(log));
+    // Operation conversions
+    pm.addPass(IE::createBroadcastInputForMultiplyPass(options.broadcastInputForMultiply, log));
+    // NOTE: FuseAddToConvBias runs after BroadcastInputForMultiply/FuseInefficientTileForAdd, since
+    // by this point a bias-like Add operand may be wrapped in an IE.Tile left behind by the earlier
+    // broadcast-materialization passes; the pass looks through a single Tile to find the original
+    // per-channel value.
+    pm.addPass(IE::createFuseAddToConvBiasPass(log));
+
+    if (options.enableConvertExpandToConvPass) {
+        pm.addPass(IE::createConvertExpandToConvPass(log));
+    }
+    // Operation optimizations
+    pm.addPass(IE::createPropagateShapeCastPass(log));
+    pm.addPass(IE::createPropagatePermuteCastPass(log));
+    pm.addPass(IE::createMoveDynamicDequantizeToUserPass(log));
+
+    // Operation Fusions
+    pm.addPass(IE::createOptimizeIdentityPoolPass(log));
+    pm.addPass(IE::arch60xx::createU16QuantizationFallbackPass(log));
+    pm.addPass(IE::createFuseSoftMaxConvertPass(log));
+    pm.addPass(IE::createFuseLogSoftmaxVariantsPass(log));
+    if (options.enableFuseD2SExpand) {
+        pm.addPass(IE::createFuseD2SExpandChannelsPass(log));
+    }
+    pm.addPass(IE::createFuseActivationOpsPass(log));
+}
+
+//
+// DefaultHWPipeline
+//
+
+void vpux::IE::arch60xx::buildDefaultHWPipeline(mlir::OpPassManager& pm, const IE::arch60xx::DefaultHWOptions& options,
+                                                Logger log) {
+    const auto grc = getDefaultGreedyRewriteConfig();
+
+    /*
+      Memory reservation for CMX has to happen as early as possible, before any use of getTotalCMXSize. It is required
+      because memory reservation decreases usable CMX size which can result in different tiling decisions. If different
+      passes see different effective CMX size different failures which can be hard to diagnose can happen. Examples of
+      such failures include:
+      - Fail during compilation if additional memory was reserved after tiling but before scheduling since tiles
+      selected by tiling pipeline won't fit CMX anymore
+      - Memory corruption if additional memory is reserved after scheduler since additional memory will overlap
+      addresses allocated by the scheduler Currently there is no validation if memory is not reserved before the first
+      call to getTotalCMXSize.
+    */
+
+    // E#224661: CMX reserve mem passes moved to the beginning of IE pipeline to get correct available memory size.
+    pm.addPass(VPU::createCMXStackFramesReserveMemPass(log));
+    pm.addPass(VPU::createCMXMetadataReserveMemPass(log));
+    if (options.enableCompressActivationSpill) {
+        pm.addPass(VPU::createCompressDmaReserveMemPass(log));
+    }
+    pm.addPass(VPU::createReserveProfilingMemPass(
+            options.enableProfiling ? options.enableDMAProfiling.getValue() : "false", log));
+
+    pm.addPass(locverif::createStartLocationVerifierPass(log, options.locationsVerificationMode));
+
+    IE::buildOutliningPipeline(pm, options, log);
+
+    // No passes should be run before this pipeline, with very few exceptions.
+    IE::buildPostImportPipeline(pm, log);
+    pm.addPass(mlir::createCanonicalizerPass(grc));
+
+    pm.addPass(IE::createDumpStatisticsOfIeOpsPass("Start of IE pipeline statistics", log));
+
+    if (options.enableReduceNumTilesForSmallModelsPass) {
+        pm.addPass(IE::createReduceNumTilesForSmallModelsPass(/*enableSDPAContributions=*/true, log));
+    }
+
+    // Level 3 : Topology
+    if (options.logOpOptimizations) {
+        pm.addPass(IE::createLogOpOptimizationsPass());
+    }
+
+    if (options.enableDynamicShapeTransformationsPipeline) {
+        IE::buildDynamicShapeTransformationsPipeline(pm, IE::DynamicShapeTransformOptions(options), log);
+    }
+    IE::arch50xx::buildInitialLowPrecisionTransformationsPipeline(pm, IE::LowPrecisionTransformOptions(options), log);
+    IE::arch50xx::buildAttentionProcessingPipeline(pm, IE::AttentionProcessingOptions(options), log);
+    IE::buildInitialTransformationsPipeline(pm, IE::TransformOptions(options), log);
+
+    if (options.enableAdjustPrecisionPipeline) {
+        IE::buildAdjustPrecisionPipeline(pm, IE::AdjustPrecisionOptions(options), log);
+    }
+
+    // Couldn't move the pass before convert_precision_to_fp16 because of regressions, extra conversions are added
+    pm.addPass(IE::createConvertAssignReadValueToReturnsAndInputs(log));
+
+    IE::arch50xx::buildOperationConversionPipeline(pm, IE::OperationConversionOptions(options), log);
+
+    IE::buildAdjustShapePipeline(pm, log);
+    IE::buildSplitLargeOpsPipeline(pm, log);
+    IE::arch50xx::buildConvertToEfficientOpsPipeline(pm, IE::ConvertToEfficientOpsOptions(options), log);
+
+    IE::buildAdjustForVPUPipeline(pm, log);
+
+    IE::buildHandleHyperParametersPipeline(pm, log);
+    IE::buildConvertToConvolutionPipeline(pm, log);
+    IE::buildReorderFakeQuantizePipeline(pm, IE::ReorderFakeQuantizeOptions(options), log);
+
+    pm.addPass(mlir::createCanonicalizerPass(grc));
+    IE::buildScaleShiftProcessingPipeline(pm, log);
+
+    IE::arch50xx::buildLowPrecisionPipeline(pm, IE::LowPrecisionOptions(options), log);
+    pm.addPass(IE::createConvertShapeTo4DPass(isOptionEnabled(options.forceConvertGatherTo4D),
+                                              /*enableShapeVerification=*/true, log));
+    pm.addPass(IE::createSwapViewOpAndClampPass(log));
+
+    IE::buildOptimizeActivationsPipeline(pm, IE::OptimizeActivationsOptions(options), log);
+
+    IE::buildSplitAndMapBilinearInterpolateOnDPUPipeline(pm, IE::SplitAndMapBilinearInterpolateOnDPUOptions(options),
+                                                         log);
+
+    IE::buildBatchTransformationPipeline(pm, BatchUnrollOptions::create(options, log), log);
+
+    IE::buildAdjustLayoutPipeline(pm, IE::AdjustLayoutOptions(options), log);
+
+    IE::buildOptimizeMemPermuteAndActivationChannelsExpandPipeline(pm, IE::ExpandActivationChannelsOptions(options),
+                                                                   log);
+
+    IE::buildOptimizeViewLikeOpsPipeline(pm, log);
+
+    IE::buildOptimizeSliceOpPipeline(pm, options.disableSliceToConvMinHWThreshold, log);
+
+    IE::buildDimensionAlignmentPipeline(pm, log);
+
+    IE::arch60xx::buildFinalTransformationPipeline(pm, options, log);
+
+    // Shave custom kernel configuration pass, which applies the external kernel configurations to the model.
+    pm.addPass(Shave::createApplyExternalKernelConfigsPass(log));
+
+    if (options.enableShaveCodeGen) {
+        ShaveCodeGen::buildShaveCodeGenPipelineIE(pm, log, options.enableShaveCodeGenTiling);
+    }
+
+    // Logging of optimizations post-check at the end of the pipeline
+    if (options.logOpOptimizations) {
+        pm.addPass(IE::createLogOpOptimizationsPass());
+    }
+
+    pm.addPass(IE::createDumpStatisticsOfIeOpsPass("End of IE pipeline statistics", log));
+
+    pm.addPass(locverif::createStopLocationVerifierPass(log));
+}
+
+//
+// ReferenceSW
+//
+
+void vpux::IE::arch60xx::buildReferenceSWPipeline(mlir::OpPassManager& pm,
+                                                  const IE::arch60xx::DefaultHWOptions& options, Logger log) {
+    const auto grc = getDefaultGreedyRewriteConfig();
+
+    // E#224661: CMX reserve mem passes moved to the beginning of IE pipeline to get correct available memory size.
+    pm.addPass(VPU::createCMXStackFramesReserveMemPass(log));
+    pm.addPass(VPU::createCMXMetadataReserveMemPass(log));
+
+    // No passes should be run before this pipeline, with very few exceptions.
+    IE::buildPostImportPipeline(pm, log);
+
+    // Level 3 : Topology
+
+    IE::arch50xx::buildInitialLowPrecisionTransformationsPipeline(pm, IE::LowPrecisionTransformOptions(options), log);
+    IE::arch50xx::buildAttentionProcessingPipeline(pm, IE::AttentionProcessingOptions(options), log);
+    IE::buildInitialTransformationsPipeline(pm, IE::TransformOptions(options), log);
+    IE::buildAdjustPrecisionPipeline(pm, IE::AdjustPrecisionOptions(options), log);
+
+    // Couldn't move the pass before convert_precision_to_fp16 because of regressions, extra conversions are added
+    pm.addPass(IE::createConvertAssignReadValueToReturnsAndInputs(log));
+
+    // Resolve group quant MatMul pattern
+    pm.addPass(mlir::createCSEPass());
+    pm.addPass(IE::createUniquifySimilarOpsPass(log));
+    pm.addPass(IE::createMergeParallelFullyConnectedPass(log));
+    pm.addPass(IE::createUnrollGroupQuantizePass(log));
+    pm.addPass(IE::createUnrollFullyConnectedPass(log));
+    pm.addPass(IE::createMergeFullyConnectedPass(isOptionEnabled(options.mergeUnrolledMatmulForLargeOC), log));
+    pm.addPass(IE::createConvertMatMulToConvPass(log));
+    pm.addPass(IE::createConvertDynamicDequantizeToFakeQuantizePass(log));
+    if (options.enableConvertFCToConv) {
+        pm.addPass(IE::createConvertFCToConvPass(log));
+    }
+
+    pm.addPass(IE::createResolveStridedSlicePass(log));
+    pm.addPass(IE::createConvertStridedSlice2ConvPass(log));
+    pm.addPass(IE::createConvertNceOpsTo4DPass(log));
+    pm.addPass(IE::createConvertShapeTo4DPass(isOptionEnabled(options.forceConvertGatherTo4D), log));
+    pm.addPass(mlir::createCanonicalizerPass(grc));
+    pm.addPass(IE::createConvertToSpatialOpPass(log));
+    pm.addPass(IE::createConvertGRNToNormalizeL2Pass(log));
+    pm.addPass(IE::createResolveScatterUpdateByTransposePass(log));
+    IE::buildAdjustForVPUPipeline(pm, log);
+
+    pm.addPass(IE::createSplitFakeQuantPass(log));
+    pm.addPass(mlir::createCanonicalizerPass(grc));
+
+    pm.addPass(IE::createConvertDQRawDataTypeToQuantizedPass(log));
+    pm.addPass(IE::createConvertConstantDynamicDequantizeToDequantizePass(log));
+
+    pm.addPass(IE::createDequantizeConstPass(options.runtimeDequantizationLimit,
+                                             isOptionEnabled(options.enableRuntimeDequant), log));
+    pm.addPass(IE::createMergeFakeQuantPass(log));
+    pm.addPass(mlir::createCanonicalizerPass(grc));
+
+    IE::buildAdjustLayoutPipeline(pm, IE::AdjustLayoutOptions(options), log);
+
+    pm.addPass(IE::createConvertToMemPermutePass(log));
+    pm.addPass(mlir::createCanonicalizerPass(grc));
+
+    if (options.enableShaveCodeGen) {
+        ShaveCodeGen::buildShaveCodeGenPipelineIE(pm, log, options.enableShaveCodeGenTiling);
+    }
+}
+
+//
+// registerIEPipelines
+//
+
+void vpux::IE::arch60xx::registerIEPipelines() {
+    mlir::PassPipelineRegistration<IE::arch60xx::DefaultHWOptions>(
+            "default-hw-mode-ie", "IE dialect part of Default HW pipeline",
+            [](mlir::OpPassManager& pm, const IE::arch60xx::DefaultHWOptions& options) {
+                IE::arch60xx::buildDefaultHWPipeline(pm, options);
+            });
+    mlir::PassPipelineRegistration<IE::LowPrecisionTransformOptions>(
+            "initial-low-precision-transformations",
+            "[LEGALIZATION] Initial Low Precision Transformations, convert initial low precision IR operations to "
+            "equivalent operations supported by the lower compilation levels",
+            [](mlir::OpPassManager& pm, const IE::LowPrecisionTransformOptions& options) {
+                IE::arch50xx::buildInitialLowPrecisionTransformationsPipeline(pm, options);
+            });
+
+    mlir::PassPipelineRegistration<OperationConversionOptions>(
+            "operation-conversion",
+            "[OPTIMIZATION] Operation Conversion pipeline is responsible for changing type of existing operations."
+            "Main purpose is reducing subset of ops"
+            "which using in our graph for improve pattern matching of next passes ",
+            [](mlir::OpPassManager& pm, const OperationConversionOptions& options) {
+                IE::arch50xx::buildOperationConversionPipeline(pm, options);
+            });
+
+    mlir::PassPipelineRegistration<LowPrecisionOptions>(
+            "low-precision", "[OPTIMIZATION] Low precision transformations",
+            [](mlir::OpPassManager& pm, const LowPrecisionOptions& options) {
+                IE::arch50xx::buildLowPrecisionPipeline(pm, options);
+            });
+
+    mlir::PassPipelineRegistration<IE::AttentionProcessingOptions>(
+            "attention-processing",
+            "[OPTIMIZATION] Attention processing transformations: fuse patterns into AttentionOp and apply "
+            "attention decomposition strategies, including block-cache-Attention-to-FlashSDPA conversion on NPU60XX",
+            [](mlir::OpPassManager& pm, const IE::AttentionProcessingOptions& options) {
+                IE::arch50xx::buildAttentionProcessingPipeline(pm, options);
+            });
+
+    mlir::PassPipelineRegistration<IE::arch60xx::DefaultHWOptions>(
+            "reference-sw-mode-ie", "IE dialect part of Reference SW pipeline",
+            [](mlir::OpPassManager& pm, const IE::arch60xx::DefaultHWOptions& options) {
+                IE::arch60xx::buildReferenceSWPipeline(pm, options);
+            });
+}

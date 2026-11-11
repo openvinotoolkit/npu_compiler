@@ -113,4 +113,10 @@ TEST_F(TileBroadcastAddReluTest, NPU5020_HW_TestKindSubgraph) {
     run(Platform::NPU5020);
 }
 
+TEST_F(TileBroadcastAddReluTest, NPU6010_HW_TestKindSubgraph) {
+    abs_threshold = 0.05f;
+    setDefaultHardwareMode();
+    run(Platform::NPU6010);
+}
+
 }  // namespace ov::test::subgraph

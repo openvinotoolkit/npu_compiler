@@ -95,6 +95,17 @@ TEST_P(ConvolutionBackpropDataSEPLayerTestCommon, NPU5020_HW) {
     run(Platform::NPU5020);
 }
 
+TEST_P(ConvolutionBackpropDataLayerTestCommon, NPU6010_HW) {
+    rel_threshold = 0.01;
+    setDefaultHardwareMode();
+    run(Platform::NPU6010);
+}
+TEST_P(ConvolutionBackpropDataSEPLayerTestCommon, NPU6010_HW) {
+    rel_threshold = 0.01;
+    setDefaultHardwareMode();
+    run(Platform::NPU6010);
+}
+
 }  // namespace test
 }  // namespace ov
 

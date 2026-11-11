@@ -114,6 +114,11 @@ TEST_P(ComparisonWithSelectTestCommon, NPU5020_HW) {
     run(Platform::NPU5020);
 }
 
+TEST_P(ComparisonWithSelectTestCommon, NPU6010_HW) {
+    setDefaultHardwareMode();
+    run(Platform::NPU6010);
+}
+
 const std::vector<ov::test::utils::ComparisonTypes> comparisonTypes = {
         ov::test::utils::ComparisonTypes::GREATER, ov::test::utils::ComparisonTypes::GREATER_EQUAL,
         ov::test::utils::ComparisonTypes::LESS,    ov::test::utils::ComparisonTypes::LESS_EQUAL,

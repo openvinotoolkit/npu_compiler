@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="platform=%platform%" --de-debatcher="debatching-inlining-method=host_pipeline" --canonicalize --cse --verify-diagnostics %s | FileCheck %s
-// REQUIRES: platform-NPU4000 || platform-NPU5010
+// REQUIRES: platform-NPU4000 || platform-NPU5010 || platform-NPU6010
 
 net.NetworkInfo entryPoint : @SingleInputMultipleOutputMultiDynamicDimDeBatched inputsInfo : {
     DataInfo "input" : tensor<3x3x62x62xf32>

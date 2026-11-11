@@ -174,6 +174,11 @@ TEST_P(MatMulGroupQuantLowPrecZpTestCommon, NPU5000_TestKindSubgraph) {
     run(Platform::NPU5010);
 }
 
+TEST_P(MatMulGroupQuantLowPrecZpTestCommon, NPU6010_HW) {
+    setDefaultHardwareMode();
+    run(Platform::NPU6010);
+}
+
 INSTANTIATE_TEST_SUITE_P(MatMulGroupQuantLowPrecZp, MatMulGroupQuantLowPrecZpTestCommon,
 
                          ::testing::Values(TestParams{/*numChannels*/ 3072, /*numGroupsPerChannel*/ 128,

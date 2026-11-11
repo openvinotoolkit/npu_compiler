@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="platform=%platform%" --handle-large-kernels %s | FileCheck %s
-// REQUIRES: platform-NPU5010
+// REQUIRES: platform-NPU5010 || platform-NPU6010
 // CHECK-LABEL: @HandleLargeKernelsConv
 // CHECK-SAME:  [[INPUT:%.+]]: tensor<1x1x1x32000xf16>
 #NWHC = affine_map<(d0, d1, d2, d3) -> (d0, d3, d2, d1)>

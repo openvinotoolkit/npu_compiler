@@ -235,7 +235,7 @@ mlir::LogicalResult VPU::ConvertTileWithEltwiseToNCEPoolRewriter::matchAndRewrit
     const auto weightTables =
             createWeightTableOperands(origOp.getLoc(), scaleTable, biasTable, weightsTableC, rewriter);
     auto newPpe = scaleBiasAdapter->discardScaleBias(userPpe);
-    // Eltwise ADD/MULTIPLY always carry a non-null mpe_engine (SCL mode) on 50XX: preserve it on the pool.
+    // Eltwise ADD/MULTIPLY always carry a non-null mpe_engine (SCL mode) on 50XX/60XX: preserve it on the pool.
     rewriter.replaceOpWithNewOp<VPU::NCEMaxPoolOp>(
             userOp, userOp.getResult(0).getType(),
             /*reduceXyMax=*/nullptr, /*reduceXyMin=*/nullptr, /*reduceTensorMinMax=*/nullptr, newInput,

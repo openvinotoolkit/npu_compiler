@@ -5,7 +5,7 @@
 
 // RUN: vpux-translate --platform=%platform% --import-IE ./IR/yuv_to_rgb_import.xml -o %t
 // RUN: FileCheck %s --input-file %t
-// REQUIRES: platform-NPU4000 || platform-NPU5010
+// REQUIRES: platform-NPU4000 || platform-NPU5010 || platform-NPU6010
 
 #NWCH = affine_map<(d0, d1, d2, d3) -> (d0, d3, d1, d2)>
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>

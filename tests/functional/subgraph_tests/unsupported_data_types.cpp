@@ -45,6 +45,7 @@ public:
 class UnsupportedDataTypeTestNPU37xx : public UnsupportedDataTypeTest {};
 class UnsupportedDataTypeTestNPU40xx : public UnsupportedDataTypeTest {};
 class UnsupportedDataTypeTestNPU50xx : public UnsupportedDataTypeTest {};
+class UnsupportedDataTypeTestNPU60xx : public UnsupportedDataTypeTest {};
 
 static const std::set<ov::element::Type_t> allSupportedTypes = {
         ov::element::Type_t::dynamic, ov::element::Type_t::boolean, ov::element::Type_t::bf16,
@@ -77,6 +78,12 @@ static const std::set<ov::element::Type_t> supportedNPU50xx = [] {
     return s;
 }();
 
+static const std::set<ov::element::Type_t> supportedNPU60xx = [] {
+    auto s = supportedNPU50xx;
+    s.insert({ov::element::Type_t::u1, ov::element::Type_t::f8e8m0});
+    return s;
+}();
+
 static std::set<ov::element::Type_t> computeUnsupportedTypes(const std::set<ov::element::Type_t>& supportedTypes) {
     std::set<ov::element::Type_t> result;
     for (const auto t : allSupportedTypes) {
@@ -103,6 +110,9 @@ TEST_P(UnsupportedDataTypeTestNPU50xx, NPU5010) {
 TEST_P(UnsupportedDataTypeTestNPU50xx, NPU5020) {
     runNegativeTest(Platform::NPU5020);
 }
+TEST_P(UnsupportedDataTypeTestNPU60xx, NPU6010) {
+    runNegativeTest(Platform::NPU6010);
+}
 
 INSTANTIATE_TEST_SUITE_P(unsupportedDataType, UnsupportedDataTypeTestNPU37xx,
                          ::testing::ValuesIn(computeUnsupportedTypes(supportedNPU37xx)),
@@ -113,5 +123,10 @@ INSTANTIATE_TEST_SUITE_P(unsupportedDataType, UnsupportedDataTypeTestNPU40xx,
 INSTANTIATE_TEST_SUITE_P(unsupportedDataType, UnsupportedDataTypeTestNPU50xx,
                          ::testing::ValuesIn(computeUnsupportedTypes(supportedNPU50xx)),
                          UnsupportedDataTypeTestNPU50xx::getTestCaseName);
+// Suppression for gtest framework internal test
+GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(UnsupportedDataTypeTestNPU60xx);
+INSTANTIATE_TEST_SUITE_P(unsupportedDataType, UnsupportedDataTypeTestNPU60xx,
+                         ::testing::ValuesIn(computeUnsupportedTypes(supportedNPU60xx)),
+                         UnsupportedDataTypeTestNPU60xx::getTestCaseName);
 
 }  // namespace ov::test::subgraph

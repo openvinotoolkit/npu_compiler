@@ -6,6 +6,7 @@
 #include "vpux/compiler/NPU37XX/pipelines_register.hpp"
 #include "vpux/compiler/NPU40XX/pipelines_register.hpp"
 #include "vpux/compiler/NPU50XX/pipelines_register.hpp"
+#include "vpux/compiler/NPU60XX/pipelines_register.hpp"
 #include "vpux/compiler/dialect/config/IR/attributes.hpp"
 
 #include "vpux/utils/core/error.hpp"
@@ -25,6 +26,8 @@ std::unique_ptr<IPipelineRegistry> vpux::createPipelineRegistry(config::Platform
     case config::Platform::NPU5010:
     case config::Platform::NPU5020:
         return std::make_unique<PipelineRegistry50XX>(platform);
+    case config::Platform::NPU6010:
+        return std::make_unique<PipelineRegistry60XX>(platform);
     default:
         VPUX_THROW("Unsupported platform: {0}", platform);
     }

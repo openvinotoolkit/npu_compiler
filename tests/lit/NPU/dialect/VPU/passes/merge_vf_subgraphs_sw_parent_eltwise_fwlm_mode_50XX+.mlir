@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="platform=%platform% compilation-mode=DefaultHW allow-custom-values=true" --merge-vertical-fusion-subgraphs="tiling-mode=ISOLATED workload-management-mode=FWLM_V1_PAGES" %s | FileCheck %s
-// REQUIRES: platform-NPU5010
+// REQUIRES: platform-NPU5010 || platform-NPU6010
 
 // Subgraph extracted from human-pose-estimation-0001 (around %conv4_3_CPM2Fres):
 //

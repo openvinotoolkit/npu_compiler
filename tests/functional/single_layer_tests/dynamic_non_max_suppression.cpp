@@ -138,6 +138,11 @@ TEST_P(DynamicNmsLayerTest, NPU5020_HW) {
     VpuOv2LayerTest::run(Platform::NPU5020);
 }
 
+TEST_P(DynamicNmsLayerTest, NPU6010_HW) {
+    setDefaultHardwareMode();
+    VpuOv2LayerTest::run(Platform::NPU6010);
+}
+
 // IoU and Score thresholds passed as runtime input tensors. This validates the support
 // for dynamic thresholds rather than from compile-time constant attributes.
 class DynamicNmsIouScoreThresholdLayerTest : public DynamicNmsLayerTest {
@@ -207,6 +212,11 @@ TEST_P(DynamicNmsIouScoreThresholdLayerTest, NPU5010_HW) {
 TEST_P(DynamicNmsIouScoreThresholdLayerTest, NPU5020_HW) {
     setDefaultHardwareMode();
     VpuOv2LayerTest::run(Platform::NPU5020);
+}
+
+TEST_P(DynamicNmsIouScoreThresholdLayerTest, NPU6010_HW) {
+    setDefaultHardwareMode();
+    VpuOv2LayerTest::run(Platform::NPU6010);
 }
 
 }  // namespace test

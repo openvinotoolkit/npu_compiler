@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="platform=%platform%" --canonicalize --verify-diagnostics %s | FileCheck %s
-// REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010
+// REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010 || platform-NPU6010
 
 // CHECK-LABEL: @GroupBoundedBuffer
 func.func @GroupBoundedBuffer(%arg0: memref<1x8x384x384xf16>, %arg1: memref<4xsi32>) ->

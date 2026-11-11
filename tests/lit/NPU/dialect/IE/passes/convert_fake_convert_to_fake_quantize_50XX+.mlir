@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="platform=%platform%" --convert-fake-convert-to-fake-quantize --canonicalize %s | FileCheck %s
-// REQUIRES: platform-NPU5010
+// REQUIRES: platform-NPU5010 || platform-NPU6010
 
 // CHECK-LABEL: @ConvertFakeConvertToFakeQuantizeF8E3M4
 // CHECK-SAME:  [[INPUT:%.+]]: tensor<1x80x3000xf16>

@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --init-compiler="platform=%platform% allow-custom-values=true" --split-input-file --dispatched-inliner %s | FileCheck %s
-// REQUIRES: platform-NPU4000 || platform-NPU5010
+// REQUIRES: platform-NPU4000 || platform-NPU5010 || platform-NPU6010
 
 module @InlineSingleFunctionWithDifferentArgumentOffsets {
     config.Resources 6 of @NCE at 1.700000e+03 MHz

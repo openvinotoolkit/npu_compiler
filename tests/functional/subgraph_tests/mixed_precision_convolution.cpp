@@ -218,6 +218,26 @@ TEST_P(MixedPrecisionConvSubGraphTestNF4, NPU5010_HW) {
     run(Platform::NPU5010);
 }
 
+TEST_P(MixedPrecisionConvSubGraphTestCommon, NPU6010_HW) {
+    setDefaultHardwareMode();
+    run(Platform::NPU6010);
+}
+
+TEST_P(MixedPrecisionConvSubGraphTestNF4, NPU6010_HW) {
+    setDefaultHardwareMode();
+    run(Platform::NPU6010);
+}
+
+TEST_P(MixedPrecisionConvSubGraphTestFP8ActFP4Weights, NPU6010_HW) {
+    setDefaultHardwareMode();
+    run(Platform::NPU6010);
+}
+
+TEST_P(MixedPrecisionConvSubGraphTestFP16ActFP4Weights, NPU6010_HW) {
+    setDefaultHardwareMode();
+    run(Platform::NPU6010);
+}
+
 }  // namespace test
 }  // namespace ov
 
@@ -283,5 +303,44 @@ INSTANTIATE_TEST_SUITE_P(smoke_precommit_mixed_precision_Convolution2D_NF4, Mixe
                                             ::testing::ValuesIn({ov::Shape{1, 16, 16, 16}}),  // inputShapes
                                             ::testing::Values(test_utils::TARGET_DEVICE)),    // targetDevice
                          MixedPrecisionConvSubGraphTestNF4::getTestCaseName);
+
+const auto conv2DParamsFP4 =
+        ::testing::Combine(::testing::ValuesIn<std::vector<std::size_t>>({{1, 1}}),  // kernels
+                           ::testing::ValuesIn<std::vector<std::size_t>>({{1, 1}}),  // strides
+                           ::testing::ValuesIn<std::vector<ptrdiff_t>>({{0, 0}}),    // padBegins
+                           ::testing::ValuesIn<std::vector<ptrdiff_t>>({{0, 0}}),    // padEnds
+                           ::testing::ValuesIn<std::vector<std::size_t>>({{1, 1}}),  // dilations
+                           ::testing::Values(32),                                    // numOutChannels
+                           ::testing::Values(LowFpType::F4E2M1),                     // lowFpType
+                           ::testing::Values(0),                                     // quantLevels (unused for FP4)
+                           ::testing::Values(QuantizationGranularity::Pertensor)     // quantGranularity
+        );
+
+// FP8 fake-converted activations (f16 <-> f8e4m3) + FP4 dequantized weights (f4e2m1 -> f16), testing palletization.
+INSTANTIATE_TEST_SUITE_P(smoke_precommit_mixed_precision_Convolution2D_FP8ActFP4Weights,
+                         MixedPrecisionConvSubGraphTestFP8ActFP4Weights,
+                         ::testing::Combine(conv2DParamsFP4,
+                                            ::testing::Values(ov::element::f16),              // netPrc
+                                            ::testing::ValuesIn({ov::Shape{1, 16, 16, 16}}),  // inputShapes
+                                            ::testing::Values(test_utils::TARGET_DEVICE)),    // targetDevice
+                         MixedPrecisionConvSubGraphTestFP8ActFP4Weights::getTestCaseName);
+
+// Same as above, but with distinct per-channel weight scale values, so the per-axis quantized weight type is exercised.
+INSTANTIATE_TEST_SUITE_P(smoke_precommit_mixed_precision_Convolution2D_FP8ActFP4WeightsPerChannel,
+                         MixedPrecisionConvSubGraphTestFP8ActFP4WeightsPerChannel,
+                         ::testing::Combine(conv2DParamsFP4,
+                                            ::testing::Values(ov::element::f16),              // netPrc
+                                            ::testing::ValuesIn({ov::Shape{1, 16, 16, 16}}),  // inputShapes
+                                            ::testing::Values(test_utils::TARGET_DEVICE)),    // targetDevice
+                         MixedPrecisionConvSubGraphTestFP8ActFP4WeightsPerChannel::getTestCaseName);
+
+// Plain FP16 activations + FP4 dequantized weights, testing palletization.
+INSTANTIATE_TEST_SUITE_P(smoke_precommit_mixed_precision_Convolution2D_FP16ActFP4Weights,
+                         MixedPrecisionConvSubGraphTestFP16ActFP4Weights,
+                         ::testing::Combine(conv2DParamsFP4,
+                                            ::testing::Values(ov::element::f16),              // netPrc
+                                            ::testing::ValuesIn({ov::Shape{1, 16, 16, 16}}),  // inputShapes
+                                            ::testing::Values(test_utils::TARGET_DEVICE)),    // targetDevice
+                         MixedPrecisionConvSubGraphTestFP16ActFP4Weights::getTestCaseName);
 
 }  // namespace

@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="platform=%platform% compilation-mode=DefaultHW" --add-kernels-for-overlapping-edge-tiles %s | FileCheck %s
-// REQUIRES: platform-NPU4000 || platform-NPU5010
+// REQUIRES: platform-NPU4000 || platform-NPU5010 || platform-NPU6010
 
 #map_bt = affine_map<(d0)[s0] -> (s0 - 100, d0)>
 #map_in = affine_map<(d0) -> (0, d0 - 1)>

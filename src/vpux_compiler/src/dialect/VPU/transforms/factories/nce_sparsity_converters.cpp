@@ -6,6 +6,7 @@
 #include "vpux/compiler/dialect/VPU/transforms/factories/nce_sparsity_converters.hpp"
 #include "vpux/compiler/NPU37XX/dialect/VPU/impl/nce_sparsity_converters.hpp"
 #include "vpux/compiler/NPU50XX/dialect/VPU/impl/nce_sparsity_converters.hpp"
+#include "vpux/compiler/NPU60XX/dialect/VPU/impl/nce_sparsity_converters.hpp"
 
 #include "vpux/utils/core/error.hpp"
 
@@ -21,6 +22,14 @@ VPU::NCESparsity::PPEConverterCb VPU::NCESparsity::getPPEConverterCb(config::Arc
     case config::ArchKind::NPU50XX: {
         return VPU::arch50xx::getScale;
     }
+    case config::ArchKind::NPU60XX: {
+        if (isNewWeightTableFormat) {
+            return VPU::arch60xx::getScale;
+        } else {
+            return VPU::arch50xx::getScale;
+        }
+    }
+        return VPU::arch60xx::getScale;
     case config::ArchKind::UNKNOWN:
     default: {
         VPUX_THROW("Unexpected architecture {0}", arch);
@@ -36,6 +45,13 @@ VPU::NCESparsity::BiasConverterCb VPU::NCESparsity::getBiasConverterCb(config::A
         return VPU::arch37xx::getBias;
     case config::ArchKind::NPU50XX:
         return VPU::arch50xx::getBias;
+    case config::ArchKind::NPU60XX:
+        if (isNewWeightTableFormat) {
+            return VPU::arch60xx::getBias;
+        } else {
+            return VPU::arch50xx::getBias;
+        }
+        return VPU::arch60xx::getBias;
     case config::ArchKind::UNKNOWN:
     default: {
         VPUX_THROW("Unexpected architecture {0}", arch);
@@ -53,6 +69,14 @@ VPU::NCESparsity::ScaleRetrieveCb VPU::NCESparsity::getScaleRetrieveCb(config::A
     case config::ArchKind::NPU50XX: {
         return VPU::arch50xx::retrieveScaleFromTable;
     }
+    case config::ArchKind::NPU60XX: {
+        if (isNewWeightTableFormat) {
+            return VPU::arch60xx::retrieveScaleFromTable;
+        } else {
+            return VPU::arch50xx::retrieveScaleFromTable;
+        }
+    }
+        return VPU::arch60xx::retrieveScaleFromTable;
     case config::ArchKind::UNKNOWN:
     default: {
         VPUX_THROW("Unexpected architecture {0}", arch);

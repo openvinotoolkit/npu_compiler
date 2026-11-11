@@ -4,7 +4,7 @@
 //
 
 // RUN: env OV_NPU_LOG_LEVEL=LOG_TRACE env IE_NPU_LOG_FILTER="detect-idu-oob-accesses" vpux-opt --split-input-file --init-compiler="platform=%platform% allow-custom-values=true" --detect-idu-oob-accesses %s  -o /dev/null 2>&1 | FileCheck %s
-// REQUIRES: dev-build && (platform-NPU5010 || platform-NPU5020)
+// REQUIRES: dev-build && (platform-NPU5010 || platform-NPU5020 || platform-NPU6010)
 
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 

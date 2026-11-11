@@ -111,9 +111,16 @@ public:
 
 class ConvBackpropWithQuantizedWeightsTest_NPU5010 : public ConvBackpropWithQuantizedWeightsTest {};
 
+class ConvBackpropWithQuantizedWeightsTest_NPU6010 : public ConvBackpropWithQuantizedWeightsTest {};
+
 TEST_P(ConvBackpropWithQuantizedWeightsTest_NPU5010, HW) {
     setDefaultHardwareMode();
     run(Platform::NPU5010);
+}
+
+TEST_P(ConvBackpropWithQuantizedWeightsTest_NPU6010, HW) {
+    setDefaultHardwareMode();
+    run(Platform::NPU6010);
 }
 
 //        [input: u8, NCHW]
@@ -204,9 +211,16 @@ public:
 
 class ConvBackpropWithPerChannelWeightsNoZpTest_NPU5010 : public ConvBackpropWithPerChannelWeightsNoZpTest {};
 
+class ConvBackpropWithPerChannelWeightsNoZpTest_NPU6010 : public ConvBackpropWithPerChannelWeightsNoZpTest {};
+
 TEST_P(ConvBackpropWithPerChannelWeightsNoZpTest_NPU5010, HW) {
     setDefaultHardwareMode();
     run(Platform::NPU5010);
+}
+
+TEST_P(ConvBackpropWithPerChannelWeightsNoZpTest_NPU6010, HW) {
+    setDefaultHardwareMode();
+    run(Platform::NPU6010);
 }
 
 }  // namespace ov::test::subgraph
@@ -233,8 +247,16 @@ INSTANTIATE_TEST_SUITE_P(smoke_ConvBackpropWithQuantizedWeights, ConvBackpropWit
                          convBackpropWithQuantizedWeightsSmallSize,
                          ConvBackpropWithQuantizedWeightsTest_NPU5010::getTestCaseName);
 
+INSTANTIATE_TEST_SUITE_P(smoke_ConvBackpropWithQuantizedWeights, ConvBackpropWithQuantizedWeightsTest_NPU6010,
+                         convBackpropWithQuantizedWeightsSmallSize,
+                         ConvBackpropWithQuantizedWeightsTest_NPU6010::getTestCaseName);
+
 INSTANTIATE_TEST_SUITE_P(smoke_ConvBackpropWithPerChannelWeightsNoZp, ConvBackpropWithPerChannelWeightsNoZpTest_NPU5010,
                          convBackpropWithQuantizedWeightsSmallSize,
                          ConvBackpropWithPerChannelWeightsNoZpTest_NPU5010::getTestCaseName);
+
+INSTANTIATE_TEST_SUITE_P(smoke_ConvBackpropWithPerChannelWeightsNoZp, ConvBackpropWithPerChannelWeightsNoZpTest_NPU6010,
+                         convBackpropWithQuantizedWeightsSmallSize,
+                         ConvBackpropWithPerChannelWeightsNoZpTest_NPU6010::getTestCaseName);
 
 }  // namespace

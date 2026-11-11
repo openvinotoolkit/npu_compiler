@@ -5,7 +5,7 @@
 
 // RUN: vpux-translate --split-input-file --platform=%platform% --export-bytecode %s -o %t
 // RUN: bytecode_interpreter --path %t --mode print-full | FileCheck %s
-// REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010
+// REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010 || platform-NPU6010
 
 module {
 bytecode.kernel_section @kernel_section {

@@ -10,7 +10,7 @@
 // - outline-dim-operations: outlines these tensor and arith operations to the new output_shape func
 
 // RUN: vpux-opt --split-input-file --platform=%platform% --output-shape-predict %s | FileCheck %s
-// REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010
+// REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010 || platform-NPU6010
 
 #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
 

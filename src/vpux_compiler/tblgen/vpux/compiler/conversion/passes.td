@@ -433,6 +433,30 @@ def ConvertVPUASM2NPUReg50XX : PassBase<"convert-VPUASM-to-NPUReg50XX", "vpux::M
         "vpux::ELF::ELFDialect"
     ];
 }
+
+// ConvertVPUASM2NPUReg60XX
+//
+
+def ConvertVPUASM2NPUReg60XX : PassBase<"convert-VPUASM-to-NPUReg60XX", "vpux::ModulePass"> {
+    let summary = "Convert VPUASM dialect to NPUReg target";
+
+    let description = [{
+        AI-generated summary
+
+        Lowers VPUASM operations to NPUReg60XX register descriptors. Converts task and
+        barrier descriptors into register-mapped representations matching the NPU60XX
+        register layout. Runs before relocation passes so that register fields are populated
+        before address fixups.
+    }];
+
+    let constructor = "vpux::createConvertVPUASM2NPUReg60XXPass()";
+    let dependentDialects = [
+        "vpux::VPURegMapped::VPURegMappedDialect",
+        "vpux::VPUASM::VPUASMDialect",
+        "vpux::NPUReg60XX::NPUReg60XXDialect",
+        "vpux::ELF::ELFDialect"
+    ];
+}
 //
 // ConvertVPUIPDPU2NPUReg40XX
 //
@@ -493,6 +517,27 @@ def ConvertVPUIPDPU2NPUReg50XX : PassBase<"convert-VPUIPDPU-to-NPUReg50XX", "vpu
             clEnumValN(vpux::VPURegMapped::NPU5PPEBackwardsCompatibilityMode::ENABLED, "ENABLED", "NPU5 PPE Backwards Compatibility Mode ENABLED")
           )}]
         >
+    ];
+}
+// ConvertVPUASM2NPU60XX
+//
+
+def ConvertVPUIPDPU2NPUReg60XX : PassBase<"convert-VPUIPDPU-to-NPUReg60XX", "vpux::ModulePass"> {
+    let summary = "Convert VPUIPDPU dialect to NPUReg target";
+
+    let description = [{
+        AI-generated summary
+
+        VPUIPDPU is a logical representation of the DPU descriptor hierarchy, following the HW functionality specific for each architecture generation.
+        The target NPUReg dialect represents ops in terms of hardware registers.
+    }];
+
+    let constructor = "vpux::createConvertVPUIPDPU2NPUReg60XXPass()";
+    let dependentDialects = [
+        "vpux::VPURegMapped::VPURegMappedDialect",
+        "vpux::VPUIPDPU::VPUIPDPUDialect",
+        "vpux::NPUReg60XX::NPUReg60XXDialect",
+        "vpux::ELF::ELFDialect"
     ];
 }
 //

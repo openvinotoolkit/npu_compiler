@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="platform=%platform%" --optimize-activations="enable-fuse-clamp-op=true" %s | FileCheck %s
-// REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010
+// REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010 || platform-NPU6010
 
 // CHECK-LABEL: @OptimizeActivationsConvMaxPoolRelu
 // CHECK-SAME: [[ARG_0:%[^:]+]]: tensor<1x16x5x5xf16>

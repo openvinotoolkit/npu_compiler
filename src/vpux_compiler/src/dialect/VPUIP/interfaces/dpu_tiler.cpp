@@ -49,6 +49,11 @@ MpeModeSize getMpeModeSize(VPU::MPEMode mpeMode) {
         return {8, 16};
     case VPU::MPEMode::CUBOID_4x16:
         return {4, 16};
+    case VPU::MPEMode::DCIM_IC128:
+        // Use the existing CUBOID_4x16 split alignment. NPU60XX IDU maps both
+        // modes to NTHW_NTK_4_16. These values align H/W workload splits;
+        // they do not represent the hardware NTHW/NTK dimensions.
+        return {4, 16};
     default:
         VPUX_THROW("Unsupported MPE mode {0}", mpeMode);
     }

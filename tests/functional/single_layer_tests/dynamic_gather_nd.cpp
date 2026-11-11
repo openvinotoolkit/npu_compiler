@@ -82,6 +82,11 @@ TEST_P(DynamicGatherNDLayerTest, NPU5020_HW) {
     run(Platform::NPU5020);
 }
 
+TEST_P(DynamicGatherNDLayerTest, NPU6010_HW) {
+    setDefaultHardwareMode();
+    run(Platform::NPU6010);
+}
+
 const std::vector<DataShape> dataShapes1D = {ov::Shape{14}};
 const std::vector<DataShape> dataShapesSlice = {ov::Shape{2, 3, 4}};
 const std::vector<DataType> dataPrecision = {ov::element::i64};

@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --verify-diagnostics --init-compiler="platform=%platform%" --legalize-strided-dmas %s
-// REQUIRES: platform-NPU4000 || platform-NPU5010
+// REQUIRES: platform-NPU4000 || platform-NPU5010 || platform-NPU6010
 
 // The SwIoDma kernel that accesses an unbounded IO derives compact strides from the runtime extents, so it cannot
 // honour strides supplied at run time.

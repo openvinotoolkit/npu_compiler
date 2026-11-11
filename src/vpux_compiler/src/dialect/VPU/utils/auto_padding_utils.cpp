@@ -82,6 +82,22 @@ bool VPU::canAutopadOutput(mlir::Operation* op, const AutoPadPreS2DD2SInfo& info
 }
 
 bool VPU::canConsumeIDUAutopad(VPU::NCEConvolutionOp nceConvOp, LogCb logCb) {
+    const auto usesDCIM = [&] {
+        const auto mpeEngine = nceConvOp.getMpeEngine();
+        if (!mpeEngine.has_value()) {
+            return false;
+        }
+        auto engineAttr = mlir::dyn_cast_if_present<VPU::MPEEngine60XXAttr>(mpeEngine.value());
+        if (engineAttr == nullptr) {
+            return false;
+        }
+        return engineAttr.getMode().getValue() == VPU::MPEEngine60XXMode::DCIM;
+    };
+    if (usesDCIM()) {
+        logCb(formatv("IDU autopad is not compatible with dCIM"));
+        return false;
+    }
+
     const auto inputPaddingAttr = nceConvOp.getInputPaddingAttr();
     if (inputPaddingAttr == nullptr) {
         logCb(formatv("Missing input_padding attribute"));
@@ -131,8 +147,21 @@ bool VPU::canConsumeIDUAutopad(VPU::NCEConvolutionOp nceConvOp, LogCb logCb) {
 }
 
 bool VPU::canConsumeODUAutopad(VPU::NCEOpInterface nceOp, LogCb logCb) {
-    (void)nceOp;
-    (void)logCb;
+    const auto usesDCIM = [&] {
+        const auto mpeEngine = nceOp.getMpeEngine();
+        if (!mpeEngine.has_value()) {
+            return false;
+        }
+        auto engineAttr = mlir::dyn_cast_if_present<VPU::MPEEngine60XXAttr>(mpeEngine.value());
+        if (engineAttr == nullptr) {
+            return false;
+        }
+        return engineAttr.getMode().getValue() == VPU::MPEEngine60XXMode::DCIM;
+    };
+    if (usesDCIM()) {
+        logCb(formatv("ODU autopad is not compatible with dCIM"));
+        return false;
+    }
     return true;
 }
 

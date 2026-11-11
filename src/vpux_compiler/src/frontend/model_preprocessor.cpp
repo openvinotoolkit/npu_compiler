@@ -353,7 +353,8 @@ void prepareConfig(const std::string& descOptions, const vcl_compiler_desc_t& co
             const bool isSupportedPlatform = standardizedPlatform == vpux::OV::Platform::NPU3720 ||
                                              standardizedPlatform == vpux::OV::Platform::NPU4000 ||
                                              standardizedPlatform == vpux::OV::Platform::NPU5010 ||
-                                             standardizedPlatform == vpux::OV::Platform::NPU5020;
+                                             standardizedPlatform == vpux::OV::Platform::NPU5020 ||
+                                             standardizedPlatform == vpux::OV::Platform::NPU6010;
 
             VPUX_THROW_WHEN(!isSupportedPlatform, "Unknown value for platform: {0}",
                             configOptions[vpux::OV::PLATFORM::key().data()]);

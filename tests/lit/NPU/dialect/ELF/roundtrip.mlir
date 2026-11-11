@@ -4,7 +4,7 @@
 //
 
 // RUN: env IE_NPU_LOG_FILTER=LOG_ERROR vpux-opt --init-compiler="platform=%platform%" %s | vpux-opt --init-compiler="platform=%platform% allow-custom-values=true" | FileCheck %s
-// REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010
+// REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010 || platform-NPU6010
 
 func.func @elf_roundtrip() {
   ELF.Main {

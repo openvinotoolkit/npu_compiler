@@ -119,6 +119,17 @@ TEST_P(AvgPoolWithActivationTest, NPU5020_HW) {
     run(Platform::NPU5020);
 }
 
+TEST_P(AvgPoolWithActivationTest, NPU6010_HW) {
+    setDefaultHardwareMode();
+    run(Platform::NPU6010);
+}
+
+TEST_P(AvgPoolWithActivationTest, NPU6010_HW_1Tile) {
+    configuration["NPU_TILES"] = "1";
+    setDefaultHardwareMode();
+    run(Platform::NPU6010);
+}
+
 INSTANTIATE_TEST_SUITE_P(smoke_AvgPoolWithActivation, AvgPoolWithActivationTest, ::testing::ValuesIn(activations),
                          AvgPoolWithActivationTest::getTestCaseName);
 

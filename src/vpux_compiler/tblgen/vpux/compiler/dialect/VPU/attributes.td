@@ -379,6 +379,7 @@ def VPU_PPEFpAttr : VPU_Attr<"PPEFp", [
 }
 
 include "vpux/compiler/NPU37XX/dialect/VPU/attributes.td"
+include "vpux/compiler/NPU60XX/dialect/VPU/attributes.td"
 
 //
 // MultiClusterStrategy

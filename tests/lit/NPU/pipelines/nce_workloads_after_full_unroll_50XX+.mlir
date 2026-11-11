@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --init-compiler="platform=%platform% compilation-mode=DefaultHW allow-custom-values=true" --cost-model-analysis-construct --nce-workloads="scf-tiling=true enable-print-statistics=false" %s | FileCheck %s
-// REQUIRES: platform-NPU5010
+// REQUIRES: platform-NPU5010 || platform-NPU6010
 
 config.PipelineOptions @Options {
     config.Option @config.AutoPaddingODU : true

@@ -7,6 +7,7 @@
 #include "vpux/compiler/NPU37XX/pipeline_options.hpp"
 #include "vpux/compiler/NPU40XX/pipeline_options.hpp"
 #include "vpux/compiler/NPU50XX/pipeline_options.hpp"
+#include "vpux/compiler/NPU60XX/pipeline_options.hpp"
 #include "vpux/compiler/pipelines/options_mapper.hpp"
 
 #include "vpux/utils/ov/options.hpp"
@@ -32,6 +33,8 @@ void checkCompilerOptions(const vpux::OV::Config& config) {
         checkCompilerOptions<DefaultHWOptions40XX>(config);
     } else if (arch == config::ArchKind::NPU50XX) {
         checkCompilerOptions<DefaultHWOptions50XX>(config);
+    } else if (arch == config::ArchKind::NPU60XX) {
+        checkCompilerOptions<DefaultHWOptions60XX>(config);
     }
 }
 

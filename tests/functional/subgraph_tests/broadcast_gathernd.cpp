@@ -81,6 +81,11 @@ TEST_P(BroadcastGatherNDSubgraphTest, NPU5020_HW) {
     run(Platform::NPU5020);
 }
 
+TEST_P(BroadcastGatherNDSubgraphTest, NPU6010_HW) {
+    setDefaultHardwareMode();
+    run(Platform::NPU6010);
+}
+
 // Basic case: 1x1x16x1x8 broadcast to 1x4x16x1x8, indices shape [4,2].
 // Matches the original motivating pattern from the ticket.
 const std::vector<BroadcastGatherNDTestParams> testCases = {

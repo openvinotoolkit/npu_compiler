@@ -5,6 +5,7 @@
 
 #include "vpux/compiler/NPU40XX/passes_register.hpp"
 #include "vpux/compiler/NPU50XX/passes_register.hpp"
+#include "vpux/compiler/NPU60XX/passes_register.hpp"
 #include "vpux/compiler/dialect/config/IR/attributes.hpp"
 
 #include "vpux/utils/core/error.hpp"
@@ -28,6 +29,8 @@ std::unique_ptr<IPassesRegistry> vpux::createPassesRegistry(config::Platform pla
         return std::make_unique<PassesRegistry40XX>();
     case config::ArchKind::NPU50XX:
         return std::make_unique<PassesRegistry50XX>();
+    case config::ArchKind::NPU60XX:
+        return std::make_unique<PassesRegistry60XX>();
     default:
         VPUX_THROW("Unsupported platform: {0}", platform);
     }

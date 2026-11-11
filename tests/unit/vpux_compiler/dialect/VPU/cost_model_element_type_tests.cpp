@@ -173,20 +173,12 @@ TEST_F(MLIR_VPUNNElementTypeTest, LegacyMapping) {
 TEST_F(MLIR_VPUNNElementTypeTest, LegacyWorkloadFallback) {
     EXPECT_EQ(VPU::getVPUNNWorkloadElementType(intType(4), VPUNN::VPUDevice::VPU_4_0), VPUNN::DataType::BFLOAT16);
     EXPECT_EQ(VPU::getVPUNNWorkloadElementType(intType(32), VPUNN::VPUDevice::VPU_4_0), VPUNN::DataType::BFLOAT16);
-    EXPECT_EQ(VPU::getVPUNNWorkloadElementType(intType(32), VPUNN::VPUDevice::NPU_5_0), VPUNN::DataType::BFLOAT16);
-    EXPECT_EQ(VPU::getVPUNNWorkloadElementType(intType(1), VPUNN::VPUDevice::NPU_5_0_W), VPUNN::DataType::BFLOAT16);
     EXPECT_EQ(VPU::getVPUNNWorkloadElementType(nf4Type(Signedness::Signless), VPUNN::VPUDevice::VPU_4_0),
               VPUNN::DataType::BFLOAT16);
     EXPECT_EQ(VPU::getVPUNNWorkloadElementType(quantType(intType(2), /*isSigned=*/true), VPUNN::VPUDevice::VPU_4_0),
               VPUNN::DataType::BFLOAT16);
     EXPECT_EQ(VPU::getVPUNNWorkloadElementType(intType(8, Signedness::Unsigned), VPUNN::VPUDevice::VPU_4_0),
               VPUNN::DataType::INT8);
-}
-
-TEST_F(MLIR_VPUNNElementTypeTest, ShaveMappingUsesLegacyDeviceThroughNPU50) {
-    EXPECT_EQ(VPU::getVPUNNShaveMappingDevice(VPUNN::VPUDevice::VPU_4_0), VPUNN::VPUDevice::VPU_4_0);
-    EXPECT_EQ(VPU::getVPUNNShaveMappingDevice(VPUNN::VPUDevice::NPU_5_0), VPUNN::VPUDevice::VPU_4_0);
-    EXPECT_EQ(VPU::getVPUNNShaveMappingDevice(VPUNN::VPUDevice::NPU_5_0_W), VPUNN::VPUDevice::VPU_4_0);
 }
 
 TEST_F(MLIR_VPUNNElementTypeTest, SupportedElementTypePerArch) {

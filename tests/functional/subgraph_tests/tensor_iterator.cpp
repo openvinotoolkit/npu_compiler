@@ -81,6 +81,10 @@ TEST_F(TensorIteratorSubGraphTestCommon_FORWARD, NPU5010_TestKindSubgraph) {
     setDefaultHardwareMode();
     run(Platform::NPU5010);
 }
+TEST_F(TensorIteratorSubGraphTestCommon_FORWARD, NPU6010_TestKindSubgraph) {
+    setDefaultHardwareMode();
+    run(Platform::NPU6010);
+}
 
 class TensorIteratorSubGraphTestCommon_REVERSE : public TensorIteratorSubGraphTestCommon {
     void SetUp() override {
@@ -137,6 +141,10 @@ TEST_F(TensorIteratorSubGraphTestCommon_REVERSE, NPU4000_TestKindSubgraph) {
 TEST_F(TensorIteratorSubGraphTestCommon_REVERSE, NPU5010_TestKindSubgraph) {
     setDefaultHardwareMode();
     run(Platform::NPU5010);
+}
+TEST_F(TensorIteratorSubGraphTestCommon_REVERSE, NPU6010_TestKindSubgraph) {
+    setDefaultHardwareMode();
+    run(Platform::NPU6010);
 }
 
 }  // namespace ov::test

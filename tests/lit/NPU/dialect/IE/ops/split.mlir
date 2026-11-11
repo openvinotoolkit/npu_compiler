@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --init-compiler="platform=%platform%" --canonicalize %s | FileCheck %s
-// REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010
+// REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010 || platform-NPU6010
 
 // CHECK: func.func @ConvertConstToAttr([[ARG:%.+]]: tensor<2x6xf32>)
 func.func @ConvertConstToAttr(%arg: tensor<2x6xf32>) -> (tensor<1x6xf32>, tensor<1x6xf32>) {

@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="platform=%platform% allow-custom-values=true" --fuse-quantized-ops %s | FileCheck %s
-// REQUIRES: platform-NPU5010
+// REQUIRES: platform-NPU5010 || platform-NPU6010
 
 !qElemType = !quant.uniform<u8:f16, 0.57450980392156858>
 !qElemType1 = !quant.uniform<u8:f16, 1.000000e-01>

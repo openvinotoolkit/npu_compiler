@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="platform=%platform%" --canonicalize %s | FileCheck %s
-// REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010
+// REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010 || platform-NPU6010
 
 // CHECK-LABEL: @ReverseSequenceConvertU8ToFP16
 // CHECK-SAME:     ([[ARG0:%.+]]: tensor<1x128xui8>, [[ARG1:%.+]]: tensor<1xsi32>)

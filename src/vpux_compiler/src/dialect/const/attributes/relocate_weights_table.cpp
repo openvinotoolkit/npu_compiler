@@ -245,6 +245,11 @@ Const::Content vpux::Const::RelocateWeightsTableAttr::transform(vpux::Const::Con
     if (numWTEntries >= numElemPerOC * 2) {
         auto dataPtrOC0 = values[0 * numElemPerOC + 0];
         auto dataPtrOC1 = values[1 * numElemPerOC + 0];
+        // This step is done for all architectures, but only NPU6 uses 4 MS bits of weights pointer to store zero points
+        // for asymmetric per-channel quantization.
+
+        // To calculate weightPtrStep correctly we need to clear these bits as
+        // there are stored zero points which shouldn't participate in step calculation.
         dataPtrOC0 = dataPtrOC0 & 0x0FFFFFFF;
         dataPtrOC1 = dataPtrOC1 & 0x0FFFFFFF;
 
@@ -345,6 +350,11 @@ Const::Content vpux::Const::RelocateWeightsTableAttr::transform(vpux::Const::Con
         const auto wtInd = oc * numElemPerOC;
 
         auto newAddress = checked_cast<int32_t>(weightsPtr[clusterIdx] + weightsPtrSteps[oc]) + weightsPtrOffset;
+        // This step is done for all architectures, but only NPU6 uses 4 MS bits of weights pointer to store zero points
+        // for asymmetric per-channel quantization.
+
+        // 1) Extract zero point(upper 4 bits) from current weight pointer
+        // 2) Patch original zero point to new address
         int32_t zeroPoint = values[wtInd + 0] & 0xF0000000;
         newAddress |= zeroPoint;
 

@@ -78,6 +78,12 @@ TEST_P(SEPRollLayerTestCommon, NPU5020_HW) {
     run(Platform::NPU5020);
 }
 
+TEST_P(SEPRollLayerTestCommon, NPU6010_HW) {
+    setDefaultHardwareMode();
+    configuration["NPU_COMPILATION_MODE_PARAMS"] = "enable-se-ptrs-operations=true";
+    run(Platform::NPU6010);
+}
+
 const std::vector<ov::Shape> inputShapesHW = {{1, 16, 5, 5}, {1, 128, 96, 96}};
 const std::vector<std::vector<int64_t>> shiftsHW = {{-2, 1}, {1, -4}};
 const std::vector<std::vector<int64_t>> axesHW = {{2, 3}};

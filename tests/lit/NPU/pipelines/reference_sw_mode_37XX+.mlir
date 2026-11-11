@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --platform=%platform% --split-input-file --mlir-elide-elementsattrs-if-larger 8 --reference-sw-mode %s | FileCheck %s -DPLATFORM=%platform%
-// REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010 || platform-NPU5020
+// REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010 || platform-NPU5020 || platform-NPU6010
 
 // CHECK:       module @SoftMax
 // CHECK-SAME:      config.compilationMode = #config.compilation_mode<ReferenceSW>

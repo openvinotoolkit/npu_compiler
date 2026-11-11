@@ -147,6 +147,8 @@ VPU::MPEMode vpux::VPU::getMPEMode(VPUNN::ExecutionMode executionMode) {
         return MPEMode::CUBOID_8x16;
     case VPUNN::ExecutionMode::CUBOID_4x16:
         return MPEMode::CUBOID_4x16;
+    case VPUNN::ExecutionMode::dCIM_32x128:
+        return MPEMode::DCIM_IC128;
     default:  // do not handle __size
         return MPEMode::NOP;
     }
@@ -201,6 +203,8 @@ VPUNN::VPUDevice vpux::VPU::getVPUDeviceType(config::Platform platform) {
         return VPUNN::VPUDevice::NPU_5_0;
     case config::Platform::NPU5020:
         return VPUNN::VPUDevice::NPU_5_0_W;
+    case config::Platform::NPU6010:
+        return VPUNN::VPUDevice::NPU_6_0;
     default:
         VPUX_THROW("Unsupported VPU Platform type: '{0}'", platform);
     }
@@ -215,6 +219,8 @@ VPUNN::VPUDevice vpux::VPU::getVPUDeviceType(config::ArchKind archKind) {
         return VPUNN::VPUDevice::VPU_4_0;
     case config::ArchKind::NPU50XX:
         return VPUNN::VPUDevice::NPU_5_0;
+    case config::ArchKind::NPU60XX:
+        return VPUNN::VPUDevice::NPU_6_0;
     default:
         VPUX_THROW("Unsupported VPU arch type: '{0}'", archKind);
     }
@@ -380,7 +386,8 @@ VPUNN::DataType vpux::VPU::getVPUNNWorkloadElementType(mlir::Type type, VPUNN::V
                                                                                 : VPUNN::DataType::BFLOAT16;
     }
     // SE tables (i32), weight tables (si32) and sparsity maps (i1) keep the legacy BF16 DMA cost workaround
-    if (type.isSignlessInteger(32) || type.isSignedInteger(32) || type.isInteger(1)) {
+    if (device < VPUNN::VPUDevice::NPU_6_0 &&
+        (type.isSignlessInteger(32) || type.isSignedInteger(32) || type.isInteger(1))) {
         return VPUNN::DataType::BFLOAT16;
     }
     if (!vpunnType.has_value()) {
@@ -403,7 +410,7 @@ bool vpux::VPU::isVPUNNSupportedElementType(mlir::Type type, config::ArchKind ar
 }
 
 VPUNN::VPUDevice vpux::VPU::getVPUNNShaveMappingDevice(VPUNN::VPUDevice device) {
-    return device <= VPUNN::VPUDevice::NPU_5_0_W ? VPUNN::VPUDevice::VPU_4_0 : device;
+    return device < VPUNN::VPUDevice::NPU_6_0 ? VPUNN::VPUDevice::VPU_4_0 : device;
 }
 
 VPUNN::Layout vpux::VPU::getVPUNNLayout(const vpux::DimsOrder& vpuxLayout) {
@@ -472,10 +479,20 @@ VPUNN::ExecutionMode vpux::VPU::getExecutionMode(VPU::MPEMode mpeMode) {
         return VPUNN::ExecutionMode::CUBOID_8x16;
     case VPU::MPEMode::CUBOID_4x16:
         return VPUNN::ExecutionMode::CUBOID_4x16;
+    case VPU::MPEMode::DCIM_IC128:
+        return VPUNN::ExecutionMode::dCIM_32x128;
     default:
         VPUX_THROW("Unsupported MPE mode type: '{0}'", mpeMode);
     }
 }
+
+namespace {
+
+VPUNN::MPEEngine mapMPEEngine(vpux::VPU::MPEEngine60XXMode value) {
+    return (value == vpux::VPU::MPEEngine60XXMode::DCIM) ? VPUNN::MPEEngine::DCIM : VPUNN::MPEEngine::SCL;
+}
+
+}  // namespace
 
 VPUNN::MPEEngine vpux::VPU::getVPUNNMPEEngine(std::optional<VPU::MPEEngineAttr> mpeEngine) {
     // Default if attribute absent
@@ -490,6 +507,11 @@ VPUNN::MPEEngine vpux::VPU::getVPUNNMPEEngine(std::optional<VPU::MPEEngineAttr> 
     }
 
     return llvm::TypeSwitch<VPU::MPEEngineAttr, VPUNN::MPEEngine>(attr)
+            .Case<vpux::VPU::MPEEngine60XXAttr>([](vpux::VPU::MPEEngine60XXAttr mpeEngineAttr) {
+                auto mode = mpeEngineAttr.getMode();
+                VPUX_THROW_WHEN(mode == nullptr, "MPEEngine60XXAttr has null mode");
+                return mapMPEEngine(mode.getValue());
+            })
             .Case<vpux::VPU::MPEEngine37XXAttr>([](vpux::VPU::MPEEngine37XXAttr mpeEngineAttr) {
                 auto mode = mpeEngineAttr.getMode();
                 VPUX_THROW_WHEN(mode == nullptr, "MPEEngine37XXAttr has null mode");

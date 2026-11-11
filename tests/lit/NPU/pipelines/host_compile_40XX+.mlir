@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --platform=%platform% --split-input-file --mlir-elide-elementsattrs-if-larger 8 --host-compile="auto-unrolling-mode=disabled" %s | FileCheck %s --check-prefixes=CHECK,CHECK-%platform%
-// REQUIRES: platform-NPU4000 || platform-NPU5010
+// REQUIRES: platform-NPU4000 || platform-NPU5010 || platform-NPU6010
 
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
@@ -24,9 +24,11 @@ module @StaticEltwiseNHWC {
 
     // CHECK-NPU4000:           func.func [[FUNC0:@.+]]([[_:%.+]]: memref<1x[[STEP:.+]]x1000x16xf16, {{.*}}>, [[_:%.+]]: memref<1x[[STEP]]x1000x16xf16, {{.*}}>, [[_:%.+]]: memref<1x[[STEP]]x1000x16xf16, {{.*}}>) -> memref<1x[[STEP]]x1000x16xf16, {{.*}}> {
     // CHECK-NPU5010:           func.func [[FUNC0:@.+]]([[_:%.+]]: memref<1x[[STEP:.+]]x1000x16xf16, {{.*}}>, [[_:%.+]]: memref<1x[[STEP]]x1000x16xf16, {{.*}}>, [[_:%.+]]: memref<1x[[STEP]]x1000x16xf16, {{.*}}>) -> memref<1x[[STEP]]x1000x16xf16, {{.*}}> {
+    // CHECK-NPU6010:           func.func [[FUNC0:@.+]]([[_:%.+]]: memref<1x2560x[[STEP:.+]]x16xf16, {{.*}}>, [[_:%.+]]: memref<1x2560x[[STEP]]x16xf16, {{.*}}>, [[_:%.+]]: memref<1x2560x[[STEP]]x16xf16, {{.*}}>) -> memref<1x2560x[[STEP]]x16xf16, {{.*}}> {
 
     // CHECK-NPU4000-COUNT-26:    VPURT.Task
     // CHECK-NPU5010-COUNT-20:    VPURT.Task
+    // CHECK-NPU6010-COUNT-20:    VPURT.Task
     // CHECK-NOT: IE.Add
     func.func @main(%arg0: tensor<1x16x2560x1000xf16, {order = #NHWC}>,
                     %arg1: tensor<1x16x2560x1000xf16, {order = #NHWC}>)
@@ -42,6 +44,7 @@ module @StaticEltwiseNHWC {
         // CHECK-DAG:             [[C0:%.+]] = arith.constant 0 : index
         // CHECK-NPU4000-DAG:     [[END:%.+]] = arith.constant 2560 : index
         // CHECK-NPU5010-DAG:     [[END:%.+]] = arith.constant 2560 : index
+        // CHECK-NPU6010-DAG:     [[END:%.+]] = arith.constant 1000 : index
         // CHECK-DAG:             [[STEP_VAR:%.+]] = arith.constant [[STEP]] : index
 
         // CHECK:                 [[GROUP:%.+]] = async.create_group
@@ -53,12 +56,15 @@ module @StaticEltwiseNHWC {
         // CHECK-NPU4000:           [[SUBVIEW1:%.+]] = memref.subview [[ARG1]][0, [[POS_WITH_BACKTRACK]], 0, 0] [1, [[STEP]], 1000, 16] [1, 1, 1, 1]
         // CHECK-NPU5010:           [[SUBVIEW0:%.+]] = memref.subview [[ARG0]][0, [[POS_WITH_BACKTRACK]], 0, 0] [1, [[STEP]], 1000, 16] [1, 1, 1, 1]
         // CHECK-NPU5010:           [[SUBVIEW1:%.+]] = memref.subview [[ARG1]][0, [[POS_WITH_BACKTRACK]], 0, 0] [1, [[STEP]], 1000, 16] [1, 1, 1, 1]
+        // CHECK-NPU6010:           [[SUBVIEW0:%.+]] = memref.subview [[ARG0]][0, 0, [[POS_WITH_BACKTRACK]], 0] [1, 2560, [[STEP]], 16] [1, 1, 1, 1]
+        // CHECK-NPU6010:           [[SUBVIEW1:%.+]] = memref.subview [[ARG1]][0, 0, [[POS_WITH_BACKTRACK]], 0] [1, 2560, [[STEP]], 16] [1, 1, 1, 1]
 
         // CHECK:                   [[CAST0:%.+]] = memref.cast [[SUBVIEW0]]
         // CHECK:                   [[CAST1:%.+]] = memref.cast [[SUBVIEW1]]
 
         // CHECK-NPU4000:           [[SUBVIEW2:%.+]] = memref.subview [[ARG2]][0, [[POS_WITH_BACKTRACK]], 0, 0] [1, [[STEP]], 1000, 16] [1, 1, 1, 1]
         // CHECK-NPU5010:           [[SUBVIEW2:%.+]] = memref.subview [[ARG2]][0, [[POS_WITH_BACKTRACK]], 0, 0] [1, [[STEP]], 1000, 16] [1, 1, 1, 1]
+        // CHECK-NPU6010:           [[SUBVIEW2:%.+]] = memref.subview [[ARG2]][0, 0, [[POS_WITH_BACKTRACK]], 0] [1, 2560, [[STEP]], 16] [1, 1, 1, 1]
 
         // CHECK:                   [[CAST2:%.+]] = memref.cast [[SUBVIEW2]]
         // CHECK:                   [[TOKEN:%.+]] = async.execute

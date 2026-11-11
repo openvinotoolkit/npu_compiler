@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="platform=%platform%" --split-bilinear-into-H-and-W %s | FileCheck %s
-// REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010
+// REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010 || platform-NPU6010
 
 // CHECK-LABEL: @SplitBilinearIntoHAndW
 func.func @SplitBilinearIntoHAndW(%arg0: tensor<1x32x68x120xf16>) -> tensor<1x32x136x240xf16> {

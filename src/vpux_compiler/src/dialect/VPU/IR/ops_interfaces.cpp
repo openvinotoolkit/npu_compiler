@@ -193,6 +193,18 @@ mlir::LogicalResult vpux::VPU::details::verifyInputQuantization(mlir::Operation*
             if (!is16BitsQuantization) {
                 continue;
             }
+            // Only NCEConvolutionOp and NCEMatMulOp are allowed to use 16-bit quantization, and only when
+            // they satisfy the dCIM HW constraints.
+            if (mlir::isa<VPU::NCEConvolutionOp, VPU::NCEMatMulOp>(op)) {
+                auto nceOp = mlir::cast<VPU::NCEOpInterface>(op);
+                if (auto mpeEngine = nceOp.getMpeEngine()) {
+                    if (auto mpeEngine60xx = mlir::dyn_cast<VPU::MPEEngine60XXAttr>(*mpeEngine)) {
+                        if (mpeEngine60xx.getMode().getValue() == VPU::MPEEngine60XXMode::DCIM) {
+                            return mlir::success();
+                        }
+                    }
+                }
+            }
             return mlir::failure();
         }
     }

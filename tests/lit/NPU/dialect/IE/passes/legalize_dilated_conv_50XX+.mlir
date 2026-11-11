@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="platform=%platform%" --legalize-dilated-conv %s | FileCheck %s
-// REQUIRES: platform-NPU5010
+// REQUIRES: platform-NPU5010 || platform-NPU6010
 
 // CHECK-LABEL: @LegalizeDilatedConvolutionTwoDimension
 // CHECK-SAME:     ([[INPUT:%.+]]: tensor<1x3x30x30xf16>)

@@ -96,6 +96,7 @@ const EngineLimits& getEngineLimits(config::ArchKind arch) {
     case config::ArchKind::NPU40XX:
         return NPU40XX_ENGINE_LIMITS_DEFAULT;
     case config::ArchKind::NPU50XX:
+    case config::ArchKind::NPU60XX:
         return NPU50XX_ENGINE_LIMITS_DEFAULT;
     default:
         return DEFAULT_ENGINE_LIMITS_DEFAULT;

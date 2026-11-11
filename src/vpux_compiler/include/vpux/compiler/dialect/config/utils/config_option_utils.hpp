@@ -123,6 +123,10 @@ bool isSprLUTEnabled(mlir::Operation* op);
 constexpr StringRef POWER_OPTIMIZED = "config.PowerOptimized";
 bool isPowerOptimized(mlir::Operation* op);
 
+// DCIM Configurations
+constexpr StringRef ENABLE_DCIM = "config.EnableDCIM";
+bool isDCIMEnabled(mlir::Operation* op);
+
 // Enable SoftmaxMaskAware and configure the FP16 minimum-threshold adjustment.
 constexpr StringRef SOFTMAX_MASK_AWARE = "config.EnableSoftmaxMaskAware";
 constexpr StringRef SOFTMAX_MASK_AWARE_THRESHOLD = "config.SoftmaxMaskAwareThreshold";

@@ -7,7 +7,7 @@
 // RUN: vpux-opt --split-input-file --init-compiler="platform=%platform%" --chunk-gated-delta-rule-loop="chunk-size=2" --unroll-tensor-iterator %s | FileCheck %s --check-prefix=UNROLLED
 // RUN: vpux-opt --split-input-file --init-compiler="platform=%platform%" --chunk-gated-delta-rule-loop="chunk-size=4" %s | FileCheck %s --check-prefix=NEGATED
 // RUN: vpux-opt --split-input-file --init-compiler="platform=%platform%" --chunk-gated-delta-rule-loop="chunk-size=2" %s | FileCheck %s --check-prefix=SGDR
-// REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010
+// REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010 || platform-NPU6010
 
 // CHECK-LABEL: module @ChunkGDR_BetaOrientation
 module @ChunkGDR_BetaOrientation {

@@ -47,6 +47,12 @@ TEST_P(SqueezeUnsqueezeLayerTestCommon, NPU5020_HW) {
     run(Platform::NPU5020);
 }
 
+TEST_P(SqueezeUnsqueezeLayerTestCommon, NPU6010_HW) {
+    setSkipCompilationCallback(skipCompilationCallback);
+    setDefaultHardwareMode();
+    run(Platform::NPU6010);
+}
+
 }  // namespace test
 }  // namespace ov
 

@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="platform=%platform%" --run-adjust-for-vpu-rewriters="rewriter=fuse-pad-ops-set"  %s | FileCheck %s
-// REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010
+// REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010 || platform-NPU6010
 
 // CHECK-LABEL: @fusePadIntoConv
 // CHECK-SAME: ([[ARG_0:%[^:]+]]: tensor<1x8x13x29xf16>

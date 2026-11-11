@@ -162,6 +162,11 @@ TEST_P(FuseDQTestCommon, NPU5020_HW) {
     run(Platform::NPU5020);
 }
 
+TEST_P(FuseDQTestCommon, NPU6010_HW) {
+    setDefaultHardwareMode();
+    run(Platform::NPU6010);
+}
+
 class FuseDQSignedTestCommon : public VpuOv2LayerTest, public testing::WithParamInterface<DQDecompositionParams> {
 public:
     static std::string getTestCaseName(testing::TestParamInfo<DQDecompositionParams> obj) {
@@ -292,6 +297,11 @@ TEST_P(FuseDQSignedTestCommon, NPU5010_HW) {
 TEST_P(FuseDQSignedTestCommon, NPU5020_HW) {
     setDefaultHardwareMode();
     run(Platform::NPU5020);
+}
+
+TEST_P(FuseDQSignedTestCommon, NPU6010_HW) {
+    setDefaultHardwareMode();
+    run(Platform::NPU6010);
 }
 
 namespace {

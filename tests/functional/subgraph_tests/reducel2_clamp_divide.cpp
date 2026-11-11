@@ -51,4 +51,9 @@ TEST_F(ReduceL2ClampDivideTestCommon, NPU5020_TestKindSubgraph) {
     run(Platform::NPU5020);
 }
 
+TEST_F(ReduceL2ClampDivideTestCommon, NPU6010_TestKindSubgraph) {
+    setDefaultHardwareMode();
+    run(Platform::NPU6010);
+}
+
 }  // namespace ov::test

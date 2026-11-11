@@ -85,6 +85,12 @@ TEST_P(DynamicReduceMeanTest, NPU5010_HC) {
     run(Platform::NPU5010);
 }
 
+TEST_P(DynamicReduceMeanTest, NPU6010_HC) {
+    setHostCompileMode();
+    setPluginCompilerType();
+    run(Platform::NPU6010);
+}
+
 }  // namespace ov::test::subgraph
 
 using namespace ov::test::subgraph;

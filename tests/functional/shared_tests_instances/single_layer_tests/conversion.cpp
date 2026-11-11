@@ -60,6 +60,11 @@ TEST_P(ShaveCodeGenConversionLayerTest, NPU5010) {
     run(Platform::NPU5010);
 }
 
+TEST_P(ConversionLayerTestCommon_HW, NPU6010_HW) {
+    setDefaultHardwareMode();
+    run(Platform::NPU6010);
+}
+
 TEST_P(ConversionLayerTestCommon, NPU4000_SW) {
     setReferenceSoftwareMode();
     run(Platform::NPU4000);
@@ -73,6 +78,17 @@ TEST_P(ConversionLayerTestCommon, NPU5010_SW) {
 TEST_P(ConversionLayerTestCommon, NPU5020_SW) {
     setReferenceSoftwareMode();
     run(Platform::NPU5020);
+}
+
+TEST_P(ConversionLayerTestCommon, NPU6010_SW) {
+    setReferenceSoftwareMode();
+    run(Platform::NPU6010);
+}
+
+TEST_P(ShaveCodeGenConversionLayerTest, NPU6010) {
+    setReferenceSoftwareMode();
+    setPluginCompilerType();
+    run(Platform::NPU6010);
 }
 
 class ConversionLayerTest_HostCompile : public ConversionLayerTestCommon {
@@ -92,6 +108,12 @@ TEST_P(ConversionLayerTest_HostCompile, NPU5010_HC) {
     setHostCompileMode();
     setPluginCompilerType();
     run(Platform::NPU5010);
+}
+
+TEST_P(ConversionLayerTest_HostCompile, NPU6010_HC) {
+    setHostCompileMode();
+    setPluginCompilerType();
+    run(Platform::NPU6010);
 }
 
 class ConversionLayerTest_SCFTiling : public ConversionLayerTestCommon {

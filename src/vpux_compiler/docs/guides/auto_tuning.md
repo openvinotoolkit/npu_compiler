@@ -92,6 +92,7 @@ For now, it is recommended to select only convolution entries and append them to
 the platform cache JSON:
 
 - PTL: `artifacts/precomputed_strategy_cache/npu50xx_precomputed_strategy.json`
+- NVL: `artifacts/precomputed_strategy_cache/npu60xx_precomputed_strategy.json`
 
 Each entry is keyed by a 64-bit descriptor hash. Before appending a new
 entry, check whether the same hash key already exists in the platform cache.
@@ -122,6 +123,7 @@ python3 tools/precomputed-strategy-table/convert_precomputed_strategy_table.py \
   -o artifacts/precomputed_strategy_cache/npu50xx_precomputed_strategy.ptc
 ```
 
+For NVL, replace `npu50xx` with `npu60xx` in input and output file names.
 
 ### 4. Rebuild compiler and retest model performance
 
@@ -161,12 +163,13 @@ evaluation on the target model.
   - output 0 descriptor: rank, shape, layout, element type
   - strides for NCE operations
   - padding for NCE operations
-  - target device string, for example `NPU50XX`
+  - target device string, for example `NPU50XX` or `NPU60XX`
   - engine kind: `SHAVE`, `SCL`, or `DCIM`
   - DPU tile count
 
 - Pay special attention to device, DPU tile count, tensor element type, layout,
-  shape, strides, and padding.
+  shape, strides, and padding. For NVL, check whether the entry was generated
+  with 4 tiles or 3 tiles.
 
 ### Existing cache entry differs from new result
 
@@ -182,7 +185,7 @@ evaluation on the target model.
 ### PTC conversion command fails
 
 - Verify input JSON path and output `.ptc` path are correct for the target
-  platform (`npu50xx` for PTL).
+  platform (`npu50xx` for PTL, `npu60xx` for NVL).
 - Ensure the JSON is valid and entries are not manually malformed.
 - Re-run conversion after fixing invalid entries.
 

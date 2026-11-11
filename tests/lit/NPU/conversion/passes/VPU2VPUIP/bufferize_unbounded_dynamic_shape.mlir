@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --init-compiler="platform=%platform% compilation-mode=HostCompile_Interpreter" --one-shot-bufferize-VPU-to-VPUIP --split-input-file %s | FileCheck %s
-// REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010
+// REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010 || platform-NPU6010
 
 // An unbounded network result gets a VPURT.Alloc placeholder without bounds.
 

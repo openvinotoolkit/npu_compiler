@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="platform=%platform%" --decompose-stft %s | FileCheck %s
-// REQUIRES: platform-NPU4000 || platform-NPU5010
+// REQUIRES: platform-NPU4000 || platform-NPU5010 || platform-NPU6010
 
 // CHECK-LABEL: @DecomposeSTFT
 func.func @DecomposeSTFT(%arg0: tensor<1536xf32>) -> tensor<11x129x2xf32> {

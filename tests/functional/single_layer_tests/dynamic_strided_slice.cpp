@@ -299,4 +299,9 @@ TEST_F(StridedSliceWithDynamicInputLayerTest, NPU5020_HW) {
     run(Platform::NPU5020);
 }
 
+TEST_F(StridedSliceWithDynamicInputLayerTest, NPU6010_HW) {
+    abs_threshold = 0.0f;
+    setDefaultHardwareMode();
+    run(Platform::NPU6010);
+}
 }  // namespace ov::test

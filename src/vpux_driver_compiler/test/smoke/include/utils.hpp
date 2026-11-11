@@ -38,6 +38,8 @@ std::string getPlatform(const std::string& device) {
         return "5010";
     } else if (device == "NPU.5020") {
         return "5020";
+    } else if (device == "NPU.6010") {
+        return "6010";
     } else {
         throw std::runtime_error("Target device is unknown.");
     }

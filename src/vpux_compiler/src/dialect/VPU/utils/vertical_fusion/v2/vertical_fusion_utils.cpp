@@ -784,6 +784,13 @@ bool supportMultiClusterStrategyAdjustmentInVF(mlir::Operation* op) {
         if (mlir::isa<VPU::SparseTensorType>(op->getOperand(0).getType())) {
             return false;
         }
+        auto maybeEngine = nceOp.getMpeEngine();
+        // Also disable for DCIM
+        if (maybeEngine.has_value()) {
+            if (auto engine60xx = mlir::dyn_cast_if_present<VPU::MPEEngine60XXAttr>(maybeEngine.value())) {
+                return engine60xx.getMode().getValue() != VPU::MPEEngine60XXMode::DCIM;
+            }
+        }
     }
     return true;
 }

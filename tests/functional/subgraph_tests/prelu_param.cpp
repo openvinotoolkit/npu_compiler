@@ -38,4 +38,9 @@ TEST_F(PRelu2InputsSubGraphTest, NPU5010_TestKindSubgraph) {
     run(Platform::NPU5010);
 }
 
+TEST_F(PRelu2InputsSubGraphTest, NPU6010_TestKindSubgraph) {
+    setDefaultHardwareMode();
+    run(Platform::NPU6010);
+}
+
 }  // namespace ov::test

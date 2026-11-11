@@ -15,6 +15,7 @@ const std::unordered_map<config::ArchKind, double> fragmentationDefaultRatioForP
         {config::ArchKind::NPU37XX, NPU37XX_FRAGMENTATION_AVOID_RATIO_PIPELINING_LARGE_WEIGHTS},
         {config::ArchKind::NPU40XX, NPU37XX_FRAGMENTATION_AVOID_RATIO_PIPELINING_LARGE_WEIGHTS},
         {config::ArchKind::NPU50XX, NPU50XX_FRAGMENTATION_AVOID_RATIO_PIPELINING_LARGE_WEIGHTS},
+        {config::ArchKind::NPU60XX, NPU50XX_FRAGMENTATION_AVOID_RATIO_PIPELINING_LARGE_WEIGHTS},
 };
 
 double VPU::getFragmentationAvoidRatioPipeliningLargeWeights(config::ArchKind archKind) {

@@ -5,7 +5,7 @@
 
 // RUN: vpux-opt --split-input-file --init-compiler="platform=%platform% compilation-mode=DefaultHW" --insert-identity-pool-before-op %s | FileCheck %s
 // RUN: vpux-opt --split-input-file --init-compiler="platform=%platform% compilation-mode=DefaultHW" --run-mem-permute-processing-rewriters="rewriter=insert-identity-pool-before-op-set" %s | FileCheck %s
-// REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010
+// REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010 || platform-NPU6010
 
 // CHECK-LABEL: @SkipLReluWithNCEProducer
 // CHECK-SAME:      [[ARG_0:%[^:]+]]: tensor<1x128x2x32xf16>

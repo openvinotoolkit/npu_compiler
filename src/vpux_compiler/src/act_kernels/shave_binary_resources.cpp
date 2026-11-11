@@ -25,6 +25,8 @@ vpux::SmallString ShaveBinaryResources::getSwKernelArchString(config::ArchKind a
         return vpux::SmallString("4000xx");
     case config::ArchKind::NPU50XX:
         return vpux::SmallString("5000xx");
+    case config::ArchKind::NPU60XX:
+        return vpux::SmallString("6000xx");
     default:
         VPUX_THROW("unsupported archKind {0}", archKind);
         return vpux::SmallString("");

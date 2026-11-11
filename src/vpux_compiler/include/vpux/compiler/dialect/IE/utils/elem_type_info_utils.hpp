@@ -61,6 +61,8 @@ public:
 
 private:
     static bool dontPropagateElementType(mlir::Operation* op, mlir::Type elemType) {
+        // I16 Quantization can run only DCIM and we can only run Convs on DCIM
+        // So, for other NCE ops we should not propagate I16 quantization
         if (mlir::isa<IE::InterpolateOp, IE::PadOp>(op)) {
             if (auto uqType = mlir::dyn_cast<mlir::quant::QuantizedType>(elemType)) {
                 const auto storageType = uqType.getStorageType();

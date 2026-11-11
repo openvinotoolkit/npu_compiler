@@ -101,6 +101,11 @@ TEST_P(DynamicScatterElementsUpdateLayerTest, NPU5020_HW) {
     run(Platform::NPU5020);
 }
 
+TEST_P(DynamicScatterElementsUpdateLayerTest, NPU6010_HW) {
+    setDefaultHardwareMode();
+    run(Platform::NPU6010);
+}
+
 const std::vector<DataShape> dataShapes = {ov::Shape{1, 1}};
 const std::vector<DataType> dataPrecision = {ov::element::f16};
 const std::vector<IndicesType> indicesPrecision = {ov::element::i32};

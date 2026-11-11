@@ -5,7 +5,7 @@
 
 // RUN: vpux-translate --platform=%platform% --import-IE ./IR/test_dynamic_shapes.xml -o %t
 // RUN: FileCheck %s --input-file %t
-// REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010
+// REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010 || platform-NPU6010
 
 // Input: IR with no upper bounds specified
 // Case : An unbounded axis is imported as a plain dynamic dimension without bounds

@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --init-compiler="platform=%platform%" --cmx-stack-frames-reserve-mem --cmx-metadata-reserve-mem --set-cmx-symbol-value %s | FileCheck %s --check-prefixes=CHECK,CHECK-%platform%
-// REQUIRES: platform-NPU4000 || platform-NPU5010 || platform-NPU5020
+// REQUIRES: platform-NPU4000 || platform-NPU5010 || platform-NPU5020 || platform-NPU6010
 
 module @setCMXSymbols {
   net.NetworkInfo entryPoint : @main inputsInfo : {
@@ -33,4 +33,5 @@ module @setCMXSymbols {
 //CHECK-NPU4000-SAME:      size(1571840)
 //CHECK-NPU5010-SAME:      size(1571840)
 //CHECK-NPU5020-SAME:      size(2096128)
+//CHECK-NPU6010-SAME:      size(2096128)
 //CHECK-SAME:              value(1075838976)

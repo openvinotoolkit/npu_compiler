@@ -68,6 +68,7 @@ const EnumMap<config::ArchKind, size_t> firmwareVariantCount = {
         {config::ArchKind::NPU37XX, 256},
         {config::ArchKind::NPU40XX, 128},
         {config::ArchKind::NPU50XX, 128},
+        {config::ArchKind::NPU60XX, 128},
 };
 
 /**
