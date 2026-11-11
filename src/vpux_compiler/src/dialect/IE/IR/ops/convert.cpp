@@ -46,14 +46,40 @@ namespace {
 
 #include <vpux/compiler/dialect/IE/convert.hpp.inc>
 
+// Fuses two consecutive converts only when the intermediate conversion is redundant, i.e. it does not change the
+// value: either the inner convert targets the input type, or the outer convert targets the intermediate type.
+// Lossy intermediates (float -> int, f32 -> f16, ...) must be preserved; fusing them away drops the truncation or
+// rounding performed by the inner conversion.
+class FuseRedundantConverts final : public mlir::OpRewritePattern<IE::ConvertOp> {
+public:
+    explicit FuseRedundantConverts(mlir::MLIRContext* ctx): mlir::OpRewritePattern<IE::ConvertOp>(ctx) {
+    }
+
+    mlir::LogicalResult matchAndRewrite(IE::ConvertOp origOp, mlir::PatternRewriter& rewriter) const final {
+        const auto innerOp = origOp->getOperand(0).getDefiningOp<IE::ConvertOp>();
+        if (innerOp == nullptr || !innerOp->hasOneUse()) {
+            return mlir::failure();
+        }
+        const auto inputType = mlir::cast<vpux::NDTypeInterface>(innerOp->getOperand(0).getType()).getElementType();
+        const auto midType = mlir::cast<vpux::NDTypeInterface>(innerOp->getResult(0).getType()).getElementType();
+        const auto outputType = mlir::cast<vpux::NDTypeInterface>(origOp->getResult(0).getType()).getElementType();
+        if (midType != inputType && midType != outputType) {
+            return mlir::failure();
+        }
+        rewriter.replaceOpWithNewOp<IE::ConvertOp>(origOp, innerOp->getOperand(0), origOp.getDstElemType());
+        return mlir::success();
+    }
+};
+
 }  // namespace
 
 void vpux::IE::ConvertOp::getCanonicalizationPatterns(mlir::RewritePatternSet& patterns, mlir::MLIRContext*) {
+    patterns.add<FuseRedundantConverts>(patterns.getContext());
     populateWithGenerated(patterns);
 }
 
 void vpux::IE::registerConvertOpRewriters(RewriterRegistry& registry) {
-    registry.registerRewriter<FuseConverts>("fuse-converts");
+    registry.registerRewriter<FuseRedundantConverts>("fuse-converts");
 }
 
 mlir::OpFoldResult vpux::IE::ConvertOp::fold(FoldAdaptor adaptor) {
