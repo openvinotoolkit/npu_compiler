@@ -1,4 +1,4 @@
-name: Windows (2022)
+name: Windows (2025)
 on:
   workflow_dispatch:
   pull_request:
@@ -8,14 +8,14 @@ on:
       - releases/**
 
 concurrency:
-  group: windows-${{ github.event_name }}-${{ github.ref_name }}-2022
+  group: windows-${{ github.event_name }}-${{ github.ref_name }}-2025
   cancel-in-progress: true
 
 permissions: read-all
 
 jobs:
-  Windows2022:
-    name: Main Trigger
+  Windows2025:
+    name: Main Trigger (2025)
     uses: ./.github/workflows/job_windows.yml
     permissions:
       actions: read
@@ -26,8 +26,8 @@ jobs:
       id-token: write
       attestations: write
     with:
-      os: windows_2022
-      build-runner: windows-2022-16-core
+      os: windows_2025
+      build-runner: windows-2025-16-core
       build-cache: true
       build-cache-key-suffix: ${{ github.sha }}
       build-cid: true

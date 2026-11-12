@@ -3,12 +3,12 @@ on:
   workflow_dispatch:
     inputs:
       os:
-        description: 'OS in the form of "ubuntu_20_04" or "windows_2022".'
+        description: 'OS in the form of "ubuntu_20_04" or "windows_2025".'
         type: string
         required: true
         default: ubuntu_24_04
       build-runner:
-        description: 'Runner tag on which the builds will run. Example: "ubuntu-latest-32-cores" or "windows-2022-16-core"'
+        description: 'Runner tag on which the builds will run. Example: "ubuntu-latest-32-cores" or "windows-2025-16-core"'
         type: string
         required: true
         default: ubuntu-latest-32-cores
@@ -34,11 +34,11 @@ on:
   workflow_call:
     inputs:
       os:
-        description: 'OS in the form of "ubuntu_20_04" or "windows_2022".'
+        description: 'OS in the form of "ubuntu_20_04" or "windows_2025".'
         type: string
         required: true
       build-runner:
-        description: 'Runner tag on which the builds will run. Example: "ubuntu-latest-32-cores" or "windows-2022-16-core"'
+        description: 'Runner tag on which the builds will run. Example: "ubuntu-latest-32-cores" or "windows-2025-16-core"'
         type: string
         required: true
       openvino-cmake-options:
