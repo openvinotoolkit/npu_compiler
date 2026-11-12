@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="platform=%platform%" --add-compatibility-string="" %s | FileCheck %s
-// REQUIRES: platform-NPU4000 || platform-NPU5010
+// REQUIRES: platform-NPU4000 || platform-NPU5010 || platform-NPU6010
 
 func.func @test() {
   ELF.Main {

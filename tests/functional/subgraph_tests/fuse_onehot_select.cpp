@@ -95,4 +95,9 @@ TEST_F(FuseOneHotSelectSubgraphTest, NPU5020_TestKindSubgraph) {
     run(Platform::NPU5020);
 }
 
+TEST_F(FuseOneHotSelectSubgraphTest, NPU6010_TestKindSubgraph) {
+    setDefaultHardwareMode();
+    run(Platform::NPU6010);
+}
+
 }  // namespace ov::test::subgraph

@@ -7,7 +7,8 @@
 // REQUIRES: platform-NPU5010
 
 // The DPU storage auxiliary buffer size is architecture specific (NPU5010 packs the MatMul
-// weight tables), so this scenario is split per platform.
+// weight tables, NPU6010 does not), so this scenario is split per platform. See the NPU6010
+// variant in apply_tiling_attention_sink_60XX.mlir.
 
 // The sink carries one logit per attention head, packed along its C axis (64 heads here).
 // The output distributes those heads across N (kv-group) and C (head-in-group), so the

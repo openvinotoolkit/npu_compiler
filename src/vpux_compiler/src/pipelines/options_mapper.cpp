@@ -17,6 +17,7 @@
 #include "vpux/compiler/NPU37XX/pipeline_options.hpp"
 #include "vpux/compiler/NPU40XX/pipeline_options.hpp"
 #include "vpux/compiler/NPU50XX/pipeline_options.hpp"
+#include "vpux/compiler/NPU60XX/pipeline_options.hpp"
 
 #include <openvino/runtime/properties.hpp>
 #include <vpux/utils/core/error.hpp>
@@ -59,6 +60,8 @@ std::unique_ptr<DefaultHWOptionsBase> getCompilerSetupOptions(const vpux::OV::Co
         return parseAllOptions<DefaultHWOptions40XX>(config);
     } else if (arch == config::ArchKind::NPU50XX) {
         return parseAllOptions<DefaultHWOptions50XX>(config);
+    } else if (arch == config::ArchKind::NPU60XX) {
+        return parseAllOptions<DefaultHWOptions60XX>(config);
     } else {
         VPUX_THROW("Unknown architecture");
     }
@@ -106,6 +109,12 @@ std::optional<std::string> getPerformanceHintOverride(const vpux::OV::Config& co
     auto& perfHint = options->performanceHintOverride;
     VPUX_THROW_WHEN(perfHint.hasValue() && isOfflineCompilation(config),
                     "performance-hint-override is not supported in offline compilation");
+    if (getArchKind(config) >= config::ArchKind::NPU60XX) {
+        if (perfHint.hasValue()) {
+            vpux::Logger::global().warning("performance-hint-override is ignored for current target platform");
+        }
+        return std::nullopt;
+    }
     return perfHint;
 }
 
@@ -125,6 +134,9 @@ DpuGroupsPolicy getDpuGroupsPolicyByPlatform(const std::string& platform, const 
         return {/*latency=*/maxTiles, /*throughput=*/1, /*efficiency=*/maxTiles,
                 /*fallback=*/maxTiles};
     }
+    if (platform == vpux::OV::Platform::NPU6010) {
+        return {/*latency=*/maxTiles, /*throughput=*/1, /*efficiency=*/3, /*fallback=*/3};
+    }
     vpux::Logger::global().warning("No explicit DPU groups policy for platform '{0}'; using the generic default. ",
                                    platform);
     return {/*latency=*/maxTiles, /*throughput=*/1, /*efficiency=*/maxTiles, /*fallback=*/maxTiles};
@@ -137,7 +149,7 @@ NPUPerformanceMode mapLatencyModeOverride(const vpux::OV::Config& config) {
         return NPUPerformanceMode::EFFICIENCY;
     }
 
-    // Default to latency mode (max tiles)
+    // performance-hint-override is not supported on NPU6+. Default to latency mode (max tiles)
     if (!performanceHintOverride.has_value()) {
         return NPUPerformanceMode::LATENCY;
     }
@@ -197,6 +209,8 @@ config::Platform getPlatform(const vpux::OV::Config& config) {
         return config::Platform::NPU5010;
     } else if (platform == vpux::OV::Platform::NPU5020) {
         return config::Platform::NPU5020;
+    } else if (platform == vpux::OV::Platform::NPU6010) {
+        return config::Platform::NPU6010;
     } else {
         VPUX_THROW("Unsupported NPU platform");
     }
@@ -235,6 +249,10 @@ std::optional<int> getRevisionID(const vpux::OV::Config& config) {
         auto revision = checked_cast<int>(config.get<vpux::OV::STEPPING>());
         if (revision == static_cast<uint16_t>(-1)) {
             return static_cast<int>(config::RevisionID::REVISION_NONE);
+        }
+        // E#229983 align on-device vs offline stepping values
+        if (revision == 0x10) {
+            return static_cast<int>(config::RevisionID::REVISION_B);
         }
         return revision;
     }
@@ -376,6 +394,9 @@ std::optional<bool> getEnableDecomposeSDPA(const vpux::OV::Config& config) {
     } else if (arch == config::ArchKind::NPU50XX) {
         // Disable ngraph SDPA decomposition for NPU50XX - custom decomposition is applied in IE pipeline
         return std::nullopt;
+    } else if (arch == config::ArchKind::NPU60XX) {
+        // Disable ngraph SDPA decomposition for NPU60XX - custom decomposition is applied in IE pipeline
+        return std::nullopt;
     }
 
     return options->enableDecomposeSDPA;
@@ -448,6 +469,8 @@ vpux::compiler_profiling::CompilerProfiler getCompilerProfilerTool(const vpux::O
         return getCompilerProfilerTool<DefaultHWOptions40XX>(config);
     } else if (arch == config::ArchKind::NPU50XX) {
         return getCompilerProfilerTool<DefaultHWOptions50XX>(config);
+    } else if (arch == config::ArchKind::NPU60XX) {
+        return getCompilerProfilerTool<DefaultHWOptions60XX>(config);
     } else {
         return vpux::compiler_profiling::CompilerProfiler{};
     }

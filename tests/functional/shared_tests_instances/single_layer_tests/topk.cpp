@@ -202,6 +202,29 @@ TEST_P(TopK11LayerTestCommon, NPU5020_SW) {
     run(Platform::NPU5020);
 }
 
+TEST_P(TopKLayerTestCommon, NPU6010_SW) {
+    setReferenceSoftwareMode();
+    run(Platform::NPU6010);
+}
+
+TEST_P(TopK11LayerTestCommon, NPU6010_SW) {
+    setReferenceSoftwareMode();
+    run(Platform::NPU6010);
+}
+TEST_P(TopkDmaLayerTestCommon, NPU6010_HW) {
+    setDefaultHardwareMode();
+    run(Platform::NPU6010);
+}
+TEST_P(TopK_SCFTilingLayerTest, NPU6010_HW) {
+    setDefaultHardwareMode();
+    run(Platform::NPU6010);
+}
+
+TEST_P(TopK_K8Axis0KeyPatternLayerTest, NPU6010_SW) {
+    setReferenceSoftwareMode();
+    run(Platform::NPU6010);
+}
+
 class TopK1LayerTest : public TopKLayerTest, virtual public VpuOv2LayerTest {
     void SetUp() override {
         std::vector<InputShape> inputShape;

@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --platform=%platform% --serialize-elf-to-binary %s | FileCheck %s
-// REQUIRES: platform-NPU4000 || platform-NPU5010
+// REQUIRES: platform-NPU4000 || platform-NPU5010 || platform-NPU6010
 
 // CHECK-LABEL: @StaticEltwiseNHWC
 

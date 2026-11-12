@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="platform=%platform% compilation-mode=DefaultHW enable-is-reduce-supported=true" --convert-reduce-to-pooling %s | FileCheck %s
-// REQUIRES: platform-NPU5010
+// REQUIRES: platform-NPU5010 || platform-NPU6010
 
 // CHECK-LABEL:    func.func @DoNotConvertReduceMeanToPoolingOnChannelAxis
 // CHECK-SAME:     ([[INPUT:%.+]]: tensor<256x7x7xf16>)

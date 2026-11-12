@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="platform=%platform%" --convert-fake-convert-to-dynamic-dequantize --canonicalize %s | FileCheck %s
-// REQUIRES: platform-NPU5010
+// REQUIRES: platform-NPU5010 || platform-NPU6010
 
 // CHECK-LABEL: @ConvertFakeConvertWeightsToDynamicDequantize
 // CHECK-SAME: [[INPUT:%.+]]: tensor<1x1x4x4xf16>

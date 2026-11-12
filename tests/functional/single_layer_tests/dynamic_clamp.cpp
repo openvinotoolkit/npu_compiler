@@ -50,6 +50,11 @@ TEST_P(DynamicClampLayerTest, NPU5020_HW) {
     run(Platform::NPU5020);
 }
 
+TEST_P(DynamicClampLayerTest, NPU6010_HW) {
+    setDefaultHardwareMode();
+    run(Platform::NPU6010);
+}
+
 const std::vector<Input> inputShapes = {generateTestShape(14_Dyn, 1), generateTestShape(128_Dyn)};
 
 INSTANTIATE_TEST_SUITE_P(smoke_DynamicClamp, DynamicClampLayerTest,

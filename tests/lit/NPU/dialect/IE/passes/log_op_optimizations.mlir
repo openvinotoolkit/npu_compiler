@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="platform=%platform%" --log-op-optimizations %s 2>&1 | FileCheck %s
-// REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010
+// REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010 || platform-NPU6010
 
 func.func @InterpolateNearest(%arg0: tensor<1x3x6x6xf16>) -> tensor<1x3x12x12xf16> {
     %0 = IE.Interpolate(%arg0) {

@@ -40,6 +40,12 @@ TEST_P(GroupNormalizationLayerTestCommon, NPU5020_SW) {
     run(Platform::NPU5020);
 }
 
+TEST_P(GroupNormalizationLayerTestCommon, NPU6010_SW) {
+    abs_threshold = 0.08;
+    setReferenceSoftwareMode();
+    run(Platform::NPU6010);
+}
+
 }  // namespace test
 }  // namespace ov
 

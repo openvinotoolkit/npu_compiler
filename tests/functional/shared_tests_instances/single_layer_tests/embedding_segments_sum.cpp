@@ -38,6 +38,12 @@ TEST_P(EmbeddingSegmentsSumLayerTestCommon, NPU5020_SW) {
     run(Platform::NPU5020);
 }
 
+TEST_P(EmbeddingSegmentsSumLayerTestCommon, NPU6010_SW) {
+    abs_threshold = 0.06;
+    setReferenceSoftwareMode();
+    run(Platform::NPU6010);
+}
+
 }  // namespace test
 }  // namespace ov
 

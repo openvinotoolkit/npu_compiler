@@ -4,7 +4,7 @@
 //
 
 // RUN: env OV_NPU_LOG_LEVEL=LOG_TRACE vpux-opt --split-input-file --init-compiler="platform=%platform% compilation-mode=DefaultHW constant-tracing=true" --mlir-elide-elementsattrs-if-larger 8 --default-hw-mode-ie="enable-grouped-matmul=false" --construct-ws-analysis --introduce-init-function="ws-extraction-mode=gen-init" -o /dev/null %s 2>&1 | FileCheck %s
-// REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010
+// REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010 || platform-NPU6010
 
 {-#
     dialect_resources: {

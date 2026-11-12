@@ -137,6 +137,13 @@ TEST_F(MLIR_CostModelUtilsTest, ApplyStrideDMACorrectionUsesFullSearchThresholdF
     EXPECT_TRUE(applyStrideDMACorrectionForTile(ndType, /*isStridedDMA=*/true, fullSearchCostForNPU50XX,
                                                 config::ArchKind::NPU50XX, /*isFullSearchVersion=*/true));
     EXPECT_EQ(fullSearchCostForNPU50XX, 200u);
+
+    // Stride DMA correction threshold is 2048 for NPU60XX with isFullSearchVersion=true
+    // continuousBitsOnLowestDim = 1024 triggers cost correction
+    uint32_t fullSearchCostForNPU60XX = 100;
+    EXPECT_TRUE(applyStrideDMACorrectionForTile(ndType, /*isStridedDMA=*/true, fullSearchCostForNPU60XX,
+                                                config::ArchKind::NPU60XX, /*isFullSearchVersion=*/true));
+    EXPECT_EQ(fullSearchCostForNPU60XX, 200u);
 }
 
 TEST_F(MLIR_CostModelUtilsTest, GetComputeAndDataCostsUsesFullSearchStrideDMACorrectionForNPU50XX) {

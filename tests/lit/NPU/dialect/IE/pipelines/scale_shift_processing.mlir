@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --init-compiler="platform=%platform%" --scaleshift-processing %s | FileCheck %s
-// REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010
+// REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010 || platform-NPU6010
 
 // CHECK-LABEL: @ScaleShiftProcessingWithConstInput
 // CHECK-SAME: ([[ARG_0:%[^:]+]]: tensor<1x77x1x1xf16>

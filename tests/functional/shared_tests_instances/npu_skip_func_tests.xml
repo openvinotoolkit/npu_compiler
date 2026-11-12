@@ -28,6 +28,7 @@ Example:
             <device>3720</device>
             <device>4000</device>
             <device>5010</device>
+            <device>6010</device>
             <operating_system>linux</operating_system>
         </enable_rules>
         <filters>
@@ -121,6 +122,18 @@ Example:
             <filter>.*InferRequestIOTensorSetPrecisionTest.*type=u1\D.*</filter>
         </filters>
     </skip_config>
+    <!-- E#231790 -->
+    <skip_config>
+        <message>LSTM tests fail with lost device</message>
+        <enable_rules>
+            <backend>LEVEL0</backend>
+            <device>6010</device>
+            <operating_system>windows</operating_system>
+        </enable_rules>
+        <filters>
+            <filter>.*smoke_precommit_LSTMSequencePt.*LSTMSequenceLayerTestCommon.*NPU6010_HW.*</filter>
+        </filters>
+    </skip_config>
     <!-- E#192507 -->
     <!-- E#188471 -->
     <skip_config>
@@ -154,6 +167,7 @@ Example:
             <filter>.*InterpolateSAPDynInputLayerTest\.NPU5010_HC.*</filter>
             <filter>.*DynamicActivationLayerTest_HC_FP16\.NPU4000_HC.*</filter>
             <filter>.*DynamicActivationLayerTest_HC_FP16\.NPU5010_HC.*</filter>
+            <filter>.*DynamicActivationLayerTest_HC_FP16\.NPU6010_HC.*</filter>
         </filters>
     </skip_config>
 
@@ -171,6 +185,7 @@ Example:
         <message>HostCompile with a bounded dynamic f32 input fails CopyOpTiling: the ConvertDMA result copy has no bounds</message>
         <filters>
             <filter>.*smoke_DynamicReduceMean_HC_f32/DynamicReduceMeanTest\.NPU5010_HC.*</filter>
+            <filter>.*smoke_DynamicReduceMean_HC_f32/DynamicReduceMeanTest\.NPU6010_HC.*</filter>
         </filters>
     </skip_config>
 

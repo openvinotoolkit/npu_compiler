@@ -5,7 +5,7 @@
 
 // RUN: vpux-opt --split-input-file --init-compiler="platform=%platform%" --outline-codegen-capsules --canonicalize %s | FileCheck %s --check-prefix=TILED
 // RUN: vpux-opt --split-input-file --init-compiler="platform=%platform%" --outline-codegen-capsules="force-unroll=true" --canonicalize %s | FileCheck %s --check-prefix=UNROLLED
-// REQUIRES: platform-NPU4000 || platform-NPU5010
+// REQUIRES: platform-NPU4000 || platform-NPU5010 || platform-NPU6010
 
 #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>

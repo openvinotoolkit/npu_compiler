@@ -93,6 +93,12 @@ public:
     };
 };
 
+TEST_P(ConvWithMultiplyTest, NPU6010_HW) {
+    abs_threshold = 0.5;
+    setDefaultHardwareMode();
+    run(Platform::NPU6010);
+}
+
 const std::vector<ov::Shape> inputShapes = {
         {1, 16, 16, 32},
         {1, 16, 32, 64},

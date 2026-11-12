@@ -68,6 +68,12 @@ TEST_P(SDPATestCommon, NPU5010_HW) {
     run(Platform::NPU5010);
 }
 
+// NPU6010
+TEST_P(SDPATestCommon, NPU6010_HW) {
+    setDefaultHardwareMode();
+    run(Platform::NPU6010);
+}
+
 INSTANTIATE_TEST_SUITE_P(smoke_SDPA, SDPATestCommon,
                          ::testing::Values(SDPATestParams{
                                  {1, 32, 1, 128}, {1, 32, 2176, 128}, {1, 1, 1, 2176}, {1, 32, 128, 2176}}),

@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --verify-diagnostics --init-compiler="platform=%platform%" --compress-weights-btc="fail-if-no-compression=true" %s
-// REQUIRES: dev-build && (platform-NPU4000 || platform-NPU5010)
+// REQUIRES: dev-build && (platform-NPU4000 || platform-NPU5010 || platform-NPU6010)
 
 !qElemType = !quant.uniform<u8:f16, 1.0000000000000000E-1>
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>

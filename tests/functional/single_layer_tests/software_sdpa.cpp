@@ -196,6 +196,12 @@ TEST_P(ScaledDotProductAttentionV14SinkLayerTestCommon, NPU5010_HW) {
     run(Platform::NPU5010);
 }
 
+TEST_P(ScaledDotProductAttentionV14SinkLayerTestCommon, NPU6010_HW) {
+    abs_threshold = 0.012;
+    setDefaultHardwareMode();
+    run(Platform::NPU6010);
+}
+
 INSTANTIATE_TEST_SUITE_P(precommit, ScaledDotProductAttentionV14LayerTestCommon,
                          ::testing::ValuesIn({
                                  // SelfAttention Tests

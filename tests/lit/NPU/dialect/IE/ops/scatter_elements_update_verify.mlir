@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt %s --split-input-file --init-compiler="platform=%platform%" --verify-diagnostics
-// REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010
+// REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010 || platform-NPU6010
 
 // CHECK-LABEL: @AxisNotSingleElement
 func.func @AxisNotSingleElement(%arg0: tensor<2x3x4xf16>, %arg1: tensor<1x3x1xf16>) -> tensor<2x3x4xf16> {

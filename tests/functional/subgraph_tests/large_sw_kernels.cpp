@@ -231,6 +231,11 @@ TEST_P(TwoScatterUpdateTestCommon, NPU5020_HW) {
     run(Platform::NPU5020);
 }
 
+TEST_P(TwoScatterUpdateTestCommon, NPU6010_HW) {
+    setDefaultHardwareMode();
+    run(Platform::NPU6010);
+}
+
 INSTANTIATE_TEST_SUITE_P(smoke_TwoScatterUpdateInDDR, TwoScatterUpdateTestCommon,
                          ::testing::Values(LargeMishTestParams{
                                  {1, 64, 32, 514}  // in_shape

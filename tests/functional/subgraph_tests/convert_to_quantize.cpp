@@ -159,6 +159,11 @@ TEST_P(ConvertToQuantizeTestCommon, NPU5020_HW) {
     run(Platform::NPU5020);
 }
 
+TEST_P(ConvertToQuantizeTestCommon, NPU6010_HW) {
+    setDefaultHardwareMode();
+    run(Platform::NPU6010);
+}
+
 // 4-bit quantization is only supported on NPU >= 4
 class ConvertToQuantizeTest4bit : public ConvertToQuantizeTestCommon {};
 
@@ -175,6 +180,11 @@ TEST_P(ConvertToQuantizeTest4bit, NPU5010_HW) {
 TEST_P(ConvertToQuantizeTest4bit, NPU5020_HW) {
     setDefaultHardwareMode();
     run(Platform::NPU5020);
+}
+
+TEST_P(ConvertToQuantizeTest4bit, NPU6010_HW) {
+    setDefaultHardwareMode();
+    run(Platform::NPU6010);
 }
 
 namespace {

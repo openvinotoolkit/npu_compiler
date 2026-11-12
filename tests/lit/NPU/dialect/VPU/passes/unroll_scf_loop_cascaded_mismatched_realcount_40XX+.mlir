@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="platform=%platform% compilation-mode=HostCompile_Interpreter allow-custom-values=true" --unroll-scf-loop="loop-unroll-factor=1,1,1,10 enable-cascaded-unrolling=true" --canonicalize %s | FileCheck %s
-// REQUIRES: platform-NPU4000 || platform-NPU5010
+// REQUIRES: platform-NPU4000 || platform-NPU5010 || platform-NPU6010
 
 // This dimension's real tile-position count (from its scf.index_switch case list below: MIDDLE,
 // END, START all present) is large (>=3), but cascaded unrolling produces an intermediate stage

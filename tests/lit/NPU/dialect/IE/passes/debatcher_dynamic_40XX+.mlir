@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="platform=%platform%" --debatcher %s | FileCheck %s
-// REQUIRES: platform-NPU4000 || platform-NPU5010
+// REQUIRES: platform-NPU4000 || platform-NPU5010 || platform-NPU6010
 
 // CHECK-LABEL: @SingleInputSingleOutputBatched
 // CHECK-SAME: ([[ARG_0:%[^:]+]]: tensor<?x3x62x62xf32, {bounds = #const.OpaqueI64Elements<[3, 3, 62, 62]> : tensor<4xsi64>}>)

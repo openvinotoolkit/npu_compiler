@@ -60,6 +60,7 @@ def Config_Platform :
                 I64EnumAttrCase<"NPU4000", 4000>,
                 I64EnumAttrCase<"NPU5010", 5010>,
                 I64EnumAttrCase<"NPU5020", 5020>,
+                I64EnumAttrCase<"NPU6010", 6010>,
             ]
         > {
 }
@@ -79,6 +80,7 @@ def Config_ArchKind :
                 I64EnumAttrCase<"NPU37XX", 3>,
                 I64EnumAttrCase<"NPU40XX", 4>,
                 I64EnumAttrCase<"NPU50XX", 5>,
+                I64EnumAttrCase<"NPU60XX", 6>,
             ]
         > {
 }

@@ -55,4 +55,9 @@ TEST_F(AbsMultiplySoftPlusTestCommon, NPU5020_TestKindSubgraph) {
     run(Platform::NPU5020);
 }
 
+TEST_F(AbsMultiplySoftPlusTestCommon, NPU6010_TestKindSubgraph) {
+    setDefaultHardwareMode();
+    run(Platform::NPU6010);
+}
+
 }  // namespace ov::test

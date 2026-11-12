@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="platform=%platform%" --move-wait-result-to-async-block-args %s | FileCheck %s
-// REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010
+// REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010 || platform-NPU6010
 
 module @VPU.SW {
     func.func nested @builtin_relu(%input : memref<*xf16>, %output : memref<*xf16>) attributes {VPU.kernel_code = "activation_relu.cpp", VPU.kernel_entry = "activation_relu", VPU.task_type = @COMPUTE}

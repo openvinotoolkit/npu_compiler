@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="platform=%platform% allow-custom-values=true" --scf-vertical-fusion="vf-merge-configuration=GREEDY" --resolve-shaped-type-result-dims --canonicalize %s | FileCheck %s --check-prefixes=CHECK,CHECK-%platform%
-// REQUIRES: platform-NPU4000 || platform-NPU5010
+// REQUIRES: platform-NPU4000 || platform-NPU5010 || platform-NPU6010
 
 config.Resources 3 of @NCE at 1.700000e+03 MHz {
     config.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
@@ -3700,20 +3700,24 @@ func.func @MergeSliceStaticInput(
 // CHECK:         [[EXTRACT:%.+]] = tensor.extract_slice [[ARG0]][0, 0, 0, {{%.+}}] [1, 16, 1080, {{%.+}}] [1, 1, 1, 1]
 // CHECK-SAME:      tensor<1x16x1080x1920xf16, {order = #NHWC}> to tensor<1x16x1080x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 1080,
 // CHECK-NPU4000-SAME: 55]
+// CHECK-NPU6010-SAME: 55]
 // CHECK-NPU5010-SAME: 33]
 // CHECK-SAME:      : tensor<4xsi64>, order = #NHWC}>
 // CHECK:         [[DEPTH:%.+]] = VPU.NCE.DepthConvolution([[EXTRACT]], [[CST_W_DW]])
 // CHECK-SAME:      multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>
 // CHECK-SAME:      -> tensor<1x16x1080x?x!qElemType{{.*}}, {bounds = #const.OpaqueI64Elements<[1, 16, 1080,
 // CHECK-NPU4000-SAME: 55]
+// CHECK-NPU6010-SAME: 55]
 // CHECK-NPU5010-SAME: 33]
 // CHECK-SAME:      : tensor<4xsi64>, order = #NHWC}>
 // CHECK:         [[SLICE:%.+]] = VPU.Slice [[DEPTH]] [0, 0, 0, 0] [1, 4, 1080, -9223372036854775808]
 // CHECK-SAME:      tensor<1x16x1080x?x!qElemType{{.*}}, {bounds = #const.OpaqueI64Elements<[1, 16, 1080,
 // CHECK-NPU4000-SAME: 55]
+// CHECK-NPU6010-SAME: 55]
 // CHECK-NPU5010-SAME: 33]
 // CHECK-SAME:      : tensor<4xsi64>, order = #NHWC}> to tensor<1x4x1080x?x!qElemType{{.*}}, {bounds = #const.OpaqueI64Elements<[1, 4, 1080,
 // CHECK-NPU4000-SAME: 55]
+// CHECK-NPU6010-SAME: 55]
 // CHECK-NPU5010-SAME: 33]
 // CHECK-SAME:      : tensor<4xsi64>, order = #NHWC}>
 // CHECK:         [[CAST:%.+]] = builtin.unrealized_conversion_cast [[C0_I8]] : i8 to !qElemType{{.*}}
@@ -3723,6 +3727,7 @@ func.func @MergeSliceStaticInput(
 // CHECK-SAME:      multiClusterStrategy = #VPU.multi_cluster_strategy<Clustering>
 // CHECK-SAME:      -> tensor<1x32x540x?x!qElemType, {bounds = #const.OpaqueI64Elements<[1, 32, 540,
 // CHECK-NPU4000-SAME: 27]
+// CHECK-NPU6010-SAME: 27]
 // CHECK-NPU5010-SAME: 16]
 // CHECK-SAME:      : tensor<4xsi64>, order = #NHWC}>
 // CHECK:         [[INSERT:%.+]] = tensor.insert_slice {{%.+}} into [[ARG_ITER]][0, 0, 0, [[OUT_OFF_W:%.+]]] [1, 32, 540, [[TILE_W:.+]]] [1, 1, 1, 1]

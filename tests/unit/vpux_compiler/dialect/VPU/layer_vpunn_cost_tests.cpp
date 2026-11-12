@@ -1073,7 +1073,315 @@ INSTANTIATE_TEST_SUITE_P(NPU40XX, MLIR_VPU_DMACost_MultiPlatform, ::testing::Val
                          dmaCostPlatformName);
 INSTANTIATE_TEST_SUITE_P(NPU50XX, MLIR_VPU_DMACost_MultiPlatform, ::testing::Values(Platform::NPU5010),
                          dmaCostPlatformName);
+INSTANTIATE_TEST_SUITE_P(NPU60XX, MLIR_VPU_DMACost_MultiPlatform, ::testing::Values(Platform::NPU6010),
+                         dmaCostPlatformName);
 
 // ---------------------------------------------------------------------------
 // LayerCostModel::hasSpilling tests
 // ---------------------------------------------------------------------------
+
+namespace {
+
+static mlir::OwningOpRef<mlir::ModuleOp> parseAndInitHasSpillingModule(mlir::MLIRContext* ctx, llvm::StringRef ir) {
+    auto module = mlir::parseSourceString<mlir::ModuleOp>(ir, ctx);
+    if (!module) {
+        return {};
+    }
+    mlir::PassManager pm(module.get()->getName(), mlir::OpPassManager::Nesting::Implicit);
+    auto initOptions = VPU::InitCompilerOptions(Platform::NPU6010, config::CompilationMode::DefaultHW);
+    VPU::buildInitCompilerPipeline(pm, initOptions, Logger::global());
+    if (mlir::failed(pm.run(module.get()))) {
+        return {};
+    }
+    return module;
+}
+
+}  // namespace
+
+// NCEConvolution (SOH) → Subtract (SOH): no spilling for same strategy;
+// has spilling when parent or user strategy changes.
+TEST_F(MLIR_VPU_LayerVPUNNCost, HasSpilling_ConvSubtract_SOH_SOH) {
+    constexpr llvm::StringLiteral inputIR = R"(
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+module @nceconv_subtract_direct {
+  func.func @main(%arg0: tensor<1x32x16x16xf16, {order = #NHWC}>,
+                  %arg1: tensor<32x32x1x1xf16, {order = #NHWC}>)
+                  -> tensor<1x32x16x16xf16, {order = #NHWC}> {
+    %out, %rmin = VPU.NCE.Convolution(%arg0, %arg1) rawFilterShape [32, 32, 1, 1] {
+        axes_value           = [1],
+        kernel_size          = [1, 1],
+        pad                  = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
+        ppe                  = #VPU.PPEStub<>,
+        strides              = [1, 1],
+        multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
+        resultSegmentSizes  = array<i32: 1, 0, 1, 0>
+    } : tensor<1x32x16x16xf16, {order = #NHWC}>, tensor<32x32x1x1xf16, {order = #NHWC}>
+       -> tensor<1x32x16x16xf16, {order = #NHWC}>,
+          tensor<1x1x16x16xf16,  {order = #NHWC}>
+    %0 = VPU.Subtract(%out, %rmin) {
+        auto_broadcast       = #IE.auto_broadcast_type<NUMPY>,
+        multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>
+    } : tensor<1x32x16x16xf16, {order = #NHWC}>, tensor<1x1x16x16xf16, {order = #NHWC}>
+      -> tensor<1x32x16x16xf16, {order = #NHWC}>
+    return %0 : tensor<1x32x16x16xf16, {order = #NHWC}>
+  }
+}
+    )";
+    auto module = parseAndInitHasSpillingModule(&ctx, inputIR);
+    ASSERT_TRUE(module.get() != nullptr);
+
+    auto func = module.get().lookupSymbol<mlir::func::FuncOp>("main");
+    ASSERT_TRUE(func != nullptr);
+
+    VPU::SiblingOpsAnalysis siblingsAnalysis(func);
+    VPU::LayerCostModel costModel(func, /*enablePrefetchTiling=*/false, Logger::global(), siblingsAnalysis);
+
+    VPU::NCEConvolutionOp convOp;
+    VPU::SubtractOp subtractOp;
+    func->walk([&](mlir::Operation* op) {
+        if (auto conv = mlir::dyn_cast_if_present<VPU::NCEConvolutionOp>(op)) {
+            convOp = conv;
+        }
+        if (auto sub = mlir::dyn_cast_if_present<VPU::SubtractOp>(op)) {
+            subtractOp = sub;
+        }
+
+        if (convOp != nullptr && subtractOp != nullptr) {
+            return mlir::WalkResult::interrupt();
+        }
+        return mlir::WalkResult::advance();
+    });
+
+    ASSERT_TRUE(convOp != nullptr);
+    ASSERT_TRUE(subtractOp != nullptr);
+
+    auto conv = mlir::cast<VPU::ClusteredOpInterface>(convOp.getOperation());
+    auto subtract = mlir::cast<VPU::ClusteredOpInterface>(subtractOp.getOperation());
+
+    // Same strategy on both sides: no spilling.
+    EXPECT_FALSE(costModel.hasSpilling(conv, MultiClusterStrategy::SplitOverHeight, subtract,
+                                       MultiClusterStrategy::SplitOverHeight));
+    // Parent switches to HKSwitch: fused reduce outputs keep the parent output segmented, so no spilling.
+    // Track E#233730. Support halo-sharing for reduce buffer.
+    EXPECT_FALSE(costModel.hasSpilling(conv, MultiClusterStrategy::HKSwitch, subtract,
+                                       MultiClusterStrategy::SplitOverHeight));
+    // User switches to SOK: different split dimension, has spilling.
+    EXPECT_TRUE(costModel.hasSpilling(conv, MultiClusterStrategy::SplitOverHeight, subtract,
+                                      MultiClusterStrategy::SplitOverKernel));
+}
+
+// NCEConvolution (SOH) → Subtract (SOK): has spilling
+// no spilling when both use the same strategy explicitly.
+TEST_F(MLIR_VPU_LayerVPUNNCost, HasSpilling_ConvSubtract_SOH_SOK) {
+    constexpr llvm::StringLiteral inputIR = R"(
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+module @nceconv_subtract_direct_spill {
+  func.func @main(%arg0: tensor<1x32x16x16xf16, {order = #NHWC}>,
+                  %arg1: tensor<32x32x1x1xf16, {order = #NHWC}>)
+                  -> tensor<1x32x16x16xf16, {order = #NHWC}> {
+    %out, %rmin = VPU.NCE.Convolution(%arg0, %arg1) rawFilterShape [32, 32, 1, 1] {
+        axes_value           = [1],
+        kernel_size          = [1, 1],
+        pad                  = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
+        ppe                  = #VPU.PPEStub<>,
+        strides              = [1, 1],
+        multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
+        resultSegmentSizes   = array<i32: 1, 0, 1, 0>
+    } : tensor<1x32x16x16xf16, {order = #NHWC}>, tensor<32x32x1x1xf16, {order = #NHWC}>
+       -> tensor<1x32x16x16xf16, {order = #NHWC}>,
+          tensor<1x1x16x16xf16,  {order = #NHWC}>
+    %0 = VPU.Subtract(%out, %rmin) {
+        auto_broadcast       = #IE.auto_broadcast_type<NUMPY>,
+        multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>
+    } : tensor<1x32x16x16xf16, {order = #NHWC}>, tensor<1x1x16x16xf16, {order = #NHWC}>
+      -> tensor<1x32x16x16xf16, {order = #NHWC}>
+    return %0 : tensor<1x32x16x16xf16, {order = #NHWC}>
+  }
+}
+    )";
+    auto module = parseAndInitHasSpillingModule(&ctx, inputIR);
+    ASSERT_TRUE(module.get() != nullptr);
+
+    auto func = module.get().lookupSymbol<mlir::func::FuncOp>("main");
+    ASSERT_TRUE(func != nullptr);
+
+    VPU::SiblingOpsAnalysis siblingsAnalysis(func);
+    VPU::LayerCostModel costModel(func, /*enablePrefetchTiling=*/false, Logger::global(), siblingsAnalysis);
+
+    VPU::NCEConvolutionOp convOp;
+    VPU::SubtractOp subtractOp;
+    func->walk([&](mlir::Operation* op) {
+        if (auto conv = mlir::dyn_cast_if_present<VPU::NCEConvolutionOp>(op)) {
+            convOp = conv;
+        }
+        if (auto sub = mlir::dyn_cast_if_present<VPU::SubtractOp>(op)) {
+            subtractOp = sub;
+        }
+
+        if (convOp != nullptr && subtractOp != nullptr) {
+            return mlir::WalkResult::interrupt();
+        }
+        return mlir::WalkResult::advance();
+    });
+    ASSERT_TRUE(convOp != nullptr);
+    ASSERT_TRUE(subtractOp != nullptr);
+
+    auto conv = mlir::cast<VPU::ClusteredOpInterface>(convOp.getOperation());
+    auto subtract = mlir::cast<VPU::ClusteredOpInterface>(subtractOp.getOperation());
+
+    // SOH → SOK: different split dimensions, has spilling.
+    EXPECT_TRUE(costModel.hasSpilling(conv, MultiClusterStrategy::SplitOverHeight, subtract,
+                                      MultiClusterStrategy::SplitOverKernel));
+    // HKSwitch → SOK: different distributions, has spilling.
+    EXPECT_TRUE(costModel.hasSpilling(conv, MultiClusterStrategy::HKSwitch, subtract,
+                                      MultiClusterStrategy::SplitOverKernel));
+    // Both SOH: same distribution, no spilling.
+    EXPECT_FALSE(costModel.hasSpilling(conv, MultiClusterStrategy::SplitOverHeight, subtract,
+                                       MultiClusterStrategy::SplitOverHeight));
+}
+
+// NCEConvolution (SOH) → PermuteCast → Convert (SOK): the PermuteCast
+// changes the shape (NHWC [1,32,16,16] → NCHW [1,16,16,32]), so
+// isDistributedCastCompatible always returns false due to shape mismatch.
+// All strategy combinations therefore have spillings.
+TEST_F(MLIR_VPU_LayerVPUNNCost, HasSpilling_ConvPermuteCastConvert) {
+    constexpr llvm::StringLiteral inputIR = R"(
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+module @nceconv_convert_view {
+  func.func @main(%arg0: tensor<1x32x16x16xf16, {order = #NHWC}>,
+                  %arg1: tensor<32x32x1x1xf16, {order = #NHWC}>)
+                  -> tensor<1x16x16x32xf32> {
+    %out = VPU.NCE.Convolution(%arg0, %arg1) rawFilterShape [32, 32, 1, 1] {
+        kernel_size          = [1, 1],
+        pad                  = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
+        ppe                  = #VPU.PPEStub<>,
+        strides              = [1, 1],
+        multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
+        resultSegmentSizes   = array<i32: 1, 0, 0, 0>
+    } : tensor<1x32x16x16xf16, {order = #NHWC}>, tensor<32x32x1x1xf16, {order = #NHWC}>
+       -> tensor<1x32x16x16xf16, {order = #NHWC}>
+    %permCast = VPU.PermuteCast(%out) {dst_order = #NCHW, mem_perm = #NCHW}
+        : tensor<1x32x16x16xf16, {order = #NHWC}> -> tensor<1x16x16x32xf16>
+    %0 = VPU.Convert(%permCast) {
+        dstElemType          = f32,
+        multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>
+    } : tensor<1x16x16x32xf16> -> tensor<1x16x16x32xf32>
+    return %0 : tensor<1x16x16x32xf32>
+  }
+}
+    )";
+    auto module = parseAndInitHasSpillingModule(&ctx, inputIR);
+    ASSERT_TRUE(module.get() != nullptr);
+
+    auto func = module.get().lookupSymbol<mlir::func::FuncOp>("main");
+    ASSERT_TRUE(func != nullptr);
+
+    VPU::SiblingOpsAnalysis siblingsAnalysis(func);
+    VPU::LayerCostModel costModel(func, /*enablePrefetchTiling=*/false, Logger::global(), siblingsAnalysis);
+
+    VPU::NCEConvolutionOp convOp;
+    VPU::ConvertOp convertOp;
+    func->walk([&](mlir::Operation* op) {
+        if (auto conv = mlir::dyn_cast_if_present<VPU::NCEConvolutionOp>(op)) {
+            convOp = conv;
+        }
+        if (auto convert = mlir::dyn_cast_if_present<VPU::ConvertOp>(op)) {
+            convertOp = convert;
+        }
+
+        if (convOp != nullptr && convertOp != nullptr) {
+            return mlir::WalkResult::interrupt();
+        }
+        return mlir::WalkResult::advance();
+    });
+    ASSERT_TRUE(convOp != nullptr);
+    ASSERT_TRUE(convertOp != nullptr);
+
+    auto conv = mlir::cast<VPU::ClusteredOpInterface>(convOp.getOperation());
+    auto convert = mlir::cast<VPU::ClusteredOpInterface>(convertOp.getOperation());
+
+    // PermuteCast changes shape (NHWC [1,32,16,16] → NCHW [1,16,16,32]).
+    // isDistributedCastCompatible fails at shape equality for all combinations.
+    EXPECT_TRUE(costModel.hasSpilling(conv, MultiClusterStrategy::SplitOverHeight, convert,
+                                      MultiClusterStrategy::SplitOverKernel));
+    EXPECT_TRUE(costModel.hasSpilling(conv, MultiClusterStrategy::SplitOverKernel, convert,
+                                      MultiClusterStrategy::SplitOverKernel));
+    EXPECT_TRUE(costModel.hasSpilling(conv, MultiClusterStrategy::SplitOverHeight, convert,
+                                      MultiClusterStrategy::SplitOverHeight));
+}
+
+// NCEConvolution (SOH) → PermuteCast on both %out and %rmin → Subtract (SOH):
+// PermuteCast changes shape on both paths (NHWC→NCHW), so
+// isDistributedCastCompatible fails for all combinations.
+TEST_F(MLIR_VPU_LayerVPUNNCost, HasSpilling_ConvPermuteCastSubtract) {
+    constexpr llvm::StringLiteral inputIR = R"(
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+module @nceconv_subtract_view {
+  func.func @main(%arg0: tensor<1x32x16x16xf16, {order = #NHWC}>,
+                  %arg1: tensor<32x32x1x1xf16, {order = #NHWC}>)
+                  -> tensor<1x16x16x32xf16> {
+    %out, %rmin = VPU.NCE.Convolution(%arg0, %arg1) rawFilterShape [32, 32, 1, 1] {
+        axes_value           = [1],
+        kernel_size          = [1, 1],
+        pad                  = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
+        ppe                  = #VPU.PPEStub<>,
+        strides              = [1, 1],
+        multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
+        resultSegmentSizes   = array<i32: 1, 0, 1, 0>
+    } : tensor<1x32x16x16xf16, {order = #NHWC}>, tensor<32x32x1x1xf16, {order = #NHWC}>
+       -> tensor<1x32x16x16xf16, {order = #NHWC}>,
+          tensor<1x1x16x16xf16,  {order = #NHWC}>
+    %permCastAct = VPU.PermuteCast(%out) {dst_order = #NCHW, mem_perm = #NCHW}
+        : tensor<1x32x16x16xf16, {order = #NHWC}> -> tensor<1x16x16x32xf16>
+    %permCastRed = VPU.PermuteCast(%rmin) {dst_order = #NCHW, mem_perm = #NCHW}
+        : tensor<1x1x16x16xf16, {order = #NHWC}> -> tensor<1x16x16x1xf16>
+    %0 = VPU.Subtract(%permCastAct, %permCastRed) {
+        auto_broadcast       = #IE.auto_broadcast_type<NUMPY>,
+        multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>
+    } : tensor<1x16x16x32xf16>, tensor<1x16x16x1xf16> -> tensor<1x16x16x32xf16>
+    return %0 : tensor<1x16x16x32xf16>
+  }
+}
+    )";
+    auto module = parseAndInitHasSpillingModule(&ctx, inputIR);
+    ASSERT_TRUE(module.get() != nullptr);
+
+    auto func = module.get().lookupSymbol<mlir::func::FuncOp>("main");
+    ASSERT_TRUE(func != nullptr);
+
+    VPU::SiblingOpsAnalysis siblingsAnalysis(func);
+    VPU::LayerCostModel costModel(func, /*enablePrefetchTiling=*/false, Logger::global(), siblingsAnalysis);
+
+    VPU::NCEConvolutionOp convOp;
+    VPU::SubtractOp subtractOp;
+    func->walk([&](mlir::Operation* op) {
+        if (auto conv = mlir::dyn_cast_if_present<VPU::NCEConvolutionOp>(op)) {
+            convOp = conv;
+        }
+        if (auto sub = mlir::dyn_cast_if_present<VPU::SubtractOp>(op)) {
+            subtractOp = sub;
+        }
+
+        if (convOp != nullptr && subtractOp != nullptr) {
+            return mlir::WalkResult::interrupt();
+        }
+        return mlir::WalkResult::advance();
+    });
+    ASSERT_TRUE(convOp != nullptr);
+    ASSERT_TRUE(subtractOp != nullptr);
+
+    auto conv = mlir::cast<VPU::ClusteredOpInterface>(convOp.getOperation());
+    auto subtract = mlir::cast<VPU::ClusteredOpInterface>(subtractOp.getOperation());
+
+    // PermuteCast changes shapes on both paths (NHWC [1,32,16,16]→NCHW [1,16,16,32]
+    // and NHWC [1,1,16,16]→NCHW [1,16,16,1]), so isDistributedCastCompatible
+    // fails at the shape check for all strategy combinations.
+    EXPECT_TRUE(costModel.hasSpilling(conv, MultiClusterStrategy::SplitOverHeight, subtract,
+                                      MultiClusterStrategy::SplitOverHeight));
+    EXPECT_TRUE(costModel.hasSpilling(conv, MultiClusterStrategy::HKSwitch, subtract,
+                                      MultiClusterStrategy::SplitOverKernel));
+    EXPECT_TRUE(costModel.hasSpilling(conv, MultiClusterStrategy::SplitOverKernel, subtract,
+                                      MultiClusterStrategy::SplitOverWidth));
+}

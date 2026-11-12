@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-translate --platform=%platform% --weights-separation-path=true --import-IE ./ws_range.xml | FileCheck %s
-// REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010
+// REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010 || platform-NPU6010
 
 // This test checks that the following construct is correctly folded into a single constant, even in weights separation mode:
 // Convert   Convert   Convert

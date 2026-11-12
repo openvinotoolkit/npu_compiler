@@ -89,6 +89,18 @@ TEST_P(PSROIPoolingLayerTestCommon, NPU5020_SW) {
     VpuOv2LayerTest::run(Platform::NPU5020);
 }
 
+TEST_P(PSROIPoolingLayerTestCommon, NPU6010_SW) {
+    VpuOv2LayerTest::abs_threshold = 0.016f;
+    VpuOv2LayerTest::setSkipCompilationCallback([](std::stringstream& skip) {
+        std::string psROIPoolingMode = std::get<7>(GetParam());
+        if (psROIPoolingMode == "bilinear") {
+            skip << "BILINEAR mode is unsupported for now";
+        }
+    });
+    VpuOv2LayerTest::setReferenceSoftwareMode();
+    VpuOv2LayerTest::run(Platform::NPU6010);
+}
+
 }  // namespace test
 }  // namespace ov
 

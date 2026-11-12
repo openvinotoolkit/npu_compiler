@@ -36,6 +36,11 @@ TEST_P(ExtractImagePatchesLayerTestCommon, NPU5020_SW) {
     run(Platform::NPU5020);
 }
 
+TEST_P(ExtractImagePatchesLayerTestCommon, NPU6010_SW) {
+    setReferenceSoftwareMode();
+    run(Platform::NPU6010);
+}
+
 }  // namespace test
 }  // namespace ov
 

@@ -48,4 +48,9 @@ TEST_F(WsSameBufferConstantsSubGraphTest, NPU5020_TestKindSubgraph) {
     run(Platform::NPU5020);
 }
 
+TEST_F(WsSameBufferConstantsSubGraphTest, NPU6010_TestKindSubgraph) {
+    setDefaultHardwareMode();
+    run(Platform::NPU6010);
+}
+
 }  // namespace ov::test::behavior

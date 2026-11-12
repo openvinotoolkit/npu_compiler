@@ -991,4 +991,6 @@ TEST_P(MLIR_SchedulerVFLoopCreationTest, VfRegionWithCmxToCmxDma) {
 }
 
 INSTANTIATE_TEST_SUITE_P(SchedulerVFLoopCreation, MLIR_SchedulerVFLoopCreationTest,
-                         testing::Values(config::Platform::NPU4000, config::Platform::NPU5010), schedulerTestParamName);
+                         testing::Values(config::Platform::NPU4000, config::Platform::NPU5010,
+                                         config::Platform::NPU6010),
+                         schedulerTestParamName);

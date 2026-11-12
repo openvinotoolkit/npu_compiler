@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --init-compiler="platform=%platform% allow-custom-values=true" --split-input-file --insert-barrier-to-mark-end-of-descriptor-group --canonicalize %s | FileCheck %s
-// REQUIRES: platform-NPU5010
+// REQUIRES: platform-NPU5010 || platform-NPU6010
 
 !qElemType = !quant.uniform<u8:f16, 1.000000e+00>
 !qElemType1 = !quant.uniform<u8:f16, 0.01269696927538105>

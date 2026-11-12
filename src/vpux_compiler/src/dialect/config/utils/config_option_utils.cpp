@@ -225,6 +225,11 @@ bool config::isPowerOptimized(mlir::Operation* op) {
     return config::tryGetBoolPassOption(getModuleOp(op), POWER_OPTIMIZED).value_or(false);
 }
 
+// DCIM Configurations
+bool config::isDCIMEnabled(mlir::Operation* op) {
+    return config::getConstraint<bool>(op, ENABLE_DCIM);
+}
+
 // Enable SoftmaxMaskAware to account for an upward adjustment of the FP16 minimum threshold.
 bool config::isSoftmaxMaskAwareEnabled(mlir::Operation* op) {
     return config::getConstraint<bool>(op, SOFTMAX_MASK_AWARE);
@@ -240,6 +245,8 @@ std::optional<int64_t> config::getDefaultMinTiles(config::Platform platform) {
         return 3;
     case config::Platform::NPU5020:
         return 1;
+    case config::Platform::NPU6010:
+        return 3;
     default:
         return std::nullopt;
     }
@@ -254,14 +261,27 @@ std::optional<int64_t> config::getMinTiles(mlir::Operation* op) {
 }
 
 bool config::isBarrierFifoDummyEntrySupported([[maybe_unused]] config::ArchKind arch) {
+    if (arch == config::ArchKind::NPU60XX) {
+        return true;
+    }
     return false;
 }
 
-bool config::isShvToDmaImplicitDep([[maybe_unused]] config::ArchKind arch) {
-    return true;
+bool config::isShvToDmaImplicitDep(config::ArchKind arch) {
+    switch (arch) {
+    case config::ArchKind::NPU60XX:
+        return false;
+    default:
+        return true;
+    }
 }
 
-bool config::isFinalBarrierConsumerRequired([[maybe_unused]] config::ArchKind arch,
+bool config::isFinalBarrierConsumerRequired(config::ArchKind arch,
                                             [[maybe_unused]] bool is4kWlmBarrierProgrammingMode) {
-    return true;
+    switch (arch) {
+    case config::ArchKind::NPU60XX:
+        return false;
+    default:
+        return true;
+    }
 }

@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="platform=%platform%" --convert-to-mixed-precision %s | FileCheck %s
-// REQUIRES: platform-NPU5010
+// REQUIRES: platform-NPU5010 || platform-NPU6010
 
 !qElemType = !quant.uniform<u8:f16, 1.000000e+00>
 !qElemType1 = !quant.uniform<u8:f16, 0.500000e+00>

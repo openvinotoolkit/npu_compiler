@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --init-compiler="platform=%platform%" --split-input-file --canonicalize %s | FileCheck %s
-// REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010
+// REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010 || platform-NPU6010
 
 // CHECK-LABEL: @FoldTile
 // CHECK-SAME: ([[ARG_0:%[^:]+]]: tensor<3x4x2xf32>)

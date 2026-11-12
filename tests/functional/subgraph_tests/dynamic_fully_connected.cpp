@@ -108,6 +108,11 @@ TEST_P(DynamicFullyConnectedTest, NPU5010_HW_TestKindSubgraph) {
     run(Platform::NPU5010);
 }
 
+TEST_P(DynamicFullyConnectedTest, NPU6010_HW_TestKindSubgraph) {
+    setDefaultHardwareMode();
+    run(Platform::NPU6010);
+}
+
 const std::vector<ov::test::InputShape> smokeInShapes = {
         generateTestShape(14_Dyn, 128),
         generateTestShape(32_Dyn, 64),

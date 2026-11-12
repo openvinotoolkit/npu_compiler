@@ -26,6 +26,7 @@ add_npu_library(npu_compiler_dialect_vpu_transforms
         npu_compiler_npu37xx
         npu_compiler_npu40xx
         npu_compiler_npu50xx
+        npu_compiler_npu60xx
         npu_compiler_conversion
         npu_compiler_dialect_const
         npu_compiler_dialect_core
@@ -35,9 +36,11 @@ add_npu_library(npu_compiler_dialect_vpu_transforms
         npu_compiler_dialect_ie_utils
         npu_compiler_dialect_npureg37xx
         npu_compiler_dialect_npureg40xx
+        npu_compiler_dialect_npureg60xx
         npu_compiler_dialect_vpuip
         npu_compiler_dialect_vpuip_utils
         npu_compiler_dialect_shave
         npu_compiler_dialect_shave_transforms
 )
 enable_lto_if_possible(npu_compiler_dialect_vpu_transforms)
+

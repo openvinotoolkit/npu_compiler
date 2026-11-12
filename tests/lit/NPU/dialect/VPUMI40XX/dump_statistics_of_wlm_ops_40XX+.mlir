@@ -4,7 +4,7 @@
 //
 
 // RUN: env OV_NPU_LOG_LEVEL=LOG_INFO env IE_NPU_LOG_FILTER=dump-statistics-of-wlm-ops vpux-opt --init-compiler="platform=%platform% allow-custom-values=true" --dump-statistics-of-wlm-ops -o /dev/null %s 2>&1 | FileCheck %s
-// REQUIRES: platform-NPU4000 || platform-NPU5010
+// REQUIRES: platform-NPU4000 || platform-NPU5010 || platform-NPU6010
 
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 #NWCH = affine_map<(d0, d1, d2, d3) -> (d0, d3, d1, d2)>

@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --init-compiler="platform=%platform%" %s | FileCheck %s --strict-whitespace
-// REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010
+// REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010 || platform-NPU6010
 
   func.func nested @MLIR_VPURegMapped_CreateDpuVariantRegisterAllowOverlapTrue() {
     VPURegMapped.RegisterWrapper regAttr(<regForTest offset 12 size 32 allowOverlap {

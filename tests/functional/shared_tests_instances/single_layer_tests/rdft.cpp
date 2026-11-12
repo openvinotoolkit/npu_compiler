@@ -74,6 +74,12 @@ TEST_P(RdftLayerTestCommon, NPU5020) {
     VpuOv2LayerTest::run(Platform::NPU5020);
 }
 
+TEST_P(RdftLayerTestCommon, NPU6010) {
+    VpuOv2LayerTest::abs_threshold = 1.0;
+    VpuOv2LayerTest::setDefaultHardwareMode();
+    VpuOv2LayerTest::run(Platform::NPU6010);
+}
+
 }  // namespace test
 }  // namespace ov
 

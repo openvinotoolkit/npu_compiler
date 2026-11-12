@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="platform=%platform% compilation-mode=DefaultHW" --handle-large-strides --canonicalize %s | FileCheck %s
-// REQUIRES: platform-NPU5010
+// REQUIRES: platform-NPU5010 || platform-NPU6010
 // COM: F8 is only supported on NPU50+, no need to run these tests on all platforms.
 
 // CHECK-LABEL: @HandleLargeStridesAvgPoolWithFQinputF8E4M3FN

@@ -52,7 +52,7 @@ VPUNN::VPUTensor getVPUNNTensor(ShapeRef tensorShape, VPUNN::DataType dataType) 
 
 namespace {
 
-// CostModel does not support F32/SI32 layers below NPU_5_0 (DPU) and through NPU_5_0_W (SHAVE)
+// CostModel does not support F32/SI32 layers below NPU_5_0 (DPU) and NPU_6_0 (SHAVE)
 bool hasLegacyUnsupportedType(mlir::Type inputElemType, mlir::Type outputElemType) {
     return inputElemType.isF32() || outputElemType.isF32() || inputElemType.isSignedInteger(32) ||
            outputElemType.isSignedInteger(32);
@@ -60,7 +60,7 @@ bool hasLegacyUnsupportedType(mlir::Type inputElemType, mlir::Type outputElemTyp
 
 // SHAVE on NPU5 keeps the upstream mapping: legacy set plus FLOAT32 and quantized 4-bit types
 VPUNN::DataType getShaveElementType(mlir::Type type, VPUNN::VPUDevice vpuDevice) {
-    if (vpuDevice == VPUNN::VPUDevice::NPU_5_0 || vpuDevice == VPUNN::VPUDevice::NPU_5_0_W) {
+    if (vpuDevice >= VPUNN::VPUDevice::NPU_5_0 && vpuDevice < VPUNN::VPUDevice::NPU_6_0) {
         if (type.isF32()) {
             return VPUNN::DataType::FLOAT32;
         }
@@ -887,8 +887,17 @@ size_t vpux::calculateShaveActCycles(VPUIP::SwKernelOp swKernelOp,
     auto outputElemType = outputNdType.getElementType();
     const auto arch = config::getArch(swKernelOp);
     if (hasLegacyUnsupportedType(inputElemType, outputElemType) &&
-        VPU::getVPUDeviceType(arch) <= VPUNN::VPUDevice::NPU_5_0_W) {
+        VPU::getVPUDeviceType(arch) < VPUNN::VPUDevice::NPU_6_0) {
         return 1;
+    }
+    const auto isUnsupportedElementType = [arch](mlir::Value value) {
+        const auto elemType = mlir::cast<vpux::NDTypeInterface>(value.getType()).getElementType();
+        return !VPU::isVPUNNSupportedElementType(elemType, arch);
+    };
+    if (VPU::getVPUDeviceType(arch) >= VPUNN::VPUDevice::NPU_6_0 &&
+        (llvm::any_of(swKernelOp.getInputs(), isUnsupportedElementType) ||
+         llvm::any_of(swKernelOp.getOutputBuffs(), isUnsupportedElementType))) {
+        return VPU::INVALID_COST_BASE;
     }
 
     auto inputs = to_small_vector(swKernelOp.getInputs());

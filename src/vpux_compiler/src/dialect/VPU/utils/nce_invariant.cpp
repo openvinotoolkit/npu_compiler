@@ -306,6 +306,11 @@ mlir::LogicalResult vpux::VPU::NCEInvariant::verifyWeightTables(mlir::Operation*
          nceOp.getWeightTableScaleOperand() || nceOp.getWeightTableBiasOperand() ||
          nceOp.getWeightZeroPointsOperand())) {
         return errorAt(op, "Only weightsTable can be populated for NCEOp");
+    } else if (arch == config::ArchKind::NPU60XX && nceOp.getWeightsTableOperand() &&
+               (nceOp.getWeightTableDataPtrOperand() || nceOp.getWeightTableSpPtrOperand() ||
+                nceOp.getWeightTableScaleOperand() || nceOp.getWeightTableBiasOperand() ||
+                nceOp.getWeightZeroPointsOperand())) {
+        return errorAt(op, "Legacy and split weight table formats are mutually exclusive for NCEOp");
     }
     return mlir::success();
 }

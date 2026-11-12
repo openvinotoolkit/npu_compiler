@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="platform=%platform%" --debatcher="debatcher-input-coefficients-partitions=[0-2],[0-2]" %s | FileCheck %s
-// REQUIRES: platform-NPU4000 || platform-NPU5010
+// REQUIRES: platform-NPU4000 || platform-NPU5010 || platform-NPU6010
 
 // CHECK-LABEL: @SingleInputSingleOutputBatched
 // CHECK-SAME:     ([[ARG0:%.+]]: tensor<6x3x62x62xf32>)

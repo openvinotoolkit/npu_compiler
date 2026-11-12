@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="platform=%platform%" --uniquify-branches %s | FileCheck %s
-// REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010
+// REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010 || platform-NPU6010
 
 // CHECK-LABEL: func.func @MoveExpandBeforeMultipleSlices
 // CHECK-SAME:  [[INPUT0:%.+]]: tensor<2x70x4x4xf16>, [[INPUT1:%.+]]: tensor<16x80x1x1xf16>

@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="platform=%platform% allow-custom-values=true" --cmx-stack-frames-reserve-mem --cmx-metadata-reserve-mem --cmx-additional-stack-frames-reserve-mem --adjust-memory-space-for-shv-ops %s | FileCheck %s
-// REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010
+// REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010 || platform-NPU6010
 
 // Case A: Not all input and output tensors fit in CMX. Try to work as much as possible with CMX.
 // The input tensor is smaller so it will be placed in DDR, while the output will be placed in CMX.

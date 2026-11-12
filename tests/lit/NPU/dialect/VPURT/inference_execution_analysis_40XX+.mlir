@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --init-compiler="platform=%platform% allow-custom-values=true" --inference-execution-analysis %s | FileCheck %s
-// REQUIRES: platform-NPU4000 || platform-NPU5010
+// REQUIRES: platform-NPU4000 || platform-NPU5010 || platform-NPU6010
 
 !qElemType = !quant.uniform<u8:f16, 1.000000e+00>
 !qElemType1 = !quant.uniform<u8:f16, 1.000000e+00>

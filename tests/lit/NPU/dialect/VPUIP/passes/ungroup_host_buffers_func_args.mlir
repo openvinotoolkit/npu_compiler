@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --platform=%platform% --ungroup-bounded-buffers-as-func-args --canonicalize %s | FileCheck %s
-// REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010
+// REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010 || platform-NPU6010
 
 #CHW = affine_map<(d0, d1, d2) -> (d0, d1, d2)>
 

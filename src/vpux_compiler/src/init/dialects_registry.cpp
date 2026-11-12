@@ -7,6 +7,7 @@
 #include "vpux/compiler/NPU37XX/dialect/NPUReg37XX/ops.hpp"
 #include "vpux/compiler/NPU40XX/dialect/NPUReg40XX/dialect.hpp"
 #include "vpux/compiler/NPU50XX/dialect/NPUReg50XX/dialect.hpp"
+#include "vpux/compiler/NPU60XX/dialect/NPUReg60XX/dialect.hpp"
 #include "vpux/compiler/conversion/passes/VPU2VPUIP/bufferizable_ops_interface.hpp"
 #include "vpux/compiler/core/types/quantile_types/types.hpp"
 #include "vpux/compiler/dialect/ELF/IR/dialect.hpp"
@@ -98,6 +99,7 @@ void registerDialects(mlir::DialectRegistry& registry) {
                     vpux::NPUReg37XX::NPUReg37XXDialect,      //
                     vpux::NPUReg40XX::NPUReg40XXDialect,      //
                     vpux::NPUReg50XX::NPUReg50XXDialect,      //
+                    vpux::NPUReg60XX::NPUReg60XXDialect,      //
                     vpux::ELFNPU37XX::ELFNPU37XXDialect,      //
                     vpux::Shave::ShaveDialect>();
 

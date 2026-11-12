@@ -368,6 +368,16 @@ mlir::LogicalResult QuantizeWithNCERewriter::matchAndRewrite(IE::QuantizeOp orig
 
     auto isQuantWidthSupported = qElemType.getStorageTypeIntegralWidth() != 16;
 
+    // NPU6 supports mixed precision with 16-bit asymmetric quantization only from revision B onwards.
+    // Details on HW bug available in E-#182547
+    const auto arch = config::getArch(origOp);
+    const auto revisionID = config::getRevisionID(origOp);
+    if (arch > config::ArchKind::NPU60XX ||
+        (arch == config::ArchKind::NPU60XX &&
+         (IE::areAllQuantTypeZeroPointsEqualToZero(qElemType) || revisionID >= config::RevisionID::REVISION_B ||
+          revisionID < config::RevisionID::REVISION_A0))) {
+        isQuantWidthSupported = true;
+    }
     if (!isQuantWidthSupported) {
         return mlir::failure();
     }

@@ -9,6 +9,7 @@
 #include "vpux/compiler/NPU37XX/dialect/VPU/impl/singleton_initializer.hpp"
 #include "vpux/compiler/NPU40XX/dialect/VPU/impl/singleton_initializer.hpp"
 #include "vpux/compiler/NPU50XX/dialect/VPU/impl/singleton_initializer.hpp"
+#include "vpux/compiler/NPU60XX/dialect/VPU/impl/singleton_initializer.hpp"
 #include "vpux/compiler/dialect/config/IR/attributes.hpp"
 #include "vpux/utils/core/error.hpp"
 #include "vpux/utils/core/func_ref.hpp"
@@ -42,6 +43,8 @@ SingletonInitializers getSingletonInitializer(config::Platform platform) {
     case config::Platform::NPU5010:
     case config::Platform::NPU5020:
         return {platform, VPU::arch50xx::initializeSingletonCache, VPU::arch50xx::initializePPEVersionConfig};
+    case config::Platform::NPU6010:
+        return {platform, VPU::arch60xx::initializeSingletonCache, VPU::arch50xx::initializePPEVersionConfig};
     default:
         VPUX_THROW("Unsupported platform: {0}", platform);
     }

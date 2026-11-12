@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="platform=%platform%" --convert-shape-to-4d --canonicalize %s | FileCheck %s
-// REQUIRES: platform-NPU4000 || platform-NPU5010
+// REQUIRES: platform-NPU4000 || platform-NPU5010 || platform-NPU6010
 
 // CHECK-LABEL: @Convert2dTopKPositiveAxis
 // CHECK-SAME:    [[ARG_0:%[^:]+]]: tensor<80x77xsi32>

@@ -211,6 +211,8 @@ ze_result_t configCmdQueue(npu_vm_runtime_handle_t hRuntime, const npu_vm_runtim
         return vpux::OV::Platform::NPU5010;
     case 0xFD3E:  // Wildcatlake (WCL)
         return vpux::OV::Platform::NPU5020;
+    case 0xD71D:  // Novalake (NVL)
+        return vpux::OV::Platform::NPU6010;
     default:
         return {};
     }
@@ -791,6 +793,17 @@ DLLEXPORT npu_vm_runtime_result_t NPU_VM_RUNTIME_APICALL npuVMRuntimeCreateExecu
         // Checks whether a blob is compiled for single tile.
         ze_device_properties_t deviceProperties{};
         zeDeviceGetProperties(pParams->device, &deviceProperties);
+        auto platform = platformForDeviceID(deviceProperties.deviceId);
+        if (platform.has_value() && platform.value() == vpux::OV::Platform::NPU6010) {
+            if (deviceProperties.numSlices > 1 && hRuntime->metadata.numStreams == 1) {
+                // The blob is compiled for single tile, but the device has multiple slices.
+                // In this case, we need to set the number of tiles to concurrentJobCount
+                // for concurrent execution.
+                module_load_params.concurrentJobCount = deviceProperties.numSlices;
+
+                NPU_VM_LOG_INFO("Concurrent job count: {}", module_load_params.concurrentJobCount);
+            }
+        }
     }
 
     bool counterBasedEventSupported = false;

@@ -5,7 +5,7 @@
 
 // RUN: vpux-opt --platform=%platform% --split-input-file --set-target-independent-options="enable-sprlut" %s | FileCheck --check-prefix=CHECK-SPRLUT %s --strict-whitespace
 // RUN: vpux-opt --platform=%platform% --split-input-file --set-target-independent-options="weights-table-reuse-mode=ENABLED" %s | FileCheck --check-prefix=CHECK-WEIGHTSTABLE %s --strict-whitespace
-// REQUIRES: platform-NPU5010
+// REQUIRES: platform-NPU5010 || platform-NPU6010
 
 module @mainModule attributes {} {
 }

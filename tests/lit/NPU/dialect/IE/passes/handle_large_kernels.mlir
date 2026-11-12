@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="platform=%platform%" --handle-large-kernels %s | FileCheck %s
-// REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010
+// REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010 || platform-NPU6010
 
 // CHECK-LABEL: @HandleLargeKernelsAvgPoolWithSameKernelSize
 func.func @HandleLargeKernelsAvgPoolWithSameKernelSize(%arg0 : tensor<1x128x16x16xf16>) -> (tensor<1x128x1x1xf16>) {

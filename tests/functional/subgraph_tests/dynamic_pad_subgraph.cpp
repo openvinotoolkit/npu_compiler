@@ -72,4 +72,10 @@ TEST_F(DynamicPadSubgraphTest, NPU5020_HW_TestKindSubgraph) {
     run(Platform::NPU5020);
 }
 
+TEST_F(DynamicPadSubgraphTest, NPU6010_HW_TestKindSubgraph) {
+    abs_threshold = 0.0f;
+    setDefaultHardwareMode();
+    run(Platform::NPU6010);
+}
+
 }  // namespace ov::test::subgraph

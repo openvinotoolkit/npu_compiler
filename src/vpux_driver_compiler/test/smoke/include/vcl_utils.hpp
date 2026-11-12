@@ -142,10 +142,7 @@ vcl_result_t getVclCompiler(const std::map<std::string, std::string>& buildConfi
     vcl_log_level_t debugLevel;
 
     static const supported_platform supported_platforms = {
-            {"3720", 0x7D1D},
-            {"4000", 0x643E},
-            {"5010", 0xB03E},
-            {"5020", 0xFD3E},
+            {"3720", 0x7D1D}, {"4000", 0x643E}, {"5010", 0xB03E}, {"5020", 0xFD3E}, {"6010", 0xD71D},
     };
 
     const auto supportPlatform = supported_platforms.find(buildConfig.at("NPU_PLATFORM"));

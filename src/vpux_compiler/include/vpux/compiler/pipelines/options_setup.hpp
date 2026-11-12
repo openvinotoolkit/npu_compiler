@@ -133,6 +133,13 @@ private:
 
         auto optimizationAggressiveEnabled = getQDQOptimizationAggressive(config);
 
+        if (archKind >= config::ArchKind::NPU60XX) {
+            if (optimizationAggressiveEnabled.has_value()) {
+                Logger::global().warning("NPU_QDQ_OPTIMIZATION_AGGRESSIVE is deprecated for {0}. Ignoring option",
+                                         stringifyArchKind(archKind));
+                optimizationAggressiveEnabled = false;
+            }
+        }
         maybeSetValue(_initCompilerOptions->enableQDQOptimizationAggressive, optimizationAggressiveEnabled);
 
         auto optimizationEnabled = getQDQOptimization(config);

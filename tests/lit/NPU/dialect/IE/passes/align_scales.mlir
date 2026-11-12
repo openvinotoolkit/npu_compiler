@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="platform=%platform% allow-custom-values=true" --align-scales %s | FileCheck %s
-// REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010
+// REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010 || platform-NPU6010
 
 // CHECK-LABEL: @AlignConcatScales
 // CHECK-SAME:    ([[ARG_0:%[^:]+]]: tensor<16x8x8xf16>, [[ARG_1:%[^:]+]]: tensor<16x1x8xf16>)

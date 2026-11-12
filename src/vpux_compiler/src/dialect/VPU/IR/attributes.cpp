@@ -56,6 +56,8 @@ const VPU::PlatformCapabilities& vpux::VPU::getPlatformCapabilities(config::Plat
              {DPU_GROUPS_3, MAX_DMA_PORTS_2, MAX_SHAVES_PER_TILE_2, MAX_BARRIERS_PER_TILE_16, COMPILER_CMX_SIZE_1_5MB}},
             {config::Platform::NPU5020,
              {DPU_GROUPS_1, MAX_DMA_PORTS_2, MAX_SHAVES_PER_TILE_2, MAX_BARRIERS_PER_TILE_16, COMPILER_CMX_SIZE_2MB}},
+            {config::Platform::NPU6010,
+             {DPU_GROUPS_4, MAX_DMA_PORTS_2, MAX_SHAVES_PER_TILE_2, MAX_BARRIERS_PER_TILE_16, COMPILER_CMX_SIZE_2MB}},
     };
     for (const auto& entry : table) {
         if (entry.first == platform) {
@@ -579,6 +581,9 @@ bool vpux::VPU::isHaloAssistedSliceOptimizationSupported(mlir::Operation* op) {
 
 bool vpux::VPU::isPipelineAwareConvSplitOverICSupported(config::Platform platform) {
     if (platform == config::Platform::NPU5010) {
+        return true;
+    }
+    if (platform == config::Platform::NPU6010) {
         return true;
     }
     return false;

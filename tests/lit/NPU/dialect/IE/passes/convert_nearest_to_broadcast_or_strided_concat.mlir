@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="platform=%platform% allow-custom-values=true" --convert-nearest-to-broadcast-or-strided-concat %s | FileCheck %s
-// REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010
+// REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010 || platform-NPU6010
 
 // CHECK-LABEL: @ConvertNearestToStridedConcat_HW
 // CHECK-SAME:    ([[ARG_0:%[^:]+]]: tensor<1x128x6x10xf32>)

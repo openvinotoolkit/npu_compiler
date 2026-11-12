@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="platform=%platform%" --canonicalize %s | FileCheck %s
-// REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010
+// REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010 || platform-NPU6010
 
 // CHECK-LABEL: @IdftConvertConstToAttrAndNormalize
 // CHECK-SAME:   ([[INPUT:%arg[0-9]]]: tensor<10x4x2xf32>) -> tensor<10x4x2xf32>

@@ -116,6 +116,11 @@ TEST_P(FakeQuantizeLayerTestSWCommon, NPU5020_SW) {
     run(Platform::NPU5020);
 }
 
+TEST_P(FakeQuantizeLayerTestSWCommon, NPU6010_SW) {
+    setReferenceSoftwareMode();
+    run(Platform::NPU6010);
+}
+
 TEST_P(ShaveCodeGenFakeQuantizeLayerTest_SW, NPU4000) {
     setReferenceSoftwareMode();
     setPluginCompilerType();
@@ -138,6 +143,12 @@ TEST_P(ShaveCodeGenFakeQuantizeLayerTest_SW, NPU5020) {
     setReferenceSoftwareMode();
     setPluginCompilerType();
     run(Platform::NPU5020);
+}
+
+TEST_P(ShaveCodeGenFakeQuantizeLayerTest_SW, NPU6010) {
+    setReferenceSoftwareMode();
+    setPluginCompilerType();
+    run(Platform::NPU6010);
 }
 
 }  // namespace test

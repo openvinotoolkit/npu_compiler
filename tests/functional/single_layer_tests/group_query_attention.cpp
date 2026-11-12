@@ -406,6 +406,11 @@ TEST_P(GroupQueryAttentionLayerTest, NPU5010_HW) {
     run(Platform::NPU5010);
 }
 
+TEST_P(GroupQueryAttentionLayerTest, NPU6010_HW) {
+    setDefaultHardwareMode();
+    run(Platform::NPU6010);
+}
+
 // MHA: num_heads == kv_num_heads, with rotary embeddings
 INSTANTIATE_TEST_SUITE_P(
         smoke_MHA_Rotary, GroupQueryAttentionLayerTest,

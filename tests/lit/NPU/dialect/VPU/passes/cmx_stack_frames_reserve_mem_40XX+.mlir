@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="platform=%platform% allow-custom-values=true" --cmx-stack-frames-reserve-mem %s | FileCheck %s
-// REQUIRES: platform-NPU4000 || platform-NPU5010 || platform-NPU5020
+// REQUIRES: platform-NPU4000 || platform-NPU5010 || platform-NPU5020 || platform-NPU6010
 
 module @AddReservedMemory {
   net.NetworkInfo entryPoint : @main inputsInfo : {

@@ -5,7 +5,7 @@
 
 // RUN: vpux-opt %s --split-input-file --init-compiler="platform=%platform%" \
 // RUN:     --convert-eltwise-layers-to-math | FileCheck %s
-// REQUIRES: platform-NPU4000 || platform-NPU5010
+// REQUIRES: platform-NPU4000 || platform-NPU5010 || platform-NPU6010
 
 module @BroadcastMax {
   net.NetworkInfo entryPoint : @main inputsInfo : {

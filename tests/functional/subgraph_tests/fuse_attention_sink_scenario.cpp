@@ -149,6 +149,12 @@ TEST_P(FuseAttentionSinkPatternTestCommon, NPU5010_HW) {
     run(Platform::NPU5010);
 }
 
+TEST_P(FuseAttentionSinkPatternTestCommon, NPU6010_HW) {
+    abs_threshold = 0.012;
+    setDefaultHardwareMode();
+    run(Platform::NPU6010);
+}
+
 INSTANTIATE_TEST_SUITE_P(smoke_AttentionWithSink_model_scenario, FuseAttentionSinkPatternTestCommon,
                          ::testing::ValuesIn({
                                  AttentionSinkPatternParams{64, 64, 1024, 64, /*broadcastSink=*/false},

@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="platform=%platform%" --convert-expand="defer-to-expand-dma=true" --canonicalize %s | FileCheck %s
-// REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010
+// REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010 || platform-NPU6010
 
 // Coverage for `--convert-expand=defer-to-expand-dma=true`. The only case that diverges from
 // the default `defer-to-expand-dma=false` is integral-storage Expand with all-zero `pads_begin`:

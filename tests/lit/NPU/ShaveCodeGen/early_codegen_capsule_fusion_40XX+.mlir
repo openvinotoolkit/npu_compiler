@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="platform=%platform%" --encapsulate-codegen-ops --early-codegen-capsule-fusion %s | FileCheck %s
-// REQUIRES: platform-NPU4000 || platform-NPU5010
+// REQUIRES: platform-NPU4000 || platform-NPU5010 || platform-NPU6010
 
 module @SingleCosNoChange {
   net.NetworkInfo entryPoint : @main inputsInfo : {

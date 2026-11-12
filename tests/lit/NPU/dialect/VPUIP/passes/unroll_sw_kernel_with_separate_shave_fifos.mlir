@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="platform=%platform% compilation-mode=DefaultHW" --unroll-sw-kernel="enable-sw-kernel-fifo-per-shave-engine=true" %s | FileCheck %s
-// REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010
+// REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010 || platform-NPU6010
 
 #NWHC = affine_map<(d0, d1, d2, d3) -> (d0, d3, d2, d1)>
 

@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="platform=%platform%" --unroll-batch %s | FileCheck %s
-// REQUIRES: platform-NPU5010
+// REQUIRES: platform-NPU5010 || platform-NPU6010
 
 // CHECK-LABEL:  @UnrollSubtract
 // CHECK-SAME:   [[IN1:%.+]]: tensor<2x3x576x576xf16>

@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="platform=%platform% revision-id=3" -verify-diagnostics %s
-// REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010
+// REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010 || platform-NPU6010
 
 // expected-error@+1 {{Target platform is already set, probably you run '--init-compiler' twice}}
 module @test attributes {config.platform = #config.platform<NPU3720>} {

@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="platform=%platform% compilation-mode=DefaultHW enable-adaptive-stripping=true" --mlir-elide-elementsattrs-if-larger 8 --default-hw-mode-ie="quant-dequant-removal=true fuse-outstanding-dequant=true fuse-outstanding-quant=true" %s | FileCheck %s --strict-whitespace
-// REQUIRES: platform-NPU4000 || platform-NPU5010
+// REQUIRES: platform-NPU4000 || platform-NPU5010 || platform-NPU6010
 
 // CHECK-LABEL: @MatMulScaleShiftedU16FQ
 module @MatMulScaleShiftedU16FQ {

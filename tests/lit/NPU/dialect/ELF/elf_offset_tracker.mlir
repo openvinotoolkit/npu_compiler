@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --init-compiler="platform=%platform%" --handle-alignment-requirements --set-elf-op-offsets %s | FileCheck %s
-// REQUIRES: platform-NPU4000 || platform-NPU5010 || platform-NPU5020
+// REQUIRES: platform-NPU4000 || platform-NPU5010 || platform-NPU5020 || platform-NPU6010
 
 // Note: This is a hand crafted test case that merges two memory sections
 func.func @mergedDDRSections() {

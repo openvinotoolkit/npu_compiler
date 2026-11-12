@@ -44,6 +44,7 @@ enum class Platform : uint64_t {
     NPU4000 = 4000,
     NPU5010 = 5010,
     NPU5020 = 5020,
+    NPU6010 = 6010,
 };
 
 Platform getPlatform(const vpux::OV::Config& config) {
@@ -56,6 +57,8 @@ Platform getPlatform(const vpux::OV::Config& config) {
         return Platform::NPU5010;
     } else if (platform == vpux::OV::Platform::NPU5020) {
         return Platform::NPU5020;
+    } else if (platform == vpux::OV::Platform::NPU6010) {
+        return Platform::NPU6010;
     } else {
         VPUX_THROW("Unsupported NPU platform");
     }
@@ -73,6 +76,8 @@ std::optional<std::string_view> platformForDeviceID(uint32_t deviceID) {
         return vpux::OV::Platform::NPU5010;
     case 0xFD3E:  // Wildcatlake (WCL)
         return vpux::OV::Platform::NPU5020;
+    case 0xD71D:  // Novalake (NVL)
+        return vpux::OV::Platform::NPU6010;
     default:
         return {};
     }
@@ -195,10 +200,9 @@ vpux::OV::OptionsDesc getOptionsNPU40XX() {
 }
 
 const std::unordered_map<std::string_view, vpux::OV::OptionsDesc> OPTIONS_PER_PLATFORM = {
-        {vpux::OV::Platform::NPU3720, getOptionsNPU37XX()},
-        {vpux::OV::Platform::NPU4000, getOptionsNPU40XX()},
-        {vpux::OV::Platform::NPU5010, getOptionsNPU40XX()},
-        {vpux::OV::Platform::NPU5020, getOptionsNPU40XX()},
+        {vpux::OV::Platform::NPU3720, getOptionsNPU37XX()}, {vpux::OV::Platform::NPU4000, getOptionsNPU40XX()},
+        {vpux::OV::Platform::NPU5010, getOptionsNPU40XX()}, {vpux::OV::Platform::NPU5020, getOptionsNPU40XX()},
+        {vpux::OV::Platform::NPU6010, getOptionsNPU40XX()},
 };
 
 const vpux::OV::OptionsDesc ALL_OPTIONS = getOptionsNPU40XX();

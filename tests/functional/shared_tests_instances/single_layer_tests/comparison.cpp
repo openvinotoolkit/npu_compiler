@@ -297,6 +297,25 @@ TEST_P(ComparisonLayerTestIsOp, NPU5020_SW) {
     run(Platform::NPU5020);
 }
 
+TEST_P(ComparisonLayerTestCommon, NPU6010_SW) {
+    setReferenceSoftwareMode();
+    run(Platform::NPU6010);
+}
+TEST_P(ComparisonLayerTestIsOp, NPU6010_SW) {
+    setReferenceSoftwareMode();
+    run(Platform::NPU6010);
+}
+TEST_P(ShaveCodeGenComparisonLayerTestCommon, NPU6010) {
+    setReferenceSoftwareMode();
+    setPluginCompilerType();
+    run(Platform::NPU6010);
+}
+
+TEST_P(ComparisonLayerTest_BOOL, NPU6010_HW) {
+    setDefaultHardwareMode();
+    run(Platform::NPU6010);
+}
+
 }  // namespace test
 }  // namespace ov
 

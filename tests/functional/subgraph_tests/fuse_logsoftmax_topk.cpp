@@ -89,6 +89,11 @@ TEST_P(FuseLogSoftmaxTopKTestCommon, NPU5010_HW) {
     run(Platform::NPU5010);
 }
 
+TEST_P(FuseLogSoftmaxTopKTestCommon, NPU6010_HW) {
+    setDefaultHardwareMode();
+    run(Platform::NPU6010);
+}
+
 // Only inner size axis and K = 1 is supported
 std::vector<LogSoftmaxTopKParams> logSoftmaxTopKTestParams = {
         {{151, 7049}, 1, 1},

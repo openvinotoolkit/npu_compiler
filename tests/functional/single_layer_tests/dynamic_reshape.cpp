@@ -56,6 +56,11 @@ TEST_P(DynamicReshapeLayerTest, NPU5020_HW) {
     run(Platform::NPU5020);
 }
 
+TEST_P(DynamicReshapeLayerTest, NPU6010_HW) {
+    setDefaultHardwareMode();
+    run(Platform::NPU6010);
+}
+
 const std::vector<Input> inputShapes = {generateTestShape(128_Dyn, 1)};
 
 const std::vector<NewShape> newShapes = {{NewShape{-1}}};

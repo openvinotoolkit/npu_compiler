@@ -205,10 +205,17 @@ std::vector<int32_t> vpux::VPU::NCESparsity::getWeightsTable(
                                           checked_cast<size_t>(OC));
 
     std::vector<std::int32_t> weightsTableVals(OC * WEIGHT_TABLE_NUM_ELEMENTS_PER_OC, 0);
+    // Zero-point patching writes the per-channel zero-point into the 4 MS bits of the weight pointer
+    // (DATA_PTR). This is done for all architectures, but only NPU6 consumes those bits for asymmetric
+    // per-channel quantization on DPU (legacy weights table format). Applicable for quantized types with
+    // QuantileType storage as well.
     const auto hasPerChannelWeights =
             weightsElemType != nullptr && mlir::isa<mlir::quant::UniformQuantizedPerAxisType>(weightsElemType);
     SmallVector<int64_t> zeroPoints;
     if (hasPerChannelWeights) {
+        // In split-fake-quant pass if requirements met, quantization per-channel was propagated, so here we are
+        // sure that zero-points are in uint4 range. Otherwise, dequantization happened, so we don't enter this
+        // if condition.
         const auto weightsQuantizedPerChannel = mlir::cast<mlir::quant::UniformQuantizedPerAxisType>(weightsElemType);
         zeroPoints = to_small_vector(weightsQuantizedPerChannel.getZeroPoints());
         // Grouped ops carry N per-channel zero-points that broadcast across all G groups; tile them to OC

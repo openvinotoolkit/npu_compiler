@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="platform=%platform%" --set-memory-space="memory-space=DDR" %s | FileCheck %s
-// REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010
+// REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010 || platform-NPU6010
 
 module @VPU.SW {
     func.func nested @builtin_softmax(%input : memref<*xf16>, %output : memref<*xf16>, %axis : i64) attributes {

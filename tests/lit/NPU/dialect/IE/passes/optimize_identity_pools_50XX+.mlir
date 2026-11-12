@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="platform=%platform% enable-sprlut=true" --optimize-identity-pools %s | FileCheck %s
-// REQUIRES: platform-NPU5010
+// REQUIRES: platform-NPU5010 || platform-NPU6010
 
 !qElemType = !quant.uniform<u8:f16, 0.39215686274509803>
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>

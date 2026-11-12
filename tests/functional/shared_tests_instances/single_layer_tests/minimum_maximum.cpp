@@ -114,6 +114,16 @@ TEST_P(ShaveCodeGenMaxMinLayerTestCommon, NPU5020) {
     run(Platform::NPU5020);
 }
 
+TEST_P(MaxMinLayerTestCommon, NPU6010_SW) {
+    setReferenceSoftwareMode();
+    run(Platform::NPU6010);
+}
+TEST_P(ShaveCodeGenMaxMinLayerTestCommon, NPU6010) {
+    setReferenceSoftwareMode();
+    setPluginCompilerType();
+    run(Platform::NPU6010);
+}
+
 }  // namespace test
 }  // namespace ov
 

@@ -60,6 +60,13 @@ TEST_P(NormalizeL2LayerTestCommon, NPU5020_HW) {
     run(Platform::NPU5020);
 }
 
+TEST_P(NormalizeL2LayerTestCommon, NPU6010_HW) {
+    abs_threshold = 0.04;
+    rel_threshold = 0.04;
+    setDefaultHardwareMode();
+    run(Platform::NPU6010);
+}
+
 }  // namespace test
 }  // namespace ov
 

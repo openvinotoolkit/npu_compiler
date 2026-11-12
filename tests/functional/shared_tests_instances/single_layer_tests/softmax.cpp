@@ -186,6 +186,50 @@ TEST_P(SoftMaxLayerTest_SCFTiling, NPU5020_SW) {
     run(Platform::NPU5020);
 }
 
+TEST_P(SoftMaxLayerTestCommon, NPU6010_SW) {
+    setSkipCompilationCallback(SkipDynamicShapes(GetParam()));
+
+    abs_threshold = 1e-3;
+    setReferenceSoftwareMode();
+    run(Platform::NPU6010);
+}
+
+TEST_P(SoftMaxLayerTestCommon, NPU6010_HW) {
+    setSkipCompilationCallback(SkipDynamicShapes(GetParam()));
+
+    abs_threshold = 1e-3;
+    setDefaultHardwareMode();
+    run(Platform::NPU6010);
+}
+
+TEST_P(SoftMaxConvertFP32LayerTest, NPU6010_HW) {
+    setSkipCompilationCallback(SkipDynamicShapes(GetParam()));
+
+    abs_threshold = 1e-3;
+    setDefaultHardwareMode();
+    run(Platform::NPU6010);
+}
+
+TEST_P(ShaveCodeGenSoftMaxLayerTestCommon, NPU6010_SW) {
+    abs_threshold = 1e-3;
+    setPluginCompilerType();
+    setReferenceSoftwareMode();
+    run(Platform::NPU6010);
+}
+
+TEST_P(ShaveCodeGenSoftMaxLayerTestCommon, NPU6010_HW) {
+    abs_threshold = 1e-3;
+    setPluginCompilerType();
+    setDefaultHardwareMode();
+    run(Platform::NPU6010);
+}
+
+TEST_P(SoftMaxLayerTest_SCFTiling, NPU6010_SW) {
+    abs_threshold = 1e-3;
+    setReferenceSoftwareMode();
+    run(Platform::NPU6010);
+}
+
 }  // namespace ov::test
 
 using ov::test::ShaveCodeGenSoftMaxLayerTestCommon;

@@ -110,6 +110,12 @@ TEST_P(ConvolutionLayerTest_HW, NPU5020) {
     run(Platform::NPU5020);
 }
 
+TEST_P(ConvolutionLayerTest_HW, NPU6010) {
+    rel_threshold = 0.02;
+    setDefaultHardwareMode();
+    run(Platform::NPU6010);
+}
+
 // SW tests
 TEST_P(ConvolutionLayerTest_SW, NPU3720) {
     rel_threshold = 0.02;
@@ -135,6 +141,12 @@ TEST_P(ConvolutionLayerTest_SW, NPU5020) {
     run(Platform::NPU5020);
 }
 
+TEST_P(ConvolutionLayerTest_SW, NPU6010) {
+    rel_threshold = 0.02;
+    setReferenceSoftwareMode();
+    run(Platform::NPU6010);
+}
+
 // FP32 SW tests
 TEST_P(ConvolutionLayerTest_FP32_SW, NPU3720) {
     setReferenceSoftwareMode();
@@ -154,6 +166,11 @@ TEST_P(ConvolutionLayerTest_FP32_SW, NPU5010) {
 TEST_P(ConvolutionLayerTest_FP32_SW, NPU5020) {
     setReferenceSoftwareMode();
     run(Platform::NPU5020);
+}
+
+TEST_P(ConvolutionLayerTest_FP32_SW, NPU6010) {
+    setReferenceSoftwareMode();
+    run(Platform::NPU6010);
 }
 
 // SCM test (single-cluster mode, NPU3720 only)
@@ -293,6 +310,17 @@ TEST_P(ConvolutionLayerTest_SCFTiling, NPU5020_HW) {
     run(Platform::NPU5020);
 }
 
+// NPU6010
+TEST_P(ConvolutionLayerTest_MULTI_BATCH_HW, NPU6010_HW) {
+    rel_threshold = 0.02;
+    setDefaultHardwareMode();
+    run(Platform::NPU6010);
+}
+TEST_P(ConvolutionLayerTest_SCFTiling, NPU6010_HW) {
+    rel_threshold = 0.02;
+    setDefaultHardwareMode();
+    run(Platform::NPU6010);
+}
 }  // namespace test
 }  // namespace ov
 

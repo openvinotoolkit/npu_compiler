@@ -218,6 +218,12 @@ TEST_P(NPUDynamicReshapeTransposeTest, NPU5010_HW_TestKindSubgraph) {
     run(Platform::NPU5010);
 }
 
+TEST_P(NPUDynamicReshapeTransposeTest, NPU6010_HW_TestKindSubgraph) {
+    abs_threshold = std::numeric_limits<float>::epsilon();
+    setDefaultHardwareMode();
+    run(Platform::NPU6010);
+}
+
 // DynamicReshape and DynamicReshapeFusing
 const std::vector<std::vector<int64_t>> concatValues = {
         {1, 1, 2},

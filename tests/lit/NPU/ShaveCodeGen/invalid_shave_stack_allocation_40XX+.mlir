@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --init-compiler="platform=%platform%" --shave-stack-allocation %s -o - | FileCheck %s
-// REQUIRES: platform-NPU4000 || platform-NPU5010
+// REQUIRES: platform-NPU4000 || platform-NPU5010 || platform-NPU6010
 
 // Large allocations should have been removed before the shave stack allocation pass.
 // CHECK-NOT: memref.alloca()

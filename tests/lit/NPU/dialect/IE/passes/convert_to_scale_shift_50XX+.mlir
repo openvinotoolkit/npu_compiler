@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="platform=%platform%" --convert-to-scale-shift %s | FileCheck %s
-// REQUIRES: platform-NPU5010
+// REQUIRES: platform-NPU5010 || platform-NPU6010
 
 // CHECK-LABEL: @ConvertMultiplyToScaleShiftWithBroadcastAndWithinDPUBenefitFactor
 // CHECK-SAME:  [[INPUT0:%.+]]: tensor<1x17920x1024x1xf16>, [[INPUT1:%.+]]: tensor<1x17920x1x1xf16>

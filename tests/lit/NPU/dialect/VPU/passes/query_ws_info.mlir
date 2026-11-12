@@ -6,7 +6,7 @@
 // RUN: vpux-opt --split-input-file --init-compiler="platform=%platform%" --query-ws-info %s | FileCheck --check-prefix=CHECK-DEFAULT %s
 // RUN: vpux-opt --split-input-file --init-compiler="platform=%platform%" --query-ws-info="memory-limit=1000" %s | FileCheck --check-prefix=CHECK-BIG-LIMIT %s
 // RUN: vpux-opt --split-input-file --init-compiler="platform=%platform%" --query-ws-info="memory-limit=4" %s | FileCheck --check-prefix=CHECK-SMALL-LIMIT %s
-// REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010
+// REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010 || platform-NPU6010
 
 // CHECK-DEFAULT: module @NoConstants attributes {{.+}}VPU.WsTotalInitPartCount = 0 : i64
 // CHECK-BIG-LIMIT: module @NoConstants attributes {{.+}}VPU.WsTotalInitPartCount = 0 : i64

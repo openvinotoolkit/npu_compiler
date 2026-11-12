@@ -121,6 +121,11 @@ TEST_P(MultiplyMixedPrecisionTest, NPU5020_HW) {
     run(Platform::NPU5020);
 }
 
+TEST_P(MultiplyMixedPrecisionTest, NPU6010_HW) {
+    setDefaultHardwareMode();
+    run(Platform::NPU6010);
+}
+
 const std::vector<ov::Shape> multiplyInputShapes = {{1, 4, 16, 16}};
 
 const std::vector<std::vector<float>> multiplyFqRanges = {

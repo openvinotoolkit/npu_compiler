@@ -23,6 +23,10 @@
 #include "vpux/compiler/NPU50XX/dialect/VPU/strategies_initializer.hpp"
 #include "vpux/compiler/NPU50XX/dialect/VPUIP/strategies_initializer.hpp"
 #include "vpux/compiler/NPU50XX/dialect/config/constraints_initializer.hpp"
+#include "vpux/compiler/NPU60XX/dialect/IE/strategies_initializer.hpp"
+#include "vpux/compiler/NPU60XX/dialect/VPU/strategies_initializer.hpp"
+#include "vpux/compiler/NPU60XX/dialect/VPUIP/strategies_initializer.hpp"
+#include "vpux/compiler/NPU60XX/dialect/config/constraints_initializer.hpp"
 #include "vpux/utils/core/error.hpp"
 
 #include "vpux/compiler/dialect/config/IR/attributes.hpp"
@@ -42,6 +46,8 @@ std::unique_ptr<config::IConstraintsInitializer> createConstraintsInitializer(co
         return std::make_unique<config::ConstraintsInitializer40XX>();
     case config::ArchKind::NPU50XX:
         return std::make_unique<config::ConstraintsInitializer50XX>(platform);
+    case config::ArchKind::NPU60XX:
+        return std::make_unique<config::ConstraintsInitializer60XX>();
     default:
         VPUX_THROW("Unsupported arch: {0}", arch);
     }
@@ -89,6 +95,8 @@ std::unique_ptr<IStrategiesInitializer> createStrategiesInitializer(config::Plat
         return std::make_unique<IE::StrategiesInitializer40XX>();
     case config::ArchKind::NPU50XX:
         return std::make_unique<IE::StrategiesInitializer50XX>();
+    case config::ArchKind::NPU60XX:
+        return std::make_unique<IE::StrategiesInitializer60XX>();
     default:
         VPUX_THROW("Unsupported arch: {0}", arch);
     }
@@ -129,6 +137,8 @@ std::unique_ptr<IStrategiesInitializer> createStrategiesInitializer(config::Plat
         return std::make_unique<VPU::StrategiesInitializer40XX>();
     case config::ArchKind::NPU50XX:
         return std::make_unique<VPU::StrategiesInitializer50XX>();
+    case config::ArchKind::NPU60XX:
+        return std::make_unique<VPU::StrategiesInitializer60XX>();
     default:
         VPUX_THROW("Unsupported arch: {0}", arch);
     }
@@ -170,6 +180,8 @@ std::unique_ptr<IStrategiesInitializer> createStrategiesInitializer(config::Plat
         return std::make_unique<VPUIP::StrategiesInitializer40XX>();
     case config::ArchKind::NPU50XX:
         return std::make_unique<VPUIP::StrategiesInitializer50XX>();
+    case config::ArchKind::NPU60XX:
+        return std::make_unique<VPUIP::StrategiesInitializer60XX>();
     default:
         VPUX_THROW("Unsupported arch: {0}", arch);
     }

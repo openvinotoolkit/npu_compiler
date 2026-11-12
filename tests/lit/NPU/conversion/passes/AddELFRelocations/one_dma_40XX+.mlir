@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --init-compiler="platform=%platform% allow-custom-values=true" --split-input-file --convert-VPUASM-to-NPUReg40XX --create-elf-relocations %s | FileCheck %s
-// REQUIRES: platform-NPU4000 || platform-NPU5010
+// REQUIRES: platform-NPU4000 || platform-NPU5010 || platform-NPU6010
 
 module @OneDMAWithoutAttributes attributes {config.platform = #config.platform<NPU4000>} {
   config.Resources 6 of @NCE at 1.700000e+03 MHz {

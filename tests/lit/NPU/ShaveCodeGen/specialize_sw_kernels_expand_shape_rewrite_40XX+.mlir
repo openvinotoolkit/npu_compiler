@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="platform=%platform%" --specialize-sw-kernels %s | FileCheck %s
-// REQUIRES: platform-NPU4000 || platform-NPU5010
+// REQUIRES: platform-NPU4000 || platform-NPU5010 || platform-NPU6010
 
 // Both source dims static, one group resolves and the other does not: [0, 1] = [3, ?]
 // resolves to 12 / 3 = 4, while [2, 3] = [?, ?] has no unique answer, so source dim 1

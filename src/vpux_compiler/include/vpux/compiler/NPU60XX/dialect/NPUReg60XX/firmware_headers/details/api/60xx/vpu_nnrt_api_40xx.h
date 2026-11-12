@@ -1,0 +1,181 @@
+/* SPDX-License-Identifier: MIT */
+/*
+ * Copyright (c) 2022-2026, Intel Corporation.
+ */
+
+// clang-format off
+
+#ifndef VPU_NNRT_API_40XX_60XX_H
+#define VPU_NNRT_API_40XX_60XX_H
+
+/**
+ * @file
+ * @brief header file containing the structs required for non workload
+ * management (non-WLM) inferences.
+ */
+
+/**
+ * @addtogroup NNRT
+ * @{
+ */
+
+#include "vpu_nce_hw_60xx.h"
+#include "vpu_dma_hw_40xx.h"
+#include "vpu_media_hw.h"
+#include "vpu_nnrt_wlm.h"
+#include "vpu_nnrt_common.h"
+
+namespace nn_public {
+
+// base resources
+constexpr uint32_t VPU_MAX_TILES = 6;
+constexpr uint32_t VPU_BARRIERS_PER_GROUP = 16;
+constexpr uint32_t VPU_DPU_PER_TILE = 1;
+constexpr uint32_t VPU_SNN_PER_TILE = VPU_DPU_PER_TILE;
+constexpr uint32_t VPU_SNN_TOTAL = VPU_SNN_PER_TILE * VPU_MAX_TILES;
+#ifdef CONFIG_TARGET_SOC_7000
+constexpr uint32_t VPU_AS_PER_TILE = 4;
+constexpr uint32_t VPU_MAX_DMA_ENGINES = 4;
+#else
+constexpr uint32_t VPU_AS_PER_TILE = 2;
+// On NPU4-6, there is only one physical DMA engine, but it is logically split into two interfaces.
+constexpr uint32_t VPU_MAX_DMA_ENGINES = 2;
+#endif
+constexpr uint32_t VPU_AS_TOTAL = VPU_AS_PER_TILE * VPU_MAX_TILES;
+
+#pragma pack(push, 1)
+
+/* Do not document the legacy non-WLM API structs. */
+/** @cond */
+
+struct VPU_ALIGNED_STRUCT(4) VpuBarrierCountConfig {
+    uint32_t next_same_id_;
+    uint16_t producer_count_;
+    uint16_t consumer_count_;
+    uint8_t real_id_;
+    uint8_t pad_[3];
+};
+
+static_assert(sizeof(VpuBarrierCountConfig) == 12, "VpuBarrierCountConfig size != 12");
+
+struct VPU_ALIGNED_STRUCT(32) VpuDPUInvariant {
+    VpuDPUInvariantRegisters registers_;
+    VpuTaskBarrierDependency barriers_;
+    VpuTaskSchedulingBarrierConfig barriers_sched_;
+    uint8_t deprecated0_[8]; // Deprecated member, do not reuse until next API major version update
+    uint16_t variant_count_;
+    uint8_t cluster_;
+    uint8_t deprecated1_[2]; // Deprecated member, do not reuse until next API major version update
+    uint8_t pad_[3];
+};
+
+static_assert(sizeof(VpuDPUInvariant) == 288, "VpuDPUInvariant size != 288");
+static_assert(offsetof(VpuDPUInvariant, barriers_) % 8 == 0, "Alignment error");
+static_assert(offsetof(VpuDPUInvariant, barriers_sched_) % 4 == 0, "Alignment error");
+static_assert(offsetof(VpuDPUInvariant, variant_count_) % 2 == 0, "Alignment error");
+
+struct VPU_ALIGNED_STRUCT(32) VpuDPUVariant {
+    VpuDPUVariantRegisters registers_;
+    VpuPtr<VpuDPUInvariant> invariant_;
+    uint32_t invariant_index_;
+    uint8_t deprecated_[13]; // Deprecated member, do not reuse until next API major version update
+    uint8_t pad_[7];
+};
+
+static_assert(sizeof(VpuDPUVariant) == 256, "VpuDPUVariant size != 256");
+static_assert(offsetof(VpuDPUVariant, invariant_) % 8 == 0, "Alignment error");
+static_assert(offsetof(VpuDPUVariant, invariant_index_) % 4 == 0, "Alignment error");
+
+struct VPU_ALIGNED_STRUCT(32) VpuDMATask {
+    DmaDescriptor transaction_;
+    VpuTaskSchedulingBarrierConfig barriers_sched_;
+    uint8_t pad_[24];
+};
+
+static_assert(sizeof(VpuDMATask) == 224, "VpuDMATask size != 224");
+static_assert(offsetof(VpuDMATask, barriers_sched_) % 4 == 0, "Alignment error");
+
+struct VPU_ALIGNED_STRUCT(16) VpuMediaTask {
+    union VPU_ALIGNED_STRUCT(16) {
+        struct VPU_ALIGNED_STRUCT(16) {
+            VpuMediaBuffDescriptor buff_desc_;
+            VpuMediaROIDescriptor roi_desc_;
+        } standard;
+        struct VPU_ALIGNED_STRUCT(16) {
+            VpuMediaBuffDescriptor buff_desc_;
+            VpuMediaExtendedHeader ext_hdr_;
+            VpuMediaROIDescriptor roi_desc_;
+        } extended;
+    };
+    VpuTaskSchedulingBarrierConfig barriers_sched_;
+    uint8_t pad0_[8];
+};
+
+static_assert(sizeof(VpuMediaTask) == 240, "VpuMediaTask size != 240");
+static_assert(offsetof(VpuMediaTask, standard.buff_desc_) % 16 == 0, "Alignment error");
+static_assert(offsetof(VpuMediaTask, extended.buff_desc_) % 16 == 0, "Alignment error");
+static_assert(offsetof(VpuMediaTask, barriers_sched_) % 4 == 0, "Alignment error");
+
+struct VPU_ALIGNED_STRUCT(4) VpuTaskCounts {
+    uint32_t reserved1;
+    uint32_t reserved2;
+    uint32_t dma_ddr_count;
+    uint32_t dma_cmx_count;
+    uint32_t dpu_invariant_count;
+    uint32_t dpu_variant_count;
+    uint32_t act_range_count;
+    uint32_t act_invo_count;
+    uint32_t media_count;
+};
+
+static_assert(sizeof(VpuTaskCounts) == 36, "VpuTaskCounts size != 36");
+
+struct VPU_ALIGNED_STRUCT(32) VpuMappedInference {
+    uint32_t vpu_nnrt_api_ver;
+    uint8_t pad0_[4];
+    uint64_t reserved0_;
+    uint64_t logaddr_dma_hwp_;
+    VpuTaskCounts task_storage_counts_;
+    uint32_t task_storage_size_;
+    VpuTaskReference<VpuDMATask> dma_tasks_ddr_[VPU_MAX_TILES];
+    VpuTaskReference<VpuDMATask> dma_tasks_cmx_[VPU_MAX_TILES];
+    VpuTaskReference<VpuDPUInvariant> invariants[VPU_MAX_TILES];
+    VpuTaskReference<VpuDPUVariant> variants[VPU_MAX_TILES];
+    VpuTaskReference<VpuActKernelRange> act_kernel_ranges[VPU_MAX_TILES];
+    VpuTaskReference<VpuActKernelInvocation> act_kernel_invocations[VPU_MAX_TILES];
+    VpuTaskReference<VpuMediaTask> media_tasks;
+    VpuTaskReference<VpuBarrierCountConfig> barrier_configs;
+    VpuNNShaveRuntimeConfigs shv_rt_configs;
+    uint64_t hwp_workpoint_cfg_addr;
+    VpuTaskReference<VpuManagedMappedInference> managed_inference;
+};
+
+static_assert(sizeof(VpuMappedInference) == 1728, "VpuMappedInference size != 1728");
+static_assert(offsetof(VpuMappedInference, task_storage_counts_) % 4 == 0, "Alignment error");
+static_assert(offsetof(VpuMappedInference, task_storage_size_) % 4 == 0, "Alignment error");
+static_assert(offsetof(VpuMappedInference, dma_tasks_ddr_) % 8 == 0, "Alignment error");
+static_assert(offsetof(VpuMappedInference, dma_tasks_cmx_) % 8 == 0, "Alignment error");
+static_assert(offsetof(VpuMappedInference, invariants) % 8 == 0, "Alignment error");
+static_assert(offsetof(VpuMappedInference, variants) % 8 == 0, "Alignment error");
+static_assert(offsetof(VpuMappedInference, act_kernel_ranges) % 8 == 0, "Alignment error");
+static_assert(offsetof(VpuMappedInference, act_kernel_invocations) % 8 == 0, "Alignment error");
+static_assert(offsetof(VpuMappedInference, media_tasks) % 8 == 0, "Alignment error");
+static_assert(offsetof(VpuMappedInference, barrier_configs) % 8 == 0, "Alignment error");
+static_assert(offsetof(VpuMappedInference, shv_rt_configs) % 8 == 0, "Alignment error");
+static_assert(offsetof(VpuMappedInference, hwp_workpoint_cfg_addr) % 8 == 0, "Alignment error");
+static_assert(offsetof(VpuMappedInference, managed_inference) % 8 == 0, "Alignment error");
+
+/** @endcond */
+
+#pragma pack(pop)
+
+} // namespace nn_public
+
+/**
+ * close the "addtogroup NNRT" block
+ * @}
+ */
+
+#endif /* VPU_NNRT_API_40XX_60XX_H */
+
+// clang-format on

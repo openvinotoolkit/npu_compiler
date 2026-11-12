@@ -72,11 +72,18 @@ if(ENABLE_MANAGEMENT_KERNEL_BUILD)
         "${MV_TOOLS_PATH}/common/moviCompile/lib/50xxxx/mlibc_lite.a"
         "${MV_TOOLS_PATH}/common/moviCompile/lib/50xxxx/mlibcrt.a"
     )
+    set(link_libraries_list_VPU6000
+        "${MV_TOOLS_PATH}/common/moviCompile/lib/60xxxx/mlibm.a"
+        "${MV_TOOLS_PATH}/common/moviCompile/lib/60xxxx/mlibc_lite.a"
+        "${MV_TOOLS_PATH}/common/moviCompile/lib/60xxxx/mlibcrt.a"
+    )
     # Platform list: each entry maps a kernel CPU number to the firmware source subdirectory.
     set(_rt_subdir_3720 3720)
     set(_rt_subdir_4000 4000)
     set(_rt_subdir_5000 5000)
+    set(_rt_subdir_6000 6000)
     set(_rt_platforms 3720 4000 5000)
+    list(APPEND _rt_platforms 6000)
     # Shorthand for the slimfw act_runtime base path used by 5000+
     set(_slimfw_ar "${FIRMWARE_VPU_DIR}/slimfw/validation/validationApps/system/nn/validation/act_runtime")
 
@@ -184,6 +191,10 @@ foreach(platform IN LISTS _rt_platforms)
         if(platform STREQUAL "5000")
             set(define_symbols_list "__act_shave__" "CONFIG_TARGET_SOC_4000" "CONFIG_TARGET_SOC_5000")
             set(link_libraries_list ${link_libraries_list_VPU5000})
+        elseif(platform STREQUAL "6000")
+            set(define_symbols_list "__act_shave__"
+                "CONFIG_TARGET_SOC_4000" "CONFIG_TARGET_SOC_5000" "CONFIG_TARGET_SOC_6000")
+            set(link_libraries_list ${link_libraries_list_VPU6000})
         endif()
 
         set(include_dirs_list

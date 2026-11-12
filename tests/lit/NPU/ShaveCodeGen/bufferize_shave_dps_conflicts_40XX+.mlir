@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="platform=%platform%" --one-shot-bufferize-sw-kernels %s | FileCheck %s
-// REQUIRES: platform-NPU4000 || platform-NPU5010
+// REQUIRES: platform-NPU4000 || platform-NPU5010 || platform-NPU6010
 
 // Note this would have incorrectly bufferized with the usual VPU to VPUIP
 // bufferization because of the read-after-write conflicts caused by the

@@ -117,6 +117,22 @@ TEST_P(DynamicLogicalLayerTest, NPU5020_SW) {
     run(Platform::NPU5020);
 }
 
+TEST_P(LogicalLayerTestCommon, NPU6010_SW) {
+    setReferenceSoftwareMode();
+    run(Platform::NPU6010);
+}
+
+TEST_P(DynamicLogicalLayerTest, NPU6010_SW) {
+    setReferenceSoftwareMode();
+    run(Platform::NPU6010);
+}
+
+TEST_P(ShaveCodeGenLogicalLayerTestCommon, NPU6010) {
+    setReferenceSoftwareMode();
+    setPluginCompilerType();
+    run(Platform::NPU6010);
+}
+
 }  // namespace test
 }  // namespace ov
 

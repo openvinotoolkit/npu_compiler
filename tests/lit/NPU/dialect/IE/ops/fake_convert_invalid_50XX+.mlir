@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt %s --split-input-file --init-compiler="platform=%platform%" --verify-diagnostics
-// REQUIRES: platform-NPU5010
+// REQUIRES: platform-NPU5010 || platform-NPU6010
 
 // CHECK-LABEL: @UnsupportedInputElemType
 func.func @UnsupportedInputElemType(%arg0: tensor<1x3x30x30xf64>) -> tensor<1x3x30x30xf32> {

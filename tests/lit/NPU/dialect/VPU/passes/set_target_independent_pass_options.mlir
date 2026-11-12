@@ -4,11 +4,11 @@
 //
 
 // RUN: vpux-opt --platform=%platform% --split-input-file --set-target-independent-options="enable-auto-padding-odu enable-auto-padding-idu" %s | FileCheck --check-prefix=CHECK-PAD %s --strict-whitespace
-// REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010
+// REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010 || platform-NPU6010
 // RUN: vpux-opt --platform=%platform% --split-input-file --set-target-independent-options="enable-is-reduce-supported " %s | FileCheck --check-prefix=CHECK-REDUCE %s --strict-whitespace
-// REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010
+// REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010 || platform-NPU6010
 // RUN: vpux-opt --platform=%platform% --split-input-file --set-target-independent-options="allow-custom-values=true" %s | FileCheck --check-prefix=CHECK-CUSTOM %s --strict-whitespace
-// REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010
+// REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010 || platform-NPU6010
 
 module @mainModule attributes {} {
 }

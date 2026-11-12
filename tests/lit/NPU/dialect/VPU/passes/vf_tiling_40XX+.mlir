@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="platform=%platform% compilation-mode=DefaultHW" --vertical-fusion-tiling %s | FileCheck %s
-// REQUIRES: platform-NPU4000 || platform-NPU5010
+// REQUIRES: platform-NPU4000 || platform-NPU5010 || platform-NPU6010
 
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
@@ -822,7 +822,7 @@ func.func @VFTilingWithSDPAMatmul(%arg0: tensor<1x32x1x96xf16>, %arg1: tensor<32
       %3 = VPU.PermuteCast(%output) {dst_order = #NCDHW, mem_perm = #map1} : tensor<32x1x1152x1x1xf16, {order = #GNHWC}> -> tensor<32x1x1152x1x1xf16>
       %4 = VPU.AffineReshape(%3) {dim_mapping = [[0, 1], [2], [3], [3], [3]], shape_value = [1, 32, 1, 1152]} : tensor<32x1x1152x1x1xf16> -> tensor<1x32x1x1152xf16>
       %5 = VPU.PermuteCast(%4) {dst_order = #NHWC, mem_perm = #NCHW} : tensor<1x32x1x1152xf16> -> tensor<1x1152x32x1xf16, {order = #NHWC}>
-      %output_0 = VPU.NCE.Eltwise(%5, %arg10) {mpe_engine = #VPU.MPEEngine37XX<mode = <SCL>>, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, op_type = #VPU.eltwise_type<ADD>, ppe = #VPU.PPEFp<mode = <NOOP>, clamp_low = -3.4028234663852886E+38 : f64, clamp_high = 3.4028234663852886E+38 : f64, scale = 1.000000e+00 : f64, prelu_alpha = [1.000000e+00], bias = 0.000000e+00 : f64, adder = 0.000000e+00 : f64>, resultSegmentSizes = array<i32: 1, 0, 0, 0>} -> tensor<1x1152x32x1xf16, {order = #NHWC}>
+      %output_0 = VPU.NCE.Eltwise(%5, %arg10) {mpe_engine = #VPU.MPEEngine60XX<mode = <SCL>>, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, op_type = #VPU.eltwise_type<ADD>, ppe = #VPU.PPEFp<mode = <NOOP>, clamp_low = -3.4028234663852886E+38 : f64, clamp_high = 3.4028234663852886E+38 : f64, scale = 1.000000e+00 : f64, prelu_alpha = [1.000000e+00], bias = 0.000000e+00 : f64, adder = 0.000000e+00 : f64>, resultSegmentSizes = array<i32: 1, 0, 0, 0>} -> tensor<1x1152x32x1xf16, {order = #NHWC}>
       %6 = VPU.SoftMax(%output_0) {axisInd = 1 : i64, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>} : tensor<1x1152x32x1xf16, {order = #NHWC}> -> tensor<1x1152x32x1xf16, {order = #NHWC}>
       %7 = VPU.PermuteCast(%6) {dst_order = #NCHW, mem_perm = #NCHW} : tensor<1x1152x32x1xf16, {order = #NHWC}> -> tensor<1x32x1x1152xf16>
       %8 = VPU.AffineReshape(%7) {dim_mapping = [[0], [0], [1], [2, 3, 4]], shape_value = [32, 1, 1152, 1, 1]} : tensor<1x32x1x1152xf16> -> tensor<32x1x1152x1x1xf16>

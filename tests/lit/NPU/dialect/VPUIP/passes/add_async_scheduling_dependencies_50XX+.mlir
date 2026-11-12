@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="platform=%platform%" --add-async-scheduling-dependencies %s | FileCheck %s
-// REQUIRES: platform-NPU5010 || platform-NPU5020
+// REQUIRES: platform-NPU5010 || platform-NPU5020 || platform-NPU6010
 
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 

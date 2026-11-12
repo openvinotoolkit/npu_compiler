@@ -39,6 +39,8 @@ std::string getMoviLDArchPath(config::ArchKind arch) {
         return "40xxxx";
     case config::ArchKind::NPU50XX:
         return "50xxxx";
+    case config::ArchKind::NPU60XX:
+        return "60xxxx";
     default:
         VPUX_THROW("Invalid ArchKind for Movi LLD path resolution");
     }

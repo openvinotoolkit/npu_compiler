@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // RUN: vpux-opt --split-input-file --init-compiler="platform=%platform%" --run-batch-op-processing-rewriters="rewriter=eliminate-reshape-roundtrip-in-sdpa-set" %s | FileCheck %s
-// REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010
+// REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010 || platform-NPU6010
 
 // No Add on the SoftMax path, just Concat -> Reshape -> SoftMax -> Reshape -> Slice.
 

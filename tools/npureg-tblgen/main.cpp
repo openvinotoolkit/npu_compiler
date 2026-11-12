@@ -40,12 +40,14 @@ static llvm::cl::opt<vpux::config::ArchKind> Platform(
         llvm::cl::values(clEnumValN(vpux::config::ArchKind::NPU40XX, "NPU40XX", "LNL platform"),
                          clEnumValN(vpux::config::ArchKind::NPU50XX, "NPU50XX", "PTL platform")
                          // clang-format off
+        , clEnumValN(vpux::config::ArchKind::NPU60XX, "NPU60XX", "NVL platform")
         ), llvm::cl::init(vpux::config::ArchKind::NPU40XX));
 // clang-format on
 
 static std::map<std::string, std::string> platformTypeMap{
         {"NPU40XX", "NPUReg40XX"},
         {"NPU50XX", "NPUReg50XX"},
+        {"NPU60XX", "NPUReg60XX"},
 };
 
 template <class... Args>

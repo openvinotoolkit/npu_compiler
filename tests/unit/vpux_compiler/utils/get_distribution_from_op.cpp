@@ -888,6 +888,451 @@ TEST_F(MLIR_GetDistributedTypeFromDepthwiseOpTest, MaxPoolOpWithODUPermuteToNCXX
         testDType(&ctx, clusteredOp, expectedDistribution, numClusters, false);  // test output distributed type
     });
 }
+using MLIR_GetDistributedTypeFromOpTest = vpux::VPU::arch60xx::UnitTest;
+
+TEST_F(MLIR_GetDistributedTypeFromOpTest, SegmentedOverlappedSOKSOHDuringTiling) {
+    constexpr llvm::StringLiteral inputIR = R"(
+        module @test {
+            config.Resources 4 of @NCE at 6.000000e+02 MHz
+            config.PipelineOptions @Options {
+                config.Option @config.EnableODULocalRegion : true
+            }
+            func.func @main(%arg0: tensor<1x32x16x16xf16>) -> tensor<1x16x16x16xf16> {
+                %cst = const.Declare tensor<16x1x1x4xsi32> = dense<1> : tensor<16x1x1x4xsi32>
+                %cst_0 = const.Declare tensor<128x1x1x4xsi32> = dense<1> : tensor<128x1x1x4xsi32>
+                %cst_1 = const.Declare tensor<16x128x1x1xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}> = dense<1.000000e+00> : tensor<16x128x1x1xf16>, [#const.Reorder<affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>>]
+                %cst_2 = const.Declare tensor<128x32x1x1xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}> = dense<1.000000e+00> : tensor<128x32x1x1xf16>, [#const.Reorder<affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>>]
+                %0 = VPU.NCE.Permute(%arg0) {dstElemType = f16, dstOrder = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>, expandedChannels = 32 : i64, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeightOverlapped>, ppe = #VPU.PPEFp<mode = <NOOP>, clamp_low = -3.4028234663852886E+38 : f64, clamp_high = 3.4028234663852886E+38 : f64, scale = 5.000000e-01 : f64, prelu_alpha = [1.000000e+00], bias = 0.000000e+00 : f64, adder = 0.000000e+00 : f64>} -> tensor<1x32x16x16xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}>
+                %1 = VPU.NCE.Convolution(%0, %cst_2, %cst_0) rawFilterShape [128, 32, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEFp<mode = <NOOP>, clamp_low = -3.4028234663852886E+38 : f64, clamp_high = 3.4028234663852886E+38 : f64, scale = 1.000000e+00 : f64, prelu_alpha = [1.000000e+00], bias = 0.000000e+00 : f64, adder = 0.000000e+00 : f64>,  strides = [1, 1]} : tensor<1x32x16x16xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}>, tensor<128x32x1x1xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}>, tensor<128x1x1x4xsi32> -> tensor<1x128x16x16xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}>
+                %2 = VPU.NCE.Convolution(%1, %cst_1, %cst) rawFilterShape [16, 128, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEFp<mode = <NOOP>, clamp_low = -3.4028234663852886E+38 : f64, clamp_high = 3.4028234663852886E+38 : f64, scale = 1.000000e+00 : f64, prelu_alpha = [1.000000e+00], bias = 0.000000e+00 : f64, adder = 0.000000e+00 : f64>,  strides = [1, 1]} : tensor<1x128x16x16xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}>, tensor<16x128x1x1xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}>, tensor<16x1x1x4xsi32> -> tensor<1x16x16x16xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}>
+                %3 = VPU.PermuteCast(%2) {dst_order = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>, mem_perm = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>} : tensor<1x16x16x16xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}> -> tensor<1x16x16x16xf16>
+                return %3 : tensor<1x16x16x16xf16>
+            }
+        }
+    )";
+
+    auto module = mlir::parseSourceString<mlir::ModuleOp>(inputIR, &ctx);
+    ASSERT_TRUE(module.get() != nullptr);
+
+    vpux::config::setParamInModule(module.get(), config::Platform::NPU6010, 4, std::nullopt, std::nullopt, true);
+
+    auto func = module.get().lookupSymbol<mlir::func::FuncOp>("main");
+    ASSERT_TRUE(func != nullptr);
+
+    const auto numTiles = getIntArrayAttr(&ctx, SmallVector<int64_t>({1, 4, 1, 1}));
+    const auto memNumTiles = getIntArrayAttr(&ctx, SmallVector<int64_t>({1, 1, 4, 1}));
+    const auto numClusters = getIntAttr(&ctx, 4);
+
+    const auto outTile =
+            vpux::TileInfo(vpux::ShapeRef(/*shape=*/{1, 128, 8, 16}), /*offsets=*/vpux::ShapeRef({0, 0, 0, 0}),
+                           /*axis=*/vpux::ShapeRef({1, 1, 4, 1}), /*isCompletedTile=*/true);
+
+    const SmallVector<SmallVector<int64_t>> expectedComputeShapes = {{1, 32, 16, 16},
+                                                                     {1, 32, 16, 16},
+                                                                     {1, 32, 16, 16},
+                                                                     {1, 32, 16, 16}};
+    const SmallVector<SmallVector<int64_t>> expectedComputeOffsets = {{0, 0, 0, 0},
+                                                                      {0, 32, 0, 0},
+                                                                      {0, 64, 0, 0},
+                                                                      {0, 96, 0, 0}};
+    const SmallVector<SmallVector<int64_t>> expectedMemoryShapes = {{1, 128, 4, 16},
+                                                                    {1, 128, 4, 16},
+                                                                    {1, 128, 4, 16},
+                                                                    {1, 128, 4, 16}};
+    const SmallVector<SmallVector<int64_t>> expectedMemoryOffsets = {{0, 0, 0, 0},
+                                                                     {0, 0, 4, 0},
+                                                                     {0, 0, 8, 0},
+                                                                     {0, 0, 12, 0}};
+    auto expectedComputeShapesAttr = getIntArrayOfArray(&ctx, expectedComputeShapes);
+    auto expectedComputeOffsetsAttr = getIntArrayOfArray(&ctx, expectedComputeOffsets);
+    auto expectedMemoryShapesAttr = getIntArrayOfArray(&ctx, expectedMemoryShapes);
+    auto expectedMemoryOffsetsAttr = getIntArrayOfArray(&ctx, expectedMemoryOffsets);
+    auto expectedAlignment = getIntArrayAttr(&ctx, SmallVector<int64_t>({1, 16, 1, 1}));
+    const auto overlapDistributionMode =
+            VPU::DistributionModeAttr::get(&ctx, VPU::DistributionMode::SEGMENTED | VPU::DistributionMode::OVERLAPPED);
+    auto expectedDistribution = VPU::DistributionInfoAttr::get(
+            &ctx, overlapDistributionMode, numTiles, nullptr, nullptr, nullptr, numClusters, expectedAlignment,
+            mlir::UnitAttr::get(&ctx), expectedComputeShapesAttr, expectedComputeOffsetsAttr, expectedMemoryShapesAttr,
+            expectedMemoryOffsetsAttr, nullptr, memNumTiles);
+
+    const SmallVector<SmallVector<int64_t>> expectedTiledComputeShapes = {{1, 32, 8, 16},
+                                                                          {1, 32, 8, 16},
+                                                                          {1, 32, 8, 16},
+                                                                          {1, 32, 8, 16}};
+    const SmallVector<SmallVector<int64_t>> expectedTiledComputeOffsets = {{0, 0, 0, 0},
+                                                                           {0, 32, 0, 0},
+                                                                           {0, 64, 0, 0},
+                                                                           {0, 96, 0, 0}};
+    const SmallVector<SmallVector<int64_t>> expectedTiledMemoryShapes = {{1, 128, 2, 16},
+                                                                         {1, 128, 2, 16},
+                                                                         {1, 128, 2, 16},
+                                                                         {1, 128, 2, 16}};
+    const SmallVector<SmallVector<int64_t>> expectedTiledMemoryOffsets = {{0, 0, 0, 0},
+                                                                          {0, 0, 2, 0},
+                                                                          {0, 0, 4, 0},
+                                                                          {0, 0, 6, 0}};
+    auto expectedTiledComputeShapesAttr = getIntArrayOfArray(&ctx, expectedTiledComputeShapes);
+    auto expectedTiledComputeOffsetsAttr = getIntArrayOfArray(&ctx, expectedTiledComputeOffsets);
+    auto expectedTiledMemoryShapesAttr = getIntArrayOfArray(&ctx, expectedTiledMemoryShapes);
+    auto expectedTiledMemoryOffsetsAttr = getIntArrayOfArray(&ctx, expectedTiledMemoryOffsets);
+    auto expectedTiledDistribution = VPU::DistributionInfoAttr::get(
+            &ctx, overlapDistributionMode, numTiles, nullptr, nullptr, nullptr, numClusters, expectedAlignment,
+            mlir::UnitAttr::get(&ctx), expectedTiledComputeShapesAttr, expectedTiledComputeOffsetsAttr,
+            expectedTiledMemoryShapesAttr, expectedTiledMemoryOffsetsAttr, nullptr, memNumTiles);
+
+    func.walk([&](VPU::NCEConvolutionOp op) {
+        auto clusteredOp = mlir::cast<VPU::ClusteredOpInterface>(op.getOperation());
+
+        testDType(&ctx, clusteredOp, expectedDistribution, numClusters, false);  // test activation distributed type
+
+        auto inputType = mlir::cast<vpux::NDTypeInterface>(clusteredOp->getOperand(0).getType());
+        auto outputType = mlir::cast<vpux::NDTypeInterface>(clusteredOp->getResult(0).getType());
+
+        auto tileOp = mlir::cast<VPU::TilingBuilderOpInterface>(op.getOperation());
+        const auto outputTileType = outputType.extractDenseTile(outTile.offsets, outTile.shape);
+        const auto inputTileInfo = tileOp.backInferTileInfo(outTile, Logger::global());
+        const auto inputTileType =
+                inputType.extractDenseTile(inputTileInfo.tiles[0].offsets, inputTileInfo.tiles[0].shape);
+
+        testDType(&ctx, clusteredOp, expectedTiledDistribution, numClusters, false, inputTileType,
+                  outputTileType);  // test tiled activation distributed type
+        return mlir::WalkResult::interrupt();
+    });
+}
+
+TEST_F(MLIR_GetDistributedTypeFromOpTest, SegmentedOverlappedWithVerticalFusionDuringTiling) {
+    constexpr llvm::StringLiteral inputIR = R"(
+        module @test {
+            config.Resources 4 of @NCE at 6.000000e+02 MHz
+            config.PipelineOptions @Options {
+                config.Option @config.EnableODULocalRegion : true
+            }
+            func.func @main(%arg0: tensor<1x32x16x16xf16>) -> tensor<1x16x16x16xf16> {
+                %cst = const.Declare tensor<16x1x1x4xsi32> = dense<1> : tensor<16x1x1x4xsi32>
+                %cst_0 = const.Declare tensor<128x1x1x4xsi32> = dense<1> : tensor<128x1x1x4xsi32>
+                %cst_1 = const.Declare tensor<16x128x1x1xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}> = dense<1.000000e+00> : tensor<16x128x1x1xf16>, [#const.Reorder<affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>>]
+                %cst_2 = const.Declare tensor<128x32x1x1xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}> = dense<1.000000e+00> : tensor<128x32x1x1xf16>, [#const.Reorder<affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>>]
+
+                %0 = VPU.VerticalFusion (%arg0 as %arg1: tensor<1x32x16x16xf16>,
+                                         %cst_2 as %arg2: tensor<128x32x1x1xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}>,
+                                         %cst_0 as %arg3: tensor<128x1x1x4xsi32>)
+                    attributes {tilingStrategy = [1, 1, 2, 1]}
+                    -> tensor<1x128x16x16xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}> {
+                    %4 = VPU.NCE.Permute(%arg1) {
+                        dstElemType = f16,
+                        dstOrder = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>,
+                        expandedChannels = 32 : i64,
+                        multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeightOverlapped>,
+                        ppe = #VPU.PPEFp<mode = <NOOP>, clamp_low = -3.4028234663852886E+38 : f64, clamp_high = 3.4028234663852886E+38 : f64, scale = 5.000000e-01 : f64, prelu_alpha = [1.000000e+00], bias = 0.000000e+00 : f64, adder = 0.000000e+00 : f64>
+                    } -> tensor<1x32x16x16xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}>
+                    %5 = VPU.NCE.Convolution(%4, %arg2, %arg3) rawFilterShape [128, 32, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
+                        multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>,
+                        pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
+                        ppe = #VPU.PPEFp<mode = <NOOP>, clamp_low = -3.4028234663852886E+38 : f64, clamp_high = 3.4028234663852886E+38 : f64, scale = 1.000000e+00 : f64, prelu_alpha = [1.000000e+00], bias = 0.000000e+00 : f64, adder = 0.000000e+00 : f64>,
+
+                        strides = [1, 1]
+                    } : tensor<1x32x16x16xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}>, tensor<128x32x1x1xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}>, tensor<128x1x1x4xsi32> -> tensor<1x128x16x16xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}>
+                    VPU.Yield %5
+                }
+
+                %1 = VPU.VerticalFusion (%0 as %arg4: tensor<1x128x16x16xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}>,
+                                         %cst_1 as %arg5: tensor<16x128x1x1xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}>,
+                                         %cst as %arg6: tensor<16x1x1x4xsi32>)
+                    attributes {tilingStrategy = [1, 1, 2, 1]}
+                    -> tensor<1x16x16x16xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}> {
+                    %6 = VPU.NCE.Convolution(%arg4, %arg5, %arg6) rawFilterShape [16, 128, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
+                        multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
+                        pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
+                        ppe = #VPU.PPEFp<mode = <NOOP>, clamp_low = -3.4028234663852886E+38 : f64, clamp_high = 3.4028234663852886E+38 : f64, scale = 1.000000e+00 : f64, prelu_alpha = [1.000000e+00], bias = 0.000000e+00 : f64, adder = 0.000000e+00 : f64>,
+
+                        strides = [1, 1]
+                    } : tensor<1x128x16x16xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}>, tensor<16x128x1x1xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}>, tensor<16x1x1x4xsi32> -> tensor<1x16x16x16xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}>
+                    VPU.Yield %6
+                }
+
+                %2 = VPU.PermuteCast(%1) {dst_order = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>, mem_perm = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>} : tensor<1x16x16x16xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}> -> tensor<1x16x16x16xf16>
+                return %2 : tensor<1x16x16x16xf16>
+            }
+        }
+    )";
+
+    auto module = mlir::parseSourceString<mlir::ModuleOp>(inputIR, &ctx);
+    ASSERT_TRUE(module.get() != nullptr);
+
+    vpux::config::setParamInModule(module.get(), config::Platform::NPU6010, 2, std::nullopt, std::nullopt, true);
+
+    auto func = module.get().lookupSymbol<mlir::func::FuncOp>("main");
+    ASSERT_TRUE(func != nullptr);
+
+    const auto numTiles = getIntArrayAttr(&ctx, SmallVector<int64_t>({1, 4, 1, 1}));
+    const auto memNumTiles = getIntArrayAttr(&ctx, SmallVector<int64_t>({1, 1, 4, 1}));
+    const auto numClusters = getIntAttr(&ctx, 4);
+
+    const auto outTile =
+            vpux::TileInfo(vpux::ShapeRef(/*shape=*/{1, 128, 8, 16}), /*offsets=*/vpux::ShapeRef({0, 0, 0, 0}),
+                           /*axis=*/vpux::ShapeRef({1, 1, 4, 1}), /*isCompletedTile=*/true);
+
+    const SmallVector<SmallVector<int64_t>> expectedComputeShapes = {{1, 32, 16, 16},
+                                                                     {1, 32, 16, 16},
+                                                                     {1, 32, 16, 16},
+                                                                     {1, 32, 16, 16}};
+    const SmallVector<SmallVector<int64_t>> expectedComputeOffsets = {{0, 0, 0, 0},
+                                                                      {0, 32, 0, 0},
+                                                                      {0, 64, 0, 0},
+                                                                      {0, 96, 0, 0}};
+    const SmallVector<SmallVector<int64_t>> expectedMemoryShapes = {{1, 128, 4, 16},
+                                                                    {1, 128, 4, 16},
+                                                                    {1, 128, 4, 16},
+                                                                    {1, 128, 4, 16}};
+    const SmallVector<SmallVector<int64_t>> expectedMemoryOffsets = {{0, 0, 0, 0},
+                                                                     {0, 0, 4, 0},
+                                                                     {0, 0, 8, 0},
+                                                                     {0, 0, 12, 0}};
+    auto expectedComputeShapesAttr = getIntArrayOfArray(&ctx, expectedComputeShapes);
+    auto expectedComputeOffsetsAttr = getIntArrayOfArray(&ctx, expectedComputeOffsets);
+    auto expectedMemoryShapesAttr = getIntArrayOfArray(&ctx, expectedMemoryShapes);
+    auto expectedMemoryOffsetsAttr = getIntArrayOfArray(&ctx, expectedMemoryOffsets);
+    auto expectedAlignment = getIntArrayAttr(&ctx, SmallVector<int64_t>({1, 16, 1, 1}));
+    const auto overlapDistributionMode =
+            VPU::DistributionModeAttr::get(&ctx, VPU::DistributionMode::SEGMENTED | VPU::DistributionMode::OVERLAPPED);
+    auto expectedDistribution = VPU::DistributionInfoAttr::get(
+            &ctx, overlapDistributionMode, numTiles, nullptr, nullptr, nullptr, numClusters, expectedAlignment,
+            mlir::UnitAttr::get(&ctx), expectedComputeShapesAttr, expectedComputeOffsetsAttr, expectedMemoryShapesAttr,
+            expectedMemoryOffsetsAttr, nullptr, memNumTiles);
+
+    const SmallVector<SmallVector<int64_t>> expectedTiledComputeShapes = {{1, 32, 8, 16},
+                                                                          {1, 32, 8, 16},
+                                                                          {1, 32, 8, 16},
+                                                                          {1, 32, 8, 16}};
+    const SmallVector<SmallVector<int64_t>> expectedTiledComputeOffsets = {{0, 0, 0, 0},
+                                                                           {0, 32, 0, 0},
+                                                                           {0, 64, 0, 0},
+                                                                           {0, 96, 0, 0}};
+    const SmallVector<SmallVector<int64_t>> expectedTiledMemoryShapes = {{1, 128, 2, 16},
+                                                                         {1, 128, 2, 16},
+                                                                         {1, 128, 2, 16},
+                                                                         {1, 128, 2, 16}};
+    const SmallVector<SmallVector<int64_t>> expectedTiledMemoryOffsets = {{0, 0, 0, 0},
+                                                                          {0, 0, 2, 0},
+                                                                          {0, 0, 4, 0},
+                                                                          {0, 0, 6, 0}};
+    auto expectedTiledComputeShapesAttr = getIntArrayOfArray(&ctx, expectedTiledComputeShapes);
+    auto expectedTiledComputeOffsetsAttr = getIntArrayOfArray(&ctx, expectedTiledComputeOffsets);
+    auto expectedTiledMemoryShapesAttr = getIntArrayOfArray(&ctx, expectedTiledMemoryShapes);
+    auto expectedTiledMemoryOffsetsAttr = getIntArrayOfArray(&ctx, expectedTiledMemoryOffsets);
+    auto expectedTiledDistribution = VPU::DistributionInfoAttr::get(
+            &ctx, overlapDistributionMode, numTiles, nullptr, nullptr, nullptr, numClusters, expectedAlignment,
+            mlir::UnitAttr::get(&ctx), expectedTiledComputeShapesAttr, expectedTiledComputeOffsetsAttr,
+            expectedTiledMemoryShapesAttr, expectedTiledMemoryOffsetsAttr, nullptr, memNumTiles);
+
+    func.walk([&](VPU::NCEConvolutionOp op) {
+        auto clusteredOp = mlir::cast<VPU::ClusteredOpInterface>(op.getOperation());
+
+        testDType(&ctx, clusteredOp, expectedDistribution, numClusters, false);  // test output distributed type
+
+        auto inputType = mlir::cast<vpux::NDTypeInterface>(clusteredOp->getOperand(0).getType());
+        auto outputType = mlir::cast<vpux::NDTypeInterface>(clusteredOp->getResult(0).getType());
+
+        auto tileOp = mlir::cast<VPU::TilingBuilderOpInterface>(op.getOperation());
+        const auto outputTileType = outputType.extractDenseTile(outTile.offsets, outTile.shape);
+        const auto inputTileInfo = tileOp.backInferTileInfo(outTile, Logger::global());
+        const auto inputTileType =
+                inputType.extractDenseTile(inputTileInfo.tiles[0].offsets, inputTileInfo.tiles[0].shape);
+
+        testDType(&ctx, clusteredOp, expectedTiledDistribution, numClusters, false, inputTileType,
+                  outputTileType);  // test tiled output distributed type
+        return mlir::WalkResult::interrupt();
+    });
+}
+
+TEST_F(MLIR_GetDistributedTypeFromOpTest, SegmentedOverlappedSOKNonSOHDuringTiling) {
+    constexpr llvm::StringLiteral inputIR = R"(
+        module @test {
+            config.Resources 4 of @NCE at 6.000000e+02 MHz
+            config.PipelineOptions @Options {
+                config.Option @config.EnableODULocalRegion : true
+            }
+            func.func @main(%arg0: tensor<1x32x16x16xf16>) -> tensor<1x16x16x16xf16> {
+                %cst = const.Declare tensor<16x1x1x4xsi32> = dense<1> : tensor<16x1x1x4xsi32>
+                %cst_0 = const.Declare tensor<128x1x1x4xsi32> = dense<1> : tensor<128x1x1x4xsi32>
+                %cst_1 = const.Declare tensor<16x128x1x1xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}> = dense<1.000000e+00> : tensor<16x128x1x1xf16>, [#const.Reorder<affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>>]
+                %cst_2 = const.Declare tensor<128x32x1x1xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}> = dense<1.000000e+00> : tensor<128x32x1x1xf16>, [#const.Reorder<affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>>]
+                %0 = VPU.NCE.Permute(%arg0) {dstElemType = f16, dstOrder = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>, expandedChannels = 32 : i64, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeightOverlapped>, ppe = #VPU.PPEFp<mode = <NOOP>, clamp_low = -3.4028234663852886E+38 : f64, clamp_high = 3.4028234663852886E+38 : f64, scale = 5.000000e-01 : f64, prelu_alpha = [1.000000e+00], bias = 0.000000e+00 : f64, adder = 0.000000e+00 : f64>} -> tensor<1x32x16x16xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}>
+                %1 = VPU.NCE.Convolution(%0, %cst_2, %cst_0) rawFilterShape [128, 32, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEFp<mode = <NOOP>, clamp_low = -3.4028234663852886E+38 : f64, clamp_high = 3.4028234663852886E+38 : f64, scale = 1.000000e+00 : f64, prelu_alpha = [1.000000e+00], bias = 0.000000e+00 : f64, adder = 0.000000e+00 : f64>,  strides = [1, 1]} : tensor<1x32x16x16xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}>, tensor<128x32x1x1xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}>, tensor<128x1x1x4xsi32> -> tensor<1x128x16x16xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}>
+                %2 = VPU.NCE.Convolution(%1, %cst_1, %cst) rawFilterShape [16, 128, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEFp<mode = <NOOP>, clamp_low = -3.4028234663852886E+38 : f64, clamp_high = 3.4028234663852886E+38 : f64, scale = 1.000000e+00 : f64, prelu_alpha = [1.000000e+00], bias = 0.000000e+00 : f64, adder = 0.000000e+00 : f64>,  strides = [1, 1]} : tensor<1x128x16x16xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}>, tensor<16x128x1x1xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}>, tensor<16x1x1x4xsi32> -> tensor<1x16x16x16xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}>
+                %3 = VPU.PermuteCast(%2) {dst_order = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>, mem_perm = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>} : tensor<1x16x16x16xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}> -> tensor<1x16x16x16xf16>
+                return %3 : tensor<1x16x16x16xf16>
+            }
+        }
+    )";
+
+    auto module = mlir::parseSourceString<mlir::ModuleOp>(inputIR, &ctx);
+    ASSERT_TRUE(module.get() != nullptr);
+
+    auto func = module.get().lookupSymbol<mlir::func::FuncOp>("main");
+    ASSERT_TRUE(func != nullptr);
+
+    const auto numTiles = getIntArrayAttr(&ctx, SmallVector<int64_t>({1, 4, 1, 1}));
+    const auto numClusters = getIntAttr(&ctx, 4);
+
+    const auto outTile =
+            vpux::TileInfo(vpux::ShapeRef(/*shape=*/{1, 128, 8, 16}), /*offsets=*/vpux::ShapeRef({0, 0, 0, 0}),
+                           /*axis=*/vpux::ShapeRef({1, 1, 4, 1}), /*isCompletedTile=*/true);
+
+    auto expectedAlignment = getIntArrayAttr(&ctx, SmallVector<int64_t>({1, 16, 1, 1}));
+    const auto overlapDistributionMode =
+            VPU::DistributionModeAttr::get(&ctx, VPU::DistributionMode::SEGMENTED | VPU::DistributionMode::DUPLICATED);
+    auto expectedDistribution = VPU::DistributionInfoAttr::get(
+            &ctx, overlapDistributionMode, numTiles, nullptr, nullptr, nullptr, numClusters, expectedAlignment,
+            mlir::UnitAttr::get(&ctx), nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);
+
+    auto expectedTiledDistribution = VPU::DistributionInfoAttr::get(
+            &ctx, overlapDistributionMode, numTiles, nullptr, nullptr, nullptr, numClusters, expectedAlignment,
+            mlir::UnitAttr::get(&ctx), nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);
+
+    func.walk([&](VPU::NCEConvolutionOp op) {
+        auto clusteredOp = mlir::cast<VPU::ClusteredOpInterface>(op.getOperation());
+
+        testDType(&ctx, clusteredOp, expectedDistribution, numClusters, false);  // test activation distributed type
+
+        auto inputType = mlir::cast<vpux::NDTypeInterface>(clusteredOp->getOperand(0).getType());
+        auto outputType = mlir::cast<vpux::NDTypeInterface>(clusteredOp->getResult(0).getType());
+
+        auto tileOp = mlir::cast<VPU::TilingBuilderOpInterface>(op.getOperation());
+        const auto outputTileType = outputType.extractDenseTile(outTile.offsets, outTile.shape);
+        const auto inputTileInfo = tileOp.backInferTileInfo(outTile, Logger::global());
+        const auto inputTileType =
+                inputType.extractDenseTile(inputTileInfo.tiles[0].offsets, inputTileInfo.tiles[0].shape);
+
+        testDType(&ctx, clusteredOp, expectedTiledDistribution, numClusters, false, inputTileType,
+                  outputTileType);  // test tiled activation distributed type
+        return mlir::WalkResult::interrupt();
+    });
+}
+
+// Test that SEGMENTED|OVERLAPPED mode is NOT used when address offset exceeds hardware limit
+// The ac_adr_offset field in ODU halo region registers is a 22-bit SINT (range: [-2,097,152, 2,097,151] bytes)
+// When tensor size is large enough that (totalSize - lastClusterSize) > 2MB, SEGMENTED|DUPLICATED should be used
+// instead of SEGMENTED|OVERLAPPED to avoid hardware register overflow
+TEST_F(MLIR_GetDistributedTypeFromOpTest, LargeTensorFallbackToSegmentedDuplicated) {
+    // Use a large tensor shape that would cause address offset to exceed 2MB limit
+    // Shape: 1x128x4096x128 with f16 (2 bytes per element)
+    // totalSizeBytes = 128 * 4096 * 128 * 2 = 134,217,728 bytes
+    // With 4 clusters, hLastCluster = 4096 / 4 = 1024
+    // lastClusterSize = (128 * 128 * 2) * 1024 = 33,554,432 bytes
+    // maxOffsetBytes = -(134,217,728 - 33,554,432) = -100,663,296 bytes
+    // This far exceeds the -2,097,152 byte limit, so SEGMENTED|OVERLAPPED should NOT be used
+    constexpr llvm::StringLiteral inputIR = R"(
+        module @test {
+            config.Resources 4 of @NCE at 6.000000e+02 MHz
+            config.PipelineOptions @Options {
+                config.Option @config.EnableODULocalRegion : true
+            }
+            func.func @main(%arg0: tensor<1x32x4096x128xf16>) -> tensor<1x16x4096x128xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}> {
+                %cst = const.Declare tensor<16x1x1x4xsi32> = dense<1> : tensor<16x1x1x4xsi32>
+                %cst_0 = const.Declare tensor<128x1x1x4xsi32> = dense<1> : tensor<128x1x1x4xsi32>
+                %cst_1 = const.Declare tensor<16x128x1x1xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}> = dense<1.000000e+00> : tensor<16x128x1x1xf16>, [#const.Reorder<affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>>]
+                %cst_2 = const.Declare tensor<128x32x1x1xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}> = dense<1.000000e+00> : tensor<128x32x1x1xf16>, [#const.Reorder<affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>>]
+                %0 = VPU.NCE.Permute(%arg0) {dstElemType = f16, dstOrder = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>, expandedChannels = 32 : i64, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeightOverlapped>, ppe = #VPU.PPEFp<mode = <NOOP>, clamp_low = -3.4028234663852886E+38 : f64, clamp_high = 3.4028234663852886E+38 : f64, scale = 5.000000e-01 : f64, prelu_alpha = [1.000000e+00], bias = 0.000000e+00 : f64, adder = 0.000000e+00 : f64>} -> tensor<1x32x4096x128xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}>
+                %1 = VPU.NCE.Convolution(%0, %cst_2, %cst_0) rawFilterShape [128, 32, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEFp<mode = <NOOP>, clamp_low = -3.4028234663852886E+38 : f64, clamp_high = 3.4028234663852886E+38 : f64, scale = 1.000000e+00 : f64, prelu_alpha = [1.000000e+00], bias = 0.000000e+00 : f64, adder = 0.000000e+00 : f64>,  strides = [1, 1]} : tensor<1x32x4096x128xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}>, tensor<128x32x1x1xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}>, tensor<128x1x1x4xsi32> -> tensor<1x128x4096x128xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}>
+                %2 = VPU.NCE.Convolution(%1, %cst_1, %cst) rawFilterShape [16, 128, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEFp<mode = <NOOP>, clamp_low = -3.4028234663852886E+38 : f64, clamp_high = 3.4028234663852886E+38 : f64, scale = 1.000000e+00 : f64, prelu_alpha = [1.000000e+00], bias = 0.000000e+00 : f64, adder = 0.000000e+00 : f64>,  strides = [1, 1]} : tensor<1x128x4096x128xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}>, tensor<16x128x1x1xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}>, tensor<16x1x1x4xsi32> -> tensor<1x16x4096x128xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}>
+                return %2 : tensor<1x16x4096x128xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}>
+            }
+        }
+    )";
+
+    auto module = mlir::parseSourceString<mlir::ModuleOp>(inputIR, &ctx);
+    ASSERT_TRUE(module.get() != nullptr);
+
+    vpux::config::setParamInModule(module.get(), config::Platform::NPU6010, 4, std::nullopt, std::nullopt, true);
+
+    auto func = module.get().lookupSymbol<mlir::func::FuncOp>("main");
+    ASSERT_TRUE(func != nullptr);
+
+    const auto numTiles = getIntArrayAttr(&ctx, SmallVector<int64_t>({1, 4, 1, 1}));
+    const auto numClusters = getIntAttr(&ctx, 4);
+
+    auto expectedAlignment = getIntArrayAttr(&ctx, SmallVector<int64_t>({1, 16, 1, 1}));
+    const auto segDupDistributionMode =
+            VPU::DistributionModeAttr::get(&ctx, VPU::DistributionMode::SEGMENTED | VPU::DistributionMode::DUPLICATED);
+    auto expectedDistribution = VPU::DistributionInfoAttr::get(
+            &ctx, segDupDistributionMode, numTiles, nullptr, nullptr, nullptr, numClusters, expectedAlignment,
+            mlir::UnitAttr::get(&ctx), nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);
+
+    func.walk([&](VPU::NCEConvolutionOp op) {
+        auto clusteredOp = mlir::cast<VPU::ClusteredOpInterface>(op.getOperation());
+
+        auto strategy = clusteredOp.getMultiClusterStrategy();
+        if (!strategy.has_value() || strategy.value() != VPU::MultiClusterStrategy::SplitOverKernel) {
+            return mlir::WalkResult::advance();
+        }
+
+        testDType(&ctx, clusteredOp, expectedDistribution, numClusters, false);  // test output distributed type
+        return mlir::WalkResult::interrupt();
+    });
+}
+
+TEST_F(MLIR_GetDistributedTypeFromOpTest, SmallTensorUsesSegmentedOverlapped) {
+    // Contrast test with smaller tensor that is within the hardware address offset limit
+    // Shape: 1x128x64x128 with f16 (2 bytes per element)
+    // totalSizeBytes = 128 * 64 * 128 * 2 = 2,097,152 bytes (2MB)
+    // With 4 clusters, hLastCluster = 64 / 4 = 16
+    // lastClusterSize = (128 * 128 * 2) * 16 = 524,288 bytes
+    // maxOffsetBytes = -(2,097,152 - 524,288) = -1,572,864 bytes
+    // This is within the -2,097,152 byte limit, so isAddressOffsetValid returns true
+    // Therefore, SEGMENTED|OVERLAPPED mode can be used
+    constexpr llvm::StringLiteral inputIR = R"(
+        module @test {
+            config.Resources 4 of @NCE at 6.000000e+02 MHz
+            config.PipelineOptions @Options {
+                config.Option @config.EnableODULocalRegion : true
+            }
+            func.func @main(%arg0: tensor<1x32x64x128xf16>) -> tensor<1x16x64x128xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}> {
+                %cst = const.Declare tensor<16x1x1x4xsi32> = dense<1> : tensor<16x1x1x4xsi32>
+                %cst_0 = const.Declare tensor<128x1x1x4xsi32> = dense<1> : tensor<128x1x1x4xsi32>
+                %cst_1 = const.Declare tensor<16x128x1x1xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}> = dense<1.000000e+00> : tensor<16x128x1x1xf16>, [#const.Reorder<affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>>]
+                %cst_2 = const.Declare tensor<128x32x1x1xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}> = dense<1.000000e+00> : tensor<128x32x1x1xf16>, [#const.Reorder<affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>>]
+                %0 = VPU.NCE.Permute(%arg0) {dstElemType = f16, dstOrder = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>, expandedChannels = 32 : i64, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeightOverlapped>, ppe = #VPU.PPEFp<mode = <NOOP>, clamp_low = -3.4028234663852886E+38 : f64, clamp_high = 3.4028234663852886E+38 : f64, scale = 5.000000e-01 : f64, prelu_alpha = [1.000000e+00], bias = 0.000000e+00 : f64, adder = 0.000000e+00 : f64>} -> tensor<1x32x64x128xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}>
+                %1 = VPU.NCE.Convolution(%0, %cst_2, %cst_0) rawFilterShape [128, 32, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEFp<mode = <NOOP>, clamp_low = -3.4028234663852886E+38 : f64, clamp_high = 3.4028234663852886E+38 : f64, scale = 1.000000e+00 : f64, prelu_alpha = [1.000000e+00], bias = 0.000000e+00 : f64, adder = 0.000000e+00 : f64>,  strides = [1, 1]} : tensor<1x32x64x128xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}>, tensor<128x32x1x1xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}>, tensor<128x1x1x4xsi32> -> tensor<1x128x64x128xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}>
+                %2 = VPU.NCE.Convolution(%1, %cst_1, %cst) rawFilterShape [16, 128, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEFp<mode = <NOOP>, clamp_low = -3.4028234663852886E+38 : f64, clamp_high = 3.4028234663852886E+38 : f64, scale = 1.000000e+00 : f64, prelu_alpha = [1.000000e+00], bias = 0.000000e+00 : f64, adder = 0.000000e+00 : f64>,  strides = [1, 1]} : tensor<1x128x64x128xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}>, tensor<16x128x1x1xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}>, tensor<16x1x1x4xsi32> -> tensor<1x16x64x128xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}>
+                return %2 : tensor<1x16x64x128xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}>
+            }
+        }
+    )";
+
+    auto module = mlir::parseSourceString<mlir::ModuleOp>(inputIR, &ctx);
+    ASSERT_TRUE(module.get() != nullptr);
+
+    vpux::config::setParamInModule(module.get(), config::Platform::NPU6010, 4, std::nullopt, std::nullopt, true);
+
+    auto func = module.get().lookupSymbol<mlir::func::FuncOp>("main");
+    ASSERT_TRUE(func != nullptr);
+
+    const auto numClusters = getIntAttr(&ctx, 4);
+
+    func.walk([&](VPU::NCEConvolutionOp op) {
+        auto clusteredOp = mlir::cast<VPU::ClusteredOpInterface>(op.getOperation());
+        // Only check the first convolution (SOK strategy with large output)
+        auto strategy = clusteredOp.getMultiClusterStrategy();
+        if (!strategy.has_value() || strategy.value() != VPU::MultiClusterStrategy::SplitOverKernel) {
+            return mlir::WalkResult::advance();
+        }
+
+        auto inputType = mlir::cast<vpux::NDTypeInterface>(clusteredOp->getOperand(0).getType());
+        auto outputType = mlir::cast<vpux::NDTypeInterface>(clusteredOp->getResult(0).getType());
+        auto distributedIf =
+                VPU::getDistributedOutputTypeFromOp(clusteredOp, outputType, numClusters.getInt(), {inputType});
+        auto distributedType =
+                mlir::cast<vpux::VPU::DistributedTensorType>(distributedIf.getDistributedTypes().front());
+        auto actualDistribution = distributedType.getDistribution();
+
+        // Verify the distribution mode is SEGMENTED|OVERLAPPED
+        EXPECT_EQ(actualDistribution.getMode().getValue(),
+                  VPU::DistributionMode::SEGMENTED | VPU::DistributionMode::OVERLAPPED);
+
+        return mlir::WalkResult::interrupt();
+    });
+}
 
 using MLIR_SegmentedInputCompatibleVFSiblingTest = vpux::VPU::arch37xx::UnitTest;
 
@@ -1304,3 +1749,438 @@ TEST_F(MLIR_GetDistributionTensorTilingTest, TensorAlignmentSplitOverKernelFor5D
 // =============================================================================
 // Tests for VPU::getDistributedOutputType (main output and reduce output)
 // =============================================================================
+
+using MLIR_GetDistributedOutputTypeTest = vpux::VPU::arch60xx::UnitTest;
+
+// Test: NCE.MaxPool with SplitOverHeight and a reduce output (axes_value=[1]).
+// Verifies getDistributedOutputType for both the main output and the reduce output.
+TEST_F(MLIR_GetDistributedOutputTypeTest, NCEMaxPoolDirectWithReduceOutput) {
+    constexpr llvm::StringLiteral inputIR = R"(
+        #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+        module @test {
+            config.Resources 2 of @NCE at 6.000000e+02 MHz
+            config.PipelineOptions @Options {
+                config.Option @config.EnableODULocalRegion : true
+            }
+            func.func @main(%arg0: tensor<1x32x16x16xf16, {order = #NHWC}>)
+                    -> (tensor<1x32x16x16xf16, {order = #NHWC}>,
+                        tensor<1x1x16x16xf16, {order = #NHWC}>) {
+                %out, %red = VPU.NCE.MaxPool(%arg0) {
+                    axes_value = [1],
+                    kernel_size = [1, 1],
+                    pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
+                    ppe = #VPU.PPEStub<>,
+                    strides = [1, 1],
+                    resultSegmentSizes = array<i32: 1, 1, 0, 0>,
+                    multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>
+                } -> tensor<1x32x16x16xf16, {order = #NHWC}>,
+                    tensor<1x1x16x16xf16, {order = #NHWC}>
+                return %out, %red
+                    : tensor<1x32x16x16xf16, {order = #NHWC}>,
+                      tensor<1x1x16x16xf16, {order = #NHWC}>
+            }
+        }
+    )";
+
+    // NCE ops may not satisfy all dialect invariants (e.g. CMX memory-space) in a unit test context.
+    mlir::ParserConfig parseConfig(&ctx, /*verifyAfterParse=*/false);
+    auto module = mlir::parseSourceString<mlir::ModuleOp>(inputIR, parseConfig);
+    ASSERT_TRUE(module.get() != nullptr);
+    vpux::config::setParamInModule(module.get(), config::Platform::NPU6010, 2, std::nullopt, std::nullopt, true);
+
+    VPU::NCEMaxPoolOp maxPoolOp;
+    module.get()->walk([&](VPU::NCEMaxPoolOp op) {
+        maxPoolOp = op;
+        return mlir::WalkResult::interrupt();
+    });
+    ASSERT_TRUE(maxPoolOp != nullptr);
+
+    mlir::Operation* op = maxPoolOp.getOperation();
+
+    // H=16 split over 2 clusters: each cluster owns 8 contiguous rows (no halo, no consumers).
+    const SmallVector<SmallVector<int64_t>> perClusterShapes = {{1, 32, 8, 16}, {1, 32, 8, 16}};
+    const SmallVector<SmallVector<int64_t>> perClusterOffsets = {{0, 0, 0, 0}, {0, 0, 8, 0}};
+    auto shapesAttr = getIntArrayOfArray(&ctx, perClusterShapes);
+    auto offsetsAttr = getIntArrayOfArray(&ctx, perClusterOffsets);
+
+    const auto numTiles = getIntArrayAttr(&ctx, SmallVector<int64_t>{1, 1, 2, 1});
+    const auto numClusters = getIntAttr(&ctx, 2);
+    // OVERLAPPED with explicit per-cluster shapes; kernel/pad/strides are null for explicit attrs.
+    auto expectedDistAttr = VPU::DistributionInfoAttr::get(
+            &ctx, VPU::DistributionModeAttr::get(&ctx, VPU::DistributionMode::OVERLAPPED), numTiles, /*kernel=*/nullptr,
+            /*pad=*/nullptr, /*strides=*/nullptr, numClusters,
+            /*alignment=*/nullptr, mlir::UnitAttr::get(&ctx), shapesAttr, offsetsAttr, shapesAttr, offsetsAttr,
+            /*equalMemAndComputeView=*/nullptr, /*memNumTiles=*/nullptr);
+
+    auto outputType = mlir::cast<vpux::NDTypeInterface>(op->getResult(0).getType());
+    auto order = mlir::AffineMapAttr::get(outputType.getDimsOrder().toAffineMap(&ctx));
+    const auto memSpace = IndexedSymbolAttr::get(&ctx, stringifyEnum(VPU::MemoryKind::CMX_NN));
+
+    // Main output: shape [1,32,16,16].
+    auto expectedMainType = VPU::DistributedTensorType::get(&ctx, outputType.getShape(), outputType.getElementType(),
+                                                            order, memSpace, expectedDistAttr);
+
+    // Reduce output: axes_value=[1] reduces C from 32 to 1, shape [1,1,16,16].
+    // Per-cluster C shapes collapse to 1; H offsets are unchanged (C offset was 0).
+    const SmallVector<SmallVector<int64_t>> reduceShapes = {{1, 1, 8, 16}, {1, 1, 8, 16}};
+    auto reduceShapesAttr = getIntArrayOfArray(&ctx, reduceShapes);
+    auto expectedReduceDistAttr = VPU::DistributionInfoAttr::get(
+            &ctx, VPU::DistributionModeAttr::get(&ctx, VPU::DistributionMode::OVERLAPPED), numTiles, nullptr, nullptr,
+            nullptr, numClusters, nullptr, mlir::UnitAttr::get(&ctx), reduceShapesAttr, offsetsAttr, reduceShapesAttr,
+            offsetsAttr, nullptr, nullptr);
+    auto expectedReduceType =
+            VPU::DistributedTensorType::get(&ctx, ArrayRef<int64_t>{1, 1, 16, 16}, outputType.getElementType(), order,
+                                            memSpace, expectedReduceDistAttr);
+
+    {
+        auto distTypeIf = VPU::getDistributedOutputType(op, op->getResult(0));
+        ASSERT_TRUE(distTypeIf != nullptr);
+        auto distType = mlir::cast<VPU::DistributedTensorType>(distTypeIf.getDistributedTypes().front());
+        EXPECT_EQ(distType, expectedMainType);
+    }
+
+    {
+        auto distTypeIf = VPU::getDistributedOutputType(op, op->getResult(1));
+        ASSERT_TRUE(distTypeIf != nullptr);
+        auto distType = mlir::cast<VPU::DistributedTensorType>(distTypeIf.getDistributedTypes().front());
+        EXPECT_EQ(distType, expectedReduceType);
+    }
+}
+
+// Test: VF wrapping NCE.MaxPool with SplitOverHeight and a reduce output.
+// getDistributedOutputType resolves VF results by tracing yielded values to the inner NCE op.
+// Same expected distributions as the direct MaxPool test above.
+TEST_F(MLIR_GetDistributedOutputTypeTest, VerticalFusionWrappingNCEMaxPoolWithReduceOutput) {
+    constexpr llvm::StringLiteral inputIR = R"(
+        #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+        module @test {
+            config.Resources 2 of @NCE at 6.000000e+02 MHz
+            config.PipelineOptions @Options {
+                config.Option @config.EnableODULocalRegion : true
+            }
+            func.func @main(%arg0: tensor<1x32x16x16xf32, {order = #NHWC}>)
+                    -> (tensor<1x32x16x16xf16, {order = #NHWC}>,
+                        tensor<1x32x16x16xf16, {order = #NHWC}>,
+                        tensor<1x1x16x16xf16, {order = #NHWC}>) {
+                %vf0, %vf1, %vf2 = VPU.VerticalFusion (
+                        %arg0 as %arg1: tensor<1x32x16x16xf32, {order = #NHWC}>)
+                        attributes {tilingStrategy = [1, 1, 2, 1]}
+                        -> (tensor<1x32x16x16xf16, {order = #NHWC}>,
+                           tensor<1x32x16x16xf16, {order = #NHWC}>,
+                           tensor<1x1x16x16xf16, {order = #NHWC}>) {
+                    %convert = VPU.Convert(%arg1) {dstElemType = f16}
+                        : tensor<1x32x16x16xf32, {order = #NHWC}> -> tensor<1x32x16x16xf16, {order = #NHWC}>
+                    %out, %red = VPU.NCE.MaxPool(%convert) {
+                        axes_value = [1],
+                        kernel_size = [1, 1],
+                        pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
+                        ppe = #VPU.PPEStub<>,
+                        strides = [1, 1],
+                        resultSegmentSizes = array<i32: 1, 1, 0, 0>,
+                        multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>
+                    } -> tensor<1x32x16x16xf16, {order = #NHWC}>,
+                        tensor<1x1x16x16xf16, {order = #NHWC}>
+                    VPU.Yield %convert,%out, %red
+                }
+                return %vf0, %vf1, %vf2
+                    : tensor<1x32x16x16xf16, {order = #NHWC}>,
+                      tensor<1x32x16x16xf16, {order = #NHWC}>,
+                      tensor<1x1x16x16xf16, {order = #NHWC}>
+            }
+        }
+    )";
+
+    mlir::ParserConfig parseConfig(&ctx, /*verifyAfterParse=*/false);
+    auto module = mlir::parseSourceString<mlir::ModuleOp>(inputIR, parseConfig);
+    ASSERT_TRUE(module.get() != nullptr);
+    vpux::config::setParamInModule(module.get(), config::Platform::NPU6010, 2, std::nullopt, std::nullopt, true);
+
+    VPU::VerticalFusionOp vfOp;
+    module.get()->walk([&](VPU::VerticalFusionOp op) {
+        vfOp = op;
+        return mlir::WalkResult::interrupt();
+    });
+    ASSERT_TRUE(vfOp != nullptr);
+
+    mlir::Operation* op = vfOp.getOperation();
+
+    // H=16 split over 2 clusters: each cluster owns 8 contiguous rows (no halo, no consumers).
+    const SmallVector<SmallVector<int64_t>> perClusterShapes = {{1, 32, 8, 16}, {1, 32, 8, 16}};
+    const SmallVector<SmallVector<int64_t>> perClusterOffsets = {{0, 0, 0, 0}, {0, 0, 8, 0}};
+    auto shapesAttr = getIntArrayOfArray(&ctx, perClusterShapes);
+    auto offsetsAttr = getIntArrayOfArray(&ctx, perClusterOffsets);
+
+    const auto numTiles = getIntArrayAttr(&ctx, SmallVector<int64_t>{1, 1, 2, 1});
+    const auto numClusters = getIntAttr(&ctx, 2);
+    auto expectedDistAttr = VPU::DistributionInfoAttr::get(
+            &ctx, VPU::DistributionModeAttr::get(&ctx, VPU::DistributionMode::OVERLAPPED), numTiles, nullptr, nullptr,
+            nullptr, numClusters, nullptr, mlir::UnitAttr::get(&ctx), shapesAttr, offsetsAttr, shapesAttr, offsetsAttr,
+            nullptr, nullptr);
+
+    auto outputType = mlir::cast<vpux::NDTypeInterface>(op->getResult(0).getType());
+    auto order = mlir::AffineMapAttr::get(outputType.getDimsOrder().toAffineMap(&ctx));
+    const auto memSpace = IndexedSymbolAttr::get(&ctx, stringifyEnum(VPU::MemoryKind::CMX_NN));
+
+    auto expectedMainType = VPU::DistributedTensorType::get(&ctx, outputType.getShape(), outputType.getElementType(),
+                                                            order, memSpace, expectedDistAttr);
+
+    const SmallVector<SmallVector<int64_t>> reduceShapes = {{1, 1, 8, 16}, {1, 1, 8, 16}};
+    auto reduceShapesAttr = getIntArrayOfArray(&ctx, reduceShapes);
+    auto expectedReduceDistAttr = VPU::DistributionInfoAttr::get(
+            &ctx, VPU::DistributionModeAttr::get(&ctx, VPU::DistributionMode::OVERLAPPED), numTiles, nullptr, nullptr,
+            nullptr, numClusters, nullptr, mlir::UnitAttr::get(&ctx), reduceShapesAttr, offsetsAttr, reduceShapesAttr,
+            offsetsAttr, nullptr, nullptr);
+    auto expectedReduceType =
+            VPU::DistributedTensorType::get(&ctx, ArrayRef<int64_t>{1, 1, 16, 16}, outputType.getElementType(), order,
+                                            memSpace, expectedReduceDistAttr);
+
+    {
+        auto distTypeIf = VPU::getDistributedOutputType(op, op->getResult(1));
+        ASSERT_TRUE(distTypeIf != nullptr);
+        auto distType = mlir::cast<VPU::DistributedTensorType>(distTypeIf.getDistributedTypes().front());
+        EXPECT_EQ(distType, expectedMainType);
+    }
+
+    {
+        auto distTypeIf = VPU::getDistributedOutputType(op, op->getResult(2));
+        ASSERT_TRUE(distTypeIf != nullptr);
+        auto distType = mlir::cast<VPU::DistributedTensorType>(distTypeIf.getDistributedTypes().front());
+        EXPECT_EQ(distType, expectedReduceType);
+    }
+}
+
+// Test: NCE.MatMul with SplitOverGroup and a reduce output (axes_value=[2]).
+// 3 groups match 3 available clusters; axes_value=[2] reduces C from 32 to 1 in GNHWC layout.
+// SplitOverGroup produces SEGMENTED output with uniformDistributedSegments=true.
+TEST_F(MLIR_GetDistributedOutputTypeTest, NCEMatMulDirectWithReduceOutput) {
+    constexpr llvm::StringLiteral inputIR = R"(
+        #GNHWC = affine_map<(d0, d1, d2, d3, d4) -> (d0, d1, d3, d4, d2)>
+        module @test {
+            config.Resources 3 of @NCE at 6.000000e+02 MHz
+            config.PipelineOptions @Options {
+                config.Option @config.EnableODULocalRegion : true
+            }
+            func.func @main(
+                    %arg0: tensor<3x1x32x16x16xf16, {order = #GNHWC}>,
+                    %arg1: tensor<3x32x32x1x1xf16, {order = #GNHWC}>)
+                    -> (tensor<3x1x32x16x16xf16, {order = #GNHWC}>,
+                        tensor<3x1x1x16x16xf16, {order = #GNHWC}>) {
+                %out, %red = VPU.NCE.MatMul(%arg0, %arg1) rawFilterShape [3, 32, 32, 1, 1] {
+                    axes_value = [2],
+                    pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
+                    ppe = #VPU.PPEStub<>,
+                    strides = [1, 1],
+                    operandSegmentSizes = array<i32: 1, 1, 0, 0, 0, 0, 0, 0, 0>,
+                    resultSegmentSizes = array<i32: 1, 1, 0, 0>,
+                    multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverGroup>
+                } -> tensor<3x1x32x16x16xf16, {order = #GNHWC}>,
+                    tensor<3x1x1x16x16xf16, {order = #GNHWC}>
+                return %out, %red
+                    : tensor<3x1x32x16x16xf16, {order = #GNHWC}>,
+                      tensor<3x1x1x16x16xf16, {order = #GNHWC}>
+            }
+        }
+    )";
+
+    mlir::ParserConfig parseConfig(&ctx, /*verifyAfterParse=*/false);
+    auto module = mlir::parseSourceString<mlir::ModuleOp>(inputIR, parseConfig);
+    ASSERT_TRUE(module.get() != nullptr);
+    vpux::config::setParamInModule(module.get(), config::Platform::NPU6010, 3, std::nullopt, std::nullopt, true);
+
+    VPU::NCEMatMulOp matMulOp;
+    module.get()->walk([&](VPU::NCEMatMulOp op) {
+        matMulOp = op;
+        return mlir::WalkResult::interrupt();
+    });
+    ASSERT_TRUE(matMulOp != nullptr);
+
+    mlir::Operation* op = matMulOp.getOperation();
+
+    // SEGMENTED over the group axis; no explicit compute/memory shapes for this mode.
+    const auto numTiles = getIntArrayAttr(&ctx, SmallVector<int64_t>{3, 1, 1, 1, 1});
+    const auto numClusters = getIntAttr(&ctx, 3);
+    auto expectedDistAttr = VPU::DistributionInfoAttr::get(
+            &ctx, VPU::DistributionModeAttr::get(&ctx, VPU::DistributionMode::SEGMENTED), numTiles, nullptr, nullptr,
+            nullptr, numClusters,
+            /*alignment=*/nullptr, mlir::UnitAttr::get(&ctx), nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);
+
+    auto outputType = mlir::cast<vpux::NDTypeInterface>(op->getResult(0).getType());
+    auto order = mlir::AffineMapAttr::get(outputType.getDimsOrder().toAffineMap(&ctx));
+    const auto memSpace = IndexedSymbolAttr::get(&ctx, stringifyEnum(VPU::MemoryKind::CMX_NN));
+
+    // Main output: shape [3,1,32,16,16] in GNHWC (G=3, N=1, C=32, H=16, W=16).
+    auto expectedMainType = VPU::DistributedTensorType::get(&ctx, outputType.getShape(), outputType.getElementType(),
+                                                            order, memSpace, expectedDistAttr);
+    // Reduce output: axes_value=[2] reduces C (logical dim 2) from 32 to 1, shape [3,1,1,16,16].
+    auto expectedReduceType = VPU::DistributedTensorType::get(
+            &ctx, ArrayRef<int64_t>{3, 1, 1, 16, 16}, outputType.getElementType(), order, memSpace, expectedDistAttr);
+
+    {
+        auto distTypeIf = VPU::getDistributedOutputType(op, op->getResult(0));
+        ASSERT_TRUE(distTypeIf != nullptr);
+        auto distType = mlir::cast<VPU::DistributedTensorType>(distTypeIf.getDistributedTypes().front());
+        EXPECT_EQ(distType, expectedMainType);
+    }
+
+    {
+        auto distTypeIf = VPU::getDistributedOutputType(op, op->getResult(1));
+        ASSERT_TRUE(distTypeIf != nullptr);
+        auto distType = mlir::cast<VPU::DistributedTensorType>(distTypeIf.getDistributedTypes().front());
+        EXPECT_EQ(distType, expectedReduceType);
+    }
+}
+
+// Test: NCE.MaxPool with dynamic input/output tensors, SOH
+// Per-cluster shapes are computed from the bounds tensor: H=720 / 2 clusters = 360 rows each.
+// The returned DistributedTensorType uses the bounds shape [1,16,720,1280] as its base shape.
+TEST_F(MLIR_GetDistributedOutputTypeTest, NCEMaxPoolDynamicTensorWithoutReduceOutput) {
+    constexpr llvm::StringLiteral inputIR = R"(
+        #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+        module @test {
+            config.Resources 2 of @NCE at 6.000000e+02 MHz
+            config.PipelineOptions @Options {
+                config.Option @config.EnableODULocalRegion : true
+            }
+            func.func @main(
+                    %arg0: tensor<1x16x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 720, 1280]> : tensor<4xsi64>, order = #NHWC}>)
+                    -> tensor<1x16x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 720, 1280]> : tensor<4xsi64>, order = #NHWC}> {
+                %out = VPU.NCE.MaxPool(%arg0) {
+                    kernel_size = [1, 1],
+                    pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
+                    ppe = #VPU.PPEStub<>,
+                    strides = [1, 1],
+                    resultSegmentSizes = array<i32: 1, 0, 0, 0>
+                } -> tensor<1x16x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 720, 1280]> : tensor<4xsi64>, order = #NHWC}>
+                return %out : tensor<1x16x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 720, 1280]> : tensor<4xsi64>, order = #NHWC}>
+            }
+        }
+    )";
+
+    mlir::ParserConfig parseConfig(&ctx, /*verifyAfterParse=*/false);
+    auto module = mlir::parseSourceString<mlir::ModuleOp>(inputIR, parseConfig);
+    ASSERT_TRUE(module.get() != nullptr);
+    vpux::config::setParamInModule(module.get(), config::Platform::NPU6010, 2, std::nullopt, std::nullopt, true);
+
+    VPU::NCEMaxPoolOp maxPoolOp;
+    module.get()->walk([&](VPU::NCEMaxPoolOp op) {
+        maxPoolOp = op;
+        return mlir::WalkResult::interrupt();
+    });
+    ASSERT_TRUE(maxPoolOp != nullptr);
+
+    mlir::Operation* op = maxPoolOp.getOperation();
+
+    // With no consumers and no halo, OVERLAPPED collapses to equal non-overlapping slices.
+    // Per-cluster shapes are computed from the bounds [1,16,720,1280]: H=720/2=360.
+    const SmallVector<SmallVector<int64_t>> perClusterShapes = {{1, 16, 360, 1280}, {1, 16, 360, 1280}};
+    const SmallVector<SmallVector<int64_t>> perClusterOffsets = {{0, 0, 0, 0}, {0, 0, 360, 0}};
+    auto shapesAttr = getIntArrayOfArray(&ctx, perClusterShapes);
+    auto offsetsAttr = getIntArrayOfArray(&ctx, perClusterOffsets);
+
+    const auto numTiles = getIntArrayAttr(&ctx, SmallVector<int64_t>{1, 1, 2, 1});
+    const auto numClusters = getIntAttr(&ctx, 2);
+    auto expectedDistAttr = VPU::DistributionInfoAttr::get(
+            &ctx, VPU::DistributionModeAttr::get(&ctx, VPU::DistributionMode::OVERLAPPED), numTiles, /*kernel=*/nullptr,
+            /*pad=*/nullptr, /*strides=*/nullptr, numClusters,
+            /*alignment=*/nullptr, mlir::UnitAttr::get(&ctx), shapesAttr, offsetsAttr, shapesAttr, offsetsAttr,
+            /*equalMemAndComputeView=*/nullptr, /*memNumTiles=*/nullptr);
+
+    auto outputType = mlir::cast<vpux::NDTypeInterface>(op->getResult(0).getType());
+    auto order = mlir::AffineMapAttr::get(outputType.getDimsOrder().toAffineMap(&ctx));
+    const auto memSpace = IndexedSymbolAttr::get(&ctx, stringifyEnum(VPU::MemoryKind::CMX_NN));
+
+    // createExplicitDistributedTensorType uses getBoundedShape (bounds = [1,16,720,1280]) and
+    // always sets CMX_NN as the memory space, so the expected type must reflect both.
+    auto expectedMainType = VPU::DistributedTensorType::get(
+            &ctx, ArrayRef<int64_t>{1, 16, 720, 1280}, outputType.getElementType(), order, memSpace, expectedDistAttr);
+
+    auto distTypeIf = VPU::getDistributedOutputType(op, op->getResult(0), VPU::MultiClusterStrategy::SplitOverHeight);
+    ASSERT_TRUE(distTypeIf != nullptr);
+    auto distType = mlir::cast<VPU::DistributedTensorType>(distTypeIf.getDistributedTypes().front());
+    EXPECT_EQ(distType, expectedMainType);
+}
+
+// Test: VF wrapping NCE.MatMul with SplitOverGroup and a reduce output.
+// getDistributedOutputType resolves VF results by tracing yielded values to the inner NCE op.
+TEST_F(MLIR_GetDistributedOutputTypeTest, VerticalFusionWrappingNCEMatMulWithReduceOutput) {
+    constexpr llvm::StringLiteral inputIR = R"(
+        #GNHWC = affine_map<(d0, d1, d2, d3, d4) -> (d0, d1, d3, d4, d2)>
+        module @test {
+            config.Resources 3 of @NCE at 6.000000e+02 MHz
+            config.PipelineOptions @Options {
+                config.Option @config.EnableODULocalRegion : true
+            }
+            func.func @main(
+                    %arg0: tensor<3x1x32x16x16xf16, {order = #GNHWC}>,
+                    %arg1: tensor<3x32x32x1x1xf16, {order = #GNHWC}>)
+                    -> (tensor<3x1x32x16x16xf16, {order = #GNHWC}>,
+                        tensor<3x1x1x16x16xf16, {order = #GNHWC}>) {
+                %vf0, %vf1 = VPU.VerticalFusion (
+                        %arg0 as %arg2: tensor<3x1x32x16x16xf16, {order = #GNHWC}>,
+                        %arg1 as %arg3: tensor<3x32x32x1x1xf16, {order = #GNHWC}>)
+                        attributes {tilingStrategy = [1, 1, 3, 1, 1]}
+                        -> (tensor<3x1x32x16x16xf16, {order = #GNHWC}>,
+                           tensor<3x1x1x16x16xf16, {order = #GNHWC}>) {
+                    %out, %red = VPU.NCE.MatMul(%arg2, %arg3) rawFilterShape [3, 32, 32, 1, 1] {
+                        axes_value = [2],
+                        pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
+                        ppe = #VPU.PPEStub<>,
+                        strides = [1, 1],
+                        operandSegmentSizes = array<i32: 1, 1, 0, 0, 0, 0, 0, 0, 0>,
+                        resultSegmentSizes = array<i32: 1, 1, 0, 0>,
+                        multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverGroup>
+                    } -> tensor<3x1x32x16x16xf16, {order = #GNHWC}>,
+                        tensor<3x1x1x16x16xf16, {order = #GNHWC}>
+                    VPU.Yield %out, %red
+                }
+                return %vf0, %vf1
+                    : tensor<3x1x32x16x16xf16, {order = #GNHWC}>,
+                      tensor<3x1x1x16x16xf16, {order = #GNHWC}>
+            }
+        }
+    )";
+
+    mlir::ParserConfig parseConfig(&ctx, /*verifyAfterParse=*/false);
+    auto module = mlir::parseSourceString<mlir::ModuleOp>(inputIR, parseConfig);
+    ASSERT_TRUE(module.get() != nullptr);
+    vpux::config::setParamInModule(module.get(), config::Platform::NPU6010, 3, std::nullopt, std::nullopt, true);
+
+    VPU::VerticalFusionOp vfOp;
+    module.get()->walk([&](VPU::VerticalFusionOp op) {
+        vfOp = op;
+        return mlir::WalkResult::interrupt();
+    });
+    ASSERT_TRUE(vfOp != nullptr);
+
+    mlir::Operation* op = vfOp.getOperation();
+
+    const auto numTiles = getIntArrayAttr(&ctx, SmallVector<int64_t>{3, 1, 1, 1, 1});
+    const auto numClusters = getIntAttr(&ctx, 3);
+    auto expectedDistAttr = VPU::DistributionInfoAttr::get(
+            &ctx, VPU::DistributionModeAttr::get(&ctx, VPU::DistributionMode::SEGMENTED), numTiles, nullptr, nullptr,
+            nullptr, numClusters, nullptr, mlir::UnitAttr::get(&ctx), nullptr, nullptr, nullptr, nullptr, nullptr,
+            nullptr);
+
+    auto outputType = mlir::cast<vpux::NDTypeInterface>(op->getResult(0).getType());
+    auto order = mlir::AffineMapAttr::get(outputType.getDimsOrder().toAffineMap(&ctx));
+    const auto memSpace = IndexedSymbolAttr::get(&ctx, stringifyEnum(VPU::MemoryKind::CMX_NN));
+
+    auto expectedMainType = VPU::DistributedTensorType::get(&ctx, outputType.getShape(), outputType.getElementType(),
+                                                            order, memSpace, expectedDistAttr);
+    auto expectedReduceType = VPU::DistributedTensorType::get(
+            &ctx, ArrayRef<int64_t>{3, 1, 1, 16, 16}, outputType.getElementType(), order, memSpace, expectedDistAttr);
+
+    {
+        auto distTypeIf = VPU::getDistributedOutputType(op, op->getResult(0));
+        ASSERT_TRUE(distTypeIf != nullptr);
+        auto distType = mlir::cast<VPU::DistributedTensorType>(distTypeIf.getDistributedTypes().front());
+        EXPECT_EQ(distType, expectedMainType);
+    }
+
+    {
+        auto distTypeIf = VPU::getDistributedOutputType(op, op->getResult(1));
+        ASSERT_TRUE(distTypeIf != nullptr);
+        auto distType = mlir::cast<VPU::DistributedTensorType>(distTypeIf.getDistributedTypes().front());
+        EXPECT_EQ(distType, expectedReduceType);
+    }
+}

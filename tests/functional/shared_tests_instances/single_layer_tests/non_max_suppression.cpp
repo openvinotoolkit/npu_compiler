@@ -110,6 +110,11 @@ TEST_P(NmsLayerTestCommon, NPU5020_HW) {
     VpuOv2LayerTest::run(Platform::NPU5020);
 }
 
+TEST_P(NmsLayerTestCommon, NPU6010_HW) {
+    setDefaultHardwareMode();
+    VpuOv2LayerTest::run(Platform::NPU6010);
+}
+
 }  // namespace test
 }  // namespace ov
 

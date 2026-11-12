@@ -214,6 +214,20 @@ TEST_P(FuseRMSReduceSumTestUnstripped, NPU5020_HW) {
     run(Platform::NPU5020);
 }
 
+TEST_P(FuseRMSReduceSumTestCommon, NPU6010_HW) {
+    setDefaultHardwareMode();
+    // TODO E####-159644
+    setBatchCompilerMode("unroll");
+    run(Platform::NPU6010);
+}
+TEST_P(FuseRMSReduceSumTestUnstripped, NPU6010_HW) {
+    const float fqRange = 3, fqLevels = 256;
+    abs_threshold = fqRange / fqLevels;
+    setDefaultHardwareMode();
+    // TODO E####-159644
+    setBatchCompilerMode("unroll");
+    run(Platform::NPU6010);
+}
 namespace {
 const std::vector<ov::element::Type> inputPrecisions = {ov::element::f32};
 const std::vector<TestEpsMode> epsModeOptions = {

@@ -117,6 +117,11 @@ if(build_kernels)
     "${MV_TOOLS_PATH}/common/moviCompile/lib/50xxxx/mlibc_lite.a"
     "${MV_TOOLS_PATH}/common/moviCompile/lib/50xxxx/mlibcrt.a"
   )
+  set(link_libraries_list_VPU6000
+    "${MV_TOOLS_PATH}/common/moviCompile/lib/60xxxx/mlibm.a"
+    "${MV_TOOLS_PATH}/common/moviCompile/lib/60xxxx/mlibc_lite.a"
+    "${MV_TOOLS_PATH}/common/moviCompile/lib/60xxxx/mlibcrt.a"
+  )
 else()
   set(MV_TOOLS_PATH "$ENV{IE_NPU_MV_TOOLS_PATH}")
 endif()
@@ -230,6 +235,14 @@ foreach(kernel_descrip IN LISTS kernel_descrip_list)
     set(link_libraries_list ${link_libraries_list_VPU4000})
   elseif(kernel_cpunum STREQUAL "5000")
     set(link_libraries_list ${link_libraries_list_VPU5000})
+  elseif(kernel_cpunum STREQUAL "6000")
+    set(link_libraries_list ${link_libraries_list_VPU6000})
+    if(firmware_kernel)
+      list(APPEND define_symbols_list
+        "CONFIG_TARGET_SOC_4000"
+        "CONFIG_TARGET_SOC_5000"
+        "CONFIG_TARGET_SOC_6000")
+    endif()
   endif()
 
   if(always_inline)
@@ -268,8 +281,8 @@ foreach(kernel_descrip IN LISTS kernel_descrip_list)
   # Opt-in to the sw_operators SHAVE toolkit via a single line in a descriptor:
   #   set(use_toolkit "yes")
   # The toolkit is header-only and its public headers self-select the arch
-  # implementation from the '__npu_major__' compiler builtin (4/5 -> *_40xx), 
-  # so only the single toolkit include root is required here;
+  # implementation from the '__npu_major__' compiler builtin (4/5 -> *_40xx,
+  # >=6 -> *_60xx), so only the single toolkit include root is required here;
   # there are no per-arch source files to compile. If the toolkit later ships
   # arch-specific .cpp sources, append them to extra_src_list here based on
   # ${kernel_cpunum}.

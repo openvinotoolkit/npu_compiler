@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="platform=%platform% compilation-mode=DefaultHW allow-custom-values=true" --cmx-stack-frames-reserve-mem --cmx-metadata-reserve-mem --merge-vertical-fusion-subgraphs="enable-vertical-fusion-pipelining=true workload-management-mode=FWLM_V1_PAGES" %s | FileCheck %s
-// REQUIRES: platform-NPU5010
+// REQUIRES: platform-NPU5010 || platform-NPU6010
 
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
@@ -165,7 +165,7 @@ func.func @NotFuseLastMultiplyAndSurroundingEltwiseOps(
                            ) attributes {tilingStrategy = [1, 1, 1, 1]}
                            -> tensor<1x256x16x16xf16, {order = #NHWC}> {
     %out = VPU.NCE.Convolution(%in0, %in1) rawFilterShape [256, 192, 1, 1] {
-            mpe_engine = #VPU.MPEEngine37XX<mode = <SCL>>,
+            mpe_engine = #VPU.MPEEngine60XX<mode = <SCL>>,
             multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
             pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
             ppe = #VPU.PPEStub<>,
@@ -183,7 +183,7 @@ func.func @NotFuseLastMultiplyAndSurroundingEltwiseOps(
                            -> tensor<1x256x16x16xf16, {order = #NHWC}> {
     %out = VPU.NCE.DepthConvolution(%in0, %in1) rawFilterShape [256, 1, 3, 3] {
             resultSegmentSizes = array<i32: 1, 0, 0, 0>,
-            mpe_engine = #VPU.MPEEngine37XX<mode = <SCL>>,
+            mpe_engine = #VPU.MPEEngine60XX<mode = <SCL>>,
             multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
             pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
             ppe = #VPU.PPEStub<>,
@@ -327,7 +327,7 @@ func.func @NotFuseLastMultiplyAndSurroundingEltwiseOps(
   }
 
   // NCE.Permute: reorders arg6 to NHWC.
-  %11 = VPU.NCE.Permute(%arg6) {dstElemType = f16, dstOrder = #NHWC, expandedChannels = 256 : i64, mpe_engine = #VPU.MPEEngine37XX<mode = <SCL>>, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeightOverlapped>, ppe = #VPU.PPEStub<>} -> tensor<1x256x16x16xf16, {order = #NHWC}>
+  %11 = VPU.NCE.Permute(%arg6) {dstElemType = f16, dstOrder = #NHWC, expandedChannels = 256 : i64, mpe_engine = #VPU.MPEEngine60XX<mode = <SCL>>, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeightOverlapped>, ppe = #VPU.PPEStub<>} -> tensor<1x256x16x16xf16, {order = #NHWC}>
 
   // Eltwise-ADD: %11 + %10. Should NOT merge with Multiply %10.
   %12 = VPU.VerticalFusion (%11 as %in0: tensor<1x256x16x16xf16, {order = #NHWC}>,
@@ -349,7 +349,7 @@ func.func @NotFuseLastMultiplyAndSurroundingEltwiseOps(
                             ) attributes {tilingStrategy = [1, 1, 1, 1]}
                             -> tensor<1x256x16x16xf16, {order = #NHWC}> {
     %out = VPU.NCE.Convolution(%in0, %in1) rawFilterShape [256, 256, 1, 1] {
-            mpe_engine = #VPU.MPEEngine37XX<mode = <SCL>>,
+            mpe_engine = #VPU.MPEEngine60XX<mode = <SCL>>,
             multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
             pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
             ppe = #VPU.PPEStub<>,

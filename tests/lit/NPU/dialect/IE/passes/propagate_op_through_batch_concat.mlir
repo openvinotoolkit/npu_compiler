@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="platform=%platform%" --run-batch-op-processing-rewriters="rewriter=propagate-op-through-batch-concat-set" %s | FileCheck %s
-// REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010
+// REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010 || platform-NPU6010
 
 // CHECK-LABEL: @PropagateSoftmaxThroughBatchUnrolledMatmul
 func.func @PropagateSoftmaxThroughBatchUnrolledMatmul(%arg0: tensor<16x2xf32>, %arg1: tensor<16x2xf32>) -> tensor<2x16x2xf32> {

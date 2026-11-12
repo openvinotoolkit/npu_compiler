@@ -40,6 +40,12 @@ TEST_P(GroupConvBackpropLayerTestCommon, NPU5020_HW) {
     run(Platform::NPU5020);
 }
 
+TEST_P(GroupConvBackpropLayerTestCommon, NPU6010_HW) {
+    abs_threshold = 0.1;
+    setDefaultHardwareMode();
+    run(Platform::NPU6010);
+}
+
 }  // namespace test
 }  // namespace ov
 

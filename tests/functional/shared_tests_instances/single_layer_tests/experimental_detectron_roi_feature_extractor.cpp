@@ -58,6 +58,12 @@ TEST_P(ExperimentalDetectronROIFeatureExtractorLayerTestCommon, DISABLED_NPU5020
     run(Platform::NPU5020);
 }
 
+// [E#154893] Tests are not functional on L0. They work locally with IMD.
+TEST_P(ExperimentalDetectronROIFeatureExtractorLayerTestCommon, DISABLED_NPU6010_SW) {
+    setReferenceSoftwareMode();
+    run(Platform::NPU6010);
+}
+
 }  // namespace test
 }  // namespace ov
 

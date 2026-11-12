@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="platform=%platform%" --decompose-gru-sequence %s | FileCheck %s
-// REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010
+// REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010 || platform-NPU6010
 
 // CHECK-LABEL:   func.func @DecomposeGruResetTrue(
 // CHECK-SAME:                                     [[VAL_0:%.+]]: tensor<2x2x256xf16>,

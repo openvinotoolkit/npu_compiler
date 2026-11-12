@@ -110,6 +110,11 @@ TEST_F(DequantizeU16TestCommon, NPU5020_TestKindSubgraph) {
     run(Platform::NPU5020);
 }
 
+TEST_F(DequantizeU16TestCommon, NPU6010_TestKindSubgraph) {
+    setDefaultHardwareMode();
+    run(Platform::NPU6010);
+}
+
 //
 // Per-axis
 //
@@ -131,6 +136,11 @@ TEST_F(DequantizeU16PerAxisTestCommon, NPU5010_TestKindSubgraph) {
 TEST_F(DequantizeU16PerAxisTestCommon, NPU5020_TestKindSubgraph) {
     setDefaultHardwareMode();
     run(Platform::NPU5020);
+}
+
+TEST_F(DequantizeU16PerAxisTestCommon, NPU6010_TestKindSubgraph) {
+    setDefaultHardwareMode();
+    run(Platform::NPU6010);
 }
 
 }  // namespace ov::test

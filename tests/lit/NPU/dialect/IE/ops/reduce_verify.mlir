@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="platform=%platform%" --verify-diagnostics %s
-// REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010
+// REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010 || platform-NPU6010
 
 func.func @ReduceMeanInvalidPadding(%arg0: tensor<1x16x4x2xf16>) -> tensor<1x1x4x2xf16> {
     // expected-error@+2 {{'IE.ReduceMean' op inferred type(s) 'tensor<1x16x4x2xf16>' are incompatible with return type(s) of operation 'tensor<1x1x4x2xf16>'}}

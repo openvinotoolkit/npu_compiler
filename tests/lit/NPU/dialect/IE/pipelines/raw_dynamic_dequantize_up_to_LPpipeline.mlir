@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="platform=%platform%" --initial-low-precision-transformations --initial-transformations --adjust-precision --operation-conversion --adjust-for-vpu --scaleshift-processing --convert-const-dynamic-dequantize-to-dequantize %s | FileCheck %s
-// REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010
+// REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010 || platform-NPU6010
 
 // Batched MatMul with a raw si4 DynamicDequantize weight chain.
 // Runs all registered IE pipeline stages up to (not including) --low-precision:

@@ -212,6 +212,110 @@ TEST_F(MLIR_VPU_doesTopKLayerFitIntoCMX, TopKdoesNotFitCMX) {
     });
 }
 
+// ---------------------------------------------------------------------------
+// NCEDepthConvolutionOp::fitIntoCMX with active reduce output
+//
+// These tests verify that getReduceOutputBuffers is called (and doesn't crash)
+// for NCEDepthConvolutionOp and that the CMX-fit result is correct.
+// buildInitCompilerPipeline is used (no splitting passes) so the op is not
+// automatically tiled before the explicit fitIntoCMX call.
+// ---------------------------------------------------------------------------
+class MLIR_VPU_NCEDepthConvFitIntoCMX : public NPUSpecific_UnitTest {
+public:
+    MLIR_VPU_NCEDepthConvFitIntoCMX(): NPUSpecific_UnitTest(Platform::NPU6010) {
+    }
+};
+
+TEST_F(MLIR_VPU_NCEDepthConvFitIntoCMX, SmallTensorWithReduceOutputFits) {
+    mlir::MLIRContext ctx(registry);
+    // 1x16x8x8xf16 DepthConv with active reduce_xy_max:
+    //   each activation buffer ≈ 2 KB, aligned filter (16x16x1x1) ≈ 0.5 KB, reduce ≈ 128 bytes.
+    //   Total << NPU6010 CMX (1951 KB) → fitIntoCMX must return true.
+    constexpr StringLiteral inputIR = R"(
+        #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+        module @main {
+            func.func @main(%arg0: tensor<1x16x8x8xf16, {order = #NHWC}>)
+                    -> (tensor<1x16x8x8xf16, {order = #NHWC}>, tensor<1x1x8x8xf16, {order = #NHWC}>) {
+                %filter = const.Declare tensor<16x16x1x1xf16, {order = #NHWC}> = dense<1.0>
+                        : tensor<16x16x1x1xf16, {order = #NHWC}>
+                %out, %red = VPU.NCE.DepthConvolution(%arg0, %filter)
+                    rawFilterShape [16, 1, 1, 1] {
+                        axes_value = [1],
+                        pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
+                        ppe = #VPU.PPEStub<>,
+                        resultSegmentSizes = array<i32: 1, 1, 0, 0>,
+                        strides = [1, 1]
+                    } : tensor<1x16x8x8xf16, {order = #NHWC}>, tensor<16x16x1x1xf16, {order = #NHWC}>
+                      -> tensor<1x16x8x8xf16, {order = #NHWC}>, tensor<1x1x8x8xf16, {order = #NHWC}>
+                return %out, %red : tensor<1x16x8x8xf16, {order = #NHWC}>, tensor<1x1x8x8xf16, {order = #NHWC}>
+            }
+        }
+    )";
+
+    auto module = mlir::parseSourceString<mlir::ModuleOp>(inputIR, &ctx);
+    ASSERT_TRUE(module.get() != nullptr);
+
+    auto func = module.get().lookupSymbol<mlir::func::FuncOp>("main");
+    ASSERT_TRUE(func != nullptr);
+
+    mlir::PassManager pm(module.get()->getName(), mlir::OpPassManager::Nesting::Implicit);
+    VPU::buildInitCompilerPipeline(pm, VPU::InitCompilerOptions(Platform::NPU6010, config::CompilationMode::DefaultHW),
+                                   vpux::Logger::global());
+    ASSERT_TRUE(mlir::succeeded(pm.run(module.get())));
+
+    func->walk([&](VPU::NCEDepthConvolutionOp dwConv) {
+        const auto input = mlir::cast<vpux::NDTypeInterface>(dwConv.getInput().getType());
+        const auto filter = mlir::cast<vpux::NDTypeInterface>(dwConv.getFilter().getType());
+        const auto output = mlir::cast<vpux::NDTypeInterface>(dwConv.getOutput().getType());
+        EXPECT_TRUE(dwConv.fitIntoCMX(input, filter, output));
+    });
+}
+
+TEST_F(MLIR_VPU_NCEDepthConvFitIntoCMX, LargeTensorWithReduceOutputDoesNotFit) {
+    mlir::MLIRContext ctx(registry);
+    // 1x512x256x4xf16 DepthConv with active reduce_xy_max:
+    //   each activation buffer ≈ 1 MB, aligned filter (512x16x1x1) ≈ 16 KB, reduce ≈ 4 KB.
+    //   Three activation buffers alone exceed NPU6010 CMX (1951 KB) → fitIntoCMX must return false.
+    constexpr StringLiteral inputIR = R"(
+        #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+        module @main {
+            func.func @main(%arg0: tensor<1x512x256x4xf16, {order = #NHWC}>)
+                    -> (tensor<1x512x256x4xf16, {order = #NHWC}>, tensor<1x1x256x4xf16, {order = #NHWC}>) {
+                %filter = const.Declare tensor<512x16x1x1xf16, {order = #NHWC}> = dense<1.0>
+                        : tensor<512x16x1x1xf16, {order = #NHWC}>
+                %out, %red = VPU.NCE.DepthConvolution(%arg0, %filter)
+                    rawFilterShape [512, 1, 1, 1] {
+                        axes_value = [1],
+                        pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
+                        ppe = #VPU.PPEStub<>,
+                        resultSegmentSizes = array<i32: 1, 1, 0, 0>,
+                        strides = [1, 1]
+                    } : tensor<1x512x256x4xf16, {order = #NHWC}>, tensor<512x16x1x1xf16, {order = #NHWC}>
+                      -> tensor<1x512x256x4xf16, {order = #NHWC}>, tensor<1x1x256x4xf16, {order = #NHWC}>
+                return %out, %red : tensor<1x512x256x4xf16, {order = #NHWC}>, tensor<1x1x256x4xf16, {order = #NHWC}>
+            }
+        }
+    )";
+
+    auto module = mlir::parseSourceString<mlir::ModuleOp>(inputIR, &ctx);
+    ASSERT_TRUE(module.get() != nullptr);
+
+    auto func = module.get().lookupSymbol<mlir::func::FuncOp>("main");
+    ASSERT_TRUE(func != nullptr);
+
+    mlir::PassManager pm(module.get()->getName(), mlir::OpPassManager::Nesting::Implicit);
+    VPU::buildInitCompilerPipeline(pm, VPU::InitCompilerOptions(Platform::NPU6010, config::CompilationMode::DefaultHW),
+                                   vpux::Logger::global());
+    ASSERT_TRUE(mlir::succeeded(pm.run(module.get())));
+
+    func->walk([&](VPU::NCEDepthConvolutionOp dwConv) {
+        const auto input = mlir::cast<vpux::NDTypeInterface>(dwConv.getInput().getType());
+        const auto filter = mlir::cast<vpux::NDTypeInterface>(dwConv.getFilter().getType());
+        const auto output = mlir::cast<vpux::NDTypeInterface>(dwConv.getOutput().getType());
+        EXPECT_FALSE(dwConv.fitIntoCMX(input, filter, output));
+    });
+}
+
 using MLIR_VPU_IsSupportedTileSize = vpux::VPU::arch40xx::UnitTest;
 
 TEST_F(MLIR_VPU_IsSupportedTileSize, UpsamlingSEP) {
@@ -608,6 +712,681 @@ TEST_F(MLIR_VPU_TestDividedTiles, alignmentPropagation) {
         // check that alignment is propagated through these transformations
         ASSERT_EQ(firstTile.shape[Dims4D::Act::W] % channelAlignOp.getOutputChannelAlignment(), 0);
     });
+}
+
+// =============================================================================
+// Tests for VPU::getTileTypes
+// =============================================================================
+
+using MLIR_VPU_GetTileTypes = vpux::VPU::arch60xx::UnitTest;
+namespace {
+// NCE.MaxPool with axes_value=[1] and 3 result segments (act + rmax + rmin).
+// Pool parameters: kernel=[1,1], pad=0, stride=[1,1].
+// Input/output shape: [1,32,16,16] NHWC.
+constexpr llvm::StringLiteral K_GET_TILE_TYPES_POOL_THREE_RESULTS = R"mlir(
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+module {
+  func.func @pool_three_results(
+      %arg0: tensor<1x32x16x16xf16, {order = #NHWC}>)
+      -> (tensor<1x32x16x16xf16, {order = #NHWC}>,
+          tensor<1x1x16x16xf16,  {order = #NHWC}>,
+          tensor<1x1x16x16xf16,  {order = #NHWC}>) {
+    %out, %rmax, %rmin = VPU.NCE.MaxPool(%arg0) {
+        axes_value         = [1],
+        kernel_size        = [1, 1],
+        pad                = #VPU.Padding<left = 0, right = 0, top = 0, bottom = 0>,
+        ppe                = #VPU.PPEStub<>,
+        strides            = [1, 1],
+        resultSegmentSizes = array<i32: 1, 1, 1, 0>
+    } -> tensor<1x32x16x16xf16, {order = #NHWC}>,
+        tensor<1x1x16x16xf16,  {order = #NHWC}>,
+        tensor<1x1x16x16xf16,  {order = #NHWC}>
+    return %out, %rmax, %rmin
+        : tensor<1x32x16x16xf16, {order = #NHWC}>,
+          tensor<1x1x16x16xf16,  {order = #NHWC}>,
+          tensor<1x1x16x16xf16,  {order = #NHWC}>
+  }
+}
+)mlir";
+
+// NCE.MatMul with axes_value=[2] and 3 result segments (act + rmax + rmin).
+// GNHWC layout; axes_value=[2] reduces logical dim 2 (C) from 32 to 1.
+// Input shape: [3,1,32,16,16]; filter shape: [3,32,32,1,1].
+constexpr llvm::StringLiteral K_GET_TILE_TYPES_MATMUL_REDUCE_C = R"mlir(
+#GNHWC = affine_map<(d0, d1, d2, d3, d4) -> (d0, d1, d3, d4, d2)>
+module {
+  func.func @matmul_reduce_c(
+      %arg0: tensor<3x1x32x16x16xf16, {order = #GNHWC}>,
+      %arg1: tensor<3x32x32x1x1xf16,  {order = #GNHWC}>)
+      -> (tensor<3x1x32x16x16xf16, {order = #GNHWC}>,
+          tensor<3x1x1x16x16xf16,  {order = #GNHWC}>,
+          tensor<3x1x1x16x16xf16,  {order = #GNHWC}>) {
+    %out, %rmax, %rmin = VPU.NCE.MatMul(%arg0, %arg1) rawFilterShape [3, 32, 32, 1, 1] {
+        axes_value          = [2],
+        pad                 = #VPU.Padding<left = 0, right = 0, top = 0, bottom = 0>,
+        ppe                 = #VPU.PPEStub<>,
+        strides             = [1, 1],
+        operandSegmentSizes = array<i32: 1, 1, 0, 0, 0, 0, 0, 0, 0>,
+        resultSegmentSizes  = array<i32: 1, 1, 1, 0>
+    } -> tensor<3x1x32x16x16xf16, {order = #GNHWC}>,
+        tensor<3x1x1x16x16xf16,  {order = #GNHWC}>,
+        tensor<3x1x1x16x16xf16,  {order = #GNHWC}>
+    return %out, %rmax, %rmin
+        : tensor<3x1x32x16x16xf16, {order = #GNHWC}>,
+          tensor<3x1x1x16x16xf16,  {order = #GNHWC}>,
+          tensor<3x1x1x16x16xf16,  {order = #GNHWC}>
+  }
+}
+)mlir";
+
+// NCE.Convolution with axes_value=[1] and 3 result segments (act + rmax + rmin).
+// Input shape: [1,32,16,16] NHWC; filter: [32,32,3,3] NHWC; pad=1, stride=1.
+constexpr llvm::StringLiteral K_GET_TILE_TYPES_CONV_THREE_RESULTS = R"mlir(
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+module {
+  func.func @nceconv_three_results(
+      %arg0: tensor<1x32x16x16xf16, {order = #NHWC}>,
+      %arg1: tensor<32x32x3x3xf16,  {order = #NHWC}>)
+      -> (tensor<1x32x16x16xf16, {order = #NHWC}>,
+          tensor<1x1x16x16xf16,  {order = #NHWC}>,
+          tensor<1x1x16x16xf16,  {order = #NHWC}>) {
+    %out, %rmax, %rmin = VPU.NCE.Convolution(%arg0, %arg1) rawFilterShape [32, 32, 3, 3] {
+        axes_value          = [1],
+        pad                 = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
+        ppe                 = #VPU.PPEStub<>,
+        strides             = [1, 1],
+        resultSegmentSizes  = array<i32: 1, 1, 1, 0>,
+        operandSegmentSizes = array<i32: 1, 1, 0, 0, 0, 0, 0, 0>
+    } : tensor<1x32x16x16xf16, {order = #NHWC}>, tensor<32x32x3x3xf16, {order = #NHWC}>
+        -> tensor<1x32x16x16xf16, {order = #NHWC}>,
+           tensor<1x1x16x16xf16,  {order = #NHWC}>,
+           tensor<1x1x16x16xf16,  {order = #NHWC}>
+    return %out, %rmax, %rmin
+        : tensor<1x32x16x16xf16, {order = #NHWC}>,
+          tensor<1x1x16x16xf16,  {order = #NHWC}>,
+          tensor<1x1x16x16xf16,  {order = #NHWC}>
+  }
+}
+)mlir";
+
+// ---------------------------------------------------------------------------
+// Distribution-check helpers (pattern adapted from reduce_tests.cpp).
+// ---------------------------------------------------------------------------
+
+// Checks distribution mode, numTiles, numClusters, and per-cluster shapes/offsets.
+void checkDistributionInfo(const VPU::DistributionInfo& actual, const VPU::DistributionMode& expectedMode,
+                           ArrayRef<int64_t> expectedNumTiles, int64_t expectedNumClusters,
+                           ArrayRef<SmallVector<int64_t>> expectedComputeShapes,
+                           ArrayRef<SmallVector<int64_t>> expectedComputeOffsets,
+                           ArrayRef<SmallVector<int64_t>> expectedMemShapes,
+                           ArrayRef<SmallVector<int64_t>> expectedMemOffsets) {
+    EXPECT_EQ(actual.getDistributionMode(), expectedMode);
+    EXPECT_EQ(actual.getNumTiles(), expectedNumTiles);
+    EXPECT_EQ(actual.getNumClusters(), expectedNumClusters);
+    EXPECT_EQ(actual.getComputeShapes(), expectedComputeShapes);
+    EXPECT_EQ(actual.getComputeOffsets(), expectedComputeOffsets);
+    EXPECT_EQ(actual.getMemoryShapes(), expectedMemShapes);
+    EXPECT_EQ(actual.getMemoryOffsets(), expectedMemOffsets);
+}
+
+// Verifies that a reduce output distribution has the same mode/tiles/clusters as the activation
+// output, all non-C per-cluster dims match, and C is reduced to 1.
+void checkReduceDistribution(const VPU::DistributionInfo& reduce, const VPU::DistributionInfo& actOut) {
+    EXPECT_EQ(reduce.getDistributionMode(), actOut.getDistributionMode());
+    EXPECT_EQ(reduce.getNumTiles(), actOut.getNumTiles());
+    EXPECT_EQ(reduce.getNumClusters(), actOut.getNumClusters());
+
+    const auto& reduceMemShapes = reduce.getMemoryShapes();
+    const auto& actMemShapes = actOut.getMemoryShapes();
+    ASSERT_EQ(reduceMemShapes.size(), actMemShapes.size());
+
+    const auto& reduceComputeShapes = reduce.getComputeShapes();
+    const auto& actComputeShapes = actOut.getComputeShapes();
+    ASSERT_EQ(reduceComputeShapes.size(), actComputeShapes.size());
+    if (reduceMemShapes.empty() || reduceComputeShapes.empty() || actMemShapes.empty() || actComputeShapes.empty()) {
+        return;
+    }
+
+    const auto cDim = reduceMemShapes.front().size() == 4 ? Dims4D::Act::C : DimsGroups5D::Act::C;
+    for (size_t cl = 0; cl < reduceMemShapes.size(); ++cl) {
+        for (size_t dim = 0; dim < reduceMemShapes[cl].size(); ++dim) {
+            if (dim != static_cast<size_t>(cDim.ind())) {
+                EXPECT_EQ(reduceMemShapes[cl][dim], actMemShapes[cl][dim]);
+                EXPECT_EQ(reduceComputeShapes[cl][dim], actComputeShapes[cl][dim]);
+            } else {
+                EXPECT_EQ(reduceMemShapes[cl][dim], 1);
+                EXPECT_EQ(reduceComputeShapes[cl][dim], 1);
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Helper: parse a module for getTileTypes tests (arch NPU60XX, 2 clusters).
+// ---------------------------------------------------------------------------
+mlir::OwningOpRef<mlir::ModuleOp> parseGetTileTypesModule(mlir::MLIRContext* ctx, llvm::StringRef ir) {
+    mlir::ParserConfig parseConfig(ctx, /*verifyAfterParse=*/false);
+    auto module = mlir::parseSourceString<mlir::ModuleOp>(ir, parseConfig);
+    if (!module) {
+        return {};
+    }
+    vpux::config::setParamInModule(module.get(), vpux::config::Platform::NPU6010,
+                                   /*numClusters=*/2, std::nullopt, std::nullopt, true);
+    return module;
+}
+}  // namespace
+
+// ---------------------------------------------------------------------------
+// MaxPool tests – getTileTypes returns [input, act_out, rmax, rmin] = 4 types.
+// axes_value=[1] reduces C (dim 1 in NHWC) from 32 to 1 in the reduce outputs.
+// ---------------------------------------------------------------------------
+
+// strategy=SOH, outTile H-offset tile: offsets=[0,0,2,0] shape=[1,32,9,16].
+TEST_F(MLIR_VPU_GetTileTypes, NCEMaxPool_SOH_Htile) {
+    mlir::MLIRContext ctx(registry);
+    auto module = parseGetTileTypesModule(&ctx, K_GET_TILE_TYPES_POOL_THREE_RESULTS);
+    ASSERT_TRUE(module.get() != nullptr);
+
+    VPU::NCEMaxPoolOp maxPoolOp;
+    module.get()->walk([&](VPU::NCEMaxPoolOp op) {
+        maxPoolOp = op;
+        return mlir::WalkResult::interrupt();
+    });
+    ASSERT_TRUE(maxPoolOp != nullptr);
+
+    TileInfo outTile(4);
+    outTile.shape = Shape{1, 32, 9, 16};
+    outTile.offsets = Shape{0, 0, 2, 0};
+    outTile.axis = Shape{1, 1, 2, 1};
+
+    const auto tileTypes = VPU::getTileTypes(maxPoolOp.getOperation(), outTile,
+                                             VPU::MultiClusterStrategy::SplitOverHeight, std::nullopt);
+
+    // [input, act_out, rmax, rmin]
+    ASSERT_EQ(tileTypes.size(), 4u);
+
+    // Input: kernel=1x1, pad=0, stride=1 → same spatial region as output tile.
+    EXPECT_EQ(tileTypes[0].getShape(), (Shape{1, 32, 9, 16}));
+    // Main activation output tile.
+    EXPECT_EQ(tileTypes[1].getShape(), (Shape{1, 32, 9, 16}));
+    // Reduce outputs: axes_value=[1] collapses C from 32 to 1.
+    EXPECT_EQ(tileTypes[2].getShape(), (Shape{1, 1, 9, 16}));
+    EXPECT_EQ(tileTypes[3].getShape(), (Shape{1, 1, 9, 16}));
+
+    // All types are distributed (strategy provided).
+    EXPECT_TRUE(mlir::isa<VPU::DistributedTensorType>(tileTypes[0]));
+    EXPECT_TRUE(mlir::isa<VPU::DistributedTensorType>(tileTypes[1]));
+    EXPECT_TRUE(mlir::isa<VPU::DistributedTensorType>(tileTypes[2]));
+    EXPECT_TRUE(mlir::isa<VPU::DistributedTensorType>(tileTypes[3]));
+
+    // Distribution checks: OVERLAPPED over H (no halo, no consumers), 2 clusters.
+    {
+        const auto actDist = VPU::DistributionInfo::getClassFromAttr(
+                mlir::cast<VPU::DistributedTensorType>(tileTypes[1]).getDistribution());
+        checkDistributionInfo(actDist, VPU::DistributionMode::OVERLAPPED, {1, 1, 2, 1}, 2,
+                              /*computeShapes=*/{{1, 32, 5, 16}, {1, 32, 4, 16}},
+                              /*computeOffsets=*/{{0, 0, 0, 0}, {0, 0, 5, 0}},
+                              /*memShapes=*/{{1, 32, 5, 16}, {1, 32, 4, 16}},
+                              /*memOffsets=*/{{0, 0, 0, 0}, {0, 0, 5, 0}});
+        for (size_t i = 2; i <= 3; ++i) {
+            checkReduceDistribution(VPU::DistributionInfo::getClassFromAttr(
+                                            mlir::cast<VPU::DistributedTensorType>(tileTypes[i]).getDistribution()),
+                                    actDist);
+        }
+    }
+}
+
+// strategy=SOH, outTile W-offset tile: offsets=[0,0,0,10] shape=[1,32,16,6].
+TEST_F(MLIR_VPU_GetTileTypes, NCEMaxPool_SOH_Wtile) {
+    mlir::MLIRContext ctx(registry);
+    auto module = parseGetTileTypesModule(&ctx, K_GET_TILE_TYPES_POOL_THREE_RESULTS);
+    ASSERT_TRUE(module.get() != nullptr);
+
+    VPU::NCEMaxPoolOp maxPoolOp;
+    module.get()->walk([&](VPU::NCEMaxPoolOp op) {
+        maxPoolOp = op;
+        return mlir::WalkResult::interrupt();
+    });
+    ASSERT_TRUE(maxPoolOp != nullptr);
+
+    TileInfo outTile(4);
+    outTile.shape = Shape{1, 32, 16, 6};
+    outTile.offsets = Shape{0, 0, 0, 10};
+    outTile.axis = Shape{1, 1, 1, 2};
+
+    const auto tileTypes = VPU::getTileTypes(maxPoolOp.getOperation(), outTile,
+                                             VPU::MultiClusterStrategy::SplitOverHeight, std::nullopt);
+
+    ASSERT_EQ(tileTypes.size(), 4u);
+
+    EXPECT_EQ(tileTypes[0].getShape(), (Shape{1, 32, 16, 6}));
+    EXPECT_EQ(tileTypes[1].getShape(), (Shape{1, 32, 16, 6}));
+    EXPECT_EQ(tileTypes[2].getShape(), (Shape{1, 1, 16, 6}));
+    EXPECT_EQ(tileTypes[3].getShape(), (Shape{1, 1, 16, 6}));
+
+    EXPECT_TRUE(mlir::isa<VPU::DistributedTensorType>(tileTypes[0]));
+    EXPECT_TRUE(mlir::isa<VPU::DistributedTensorType>(tileTypes[1]));
+    EXPECT_TRUE(mlir::isa<VPU::DistributedTensorType>(tileTypes[2]));
+    EXPECT_TRUE(mlir::isa<VPU::DistributedTensorType>(tileTypes[3]));
+
+    // Distribution checks: OVERLAPPED over H (no halo), 2 clusters.
+    {
+        const auto actDist = VPU::DistributionInfo::getClassFromAttr(
+                mlir::cast<VPU::DistributedTensorType>(tileTypes[1]).getDistribution());
+        checkDistributionInfo(actDist, VPU::DistributionMode::OVERLAPPED, {1, 1, 2, 1}, 2,
+                              {{1, 32, 8, 6}, {1, 32, 8, 6}}, {{0, 0, 0, 0}, {0, 0, 8, 0}},
+                              {{1, 32, 8, 6}, {1, 32, 8, 6}}, {{0, 0, 0, 0}, {0, 0, 8, 0}});
+        for (size_t i = 2; i <= 3; ++i) {
+            checkReduceDistribution(VPU::DistributionInfo::getClassFromAttr(
+                                            mlir::cast<VPU::DistributedTensorType>(tileTypes[i]).getDistribution()),
+                                    actDist);
+        }
+    }
+}
+
+// strategy=HKSwitch, outTile H-offset tile: offsets=[0,0,2,0] shape=[1,32,9,16].
+TEST_F(MLIR_VPU_GetTileTypes, NCEMaxPool_HKSwitch_Htile) {
+    mlir::MLIRContext ctx(registry);
+    auto module = parseGetTileTypesModule(&ctx, K_GET_TILE_TYPES_POOL_THREE_RESULTS);
+    ASSERT_TRUE(module.get() != nullptr);
+
+    VPU::NCEMaxPoolOp maxPoolOp;
+    module.get()->walk([&](VPU::NCEMaxPoolOp op) {
+        maxPoolOp = op;
+        return mlir::WalkResult::interrupt();
+    });
+    ASSERT_TRUE(maxPoolOp != nullptr);
+
+    TileInfo outTile(4);
+    outTile.shape = Shape{1, 32, 9, 16};
+    outTile.offsets = Shape{0, 0, 2, 0};
+    outTile.axis = Shape{1, 1, 2, 1};
+
+    const auto tileTypes =
+            VPU::getTileTypes(maxPoolOp.getOperation(), outTile, VPU::MultiClusterStrategy::HKSwitch, std::nullopt);
+
+    ASSERT_EQ(tileTypes.size(), 4u);
+
+    EXPECT_EQ(tileTypes[0].getShape(), (Shape{1, 32, 9, 16}));
+    EXPECT_EQ(tileTypes[1].getShape(), (Shape{1, 32, 9, 16}));
+    EXPECT_EQ(tileTypes[2].getShape(), (Shape{1, 1, 9, 16}));
+    EXPECT_EQ(tileTypes[3].getShape(), (Shape{1, 1, 9, 16}));
+
+    EXPECT_TRUE(mlir::isa<VPU::DistributedTensorType>(tileTypes[0]));
+    EXPECT_TRUE(mlir::isa<VPU::DistributedTensorType>(tileTypes[1]));
+    EXPECT_TRUE(mlir::isa<VPU::DistributedTensorType>(tileTypes[2]));
+    EXPECT_TRUE(mlir::isa<VPU::DistributedTensorType>(tileTypes[3]));
+
+    const auto expectedNumTiles = SmallVector<int64_t>{1, 1, 2, 1};
+    // Distribution checks: SEGMENTED over H because fused reduce outputs disable HKSwitch multicast, 2 clusters.
+    // Track E#233730. Support halo-sharing for reduce buffer.
+    {
+        const auto actDist = VPU::DistributionInfo::getClassFromAttr(
+                mlir::cast<VPU::DistributedTensorType>(tileTypes[1]).getDistribution());
+        EXPECT_EQ(actDist.getDistributionMode(), VPU::DistributionMode::SEGMENTED);
+        EXPECT_EQ(actDist.getNumTiles(), ArrayRef<int64_t>(expectedNumTiles));
+
+        for (size_t i = 2; i <= 3; ++i) {
+            checkReduceDistribution(VPU::DistributionInfo::getClassFromAttr(
+                                            mlir::cast<VPU::DistributedTensorType>(tileTypes[i]).getDistribution()),
+                                    actDist);
+        }
+    }
+}
+
+// strategy=HKSwitch, outTile W-offset tile: offsets=[0,0,0,10] shape=[1,32,16,6].
+TEST_F(MLIR_VPU_GetTileTypes, NCEMaxPool_HKSwitch_Wtile) {
+    mlir::MLIRContext ctx(registry);
+    auto module = parseGetTileTypesModule(&ctx, K_GET_TILE_TYPES_POOL_THREE_RESULTS);
+    ASSERT_TRUE(module.get() != nullptr);
+
+    VPU::NCEMaxPoolOp maxPoolOp;
+    module.get()->walk([&](VPU::NCEMaxPoolOp op) {
+        maxPoolOp = op;
+        return mlir::WalkResult::interrupt();
+    });
+    ASSERT_TRUE(maxPoolOp != nullptr);
+
+    TileInfo outTile(4);
+    outTile.shape = Shape{1, 32, 16, 6};
+    outTile.offsets = Shape{0, 0, 0, 10};
+    outTile.axis = Shape{1, 1, 1, 2};
+
+    const auto tileTypes =
+            VPU::getTileTypes(maxPoolOp.getOperation(), outTile, VPU::MultiClusterStrategy::HKSwitch, std::nullopt);
+
+    ASSERT_EQ(tileTypes.size(), 4u);
+
+    EXPECT_EQ(tileTypes[0].getShape(), (Shape{1, 32, 16, 6}));
+    EXPECT_EQ(tileTypes[1].getShape(), (Shape{1, 32, 16, 6}));
+    EXPECT_EQ(tileTypes[2].getShape(), (Shape{1, 1, 16, 6}));
+    EXPECT_EQ(tileTypes[3].getShape(), (Shape{1, 1, 16, 6}));
+
+    EXPECT_TRUE(mlir::isa<VPU::DistributedTensorType>(tileTypes[0]));
+    EXPECT_TRUE(mlir::isa<VPU::DistributedTensorType>(tileTypes[1]));
+    EXPECT_TRUE(mlir::isa<VPU::DistributedTensorType>(tileTypes[2]));
+    EXPECT_TRUE(mlir::isa<VPU::DistributedTensorType>(tileTypes[3]));
+
+    const auto expectedNumTiles = SmallVector<int64_t>{1, 1, 2, 1};
+    // Distribution checks: SEGMENTED over H because fused reduce outputs disable HKSwitch multicast, 2 clusters.
+    // Track E#233730. Support halo-sharing for reduce buffer.
+    {
+        const auto actDist = VPU::DistributionInfo::getClassFromAttr(
+                mlir::cast<VPU::DistributedTensorType>(tileTypes[1]).getDistribution());
+        EXPECT_EQ(actDist.getDistributionMode(), VPU::DistributionMode::SEGMENTED);
+        EXPECT_EQ(actDist.getNumTiles(), ArrayRef<int64_t>(expectedNumTiles));
+        for (size_t i = 2; i <= 3; ++i) {
+            checkReduceDistribution(VPU::DistributionInfo::getClassFromAttr(
+                                            mlir::cast<VPU::DistributedTensorType>(tileTypes[i]).getDistribution()),
+                                    actDist);
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// NCEMatMul tests – getTileTypes returns [input, filter, act_out, rmax, rmin] = 5 types.
+// GNHWC layout; axes_value=[2] reduces C (logical dim 2) from 32 to 1.
+// ---------------------------------------------------------------------------
+
+// strategy=SOG, H-offset tile: offsets=[0,0,0,2,0] shape=[3,1,32,9,16].
+TEST_F(MLIR_VPU_GetTileTypes, NCEMatMul_SOG_Htile) {
+    mlir::MLIRContext ctx(registry);
+    auto module = parseGetTileTypesModule(&ctx, K_GET_TILE_TYPES_MATMUL_REDUCE_C);
+    ASSERT_TRUE(module.get() != nullptr);
+
+    VPU::NCEMatMulOp matMulOp;
+    module.get()->walk([&](VPU::NCEMatMulOp op) {
+        matMulOp = op;
+        return mlir::WalkResult::interrupt();
+    });
+    ASSERT_TRUE(matMulOp != nullptr);
+
+    TileInfo outTile(5);
+    outTile.shape = Shape{3, 1, 32, 9, 16};
+    outTile.offsets = Shape{0, 0, 0, 2, 0};
+    outTile.axis = Shape{1, 1, 1, 2, 1};
+
+    const auto tileTypes = VPU::getTileTypes(matMulOp.getOperation(), outTile,
+                                             VPU::MultiClusterStrategy::SplitOverGroup, std::nullopt);
+
+    // [input, filter, act_out, rmax, rmin]
+    ASSERT_EQ(tileTypes.size(), 5u);
+
+    // Main activation output tile.
+    EXPECT_EQ(tileTypes[2].getShape(), (Shape{3, 1, 32, 9, 16}));
+    // Reduce outputs: axes_value=[2] collapses C (dim 2 in GNHWC logical) from 32 to 1.
+    EXPECT_EQ(tileTypes[3].getShape(), (Shape{3, 1, 1, 9, 16}));
+    EXPECT_EQ(tileTypes[4].getShape(), (Shape{3, 1, 1, 9, 16}));
+
+    EXPECT_TRUE(mlir::isa<VPU::DistributedTensorType>(tileTypes[0]));
+    EXPECT_TRUE(mlir::isa<VPU::DistributedTensorType>(tileTypes[1]));
+    EXPECT_TRUE(mlir::isa<VPU::DistributedTensorType>(tileTypes[2]));
+    EXPECT_TRUE(mlir::isa<VPU::DistributedTensorType>(tileTypes[3]));
+    EXPECT_TRUE(mlir::isa<VPU::DistributedTensorType>(tileTypes[4]));
+
+    const auto expectedNumTiles = SmallVector<int64_t>{2, 1, 1, 1, 1};
+    // Distribution checks: SEGMENTED over G (SOG), 2 clusters. G=3 → [2,1].
+    {
+        const auto actDist = VPU::DistributionInfo::getClassFromAttr(
+                mlir::cast<VPU::DistributedTensorType>(tileTypes[2]).getDistribution());
+        EXPECT_EQ(actDist.getDistributionMode(), VPU::DistributionMode::SEGMENTED);
+        EXPECT_EQ(actDist.getNumTiles(), ArrayRef<int64_t>(expectedNumTiles));
+        for (size_t i = 3; i <= 4; ++i) {
+            checkReduceDistribution(VPU::DistributionInfo::getClassFromAttr(
+                                            mlir::cast<VPU::DistributedTensorType>(tileTypes[i]).getDistribution()),
+                                    actDist);
+        }
+    }
+}
+
+// strategy=SOG, G-offset tile: offsets=[1,0,0,0,0] shape=[2,1,32,9,16].
+TEST_F(MLIR_VPU_GetTileTypes, NCEMatMul_SOG_Gtile) {
+    mlir::MLIRContext ctx(registry);
+    auto module = parseGetTileTypesModule(&ctx, K_GET_TILE_TYPES_MATMUL_REDUCE_C);
+    ASSERT_TRUE(module.get() != nullptr);
+
+    VPU::NCEMatMulOp matMulOp;
+    module.get()->walk([&](VPU::NCEMatMulOp op) {
+        matMulOp = op;
+        return mlir::WalkResult::interrupt();
+    });
+    ASSERT_TRUE(matMulOp != nullptr);
+
+    TileInfo outTile(5);
+    outTile.shape = Shape{2, 1, 32, 9, 16};
+    outTile.offsets = Shape{1, 0, 0, 0, 0};
+    outTile.axis = Shape{2, 1, 1, 1, 1};
+
+    const auto tileTypes = VPU::getTileTypes(matMulOp.getOperation(), outTile,
+                                             VPU::MultiClusterStrategy::SplitOverGroup, std::nullopt);
+
+    ASSERT_EQ(tileTypes.size(), 5u);
+
+    EXPECT_EQ(tileTypes[2].getShape(), (Shape{2, 1, 32, 9, 16}));
+    EXPECT_EQ(tileTypes[3].getShape(), (Shape{2, 1, 1, 9, 16}));
+    EXPECT_EQ(tileTypes[4].getShape(), (Shape{2, 1, 1, 9, 16}));
+
+    EXPECT_TRUE(mlir::isa<VPU::DistributedTensorType>(tileTypes[0]));
+    EXPECT_TRUE(mlir::isa<VPU::DistributedTensorType>(tileTypes[1]));
+    EXPECT_TRUE(mlir::isa<VPU::DistributedTensorType>(tileTypes[2]));
+    EXPECT_TRUE(mlir::isa<VPU::DistributedTensorType>(tileTypes[3]));
+    EXPECT_TRUE(mlir::isa<VPU::DistributedTensorType>(tileTypes[4]));
+
+    const auto expectedNumTiles = SmallVector<int64_t>{2, 1, 1, 1, 1};
+    // Distribution checks: SEGMENTED over G (SOG), 2 clusters. G=2 → [1,1].
+    {
+        const auto actDist = VPU::DistributionInfo::getClassFromAttr(
+                mlir::cast<VPU::DistributedTensorType>(tileTypes[2]).getDistribution());
+        EXPECT_EQ(actDist.getDistributionMode(), VPU::DistributionMode::SEGMENTED);
+        EXPECT_EQ(actDist.getNumTiles(), ArrayRef<int64_t>(expectedNumTiles));
+        for (size_t i = 3; i <= 4; ++i) {
+            checkReduceDistribution(VPU::DistributionInfo::getClassFromAttr(
+                                            mlir::cast<VPU::DistributedTensorType>(tileTypes[i]).getDistribution()),
+                                    actDist);
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// NCEConv tests – getTileTypes returns [input, filter, act_out, rmax, rmin] = 5 types.
+// axes_value=[1] reduces C (dim 1 in NHWC) from 32 to 1.
+// ---------------------------------------------------------------------------
+
+// strategy=SOH, H-offset tile: offsets=[0,0,7,0] shape=[1,32,9,16].
+TEST_F(MLIR_VPU_GetTileTypes, NCEConv_SOH_Htile) {
+    mlir::MLIRContext ctx(registry);
+    auto module = parseGetTileTypesModule(&ctx, K_GET_TILE_TYPES_CONV_THREE_RESULTS);
+    ASSERT_TRUE(module.get() != nullptr);
+
+    VPU::NCEConvolutionOp convOp;
+    module.get()->walk([&](VPU::NCEConvolutionOp op) {
+        convOp = op;
+        return mlir::WalkResult::interrupt();
+    });
+    ASSERT_TRUE(convOp != nullptr);
+
+    TileInfo outTile(4);
+    outTile.shape = Shape{1, 32, 9, 16};
+    outTile.offsets = Shape{0, 0, 7, 0};
+    outTile.axis = Shape{1, 1, 2, 1};
+
+    const auto tileTypes =
+            VPU::getTileTypes(convOp.getOperation(), outTile, VPU::MultiClusterStrategy::SplitOverHeight, std::nullopt);
+
+    // [input, filter, act_out, rmax, rmin]
+    ASSERT_EQ(tileTypes.size(), 5u);
+
+    // Main activation output tile.
+    EXPECT_EQ(tileTypes[2].getShape(), (Shape{1, 32, 9, 16}));
+    // Reduce outputs: axes_value=[1] collapses C from 32 to 1.
+    EXPECT_EQ(tileTypes[3].getShape(), (Shape{1, 1, 9, 16}));
+    EXPECT_EQ(tileTypes[4].getShape(), (Shape{1, 1, 9, 16}));
+
+    EXPECT_TRUE(mlir::isa<VPU::DistributedTensorType>(tileTypes[0]));
+    EXPECT_TRUE(mlir::isa<VPU::DistributedTensorType>(tileTypes[1]));
+    EXPECT_TRUE(mlir::isa<VPU::DistributedTensorType>(tileTypes[2]));
+    EXPECT_TRUE(mlir::isa<VPU::DistributedTensorType>(tileTypes[3]));
+    EXPECT_TRUE(mlir::isa<VPU::DistributedTensorType>(tileTypes[4]));
+
+    // Distribution checks: OVERLAPPED over H (no halo), 2 clusters. H=9 → [5,4].
+    {
+        const auto actDist = VPU::DistributionInfo::getClassFromAttr(
+                mlir::cast<VPU::DistributedTensorType>(tileTypes[2]).getDistribution());
+        checkDistributionInfo(actDist, VPU::DistributionMode::OVERLAPPED, {1, 1, 2, 1}, 2,
+                              {{1, 32, 5, 16}, {1, 32, 4, 16}}, {{0, 0, 0, 0}, {0, 0, 5, 0}},
+                              {{1, 32, 5, 16}, {1, 32, 4, 16}}, {{0, 0, 0, 0}, {0, 0, 5, 0}});
+        for (size_t i = 3; i <= 4; ++i) {
+            checkReduceDistribution(VPU::DistributionInfo::getClassFromAttr(
+                                            mlir::cast<VPU::DistributedTensorType>(tileTypes[i]).getDistribution()),
+                                    actDist);
+        }
+    }
+}
+
+// strategy=SOH, W-offset tile: offsets=[0,0,0,0] shape=[1,32,16,9].
+TEST_F(MLIR_VPU_GetTileTypes, NCEConv_SOH_Wtile) {
+    mlir::MLIRContext ctx(registry);
+    auto module = parseGetTileTypesModule(&ctx, K_GET_TILE_TYPES_CONV_THREE_RESULTS);
+    ASSERT_TRUE(module.get() != nullptr);
+
+    VPU::NCEConvolutionOp convOp;
+    module.get()->walk([&](VPU::NCEConvolutionOp op) {
+        convOp = op;
+        return mlir::WalkResult::interrupt();
+    });
+    ASSERT_TRUE(convOp != nullptr);
+
+    TileInfo outTile(4);
+    outTile.shape = Shape{1, 32, 16, 9};
+    outTile.offsets = Shape{0, 0, 0, 0};
+    outTile.axis = Shape{1, 1, 1, 2};
+
+    const auto tileTypes =
+            VPU::getTileTypes(convOp.getOperation(), outTile, VPU::MultiClusterStrategy::SplitOverHeight, std::nullopt);
+
+    ASSERT_EQ(tileTypes.size(), 5u);
+
+    EXPECT_EQ(tileTypes[2].getShape(), (Shape{1, 32, 16, 9}));
+    EXPECT_EQ(tileTypes[3].getShape(), (Shape{1, 1, 16, 9}));
+    EXPECT_EQ(tileTypes[4].getShape(), (Shape{1, 1, 16, 9}));
+
+    EXPECT_TRUE(mlir::isa<VPU::DistributedTensorType>(tileTypes[0]));
+    EXPECT_TRUE(mlir::isa<VPU::DistributedTensorType>(tileTypes[1]));
+    EXPECT_TRUE(mlir::isa<VPU::DistributedTensorType>(tileTypes[2]));
+    EXPECT_TRUE(mlir::isa<VPU::DistributedTensorType>(tileTypes[3]));
+    EXPECT_TRUE(mlir::isa<VPU::DistributedTensorType>(tileTypes[4]));
+
+    // Distribution checks: OVERLAPPED over H (no halo), 2 clusters. H=16 → [8,8].
+    {
+        const auto actDist = VPU::DistributionInfo::getClassFromAttr(
+                mlir::cast<VPU::DistributedTensorType>(tileTypes[2]).getDistribution());
+        checkDistributionInfo(actDist, VPU::DistributionMode::OVERLAPPED, {1, 1, 2, 1}, 2,
+                              {{1, 32, 8, 9}, {1, 32, 8, 9}}, {{0, 0, 0, 0}, {0, 0, 8, 0}},
+                              {{1, 32, 8, 9}, {1, 32, 8, 9}}, {{0, 0, 0, 0}, {0, 0, 8, 0}});
+        for (size_t i = 3; i <= 4; ++i) {
+            checkReduceDistribution(VPU::DistributionInfo::getClassFromAttr(
+                                            mlir::cast<VPU::DistributedTensorType>(tileTypes[i]).getDistribution()),
+                                    actDist);
+        }
+    }
+}
+
+// strategy=HKSwitch, H-half tile: offsets=[0,0,0,0] shape=[1,32,9,16].
+TEST_F(MLIR_VPU_GetTileTypes, NCEConv_HKSwitch_Htile) {
+    mlir::MLIRContext ctx(registry);
+    auto module = parseGetTileTypesModule(&ctx, K_GET_TILE_TYPES_CONV_THREE_RESULTS);
+    ASSERT_TRUE(module.get() != nullptr);
+
+    VPU::NCEConvolutionOp convOp;
+    module.get()->walk([&](VPU::NCEConvolutionOp op) {
+        convOp = op;
+        return mlir::WalkResult::interrupt();
+    });
+    ASSERT_TRUE(convOp != nullptr);
+
+    TileInfo outTile(4);
+    outTile.shape = Shape{1, 32, 9, 16};
+    outTile.offsets = Shape{0, 0, 0, 0};
+    outTile.axis = Shape{1, 1, 2, 1};
+
+    const auto tileTypes =
+            VPU::getTileTypes(convOp.getOperation(), outTile, VPU::MultiClusterStrategy::HKSwitch, std::nullopt);
+
+    ASSERT_EQ(tileTypes.size(), 5u);
+
+    EXPECT_EQ(tileTypes[2].getShape(), (Shape{1, 32, 9, 16}));
+    EXPECT_EQ(tileTypes[3].getShape(), (Shape{1, 1, 9, 16}));
+    EXPECT_EQ(tileTypes[4].getShape(), (Shape{1, 1, 9, 16}));
+
+    EXPECT_TRUE(mlir::isa<VPU::DistributedTensorType>(tileTypes[0]));
+    EXPECT_TRUE(mlir::isa<VPU::DistributedTensorType>(tileTypes[1]));
+    EXPECT_TRUE(mlir::isa<VPU::DistributedTensorType>(tileTypes[2]));
+    EXPECT_TRUE(mlir::isa<VPU::DistributedTensorType>(tileTypes[3]));
+    EXPECT_TRUE(mlir::isa<VPU::DistributedTensorType>(tileTypes[4]));
+
+    const auto expectedNumTiles = SmallVector<int64_t>{1, 1, 2, 1};
+    // Distribution checks: SEGMENTED over H because fused reduce outputs disable HKSwitch multicast, 2 clusters.
+    // Track E#233730. Support halo-sharing for reduce buffer.
+    {
+        const auto actDist = VPU::DistributionInfo::getClassFromAttr(
+                mlir::cast<VPU::DistributedTensorType>(tileTypes[2]).getDistribution());
+        EXPECT_EQ(actDist.getDistributionMode(), VPU::DistributionMode::SEGMENTED);
+        EXPECT_EQ(actDist.getNumTiles(), ArrayRef<int64_t>(expectedNumTiles));
+        for (size_t i = 3; i <= 4; ++i) {
+            checkReduceDistribution(VPU::DistributionInfo::getClassFromAttr(
+                                            mlir::cast<VPU::DistributedTensorType>(tileTypes[i]).getDistribution()),
+                                    actDist);
+        }
+    }
+}
+
+// strategy=HKSwitch, W-offset tile: offsets=[0,0,0,7] shape=[1,32,16,9].
+TEST_F(MLIR_VPU_GetTileTypes, NCEConv_HKSwitch_Wtile) {
+    mlir::MLIRContext ctx(registry);
+    auto module = parseGetTileTypesModule(&ctx, K_GET_TILE_TYPES_CONV_THREE_RESULTS);
+    ASSERT_TRUE(module.get() != nullptr);
+
+    VPU::NCEConvolutionOp convOp;
+    module.get()->walk([&](VPU::NCEConvolutionOp op) {
+        convOp = op;
+        return mlir::WalkResult::interrupt();
+    });
+    ASSERT_TRUE(convOp != nullptr);
+
+    TileInfo outTile(4);
+    outTile.shape = Shape{1, 32, 16, 9};
+    outTile.offsets = Shape{0, 0, 0, 7};
+    outTile.axis = Shape{1, 1, 1, 2};
+
+    const auto tileTypes =
+            VPU::getTileTypes(convOp.getOperation(), outTile, VPU::MultiClusterStrategy::HKSwitch, std::nullopt);
+
+    ASSERT_EQ(tileTypes.size(), 5u);
+
+    EXPECT_EQ(tileTypes[2].getShape(), (Shape{1, 32, 16, 9}));
+    EXPECT_EQ(tileTypes[3].getShape(), (Shape{1, 1, 16, 9}));
+    EXPECT_EQ(tileTypes[4].getShape(), (Shape{1, 1, 16, 9}));
+
+    EXPECT_TRUE(mlir::isa<VPU::DistributedTensorType>(tileTypes[0]));
+    EXPECT_TRUE(mlir::isa<VPU::DistributedTensorType>(tileTypes[1]));
+    EXPECT_TRUE(mlir::isa<VPU::DistributedTensorType>(tileTypes[2]));
+    EXPECT_TRUE(mlir::isa<VPU::DistributedTensorType>(tileTypes[3]));
+    EXPECT_TRUE(mlir::isa<VPU::DistributedTensorType>(tileTypes[4]));
+
+    const auto expectedNumTiles = SmallVector<int64_t>{1, 1, 2, 1};
+    // Distribution checks: SEGMENTED over H because fused reduce outputs disable HKSwitch multicast, 2 clusters.
+    // Track E#233730. Support halo-sharing for reduce buffer.
+    {
+        const auto actDist = VPU::DistributionInfo::getClassFromAttr(
+                mlir::cast<VPU::DistributedTensorType>(tileTypes[2]).getDistribution());
+        EXPECT_EQ(actDist.getDistributionMode(), VPU::DistributionMode::SEGMENTED);
+        EXPECT_EQ(actDist.getNumTiles(), ArrayRef<int64_t>(expectedNumTiles));
+        for (size_t i = 3; i <= 4; ++i) {
+            checkReduceDistribution(VPU::DistributionInfo::getClassFromAttr(
+                                            mlir::cast<VPU::DistributedTensorType>(tileTypes[i]).getDistribution()),
+                                    actDist);
+        }
+    }
 }
 
 TEST_F(MLIR_VPU_TestDividedTiles, optinalAlignmentForVF) {

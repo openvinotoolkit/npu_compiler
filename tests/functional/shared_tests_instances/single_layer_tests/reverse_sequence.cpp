@@ -74,6 +74,11 @@ TEST_P(ReverseSequenceLayerTestCommon, NPU5020_SW) {
     VpuOv2LayerTest::run(Platform::NPU5020);
 }
 
+TEST_P(ReverseSequenceLayerTestCommon, NPU6010_SW) {
+    VpuOv2LayerTest::setReferenceSoftwareMode();
+    VpuOv2LayerTest::run(Platform::NPU6010);
+}
+
 }  // namespace test
 }  // namespace ov
 

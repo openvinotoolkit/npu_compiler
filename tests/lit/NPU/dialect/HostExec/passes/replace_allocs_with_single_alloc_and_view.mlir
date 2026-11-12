@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="platform=%platform%" --replace-allocs-with-single-alloc-and-views --canonicalize --cse --verify-diagnostics %s | FileCheck %s
-// REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010
+// REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010 || platform-NPU6010
 
 func.func @StaticShapeAllocs(%arg0: memref<1x1024xf16>, %arg1: memref<1x1024xf16>) -> memref<1x1024xf16> {
     %alloc = memref.alloc() : memref<1x1024xf16>

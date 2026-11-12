@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="platform=%platform% compilation-mode=DefaultHW" --fuse-ops-to-matmul="enable-grouped-matmul=false" %s | FileCheck %s
-// REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010
+// REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010 || platform-NPU6010
 
 // CHECK-LABEL: @PropagateTransposeThroughMulAndReduce
 // CHECK-SAME:      [[ARG0:%.+]]: tensor<1x4x256x64x64xf16>, [[ARG1:%.+]]: tensor<1x4x256x64x128xf16>

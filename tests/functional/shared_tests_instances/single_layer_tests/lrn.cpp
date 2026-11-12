@@ -77,6 +77,21 @@ TEST_P(LrnLayerTestCommon_FP32, NPU5020_SW) {
     run(Platform::NPU5020);
 }
 
+TEST_P(LrnTilingLayerTestCommon_FP16, NPU6010_HW) {
+    setDefaultHardwareMode();
+    run(Platform::NPU6010);
+}
+
+TEST_P(LrnLayerTestCommon_FP16, NPU6010_SW) {
+    setReferenceSoftwareMode();
+    run(Platform::NPU6010);
+}
+
+TEST_P(LrnLayerTestCommon_FP32, NPU6010_SW) {
+    setReferenceSoftwareMode();
+    run(Platform::NPU6010);
+}
+
 }  // namespace test
 }  // namespace ov
 

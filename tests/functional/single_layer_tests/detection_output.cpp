@@ -831,6 +831,11 @@ TEST_P(DetectionOutputLayerTestCommon, NPU5010_HW) {
     run(Platform::NPU5010);
 }
 
+TEST_P(DetectionOutputLayerTestCommon, NPU6010_HW) {
+    setDefaultHardwareMode();
+    run(Platform::NPU6010);
+}
+
 //
 // 3 Inputs tests, all permutations
 //

@@ -11,7 +11,7 @@
 // RUN: FileCheck %s --input-file %t
 // RUN: FileCheck %s --check-prefix=NOLEAK --input-file %t
 // NPU3720 is excluded: it predates the ShaveCodeGen SW-kernel bufferization path.
-// REQUIRES: platform-NPU4000 || platform-NPU5010 || platform-NPU5020
+// REQUIRES: platform-NPU4000 || platform-NPU5010 || platform-NPU6010 || platform-NPU5020
 
 // extract_slice, dynamic tile size: strided memref.subview, result via memref.alloc + copy.
 module @ExtractSlicePlain {

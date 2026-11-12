@@ -7,6 +7,7 @@
 #include "vpux/compiler/dialect/VPUASM/ops.hpp"
 
 #include <npu_40xx_nnrt.hpp>
+#include <npu_60xx_nnrt.hpp>
 
 using namespace vpux;
 
@@ -15,6 +16,22 @@ using namespace vpux;
 //
 
 size_t VPUASM::DeclareTaskBufferOp::getBinarySize([[maybe_unused]] config::ArchKind arch) {
+    if (arch == config::ArchKind::NPU60XX) {
+        switch (getTaskType()) {
+        case VPURegMapped::TaskType::DMA:
+            return sizeof(npu60xx::nn_public::VpuDMATask);
+        case VPURegMapped::TaskType::ActKernelInvocation:
+            return sizeof(npu60xx::nn_public::VpuActKernelInvocation);
+        case VPURegMapped::TaskType::ActKernelRange:
+            return sizeof(npu60xx::nn_public::VpuActKernelRange);
+        case VPURegMapped::TaskType::DPUInvariant:
+            return sizeof(npu60xx::nn_public::VpuDPUInvariant);
+        case VPURegMapped::TaskType::DPUVariant:
+            return sizeof(npu60xx::nn_public::VpuDPUVariant);
+        default:
+            VPUX_THROW("Invalid task type for DeclareTaskBufferOp {0}", *this);
+        }
+    }
     switch (getTaskType()) {
     case VPURegMapped::TaskType::DMA:
         return sizeof(npu40xx::nn_public::VpuDMATask);

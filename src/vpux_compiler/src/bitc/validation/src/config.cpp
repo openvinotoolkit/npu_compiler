@@ -58,8 +58,9 @@ void verify_labels(std::set<std::string>& labels, config_map& config) {
         labels.erase("arch_type");
     }
     std::string arch_type = std::get<std::string>(config["arch_type"]);
-    if (arch_type != "NPU27"s && arch_type != "NPU4"s && arch_type != "NPU5"s) {
+    if (arch_type != "NPU27"s && arch_type != "NPU4"s && arch_type != "NPU5"s && arch_type != "NPU6"s) {
         throw std::logic_error{"Expected NPU27/4/5"
+                               "/6"
                                " for arch type, got: " +
                                arch_type};
     }

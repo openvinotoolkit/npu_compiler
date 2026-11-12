@@ -60,4 +60,11 @@ TEST_F(GroupConvBackpropDataInputFilterLayerTest, NPU5010_HW) {
     run(Platform::NPU5010);
 }
 
+TEST_F(GroupConvBackpropDataInputFilterLayerTest, NPU6010_HW) {
+    // The threshold is marked because the test runs with fp16 precision
+    abs_threshold = 0.5f;
+    setDefaultHardwareMode();
+    run(Platform::NPU6010);
+}
+
 }  // namespace ov::test::subgraph

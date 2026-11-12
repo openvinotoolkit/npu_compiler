@@ -212,6 +212,7 @@ mlir::Value convertToFp32ViaIdentityMaxPool(mlir::Location loc, mlir::Value inpu
 
     // Find the largest supported DW channel count that divides totalElems.
     // getSupportedChannelsDW() returns channels in descending order
+
     // so the first match is the largest valid channel count.
     // This assumption is load-bearing: a smaller poolC would produce a less-efficient workload.
     const auto& strategyFactory = VPU::getVPUStrategyFactory(ctx);

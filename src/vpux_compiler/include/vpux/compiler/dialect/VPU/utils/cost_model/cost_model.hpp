@@ -117,7 +117,7 @@ std::optional<VPUNN::DataType> getVPUNNElementType(mlir::Type type);
 std::optional<VPUNN::DataType> getVPUNNElementType(mlir::Type type, VPUNN::VPUDevice device);
 VPUNN::DataType getVPUNNWorkloadElementType(mlir::Type type, VPUNN::VPUDevice device);
 bool isVPUNNSupportedElementType(mlir::Type type, config::ArchKind arch);
-// SHAVE type mapping uses the legacy mapping through NPU_5_0_W
+// SHAVE type mapping keeps the upstream (legacy) behaviour below NPU_6_0
 VPUNN::VPUDevice getVPUNNShaveMappingDevice(VPUNN::VPUDevice device);
 VPUNN::Layout getVPUNNLayout(const vpux::DimsOrder& vpuxLayout);
 VPUNN::VPUTensor getVPUTensor(ShapeRef shape, mlir::Type elemType, VPUNN::VPUDevice device,

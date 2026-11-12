@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="platform=%platform%" --convert-weights-to-unsigned --canonicalize %s | FileCheck %s
-// REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010
+// REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010 || platform-NPU6010
 
 !qElemType = !quant.uniform<u8<0:254>:f16:0, {0.010680671751968504:127,0.0081200787401574797:127,0.010596087598425197:127}>
 !qElemType1 = !quant.uniform<i8<-127:127>:f16:0, {0.010680671751968504,0.0081200787401574797,0.010596087598425197}>

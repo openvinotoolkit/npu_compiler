@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="platform=%platform% compilation-mode=DefaultHW allow-custom-values=false" -verify-diagnostics %s
-// REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010
+// REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010 || platform-NPU6010
 
 // expected-error@+1 {{CompilationMode is already defined, probably you run '--init-compiler' twice}}
 module @mode attributes {config.compilationMode = #config.compilation_mode<ReferenceSW>} {

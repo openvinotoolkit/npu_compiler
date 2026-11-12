@@ -110,6 +110,12 @@ TEST_P(DynamicConvBiasConvTest, NPU5010_HW_TestKindSubgraph) {
     run(Platform::NPU5010);
 }
 
+TEST_P(DynamicConvBiasConvTest, NPU6010_HW_TestKindSubgraph) {
+    abs_threshold = std::numeric_limits<float>::epsilon();
+    setDefaultHardwareMode();
+    run(Platform::NPU6010);
+}
+
 const std::vector<ov::test::InputShape> inShapes = {
         generateTestShape(1, 3, 32_Dyn, 16),      // dynamic H
         generateTestShape(1, 3, 16, 32_Dyn),      // dynamic W

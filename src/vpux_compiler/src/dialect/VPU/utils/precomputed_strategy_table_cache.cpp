@@ -114,6 +114,12 @@ EngineKind engineKindForOp(mlir::Operation* op) {
         return EngineKind::SCL;
     }
     return llvm::TypeSwitch<VPU::MPEEngineAttr, EngineKind>(mpeEngine.value())
+            .Case<VPU::MPEEngine60XXAttr>([](VPU::MPEEngine60XXAttr attr) -> EngineKind {
+                if (auto mode = attr.getMode(); mode && mode.getValue() == VPU::MPEEngine60XXMode::DCIM) {
+                    return EngineKind::DCIM;
+                }
+                return EngineKind::SCL;
+            })
             .Case<VPU::MPEEngine37XXAttr>([](VPU::MPEEngine37XXAttr) -> EngineKind {
                 return EngineKind::SCL;
             })

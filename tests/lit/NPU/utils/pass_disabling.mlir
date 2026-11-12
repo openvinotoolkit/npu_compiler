@@ -5,7 +5,7 @@
 
 // RUN: vpux-opt --split-input-file --init-compiler="platform=%platform% disabled-passes=set-memory-space" --set-memory-space="memory-space=DDR" %s | FileCheck --check-prefix=CHECK-DISABLED %s
 // RUN: vpux-opt --split-input-file --init-compiler="platform=%platform%" --set-memory-space="memory-space=DDR" %s | FileCheck --check-prefix=CHECK-ENABLED %s
-// REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010
+// REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010 || platform-NPU6010
 
 net.NetworkInfo entryPoint : @TestPassDisabled inputsInfo :  {
     DataInfo "input" : tensor<1x1000xf16>

@@ -658,10 +658,22 @@ TEST_P(AttentionTestCommon, NPU5010_HW) {
     run(Platform::NPU5010);
 }
 
+TEST_P(AttentionTestCommon, NPU6010_HW) {
+    abs_threshold = 0.012;
+    setDefaultHardwareMode();
+    run(Platform::NPU6010);
+}
+
 TEST_P(AttentionTestDecompose, NPU5010_HW) {
     abs_threshold = 0.012;
     setDefaultHardwareMode();
     run(Platform::NPU5010);
+}
+
+TEST_P(AttentionTestDecompose, NPU6010_HW) {
+    abs_threshold = 0.012;
+    setDefaultHardwareMode();
+    run(Platform::NPU6010);
 }
 
 TEST_P(AttentionTestDecomposeNPU4, NPU4000_HW) {

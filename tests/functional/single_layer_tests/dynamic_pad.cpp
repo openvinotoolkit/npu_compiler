@@ -192,6 +192,18 @@ TEST_P(DynamicPadDmaLayerTest, NPU5010_HW) {
     run(Platform::NPU5010);
 }
 
+TEST_P(DynamicPadLayerTest, NPU6010_HW) {
+    abs_threshold = 0.0f;
+    setDefaultHardwareMode();
+    run(Platform::NPU6010);
+}
+
+TEST_P(DynamicPadDmaLayerTest, NPU6010_HW) {
+    abs_threshold = 0.0f;
+    setDefaultHardwareMode();
+    run(Platform::NPU6010);
+}
+
 const std::vector<Type> inputPrecisions = {element::f32};
 
 const std::vector<std::vector<InputLayerType>> attributeTypes = {

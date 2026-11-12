@@ -11,7 +11,7 @@
 // self-contained and does not depend on any other tensor-op bufferization model.
 
 // RUN: vpux-opt --split-input-file --init-compiler="platform=%platform% allow-custom-values=true" --convert-tensor-pad-to-vpu-pad --one-shot-bufferize-VPU-to-VPUIP %s | FileCheck %s
-// REQUIRES: platform-NPU4000 || platform-NPU5010
+// REQUIRES: platform-NPU4000 || platform-NPU5010 || platform-NPU6010
 
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 

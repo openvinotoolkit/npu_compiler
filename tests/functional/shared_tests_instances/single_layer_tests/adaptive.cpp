@@ -49,6 +49,11 @@ TEST_P(AdaPoolLayerTestCommon, NPU5020_SW) {
     run(Platform::NPU5020);
 }
 
+TEST_P(AdaPoolLayerTestCommon, NPU6010_SW) {
+    abs_threshold = 0.02;
+    setReferenceSoftwareMode();
+    run(Platform::NPU6010);
+}
 }  // namespace test
 }  // namespace ov
 

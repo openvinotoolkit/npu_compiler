@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="platform=%platform%" --convert-dynamic-dequantize-to-fake-quantize --convert-precision-to-fp --split-fake-quant %s | FileCheck %s
-// REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010
+// REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010 || platform-NPU6010
 
 // Regression test for the vpux.fq_precise_scales/vpux.fq_precise_zero_points mechanism:
 // ConvertPrecisionToFP rounds the FakeQuantize output-limit constants to f16 in between

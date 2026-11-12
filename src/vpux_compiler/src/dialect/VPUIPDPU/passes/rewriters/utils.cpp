@@ -196,6 +196,8 @@ std::optional<ODUDataBitWidth> getOutDataWidth(mlir::Type outDataType) {
         return ODUDataBitWidth::ODU_DTYPE_8BIT;
     } else if (mlir::isa<mlir::Float8E5M2Type>(outDataType)) {
         return ODUDataBitWidth::ODU_DTYPE_8BIT;
+    } else if (outDataType.isInteger(16)) {
+        return ODUDataBitWidth::ODU_DTYPE_16BIT;
     } else if (outDataType.isSignedInteger(CHAR_BIT * sizeof(int32_t))) {
         return ODUDataBitWidth::ODU_DTYPE_32BIT;
     } else if (outDataType.isSignedInteger(CHAR_BIT * sizeof(int8_t))) {

@@ -68,6 +68,11 @@ TEST_P(ReverseLayerTestCommon, NPU5020_SW) {
     VpuOv2LayerTest::run(Platform::NPU5020);
 }
 
+TEST_P(ReverseLayerTestCommon, NPU6010_SW) {
+    VpuOv2LayerTest::setReferenceSoftwareMode();
+    VpuOv2LayerTest::run(Platform::NPU6010);
+}
+
 TEST_P(ReverseLayerTestCommon, NPU4000_HW) {
     VpuOv2LayerTest::setDefaultHardwareMode();
     VpuOv2LayerTest::run(Platform::NPU4000);
@@ -83,6 +88,11 @@ TEST_P(ReverseLayerTestCommon, NPU5020_HW) {
     // TODO E####-159644
     VpuOv2LayerTest::setBatchCompilerMode("unroll");
     VpuOv2LayerTest::run(Platform::NPU5020);
+}
+
+TEST_P(ReverseLayerTestCommon, NPU6010_HW) {
+    VpuOv2LayerTest::setDefaultHardwareMode();
+    VpuOv2LayerTest::run(Platform::NPU6010);
 }
 
 }  // namespace test

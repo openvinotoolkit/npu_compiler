@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="platform=%platform%" --add-abi-version="" %s | FileCheck %s
-// REQUIRES: platform-NPU4000 || platform-NPU5010
+// REQUIRES: platform-NPU4000 || platform-NPU5010 || platform-NPU6010
 
 net.NetworkInfo entryPoint : @oneDma inputsInfo : {
   DataInfo "input" : tensor<1x2x3x4xf16>

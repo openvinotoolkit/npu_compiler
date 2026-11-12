@@ -4,7 +4,7 @@
 //
 // RUN: vpux-opt %s --split-input-file --init-compiler="platform=%platform%" \
 // RUN:     --lower-math-to-shave-intrinsics | FileCheck %s
-// REQUIRES: platform-NPU4000 || platform-NPU5010
+// REQUIRES: platform-NPU4000 || platform-NPU5010 || platform-NPU6010
 
 module @Foo {
   module @VPU.SW {

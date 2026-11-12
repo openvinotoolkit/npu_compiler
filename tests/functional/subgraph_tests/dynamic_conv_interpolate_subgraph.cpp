@@ -140,6 +140,13 @@ TEST_P(InterpolateSubgraphDynInputLayerTest, NPU5010_HC_TestKindSubgraph) {
     run(Platform::NPU5010);
 }
 
+TEST_P(InterpolateSubgraphDynInputLayerTest, NPU6010_HC_TestKindSubgraph) {
+    abs_threshold = 0.0f;
+    setHostCompileMode();
+    setPluginCompilerType();
+    run(Platform::NPU6010);
+}
+
 const std::vector<ov::element::Type> modelTypes = {ov::element::f16};
 
 const std::vector<std::vector<float>> scalesList = {

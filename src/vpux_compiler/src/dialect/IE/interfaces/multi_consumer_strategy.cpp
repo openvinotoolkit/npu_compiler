@@ -381,6 +381,9 @@ IE::MPEConsumerAnalysis vpux::IE::classifyMPEEngineMappableConsumers(mlir::Opera
     if (op == nullptr) {
         return info;
     }
+    if (!config::isDCIMEnabled(op)) {
+        return info;
+    }
     const auto directUsers = getDirectUsers(op);
     if (directUsers.empty()) {
         return info;

@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="platform=%platform% num-of-dpu-groups=1" --fuse-scale --canonicalize %s | FileCheck %s
-// REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010
+// REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010 || platform-NPU6010
 
 // CHECK-LABEL: @DoNotFuseRoPEQueryScaleOnSingleTile
 func.func @DoNotFuseRoPEQueryScaleOnSingleTile(%arg0: tensor<1x2x4x3xf16>, %cos: tensor<1x1x4x3xf16>, %sin: tensor<1x1x4x3xf16>,

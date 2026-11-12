@@ -5,7 +5,7 @@
 
 // RUN: vpux-opt --split-input-file --init-compiler="platform=%platform%" --construct-ws-analysis --introduce-init-function="ws-extraction-mode=gen-init" %s | FileCheck --check-prefix=CHECK-INIT %s
 // RUN: vpux-opt --split-input-file --init-compiler="platform=%platform%" --construct-ws-analysis --introduce-init-function="ws-extraction-mode=gen-main" %s | FileCheck --check-prefix=CHECK-MAIN %s
-// REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010
+// REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010 || platform-NPU6010
 
 // This test file focuses on testing view-like-only constant transformations
 

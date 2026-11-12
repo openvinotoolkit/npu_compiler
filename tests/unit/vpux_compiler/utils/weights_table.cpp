@@ -47,6 +47,32 @@ void compareScaleRoundtrip(mlir::MLIRContext* ctx, double scale, config::ArchKin
         EXPECT_NEAR(scale, quantRes, approximationErr);
         return;
     }
+
+    if (arch <= config::ArchKind::NPU60XX && !isNewWeightsTable) {
+        auto convertRes = scaleConverter(0, 1, scale, nullptr);
+        const auto floatRes = scaleRetriever(convertRes, nullptr);
+        EXPECT_FLOAT_EQ(scale, floatRes);
+        return;
+    }
+
+    if (arch >= config::ArchKind::NPU60XX && isNewWeightsTable) {
+        mlir::Type scalesType = mlir::Float32Type::get(ctx);
+        auto convertRes = scaleConverter(0, 1, scale, scalesType);
+        const auto floatRes = scaleRetriever(convertRes, scalesType);
+        EXPECT_FLOAT_EQ(scale, floatRes);
+
+        scalesType = mlir::Float8E4M3FNType::get(ctx);
+        convertRes = scaleConverter(0, 1, scale, scalesType);
+        const auto fp8e4m3Res = scaleRetriever(convertRes, scalesType);
+        EXPECT_FLOAT_EQ(scale, fp8e4m3Res);
+
+        scalesType = mlir::Float8E5M2Type::get(ctx);
+        convertRes = scaleConverter(0, 1, scale, scalesType);
+        const auto fp8e5m2Res = scaleRetriever(convertRes, scalesType);
+        EXPECT_FLOAT_EQ(scale, fp8e5m2Res);
+    }
+
+    ASSERT_FALSE(arch > config::ArchKind::NPU60XX && !isNewWeightsTable);
 }
 
 TEST_F(MLIR_RetrieveScaleFromWeightTableUnitTest, retrieveScaleFromTable) {
@@ -56,4 +82,7 @@ TEST_F(MLIR_RetrieveScaleFromWeightTableUnitTest, retrieveScaleFromTable) {
     compareScaleRoundtrip(&ctx, 2.5, config::ArchKind::NPU37XX, false);
     compareScaleRoundtrip(&ctx, -0.000625, config::ArchKind::NPU40XX, false);
     compareScaleRoundtrip(&ctx, 1.025, config::ArchKind::NPU50XX, false);
+
+    compareScaleRoundtrip(&ctx, -3.12, config::ArchKind::NPU60XX, false);
+    compareScaleRoundtrip(&ctx, 0.5, config::ArchKind::NPU60XX, true);
 }

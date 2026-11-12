@@ -21,6 +21,7 @@ add_npu_library(npu_compiler_conversion
         npu_compiler_dialect_const
         npu_compiler_dialect_core
         npu_compiler_dialect_ie
+        npu_compiler_dialect_npureg60xx
         npu_compiler_dialect_vpu
         npu_compiler_dialect_vpu_utils
         npu_compiler_dialect_vpuasm
@@ -41,6 +42,7 @@ add_npu_library(npu_compiler_conversion
         # E#98178: remove dependency on firmware headers
         npu_37xx_firmware_headers
         npu_40xx_firmware_headers
+        npu_60xx_firmware_headers
         npu_compiler_dialect_elfnpu37xx
         npu_compiler_dialect_elf_utils
         MLIRMathTransforms
@@ -55,6 +57,7 @@ add_npu_library(npu_compiler_conversion
         npu_compiler_dialect_vpumi37xx
         npu_compiler_npu40xx
         npu_compiler_shave_code_gen
+        npu_compiler_vpuipdpu_60XX
         npu_compiler_act_kernels
         npu_core_utils
         npu_compiler_dialect_bytecode

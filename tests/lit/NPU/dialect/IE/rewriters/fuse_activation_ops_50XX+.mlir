@@ -5,7 +5,7 @@
 
 // RUN: vpux-opt --split-input-file --init-compiler="platform=%platform% compilation-mode=DefaultHW enable-sprlut=true" --fuse-activation-ops %s | FileCheck %s
 // RUN: vpux-opt --split-input-file --init-compiler="platform=%platform% compilation-mode=DefaultHW enable-sprlut=true" --run-adjust-for-vpu-rewriters="rewriter=fuse-activation-ops-set" %s | FileCheck %s
-// REQUIRES: platform-NPU5010
+// REQUIRES: platform-NPU5010 || platform-NPU6010
 
 // CHECK-LABEL: @FuseMaxPoolWithReluTest
 // CHECK-SAME:    ([[INPUT:%.+]]: tensor<1x16x4x4xf16>)

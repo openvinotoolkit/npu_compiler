@@ -70,5 +70,6 @@ TEST_P(PerformanceMetricsUtilsTest, PopulatesActivityFactorForPlatform) {
 }
 
 INSTANTIATE_TEST_SUITE_P(NPU50XX, PerformanceMetricsUtilsTest, testing::Values(config::Platform::NPU5010));
+INSTANTIATE_TEST_SUITE_P(NPU60XX, PerformanceMetricsUtilsTest, testing::Values(config::Platform::NPU6010));
 
 }  // namespace

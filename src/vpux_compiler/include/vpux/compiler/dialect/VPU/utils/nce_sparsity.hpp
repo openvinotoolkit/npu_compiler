@@ -383,6 +383,12 @@ private:
     static std::vector<std::vector<int32_t>> zeroPointInversePermutationTables;
     static std::vector<std::vector<int32_t>> pointerTables;
 };
+// getDataPointerTable and getSparseDataPointerTablePair are used for generating the data-pointer and the
+// sparsity-pointer tables in case of the new weights table format (starting from NPU6).
+// The 2 getDataPointerTable functions are used for generating the data-pointer table, when the weights are dense.
+// Therefore, the sparsity-pointer table is not needed and not generated.
+// The 2 getSparseDataPointerTablePair functions are used to generate the data-pointer and the sparsity-pointer tables,
+// when the weights are sparse - they are returned as a pair of vectors.
 /**
  * @brief generate a dense data-pointer table
  *

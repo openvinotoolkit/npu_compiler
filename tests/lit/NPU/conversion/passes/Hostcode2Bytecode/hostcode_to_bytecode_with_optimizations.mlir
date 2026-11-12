@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="platform=%platform% compilation-mode=HostCompile_Interpreter" --canonicalize --convert-hostcode-to-bytecode %s | FileCheck %s
-// REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010
+// REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010 || platform-NPU6010
 
 // CHECK-LABEL: bytecode.ext.func @mul_add_optimization_test
 #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>

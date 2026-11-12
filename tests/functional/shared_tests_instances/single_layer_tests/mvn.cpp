@@ -103,6 +103,12 @@ class Mvn1LayerTest_NPU5010_HW : public Mvn1ZeroInputLayerTestCommon {
     }
 };
 
+class Mvn1LayerTest_NPU6010_HW : public Mvn1ZeroInputLayerTestCommon {
+    void configure_model() override {
+        configuration[ov::intel_npu::compilation_mode_params.name()] = "enable-run-mvn-normalize-on-dpu=true";
+    }
+};
+
 class Mvn1LayerTest_SW : public Mvn1ZeroInputLayerTestCommon {};
 
 TEST_P(Mvn1LayerTest_NPU3720, HW) {
@@ -120,6 +126,12 @@ TEST_P(Mvn1LayerTest_NPU5010_HW, HW) {
     abs_threshold = 0.03;
     setDefaultHardwareMode();
     run(Platform::NPU5010);
+}
+
+TEST_P(Mvn1LayerTest_NPU6010_HW, HW) {
+    abs_threshold = 0.03;
+    setDefaultHardwareMode();
+    run(Platform::NPU6010);
 }
 
 TEST_P(Mvn1LayerTest_SW, NPU4000_SW) {
@@ -140,6 +152,11 @@ TEST_P(Mvn1LayerTest_SW, NPU5020_SW) {
     run(Platform::NPU5020);
 }
 
+TEST_P(Mvn1LayerTest_SW, NPU6010_SW) {
+    abs_threshold = 0.03;
+    setReferenceSoftwareMode();
+    run(Platform::NPU6010);
+}
 TEST_P(Mvn1ZeroInputLayerTest_NPU3720_HW, HW) {
     abs_threshold = 0.003;
     setDefaultHardwareMode();
@@ -187,6 +204,10 @@ TEST_P(Mvn6LayerTestCommon, NPU5020_HW) {
     run(Platform::NPU5020);
 }
 
+TEST_P(Mvn6LayerTestCommon, NPU6010_HW) {
+    setDefaultHardwareMode();
+    run(Platform::NPU6010);
+}
 // -------------- MVN6 F32 tests
 
 TEST_P(Mvn6LayerTestCommonFP32, NPU3720_SW) {
@@ -211,6 +232,10 @@ TEST_P(Mvn6LayerTestCommonFP32, NPU5020_HW) {
     run(Platform::NPU5020);
 }
 
+TEST_P(Mvn6LayerTestCommonFP32, NPU6010_HW) {
+    setDefaultHardwareMode();
+    run(Platform::NPU6010);
+}
 }  // namespace test
 }  // namespace ov
 
@@ -354,6 +379,16 @@ INSTANTIATE_TEST_SUITE_P(
                            ::testing::Values(true),   // normalizeVariance=true: standard case
                            ::testing::ValuesIn(epsilon), ::testing::Values(test_utils::TARGET_DEVICE)),
         Mvn1LayerTest_NPU5010_HW::getTestCaseName);
+
+// Same coverage as precommit_MVN1_DPU_Normalize above, on NPU6010.
+INSTANTIATE_TEST_SUITE_P(
+        precommit_MVN1_DPU_Normalize, Mvn1LayerTest_NPU6010_HW,
+        ::testing::Combine(::testing::ValuesIn(static_shapes_to_test_representation(inputShapesForDPUNorm)),
+                           ::testing::Values(ov::element::f16), ::testing::ValuesIn(emptyReductionAxes),
+                           ::testing::Values(false),  // acrossChannels=false: within-spatial (GroupNorm pattern)
+                           ::testing::Values(true),   // normalizeVariance=true: standard case
+                           ::testing::ValuesIn(epsilon), ::testing::Values(test_utils::TARGET_DEVICE)),
+        Mvn1LayerTest_NPU6010_HW::getTestCaseName);
 
 INSTANTIATE_TEST_SUITE_P(
         smoke_MVN1_Decomposition, Mvn1LayerTest_SW,

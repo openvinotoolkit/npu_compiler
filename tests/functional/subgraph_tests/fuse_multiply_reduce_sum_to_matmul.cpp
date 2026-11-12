@@ -85,6 +85,11 @@ TEST_P(BroadcastMultiplyReduceSumTestCommon, NPU5020_HW) {
     run(Platform::NPU5020);
 }
 
+TEST_P(BroadcastMultiplyReduceSumTestCommon, NPU6010_HW) {
+    setDefaultHardwareMode();
+    run(Platform::NPU6010);
+}
+
 const std::vector<BroadcastMultiplyReduceSumParams> testValues = {{{6, 8, 1, 64}, {6, 1, 8, 64}, {3}, true},
                                                                   {{6, 8, 1, 64}, {6, 1, 8, 64}, {3}, false},
                                                                   {{6, 8, 1, 4, 64}, {6, 1, 8, 4, 64}, {4}, false},

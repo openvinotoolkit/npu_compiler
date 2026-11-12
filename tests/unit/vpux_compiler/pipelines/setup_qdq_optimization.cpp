@@ -7,6 +7,7 @@
 #include "vpux/compiler/NPU37XX/dialect_pipeline_strategy.hpp"
 #include "vpux/compiler/NPU40XX/dialect_pipeline_strategy.hpp"
 #include "vpux/compiler/NPU50XX/dialect_pipeline_strategy.hpp"
+#include "vpux/compiler/NPU60XX/dialect_pipeline_strategy.hpp"
 #include "vpux/utils/ov/config.hpp"
 #include "vpux/utils/ov/options.hpp"
 
@@ -101,6 +102,9 @@ private:
         case config::Platform::NPU5020:
             checkQDQOptimizationEnabled(createOptionsDefaultHW<DefaultHWOptions50XX>(config));
             break;
+        case config::Platform::NPU6010:
+            checkQDQOptimizationEnabled(createOptionsDefaultHW<DefaultHWOptions60XX>(config));
+            break;
         default:
             VPUX_THROW("Unsupported platform: '{0}'", platform);
         }
@@ -117,6 +121,9 @@ private:
         case config::Platform::NPU5010:
         case config::Platform::NPU5020:
             checkQDQOptimizationDisabled(createOptionsDefaultHW<DefaultHWOptions50XX>(config));
+            break;
+        case config::Platform::NPU6010:
+            checkQDQOptimizationDisabled(createOptionsDefaultHW<DefaultHWOptions60XX>(config));
             break;
         default:
             VPUX_THROW("Unsupported platform: '{0}'", platform);
@@ -145,3 +152,4 @@ INSTANTIATE_TEST_SUITE_P(NPU3720_HW, QDQOptimizationTest, ::testing::Values(conf
 INSTANTIATE_TEST_SUITE_P(NPU4000_HW, QDQOptimizationTest, ::testing::Values(config::Platform::NPU4000));
 INSTANTIATE_TEST_SUITE_P(NPU5010_HW, QDQOptimizationTest, ::testing::Values(config::Platform::NPU5010));
 INSTANTIATE_TEST_SUITE_P(NPU5020_HW, QDQOptimizationTest, ::testing::Values(config::Platform::NPU5020));
+INSTANTIATE_TEST_SUITE_P(NPU6010_HW, QDQOptimizationTest, ::testing::Values(config::Platform::NPU6010));

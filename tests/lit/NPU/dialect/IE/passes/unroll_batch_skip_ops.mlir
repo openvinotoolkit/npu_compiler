@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="platform=%platform%" --unroll-batch="skip-unroll-batch=true" %s | FileCheck %s
-// REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010
+// REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010 || platform-NPU6010
 
 // CHECK-LABEL: @SkipUnrollAveragePoolingBatch
 // CHECK-SAME:      [[IN1:%.+]]: tensor<2x128x32x64xf16>

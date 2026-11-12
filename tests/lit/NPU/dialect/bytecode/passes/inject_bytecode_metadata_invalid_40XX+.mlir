@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="platform=%platform% compilation-mode=HostCompile_Interpreter allow-custom-values=true" --inject-bytecode-metadata --verify-diagnostics %s
-// REQUIRES: platform-NPU4000 || platform-NPU5010
+// REQUIRES: platform-NPU4000 || platform-NPU5010 || platform-NPU6010
 
 // Verify that InjectBytecodeMetadataPass fails when no CmdListCreateOp is present in the module,
 // which indicates that ConvertHostcodeToBytecodePass has not run before this pass.

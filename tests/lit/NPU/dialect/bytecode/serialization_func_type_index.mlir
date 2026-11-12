@@ -5,7 +5,7 @@
 
 // RUN: vpux-translate --platform=%platform% --export-bytecode %s -o %t
 // RUN: bytecode_interpreter --path %t --mode print-full | FileCheck %s
-// REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010
+// REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010 || platform-NPU6010
 
 // Test that each bytecode.func resolves its function_type_ref to the correct
 // positional index in the type section.

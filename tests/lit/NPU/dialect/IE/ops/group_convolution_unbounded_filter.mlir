@@ -4,7 +4,7 @@
 //
 
 // RUN: not vpux-opt --init-compiler="platform=%platform%" %s 2>&1 | FileCheck %s
-// REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010
+// REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010 || platform-NPU6010
 
 // A filter without an upper bound is rejected like a bounded dynamic filter.
 

@@ -200,6 +200,39 @@ bool shouldConvertFakeQuantizeOpForSplit(IE::FakeQuantizeOp fqOp) {
     return outQuantizeElemType != nullptr;
 }
 
+bool shouldDequantizeForLegacyWeightTable(IE::FakeQuantizeOp origOp, const bool isPerAxis,
+                                          const ArrayRef<int64_t> zeroPoints) {
+    // Find actual consuming operations by traversing through view-like operations
+    std::function<bool(mlir::Operation*)> isGroupConvolutionOpFound = [](mlir::Operation* op) -> bool {
+        return mlir::isa<IE::GroupConvolutionOp>(op);
+    };
+
+    const auto groupConvOp = IE::searchOpConsumers(origOp.getOperation(), isGroupConvolutionOpFound);
+    if (mlir::failed(groupConvOp)) {
+        return false;
+    }
+
+    const auto isLegacyWeightTableFormat = !VPU::getVPUStrategyFactory(groupConvOp.value()->getContext())
+                                                    ->useNewWeightTableFormat(groupConvOp.value(), false);
+    if (!isLegacyWeightTableFormat) {
+        return false;
+    }
+
+    // Only check uint4 range for per-channel quantization.
+    // For per-tensor quantization, we do nothing - no uint4 range check needed. Zero point which is the
+    // same for each channel is stored in mpe_wtbias register.
+    if (!isPerAxis) {
+        return false;
+    }
+
+    // In hardware, legacy format allows us to store zero points only on 4 MS bits. So, ZPs should fit
+    // into UINT4 range (0-15). If zero point is out of this range, we make dequantization in this pass.
+    constexpr int64_t uint4MaxValue = 15;
+    return !llvm::all_of(zeroPoints, [&](int64_t zp) {
+        return zp >= 0 && zp <= uint4MaxValue;
+    });
+}
+
 //
 // UseQuantDequant
 //
@@ -499,6 +532,17 @@ mlir::LogicalResult UseConstDequant::matchAndRewrite(IE::FakeQuantizeOp origOp, 
     bool shouldDequantize = false;
     if (!isAsymmetricPerChannelZeroPointSupported && multiZeroPoint) {
         shouldDequantize = true;
+    } else if (multiZeroPoint && config::getArch(origOp) == config::ArchKind::NPU60XX) {
+        // For DWConv use legacy weights table on NPU60XX. Details see in E#178136.
+        const auto legacyScalesAndZPs = IE::getScalesAndZeroPointsFromContentAttr(
+                outLowConst.getContentAttr(), outHighConst.getContentAttr(), origOp.getAutoBroadcast(),
+                origOp.getLevelsOrLowFpTypeAttr(), Const::hasNegativeValues(inLowContent), innerLog);
+        if (mlir::failed(legacyScalesAndZPs)) {
+            return mlir::failure();
+        }
+        const auto& [legacyScales, legacyZeroPoints] = *legacyScalesAndZPs;
+        const bool isPerAxis = legacyScales.size() > 1;
+        shouldDequantize = shouldDequantizeForLegacyWeightTable(origOp, isPerAxis, legacyZeroPoints);
     }
 
     // Fuse dequantize to const directly since it could not convert to HW for multi zero point case

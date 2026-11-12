@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="platform=%platform%" --run-adjust-for-vpu-rewriters="rewriter=convert-large-conv-to-multi-conv-with-add" %s | FileCheck %s
-// REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010
+// REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010 || platform-NPU6010
 
 // CHECK-LABEL: @ConvertLargeConvToMultiConvWithAddTile2
 // CHECK-SAME:        [[INPUT:%arg[0-9]]]: tensor<1x1280x64x64xf16>

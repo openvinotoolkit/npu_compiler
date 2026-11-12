@@ -5,7 +5,7 @@
 
 // RUN: vpux-opt --split-input-file --init-compiler="platform=%platform% compilation-mode=HostCompile_Interpreter allow-custom-values=true" --unroll-scf-loop="loop-unroll-factor=1,1,2,2 enable-cascaded-unrolling=false" %s | FileCheck %s
 // RUN: vpux-opt --split-input-file --init-compiler="platform=%platform% compilation-mode=HostCompile_Interpreter allow-custom-values=true" --unroll-scf-loop="loop-unroll-factor=1,1,2,5 enable-cascaded-unrolling=false" %s | FileCheck %s --check-prefix=CHECK-EXTRA
-// REQUIRES: platform-NPU4000 || platform-NPU5010
+// REQUIRES: platform-NPU4000 || platform-NPU5010 || platform-NPU6010
 
 // Test multi-dimension manual unrolling with factors on both H (dim 2) and W (dim 3).
 // Regression test for the crash when multiple manual unroll factors were specified

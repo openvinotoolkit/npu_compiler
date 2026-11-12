@@ -6,6 +6,7 @@
 #include "vpux/compiler/NPU37XX/dialect/VPU/impl/wlm_register_config.hpp"
 #include "vpux/compiler/NPU40XX/dialect/VPU/impl/wlm_register_config.hpp"
 #include "vpux/compiler/NPU50XX/dialect/VPU/impl/wlm_register_config.hpp"
+#include "vpux/compiler/NPU60XX/dialect/VPU/impl/wlm_register_config.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/factories/wlm_register_config.hpp"
 #include "vpux/compiler/dialect/config/IR/attributes.hpp"
 
@@ -27,7 +28,11 @@ VPU::RegisterConfig VPU::getRegisterConfig(config::ArchKind arch, mlir::Operatio
     case config::ArchKind::NPU50XX: {
         return VPU::arch50xx::RegisterConfig{};
     }
+    case config::ArchKind::NPU60XX: {
+        return VPU::arch60xx::RegisterConfig{};
+    }
     default: {
+        return VPU::arch60xx::RegisterConfig{};
     }
     }
     VPUX_THROW("Unable to get RegisterConfig for arch {0}", arch);

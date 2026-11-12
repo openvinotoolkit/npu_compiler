@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="platform=%platform%" --canonicalize --verify-diagnostics %s | FileCheck %s
-// REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010
+// REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010 || platform-NPU6010
 
 // CHECK: func.func @FoldSubsequentCasts([[ARG0:%.+]]: tensor<1x1xf16>) -> tensor<1x1xf16>
 func.func @FoldSubsequentCasts(%arg0: tensor<1x1xf16>) -> tensor<1x1xf16> {

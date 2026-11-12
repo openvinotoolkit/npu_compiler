@@ -110,6 +110,11 @@ public:
     }
 };
 
+TEST_P(MixedPrecisionAsymmetricPerTensorMatmul, NPU6010_HW) {
+    setDefaultHardwareMode();
+    run(Platform::NPU6010);
+}
+
 }  // namespace ov::test::subgraph
 
 namespace {

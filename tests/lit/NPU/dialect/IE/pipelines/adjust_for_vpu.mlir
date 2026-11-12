@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="platform=%platform% compilation-mode=DefaultHW" --adjust-for-vpu %s | FileCheck %s
-// REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010
+// REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010 || platform-NPU6010
 
 // CHECK: func.func @ConvertNonDepthWiseGroupTransposedConvToConv([[ARG0:%.+]]: tensor<1x32x64x64xf16>) -> tensor<1x32x128x128xf16> {
 func.func @ConvertNonDepthWiseGroupTransposedConvToConv(%arg0: tensor<1x32x64x64xf16>) -> tensor<1x32x128x128xf16> {

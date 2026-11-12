@@ -173,6 +173,8 @@ elf::platform::ArchKind mapPlatformToElfArchKind(config::Platform platform) {
         return elf::platform::ArchKind::NPU5010;
     case config::Platform::NPU5020:
         return elf::platform::ArchKind::NPU5020;
+    case config::Platform::NPU6010:
+        return elf::platform::ArchKind::NPU6010;
     }
     VPUX_THROW("Invalid platform");
 }

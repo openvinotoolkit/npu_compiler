@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --platform=%platform% --update-ELF-section-flags %s | FileCheck %s
-// REQUIRES: platform-NPU4000 || platform-NPU5010
+// REQUIRES: platform-NPU4000 || platform-NPU5010 || platform-NPU6010
 
 module @mainModule attributes {config.platform = #config.platform<NPU4000>} {
 

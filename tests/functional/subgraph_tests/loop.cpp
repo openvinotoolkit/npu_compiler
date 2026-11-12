@@ -83,6 +83,11 @@ TEST_F(LoopSubGraphTestConstExecCond, NPU5010_TestKindSubgraph) {
     run(Platform::NPU5010);
 }
 
+TEST_F(LoopSubGraphTestConstExecCond, NPU6010_TestKindSubgraph) {
+    setDefaultHardwareMode();
+    run(Platform::NPU6010);
+}
+
 class LoopSubGraphTestParamExecCond1 : public LoopSubGraphTestCommon {
 public:
     void SetUp() override {
@@ -138,6 +143,11 @@ TEST_F(LoopSubGraphTestParamExecCond1, NPU4000_TestKindSubgraph) {
 TEST_F(LoopSubGraphTestParamExecCond1, NPU5010_TestKindSubgraph) {
     setDefaultHardwareMode();
     run(Platform::NPU5010);
+}
+
+TEST_F(LoopSubGraphTestParamExecCond1, NPU6010_TestKindSubgraph) {
+    setDefaultHardwareMode();
+    run(Platform::NPU6010);
 }
 
 class LoopSubGraphTestParamExecCond2 : public LoopSubGraphTestCommon {
@@ -196,6 +206,11 @@ TEST_F(LoopSubGraphTestParamExecCond2, NPU4000_TestKindSubgraph) {
 TEST_F(LoopSubGraphTestParamExecCond2, NPU5010_TestKindSubgraph) {
     setDefaultHardwareMode();
     run(Platform::NPU5010);
+}
+
+TEST_F(LoopSubGraphTestParamExecCond2, NPU6010_TestKindSubgraph) {
+    setDefaultHardwareMode();
+    run(Platform::NPU6010);
 }
 
 }  // namespace ov::test

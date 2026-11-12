@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --init-compiler="platform=%platform%" --canonicalize %s | FileCheck %s
-// REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010
+// REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010 || platform-NPU6010
 
 // CHECK: func.func @SingleLayerDynamicWBounds([[ARG0:%.+]]: tensor<?x3x?x?xf16, {bounds = #const.OpaqueI64Elements<[2, 3, 20, 20]> : tensor<4xsi64>}>) -> tensor<?x3x?x?xf16, {bounds = #const.OpaqueI64Elements<[2, 3, 20, 20]> : tensor<4xsi64>}> {
 func.func @SingleLayerDynamicWBounds(%arg0: tensor<?x3x?x?xf16, {bounds = #const.OpaqueI64Elements<[2, 3, 20, 20]>: tensor<4xsi64>}>) -> tensor<?x3x?x?xf16, {bounds = #const.OpaqueI64Elements<[2, 3, 20, 20]>: tensor<4xsi64>}> {

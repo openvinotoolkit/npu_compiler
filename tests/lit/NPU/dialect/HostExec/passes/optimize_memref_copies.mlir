@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="platform=%platform%" --optimize-memref-copies %s | FileCheck %s
-// REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010
+// REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010 || platform-NPU6010
 
 func.func nested @main_func0(%arg0: memref<1x90x1000x16xf16, strided<[?, ?, ?, ?], offset: ?>>,
                               %arg1: memref<1x90x1000x16xf16, strided<[?, ?, ?, ?], offset: ?>>,

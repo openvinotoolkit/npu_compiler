@@ -1180,4 +1180,4 @@ TEST_P(MLIR_TemporalTilingScenario, SharedBuffer_PeakMemory_SharingReducesDouble
 }
 
 INSTANTIATE_TEST_SUITE_P(TemporalTilingScenario, MLIR_TemporalTilingScenario,
-                         testing::Values(Platform::NPU4000, Platform::NPU5010), platformName);
+                         testing::Values(Platform::NPU4000, Platform::NPU5010, Platform::NPU6010), platformName);

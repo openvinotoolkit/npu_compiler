@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="platform=%platform% compilation-mode=DefaultHW allow-custom-values=true" --move-view-ops-to-vf="workload-management-mode=FWLM_V1_PAGES" %s | FileCheck %s
-// REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010
+// REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010 || platform-NPU6010
 
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
@@ -365,6 +365,112 @@ func.func @NotMovePermuteCastWhenWeightsUserHasNoMCStrategy(
     // CHECK: [[SECOND_CONV:%.+]] = VPU.NCE.Convolution
     // CHECK-SAME: multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>
     // CHECK: return [[VF]]
+}
+
+// -----
+
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+#NNHC = affine_map<(d0, d1, d2, d3) -> (d0, d1, d3, d2)>
+
+// CHECK-LABEL: @MoveFilterViewChainWithEmptyParentTiling
+func.func @MoveFilterViewChainWithEmptyParentTiling(
+        %source: tensor<1x320x64x64xf16, {order = #NHWC}>,
+        %kWeights: tensor<64x320x1x1xf16, {order = #NHWC}>,
+        %qWeights: tensor<64x320x1x1xf16, {order = #NHWC}>) -> tensor<1x4096x1024x4xf16, {order = #NHWC}> {
+    %kConv = VPU.VerticalFusion (%source as %kInput: tensor<1x320x64x64xf16, {order = #NHWC}>,
+                                 %kWeights as %kFilter: tensor<64x320x1x1xf16, {order = #NHWC}>)
+            attributes {tilingStrategy = [1, 1, 1, 1]}
+            -> tensor<1x64x64x64xf16, {order = #NHWC}> {
+        %inner = VPU.NCE.Convolution(%kInput, %kFilter) rawFilterShape [64, 320, 1, 1] {
+            multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
+            pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
+            ppe = #VPU.PPEFp<mode = <NOOP>, clamp_low = -3.4028234663852886E+38 : f64,
+                             clamp_high = 3.4028234663852886E+38 : f64, scale = 1.000000e+00 : f64,
+                             prelu_alpha = [1.000000e+00], bias = 0.000000e+00 : f64,
+                             adder = 0.000000e+00 : f64>,
+            resultSegmentSizes = array<i32: 1, 0, 0, 0>,
+            strides = [1, 1]
+        } : tensor<1x320x64x64xf16, {order = #NHWC}>, tensor<64x320x1x1xf16, {order = #NHWC}> -> tensor<1x64x64x64xf16, {order = #NHWC}>
+        VPU.Yield %inner
+    }
+
+    %unsqueeze = VPU.AffineReshape(%kConv) {
+        dim_mapping = [[0, 1], [2], [3], [3]],
+        shape_value = [1, 1, 64, 4096]
+    } : tensor<1x64x64x64xf16, {order = #NHWC}> -> tensor<1x1x64x4096xf16, {order = #NNHC}>
+    %transpose = VPU.PermuteCast(%unsqueeze) {
+        dst_order = #NCHW,
+        mem_perm = #NCHW
+    } : tensor<1x1x64x4096xf16, {order = #NNHC}> -> tensor<1x1x4096x64xf16>
+    %filterReshape = VPU.AffineReshape(%transpose) {
+        dim_mapping = [[0], [0], [0], [1, 2, 3]],
+        shape_value = [4096, 64, 1, 1]
+    } : tensor<1x1x4096x64xf16> -> tensor<4096x64x1x1xf16>
+    %filter = VPU.PermuteCast(%filterReshape) {
+        dst_order = #NHWC,
+        mem_perm = #NHWC
+    } : tensor<4096x64x1x1xf16> -> tensor<4096x64x1x1xf16, {order = #NHWC}>
+
+    %qConv = VPU.VerticalFusion (%source as %qInput: tensor<1x320x64x64xf16, {order = #NHWC}>,
+                                 %qWeights as %qFilter: tensor<64x320x1x1xf16, {order = #NHWC}>)
+            attributes {tilingStrategy = [1, 1, 1, 1]}
+            -> tensor<1x64x64x64xf16, {order = #NHWC}> {
+        %inner = VPU.NCE.Convolution(%qInput, %qFilter) rawFilterShape [64, 320, 1, 1] {
+            multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
+            pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
+            ppe = #VPU.PPEFp<mode = <NOOP>, clamp_low = -3.4028234663852886E+38 : f64,
+                             clamp_high = 3.4028234663852886E+38 : f64, scale = 1.000000e+00 : f64,
+                             prelu_alpha = [1.000000e+00], bias = 0.000000e+00 : f64,
+                             adder = 0.000000e+00 : f64>,
+            resultSegmentSizes = array<i32: 1, 0, 0, 0>,
+            strides = [1, 1]
+        } : tensor<1x320x64x64xf16, {order = #NHWC}>, tensor<64x320x1x1xf16, {order = #NHWC}> -> tensor<1x64x64x64xf16, {order = #NHWC}>
+        VPU.Yield %inner
+    }
+    %qShape = VPU.ShapeCast {shape = [1, 64, 4096, 1]}
+        inputs(%qConv : tensor<1x64x64x64xf16, {order = #NHWC}>)
+        -> tensor<1x64x4096x1xf16, {order = #NHWC}>
+    %qActivation = VPU.AffineReshape(%qShape) {
+        dim_mapping = [[0], [1], [2, 3], [3]],
+        shape_value = [1, 64, 1024, 4]
+    } : tensor<1x64x4096x1xf16, {order = #NHWC}> -> tensor<1x64x1024x4xf16, {order = #NHWC}>
+
+    %matmul = VPU.VerticalFusion (%qActivation as %activationArg: tensor<1x64x1024x4xf16, {order = #NHWC}>,
+                                  %filter as %filterArg: tensor<4096x64x1x1xf16, {order = #NHWC}>)
+            attributes {tilingStrategy = [1, 32, 1, 1]}
+            -> tensor<1x4096x1024x4xf16, {order = #NHWC}> {
+        %inner = VPU.NCE.Convolution(%activationArg, %filterArg) rawFilterShape [4096, 64, 1, 1] {
+            multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
+            pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
+            ppe = #VPU.PPEFp<mode = <NOOP>, clamp_low = -3.4028234663852886E+38 : f64,
+                             clamp_high = 3.4028234663852886E+38 : f64, scale = 1.250000e-01 : f64,
+                             prelu_alpha = [1.000000e+00], bias = 0.000000e+00 : f64,
+                             adder = 0.000000e+00 : f64>,
+            resultSegmentSizes = array<i32: 1, 0, 0, 0>,
+            strides = [1, 1]
+        } : tensor<1x64x1024x4xf16, {order = #NHWC}>, tensor<4096x64x1x1xf16, {order = #NHWC}> -> tensor<1x4096x1024x4xf16, {order = #NHWC}>
+        VPU.Yield %inner
+    }
+
+    return %matmul : tensor<1x4096x1024x4xf16, {order = #NHWC}>
+
+    // CHECK: [[K_CONV:%.+]] = VPU.VerticalFusion
+    // CHECK-SAME: attributes {tilingStrategy = [1, 1, 1, 1]}
+    // CHECK: VPU.NCE.Convolution
+    // CHECK: VPU.Yield
+    // CHECK-NOT: VPU.AffineReshape([[K_CONV]])
+    // CHECK: [[Q_CONV:%.+]] = VPU.VerticalFusion
+    // CHECK: [[Q_SHAPE:%.+]] = VPU.ShapeCast
+    // CHECK: [[Q_ACTIVATION:%.+]] = VPU.AffineReshape([[Q_SHAPE]])
+    // CHECK: [[MATMUL:%.+]] = VPU.VerticalFusion ([[K_CONV]] as [[FILTER_SOURCE:%[^:]+]]: tensor<1x64x64x64xf16, {order = #NHWC}>, [[Q_ACTIVATION]] as [[ACT_ARG:%[^:]+]]: tensor<1x64x1024x4xf16, {order = #NHWC}>
+    // CHECK-SAME: attributes {tilingStrategy = [1, 32, 1, 1]}
+    // CHECK: [[UNSQUEEZE:%.+]] = VPU.AffineReshape([[FILTER_SOURCE]])
+    // CHECK: [[TRANSPOSE:%.+]] = VPU.PermuteCast([[UNSQUEEZE]])
+    // CHECK: [[FILTER_RESHAPE:%.+]] = VPU.AffineReshape([[TRANSPOSE]])
+    // CHECK: [[FILTER:%.+]] = VPU.PermuteCast([[FILTER_RESHAPE]])
+    // CHECK: VPU.NCE.Convolution([[ACT_ARG]], [[FILTER]]
+    // CHECK: VPU.Yield
 }
 
 // -----

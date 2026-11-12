@@ -4,7 +4,7 @@
 //
 
 // RUN: env OV_NPU_LOG_LEVEL=LOG_INFO vpux-opt  --split-input-file --platform=%platform% --setup-pass-tools="enable-outdated-pass-detection=true" --set-memory-space=memory-space=DDR -o /dev/null %s 2>&1 | FileCheck %s
-// REQUIRES: dev-build && (platform-NPU3720 || platform-NPU4000 || platform-NPU5010)
+// REQUIRES: dev-build && (platform-NPU3720 || platform-NPU4000 || platform-NPU5010 || platform-NPU6010)
 
 module @net {
     net.NetworkInfo entryPoint : @main inputsInfo : {

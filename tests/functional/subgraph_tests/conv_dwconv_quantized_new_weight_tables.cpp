@@ -165,6 +165,12 @@ public:
 // Platform test definition
 //
 
+TEST_P(NewWeightTablesConvTest, NPU6010_HW) {
+    rel_threshold = 0.1;
+    setDefaultHardwareMode();
+    run(Platform::NPU6010);
+}
+
 // clang-format off
 const auto testCases = std::vector<FQAsSubMul>{
     // 80 channels: ZP in range [1, 3], scale = 1

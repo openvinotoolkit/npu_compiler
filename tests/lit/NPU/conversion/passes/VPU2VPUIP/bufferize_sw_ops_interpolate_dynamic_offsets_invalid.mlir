@@ -4,7 +4,7 @@
 //
 
 // RUN: not vpux-opt --init-compiler="platform=%platform%" --one-shot-bufferize-VPU-to-VPUIP %s 2>&1 | FileCheck %s
-// REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010
+// REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010 || platform-NPU6010
 
 // An Interpolate that was SCF-tiled with a non-constant (loop-dependent) tile position carries a
 // kDynamic sentinel in initial_input_offset_attr and a runtime offsets tensor. The SW-kernel

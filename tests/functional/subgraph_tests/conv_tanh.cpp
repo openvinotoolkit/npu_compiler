@@ -75,6 +75,12 @@ TEST_P(ConvWithTanhTest, NPU5020_HW) {
     run(Platform::NPU5020);
 }
 
+TEST_P(ConvWithTanhTest, NPU6010_HW) {
+    abs_threshold = 0.0001;
+    setDefaultHardwareMode();
+    run(Platform::NPU6010);
+}
+
 const std::vector<ov::Shape> inputShapes = {
         {1, 3, 16, 16},
         {1, 3, 32, 32},

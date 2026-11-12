@@ -59,3 +59,12 @@ TEST_F(CostModelShaveUtil, testCreateShaveCostModelUtilsAndCheckOpNPU50) {
     EXPECT_TRUE(shaveUtils.isSwKernelOpSupported("SoftMax"));
     EXPECT_FALSE(shaveUtils.isSwKernelOpSupported("NonExistOp"));
 }
+
+TEST_F(CostModelShaveUtil, testCreateShaveCostModelUtilsAndCheckOpNPU60) {
+    setFactory(config::Platform::NPU6010);
+
+    const auto& shaveUtils = VPU::getShaveCostModelUtils(&ctx);
+
+    EXPECT_TRUE(shaveUtils.isSwKernelOpSupported("SoftMax"));
+    EXPECT_FALSE(shaveUtils.isSwKernelOpSupported("NonExistOp"));
+}

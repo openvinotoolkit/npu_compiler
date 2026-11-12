@@ -5,7 +5,7 @@
 
 
 // RUN: vpux-opt --split-input-file --init-compiler="platform=%platform%" --convert-groupconv-to-conv %s | FileCheck %s
-// REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010
+// REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010 || platform-NPU6010
 
 // CHECK-LABEL: @ConvertGroupConvToSingleConv
 // CHECK-SAME:    ([[ARG_0:%[^:]+]]: tensor<1x64x80x80xf16>)

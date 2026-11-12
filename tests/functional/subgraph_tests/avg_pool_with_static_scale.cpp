@@ -69,6 +69,11 @@ TEST_P(AvgPoolWithStaticScaleTestCommon, NPU5020_HW) {
     run(Platform::NPU5020);
 }
 
+TEST_P(AvgPoolWithStaticScaleTestCommon, NPU6010_HW) {
+    setDefaultHardwareMode();
+    run(Platform::NPU6010);
+}
+
 const std::vector<ov::Shape> testShapes = {
         {1, 512, 8, 10},
 

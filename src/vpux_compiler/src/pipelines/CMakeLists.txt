@@ -26,6 +26,7 @@ add_npu_library(${TARGET_NAME}
         npu_compiler_npu37xx
         npu_compiler_npu40xx
         npu_compiler_npu50xx
+        npu_compiler_npu60xx
         npu_compiler_core
         npu_compiler_shave_code_gen
         npu_compiler_dialect_vpuasm
@@ -35,3 +36,4 @@ add_npu_library(${TARGET_NAME}
         npu_compiler_dialect_ie_transforms
 )
 enable_lto_if_possible(${TARGET_NAME})
+

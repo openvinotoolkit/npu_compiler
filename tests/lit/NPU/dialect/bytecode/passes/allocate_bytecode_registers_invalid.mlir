@@ -4,7 +4,7 @@
 //
 
 // RUN: not vpux-opt --split-input-file --init-compiler="platform=%platform%" --allocate-bytecode-registers %s 2>&1 | FileCheck %s
-// REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010
+// REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010 || platform-NPU6010
 
 // ===--------------------------------------------------------------------=== //
 // Param index past the declared arity: signature has 1 argument, body uses slot 1.

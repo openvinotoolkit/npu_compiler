@@ -114,6 +114,9 @@ std::unique_ptr<mlir::Pass> createConvertVPUIPDPU2NPUReg50XXPass(
 std::unique_ptr<mlir::Pass> createConvertVPUASM2NPUReg50XXPass(Logger log = Logger::global(),
                                                                uint32_t modelIdentifier = 0);
 
+std::unique_ptr<mlir::Pass> createConvertVPUIPDPU2NPUReg60XXPass(Logger log = Logger::global());
+std::unique_ptr<mlir::Pass> createConvertVPUASM2NPUReg60XXPass(Logger log = Logger::global(),
+                                                               uint32_t modelIdentifier = 0);
 // Host compile specific passes
 void buildLLVMTranslationPipeline(mlir::OpPassManager& pm);
 

@@ -364,6 +364,44 @@ mlir::LogicalResult verifyNCEConv(VPUIP::NCEClusterTaskOp op, config::ArchKind a
                       VPUIP::NCETaskType::CONV, op.getTaskType());
 
     bool doAccuLoad = false;
+    if (arch >= config::ArchKind::NPU60XX &&
+        (op.getInputSparsityMap() || op.getInputStorageElementTable() || op.getWeightsSparsityMap())) {
+        if (auto mpeEngine = op.getMpeEngineAttr()) {
+            if (auto engine60xx = mlir::dyn_cast<VPU::MPEEngine60XXAttr>(mpeEngine)) {
+                if (engine60xx.getMode().getValue() == VPU::MPEEngine60XXMode::DCIM) {
+                    return errorAt(op, "DCIM is not supported with Sparsity or SEP for op: '{0}'", op.getTaskType());
+                }
+            }
+        }
+    }
+
+    if (auto input = op.getInput()) {
+        auto getBaseType = [](mlir::Type type) -> mlir::Type {
+            if (!mlir::isa<mlir::quant::QuantizedType>(type)) {
+                return type;
+            }
+
+            auto quantType = mlir::cast<mlir::quant::QuantizedType>(type);
+            auto quantStorageType = quantType.getStorageType();
+            if (mlir::isa<mlir::Float8E5M2Type>(quantStorageType)) {
+                return mlir::Float8E5M2Type::get(type.getContext());
+            }
+
+            if (mlir::isa<mlir::Float8E4M3FNType>(quantStorageType)) {
+                return mlir::Float8E4M3FNType::get(type.getContext());
+            }
+
+            auto signedness = quantType.isSigned() ? mlir::IntegerType::Signed : mlir::IntegerType::Unsigned;
+            auto bitWidth = quantType.getStorageTypeIntegralWidth();
+            return mlir::IntegerType::get(type.getContext(), bitWidth, signedness);
+        };
+
+        auto inActElementType = mlir::cast<NDTypeInterface>(input.getType()).getElementType();
+        auto inBaseType = getBaseType(inActElementType);
+        if (inBaseType.isInteger(CHAR_BIT * sizeof(int32_t)) || inBaseType.isF32()) {
+            doAccuLoad = true;
+        }
+    }
 
     if (!doAccuLoad && op.getWeights() == nullptr) {
         return errorAt(op, "weights is required for NCETaskType : '{0}'", op.getTaskType());
@@ -372,6 +410,11 @@ mlir::LogicalResult verifyNCEConv(VPUIP::NCEClusterTaskOp op, config::ArchKind a
         (op.getWeightTableDataPtr() || op.getWeightTableSpPtr() || op.getWeightTableScale() ||
          op.getWeightTableBias() || op.getWeightZeroPoints())) {
         return errorAt(op, "Only weight_table can be populated for NCETaskType : '{0}'", op.getTaskType());
+    } else if (arch == config::ArchKind::NPU60XX && doAccuLoad == false && op.getWeightTable() &&
+               (op.getWeightTableDataPtr() || op.getWeightTableSpPtr() || op.getWeightTableScale() ||
+                op.getWeightTableBias() || op.getWeightZeroPoints())) {
+        return errorAt(op, "weight_table legacy and split format are mutually exclusive for NCETaskType : '{0}'",
+                       op.getTaskType());
     } else if (doAccuLoad == false && op.getWeightTableDataPtr() && op.getWeightZeroPoints()) {
         return errorAt(op,
                        "weight_table data pointers and zero points only are mutually exclusive for NCETaskType : '{0}'",
@@ -599,6 +642,11 @@ mlir::LogicalResult verifyNCEDWConv(VPUIP::NCEClusterTaskOp op, [[maybe_unused]]
         (op.getWeightTableDataPtr() || op.getWeightTableSpPtr() || op.getWeightTableScale() ||
          op.getWeightTableBias() || op.getWeightZeroPoints())) {
         return errorAt(op, "Only weight_table can be populated for NCETaskType : '{0}'", op.getTaskType());
+    } else if (arch >= config::ArchKind::NPU60XX && op.getWeightTable() &&
+               (op.getWeightTableDataPtr() || op.getWeightTableSpPtr() || op.getWeightTableScale() ||
+                op.getWeightTableBias() || op.getWeightZeroPoints())) {
+        return errorAt(op, "weight_table legacy and split format are mutually exclusive for NCETaskType : '{0}'",
+                       op.getTaskType());
     } else if (op.getWeightTableDataPtr() && op.getWeightZeroPoints()) {
         return errorAt(op,
                        "weight_table data pointers and zero points only are mutually exclusive for NCETaskType : '{0}'",

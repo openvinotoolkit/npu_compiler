@@ -145,6 +145,14 @@ TEST_P(QuantizedSEInterpSubGraphTest_NPU5020_HW, HW) {
     run(Platform::NPU5020);
 }
 
+class QuantizedSEInterpSubGraphTest_NPU6010_HW : public QuantizedSEInterpSubGraphTestCommon {};
+
+TEST_P(QuantizedSEInterpSubGraphTest_NPU6010_HW, HW) {
+    abs_threshold = 1.0;
+    setDefaultHardwareMode();
+    run(Platform::NPU6010);
+}
+
 std::vector<std::vector<float>> fqRanges = {{0.0f, 255.0f, 0.0f, 255.0f}};
 
 std::vector<std::vector<ov::Shape>> inputShapes = {{{1, 16, 16, 16}}, {{1, 32, 40, 40}}, {{1, 160, 40, 40}}};
@@ -188,5 +196,8 @@ INSTANTIATE_TEST_SUITE_P(DISABLED_smoke_QuantizedInterp_HW, QuantizedSEInterpSub
 
 INSTANTIATE_TEST_SUITE_P(smoke_QuantizedInterp_HW, QuantizedSEInterpSubGraphTest_NPU5020_HW, basicCases,
                          QuantizedSEInterpSubGraphTest_NPU5020_HW::getTestCaseName);
+
+INSTANTIATE_TEST_SUITE_P(DISABLED_smoke_QuantizedInterp_HW, QuantizedSEInterpSubGraphTest_NPU6010_HW, basicCases,
+                         QuantizedSEInterpSubGraphTest_NPU6010_HW::getTestCaseName);
 
 }  // namespace

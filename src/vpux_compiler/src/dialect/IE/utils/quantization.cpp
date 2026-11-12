@@ -1466,6 +1466,28 @@ bool vpux::IE::isQuantizationSupported(IE::QuantizeOp quantizeOp, mlir::Operatio
             }
         }
     }
+    // For NPU6, revision < B it is needed to mitigate the HW erratum which produces accuracy problems when fusing
+    // asymmetric 16 bits quantization at the output. Details available on E-#182547 and E-#211644.
+    const auto arch = config::getArch(quantizeOp);
+    if (arch == config::ArchKind::NPU60XX && config::getRevisionID(quantizeOp) >= config::RevisionID::REVISION_A0 &&
+        config::getRevisionID(quantizeOp) < config::RevisionID::REVISION_B) {
+        auto dequantizeOp = mainOp->getOperand(0).getDefiningOp<IE::DequantizeOp>();
+        // Condition: 16-bit storage + non-zero zero-point
+        const bool hasInvalid16BitWithZeroPoint = quantizeOutputQType.getStorageTypeIntegralWidth() == 16 &&
+                                                  !IE::areAllQuantTypeZeroPointsEqualToZero(quantizeOutputQType);
+        if (hasInvalid16BitWithZeroPoint) {
+            // Look for a dequantize feeding into the producer
+            if (dequantizeOp != nullptr) {
+                auto dequantizeInputType = mlir::cast<vpux::NDTypeInterface>(dequantizeOp.getInput().getType());
+                auto dequantizeQInputType =
+                        mlir::cast<mlir::quant::QuantizedType>(dequantizeInputType.getElementType());
+                const bool inputNot16Bit = dequantizeQInputType.getStorageTypeIntegralWidth() != 16;
+                if (inputNot16Bit) {
+                    return false;
+                }
+            }
+        }
+    }
     return true;
 }
 

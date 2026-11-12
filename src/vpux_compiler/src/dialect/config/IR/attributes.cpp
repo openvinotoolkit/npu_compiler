@@ -199,6 +199,14 @@ void setResources(mlir::ModuleOp module, const Resources& res, const SetResource
         funcs.addInnerMemoryWithAttrs(nceCluster, cmxSymbolAttr, workspaceCMXSize, 1.0, 64);
         break;
     }
+    case config::ArchKind::NPU60XX: {
+        funcs.addInnerMemoryWithAttrs(globalResource, ddrSymbolAttr, DDR_HEAP_SIZE, 0.6, 64);
+        funcs.addSubExecutor(globalResource, config::ExecutorKind::DMA_NN,
+                             getNumOfDMAPortsVal(std::min(numOfDPUGroups, MAX_DMA_PORTS_2)));
+        funcs.addSubExecutor(nceCluster, config::ExecutorKind::SHAVE_ACT, MAX_SHAVES_PER_TILE_2);
+        funcs.addInnerMemoryWithAttrs(nceCluster, cmxSymbolAttr, workspaceCMXSize, 1.0, 64);
+        break;
+    }
     default:
         VPUX_THROW("Unsupported architecture '{0}'", kind);
     }
@@ -284,6 +292,8 @@ config::ArchKind vpux::config::getArch(config::Platform platform) {
     case config::Platform::NPU5010:
     case config::Platform::NPU5020:
         return config::ArchKind::NPU50XX;
+    case config::Platform::NPU6010:
+        return config::ArchKind::NPU60XX;
     default:
         return config::ArchKind::UNKNOWN;
     }
@@ -331,6 +341,14 @@ config::RevisionID vpux::config::getRevisionID(mlir::Operation* op) {
 
             revisionID = mlir::cast<config::RevisionIDAttr>(attr).getValue();
         }
+    }
+
+    // For NPU60XX, treat unspecified/none stepping as A0 stepping.
+    // TODO: Remove this fallback and related A0 workarounds on line L386
+    // once only C0 boards are used in validation
+    // and the embargo is lifted.
+    if (config::getArch(module) == config::ArchKind::NPU60XX && revisionID == config::RevisionID::REVISION_NONE) {
+        return config::RevisionID::REVISION_B;
     }
 
     return revisionID;

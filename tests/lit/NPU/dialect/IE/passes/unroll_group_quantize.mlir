@@ -5,7 +5,7 @@
 
 // RUN: vpux-opt --split-input-file --init-compiler="platform=%platform%" --unroll-group-quantize %s | FileCheck %s
 // RUN: vpux-opt --split-input-file --init-compiler="platform=%platform%" --unroll-group-quantize --mlir-print-debuginfo %s | FileCheck %s --check-prefix=CHECK-LOC
-// REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010
+// REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010 || platform-NPU6010
 
 // CHECK-LABEL: @UnrollHighValues
 // CHECK-SAME: ([[ARG_0:%[^:]+]]: tensor<1x2x16x32xf16>)

@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="platform=%platform% compilation-mode=DefaultHW" --fuse-ops-to-matmul="enable-grouped-matmul=true" %s | FileCheck %s
-// REQUIRES: platform-NPU4000 || platform-NPU5010
+// REQUIRES: platform-NPU4000 || platform-NPU5010 || platform-NPU6010
 
 // CHECK-LABEL: @ConvertBroadcastMultiplyReduceSumToMatMul
 // CHECK-SAME:      [[INPUT_A:%.+]]: tensor<6x256x1x8192xf16>
