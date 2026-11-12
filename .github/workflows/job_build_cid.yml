@@ -3,15 +3,24 @@ on:
   workflow_dispatch:
     inputs:
       os:
-        description: 'OS in the form of "ubuntu_20_04" or "windows_2025".'
-        type: string
+        description: 'Target OS.'
+        type: choice
         required: true
         default: ubuntu_24_04
+        options:
+          - ubuntu_22_04
+          - ubuntu_24_04
+          - windows_2025
       build-runner:
-        description: 'Runner tag on which the builds will run. Example: "ubuntu-latest-32-cores" or "windows-2025-16-core"'
-        type: string
+        description: 'Runner tag. "auto" picks the runner matching the selected OS.'
+        type: choice
         required: true
-        default: ubuntu-latest-32-cores
+        default: auto
+        options:
+          - auto
+          - ubuntu-22.04-16-cores
+          - ubuntu-latest-32-cores
+          - windows-2025-16-core
       openvino-cmake-options:
         description: 'Extra OpenVINO CMake options (appended last, whitespace separated).'
         type: string
@@ -34,13 +43,13 @@ on:
   workflow_call:
     inputs:
       os:
-        description: 'OS in the form of "ubuntu_20_04" or "windows_2025".'
+        description: 'OS in the form of "ubuntu_22_04", "ubuntu_24_04" or "windows_2025".'
         type: string
         required: true
       build-runner:
-        description: 'Runner tag on which the builds will run. Example: "ubuntu-latest-32-cores" or "windows-2025-16-core"'
+        description: 'Runner tag. If empty or "auto", it is derived from "os".'
         type: string
-        required: true
+        required: false
       openvino-cmake-options:
         description: 'Extra OpenVINO CMake options (appended last, whitespace separated).'
         type: string
@@ -85,7 +94,10 @@ permissions:
 jobs:
   Build:
     name: Build
-    runs-on: ${{ inputs.build-runner }}
+    runs-on: ${{ (inputs.build-runner != 'auto' && inputs.build-runner)
+      || (inputs.os == 'windows_2025' && 'windows-2025-16-core')
+      || (inputs.os == 'ubuntu_22_04' && 'ubuntu-22.04-16-cores')
+      || 'ubuntu-latest-32-cores' }}
     timeout-minutes: 240
     permissions:
       actions: read
