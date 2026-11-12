@@ -1227,7 +1227,16 @@ InputTiling backInferReduceSwKernelInputTile(VPUIP::SwKernelOp swKernelOp, const
     // For reduce_square, axes is at index 2 (attrs: keepDims, axesSize, axes, epsilon)
     // For other reduce ops, axes is the last attribute
     const auto axesAttrIndex = (kernelEntryName == "reduce_square") ? 2 : (attrs.size() - 1);
-    const auto reversedAxes = parseIntArrayAttr<int64_t>(mlir::cast<mlir::ArrayAttr>(attrs[axesAttrIndex]));
+    auto reversedAxes = parseIntArrayAttr<int64_t>(mlir::cast<mlir::ArrayAttr>(attrs[axesAttrIndex]));
+    if (kernelEntryName == "reduce_square") {
+        // reduce_square pads its axes to MAX_AXES_DIMS with zeros for serialization; attrs[1] holds the real count.
+        // The padding must not be read as axes: reversed axis 0 is the innermost dim, which would then never be tiled
+        // on the input, and every shave would read the input from offset 0.
+        const auto axesSize = mlir::cast<mlir::IntegerAttr>(attrs[1]).getInt();
+        VPUX_THROW_UNLESS(axesSize >= 0 && static_cast<size_t>(axesSize) <= reversedAxes.size(),
+                          "Invalid axes size {0} for reduce_square at {1}", axesSize, swKernelOp->getLoc());
+        reversedAxes.resize(axesSize);
+    }
     for (const auto reversedAxis : reversedAxes) {
         const auto axis = reverseMemDim(inputOrder, reversedAxis);
         const auto d = Dim(axis);
