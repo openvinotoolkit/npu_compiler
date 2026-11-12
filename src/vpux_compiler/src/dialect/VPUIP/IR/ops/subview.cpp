@@ -440,6 +440,76 @@ void adaptSparsityMapConstant(mlir::Value source, Shape& offset, Shape& shape) {
     shape = Shape({OC, inputShape[1], inputShape[2], inputShape[3]});
 }
 
+// Expresses a strided subview of a constant with the existing transformations. For each strided dim d
+// (offset o, size n, stride s), the contiguous range [o, o + n * s) is taken (zero-padded at the end when it runs past
+// the dim), split into [n, s] by a reshape, and element 0 of the s axis is kept. Returns nullptr (no folding) when
+// the reshapes would not be exact, i.e. the content is not in its default dims order.
+mlir::Attribute foldStridedSubViewIntoConstant(Const::ContentAttr content, ShapeRef offset, ShapeRef shape,
+                                               ArrayRef<int64_t> strides) {
+    const auto contentType = mlir::cast<vpux::NDTypeInterface>(content.getType());
+    const auto inShape = contentType.getShape();
+    const auto rank = static_cast<int64_t>(inShape.size());
+    if (static_cast<int64_t>(strides.size()) != rank ||
+        contentType.getDimsOrder() != DimsOrder::fromNumDims(contentType.getRank()) ||
+        mlir::isa<mlir::quant::QuantizedType>(contentType.getElementType())) {
+        return nullptr;
+    }
+
+    Shape rangeOffset(offset.raw());
+    Shape rangeShape(shape.raw());
+    Shape padAfter(SmallVector<int64_t>(rank, 0));
+    bool needsPad = false;
+    for (auto d : irange(rank)) {
+        const auto dim = Dim(d);
+        if (strides[d] < 1) {
+            return nullptr;
+        }
+        if (strides[d] == 1) {
+            continue;
+        }
+        const auto wanted = shape[dim] * strides[d];
+        const auto available = std::min(wanted, inShape[dim] - offset[dim]);
+        rangeShape[dim] = available;
+        padAfter[dim] = wanted - available;
+        needsPad = needsPad || padAfter[dim] > 0;
+    }
+
+    auto setup = content.transform().subview(rangeOffset, rangeShape);
+    if (needsPad) {
+        const Shape padBefore(SmallVector<int64_t>(rank, 0));
+        setup = setup.padWithZero(padBefore, padAfter);
+        for (auto d : irange(rank)) {
+            rangeShape[Dim(d)] += padAfter[Dim(d)];
+        }
+    }
+
+    for (auto d : irange(rank)) {
+        if (strides[d] == 1) {
+            continue;
+        }
+        const auto dim = Dim(d);
+        // Split dim d into [size, stride] and keep element 0 of the stride axis.
+        SmallVector<int64_t> splitShape;
+        for (auto i : irange(rank)) {
+            if (i == d) {
+                splitShape.push_back(shape[dim]);
+                splitShape.push_back(strides[d]);
+            } else {
+                splitShape.push_back(rangeShape[Dim(i)]);
+            }
+        }
+        SmallVector<int64_t> pickShape(splitShape);
+        pickShape[d + 1] = 1;
+        const Shape splitShapeVal(splitShape);
+        const Shape pickOffset(SmallVector<int64_t>(rank + 1, 0));
+        const Shape pickShapeVal(pickShape);
+        rangeShape[dim] = shape[dim];
+        setup = setup.reshape(splitShapeVal).subview(pickOffset, pickShapeVal).reshape(rangeShape);
+    }
+
+    return setup.get();
+}
+
 //
 // fold
 //
@@ -453,6 +523,17 @@ mlir::OpFoldResult VPUIP::SubViewOp::fold(FoldAdaptor adaptor) {
     if (const auto origContent = mlir::dyn_cast_or_null<Const::ContentAttr>(operands[0])) {
         auto offset = Shape(parseIntArrayAttr<int64_t>(getStaticOffsets()));
         auto shape = Shape(parseIntArrayAttr<int64_t>(getStaticSizes()));
+        if (getStaticStrides().has_value()) {
+            const auto strides = parseIntArrayAttr<int64_t>(getStaticStrides().value());
+            if (llvm::any_of(strides, [](int64_t stride) {
+                    return stride != 1;
+                })) {
+                // #const.SubView has no strides: folding the offsets and sizes alone would turn the strided view
+                // into a contiguous slice.
+                return foldStridedSubViewIntoConstant(static_cast<Const::ContentAttr>(origContent), offset, shape,
+                                                      strides);
+            }
+        }
         adaptSparsityMapConstant(getSource(), offset, shape);
         return static_cast<Const::ContentAttr>(origContent).transform().subview(offset, shape).get();
     }
