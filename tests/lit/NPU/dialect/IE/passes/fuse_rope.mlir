@@ -114,6 +114,42 @@ func.func @FuseRoPEInterleaved(%arg0: tensor<1x1x256x64xf32>, %arg1: tensor<1x1x
 
 // -----
 
+// CHECK-LABEL: @FuseRoPESplitHalfWithSplit
+// CHECK-SAME:  ([[ARG0:%.+]]: tensor<1x59x16x48xf32>, [[ARG1:%.+]]: tensor<1x59x1x48xf32>, [[ARG2:%.+]]: tensor<1x59x1x48xf32>)
+func.func @FuseRoPESplitHalfWithSplit(%arg0: tensor<1x59x16x48xf32>, %arg1: tensor<1x59x1x48xf32>, %arg2: tensor<1x59x1x48xf32>) -> tensor<1x59x16x48xf32> {
+    %cst = const.Declare tensor<1x1x1x1xf32> = dense<-1.000000e+00> : tensor<1x1x1x1xf32>
+    %0 = IE.Multiply(%arg0, %arg1) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x59x16x48xf32>, tensor<1x59x1x48xf32> -> tensor<1x59x16x48xf32>
+    %1:2 = IE.Split(%arg0) {axis_value = 3 : i64, num_splits = 2 : i64} : tensor<1x59x16x48xf32> -> tensor<1x59x16x24xf32>, tensor<1x59x16x24xf32>
+    %2 = IE.Multiply(%1#1, %cst) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x59x16x24xf32>, tensor<1x1x1x1xf32> -> tensor<1x59x16x24xf32>
+    %3 = IE.Concat(%2, %1#0) {static_offsets = [[0, 0, 0, 0], [0, 0, 0, 24]]} : tensor<1x59x16x24xf32>, tensor<1x59x16x24xf32> -> tensor<1x59x16x48xf32>
+    %4 = IE.Multiply(%3, %arg2) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x59x16x48xf32>, tensor<1x59x1x48xf32> -> tensor<1x59x16x48xf32>
+    %5 = IE.Add(%0, %4) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x59x16x48xf32>, tensor<1x59x16x48xf32> -> tensor<1x59x16x48xf32>
+    return %5 : tensor<1x59x16x48xf32>
+
+    // CHECK: [[RoPE:%.+]] = IE.RoPE([[ARG0]], [[ARG1]], [[ARG2]]) {mode = #IE.rope_mode<SPLIT_HALF>} : tensor<1x59x16x48xf32>, tensor<1x59x1x48xf32>, tensor<1x59x1x48xf32> -> tensor<1x59x16x48xf32>
+    // CHECK: return [[RoPE]] : tensor<1x59x16x48xf32>
+}
+
+// -----
+
+// CHECK-LABEL: @NotFuseRoPEWithSplitHalvesSwapped
+func.func @NotFuseRoPEWithSplitHalvesSwapped(%arg0: tensor<1x59x16x48xf32>, %arg1: tensor<1x59x1x48xf32>, %arg2: tensor<1x59x1x48xf32>) -> tensor<1x59x16x48xf32> {
+    %cst = const.Declare tensor<1x1x1x1xf32> = dense<-1.000000e+00> : tensor<1x1x1x1xf32>
+    %0 = IE.Multiply(%arg0, %arg1) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x59x16x48xf32>, tensor<1x59x1x48xf32> -> tensor<1x59x16x48xf32>
+    %1:2 = IE.Split(%arg0) {axis_value = 3 : i64, num_splits = 2 : i64} : tensor<1x59x16x48xf32> -> tensor<1x59x16x24xf32>, tensor<1x59x16x24xf32>
+    %2 = IE.Multiply(%1#0, %cst) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x59x16x24xf32>, tensor<1x1x1x1xf32> -> tensor<1x59x16x24xf32>
+    %3 = IE.Concat(%2, %1#1) {static_offsets = [[0, 0, 0, 0], [0, 0, 0, 24]]} : tensor<1x59x16x24xf32>, tensor<1x59x16x24xf32> -> tensor<1x59x16x48xf32>
+    %4 = IE.Multiply(%3, %arg2) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x59x16x48xf32>, tensor<1x59x1x48xf32> -> tensor<1x59x16x48xf32>
+    %5 = IE.Add(%0, %4) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x59x16x48xf32>, tensor<1x59x16x48xf32> -> tensor<1x59x16x48xf32>
+    return %5 : tensor<1x59x16x48xf32>
+
+    // CHECK-NOT: IE.RoPE
+    // CHECK: [[ADD:%.+]] = IE.Add
+    // CHECK: return [[ADD]] : tensor<1x59x16x48xf32>
+}
+
+// -----
+
 // CHECK-LABEL: @FuseRoPEInterleavedWithUnsqueeze
 // CHECK-SAME:  ([[ARG0:%.+]]: tensor<1x16x1024x128xf32>, [[ARG1:%.+]]: tensor<1x1x1024x128xf32>, [[ARG2:%.+]]: tensor<1x1x1024x128xf32>)
 func.func @FuseRoPEInterleavedWithUnsqueeze(%arg0: tensor<1x16x1024x128xf32>, %arg1: tensor<1x1x1024x128xf32>, %arg2: tensor<1x1x1024x128xf32>) -> tensor<1x16x1024x128xf32> {
