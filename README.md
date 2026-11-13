@@ -6,7 +6,7 @@
 
 [![ubuntu_22](https://github.com/openvinotoolkit/npu_compiler/actions/workflows/ubuntu_22.yml/badge.svg?branch=develop&event=push)](https://github.com/openvinotoolkit/npu_compiler/actions/workflows/ubuntu_22.yml?query=event%3Apush)
 [![ubuntu_24](https://github.com/openvinotoolkit/npu_compiler/actions/workflows/ubuntu_24.yml/badge.svg?branch=develop&event=push)](https://github.com/openvinotoolkit/npu_compiler/actions/workflows/ubuntu_24.yml?query=event%3Apush)
-[![Windows (2022)](https://github.com/openvinotoolkit/npu_compiler/actions/workflows/windows_2022.yml/badge.svg?branch=develop&event=push)](https://github.com/openvinotoolkit/npu_compiler/actions/workflows/windows_2022.yml?query=event%3Apush)
+[![Windows (2025)](https://github.com/openvinotoolkit/npu_compiler/actions/workflows/windows_2025.yml/badge.svg?branch=develop&event=push)](https://github.com/openvinotoolkit/npu_compiler/actions/workflows/windows_2025.yml?query=event%3Apush)
 
 [![OpenVINO Docs](https://img.shields.io/badge/OpenVINO-documentation-blue)](https://docs.openvino.ai/)
 [![OpenVINO Downloads](https://img.shields.io/badge/OpenVINO-downloads-blue)](https://www.intel.com/content/www/us/en/developer/tools/openvino-toolkit/download.html)
