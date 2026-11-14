@@ -25,7 +25,7 @@ void vpux::VPUIP::arch37xx::buildMemoryAllocationPipeline(mlir::OpPassManager& p
             VPU::getMemKind<VPU::MemoryKind::CMX_NN>, VPU::getMemKind<VPU::MemoryKind::DDR>, options.linearizeSchedule,
             options.enableLoopAllocation, options.enablePipelining, options.enablePrefetching,
             options.optimizeFragmentation, options.optimizeDynamicSpilling, options.enableMultiScheduleHeuristic,
-            options.enableVfUndefinedScheduler, log));
+            options.enableVfUndefinedScheduler, log, options.cmxSmallBufferTopThreshold, options.weightsPingPong));
 
     pm.addPass(VPUIP::createQueryArgsAllocationAnalysisPass());
     pm.addPass(VPUIP::createStaticAllocationPass(VPU::getMemKind<VPU::MemoryKind::DDR>, log));

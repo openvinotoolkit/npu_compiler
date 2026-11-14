@@ -177,7 +177,8 @@ std::unique_ptr<mlir::Pass> createFeasibleAllocationPass(
         const bool enablePipelining = true, const bool enablePrefetching = true,
         const bool optimizeFragmentation = true, const bool optimizeDynamicSpilling = true,
         const bool enableMultiScheduleHeuristic = false, const bool enableVfUndefinedScheduler = false,
-        Logger log = Logger::global());
+        Logger log = Logger::global(), const int64_t cmxSmallBufferTopThreshold = 0,
+        const bool weightsPingPong = false);
 std::unique_ptr<mlir::Pass> createQueryArgsAllocationAnalysisPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createStaticAllocationPass(MemKindCreateFunc memKindCb, Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createBatchMatMulToMatMulPass(Logger log = Logger::global());
@@ -233,6 +234,15 @@ struct DefaultHWOptionsDialectBase : public virtual DefaultHWOptionsBase {
     BoolOption optimizeFragmentation{*this, "optimize-fragmentation",
                                      ::llvm::cl::desc("Enables compiler to optimize CMX fragmentation"),
                                      ::llvm::cl::init(true)};
+
+    Int64Option cmxSmallBufferTopThreshold{
+            *this, "cmx-small-buffer-top-threshold",
+            ::llvm::cl::desc("Allocate CMX buffers smaller than this size (bytes) from the top of CMX, 0 disables"),
+            ::llvm::cl::init(0)};
+
+    BoolOption weightsPingPong{*this, "weights-ping-pong",
+                               ::llvm::cl::desc("Avoid reusing CMX ranges of DMA inputs freed by the last compute op"),
+                               ::llvm::cl::init(false)};
 
     BoolOption optimizeDynamicSpilling{*this, "optimize-dynamic-spilling",
                                        ::llvm::cl::desc("Enables compiler to optimize dynamic spilling DMAs"),
