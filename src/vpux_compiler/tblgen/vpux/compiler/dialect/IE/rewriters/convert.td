@@ -12,13 +12,10 @@ include "mlir/IR/OpBase.td"
 include "mlir/IR/PatternBase.td"
 
 //
-// FuseConverts
+// FuseConverts is no longer expressed as a TableGen pattern: the fusion is only valid when the intermediate
+// conversion is redundant (the value is unchanged). Lossy intermediates (float -> int, f32 -> f16, ...) must be
+// preserved, otherwise the truncation/rounding performed by the inner conversion is lost. The guarded pattern
+// lives in ConvertOp::getCanonicalizationPatterns (see IE/IR/ops/convert.cpp).
 //
-
-def FuseConverts :
-        Pat<
-            (IE_ConvertOp (IE_ConvertOp $input, $dstType1), $dstType2),
-            (IE_ConvertOp $input, $dstType2)
-        >;
 
 #endif
