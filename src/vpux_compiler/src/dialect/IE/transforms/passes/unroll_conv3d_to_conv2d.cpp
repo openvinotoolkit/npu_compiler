@@ -594,9 +594,13 @@ mlir::LogicalResult TransposedConvGeneralRewriter::matchAndRewrite(IE::Transpose
                                                   llvm::formatv("{0}_{1}", actIndex, depthIndex).str());
                 lastOp = newFakeQuantizeOp;
             }
+            // The TransposedConvolution filter is stored spatially reversed (Z, Y and X), see
+            // LegalizeConvBackpropData. Y/X are handled by the 2D TransposedConvolution, but the
+            // depth placement below (actIndex * stridesZ + depthIndex) uses the original kernel
+            // index, so the Z slice must be taken from the reversed position.
             auto newConvOp = IE::TransposedConvolutionOp::create(
                     rewriter, takeOpLoc(origOp, "tconv_{0}_{1}", actIndex, depthIndex), lastOp->getResult(0),
-                    slicedFilters[depthIndex], /*output_shape=*/nullptr,
+                    slicedFilters[kernelZ - 1 - depthIndex], /*output_shape=*/nullptr,
                     /*bias=*/nullptr, stridesAttr, padBeginAttr, padEndAttr, dilationsAttr, outputPaddingAttr,
                     /*post_opAttr=*/nullptr, /*clamp=*/nullptr,
                     /*outputPadding=*/origOp.getOutputPaddingAttr(),
