@@ -3,12 +3,12 @@
 setuptools>=84.2.1
 
 # Core
-transformers>=5.22.2
+transformers>=5.23.0
 torch==2.14.1+cpu
 torchvision==0.29.1+cpu
 protobuf==7.36.2
 onnx==1.23.2
-onnxruntime==1.30.0
+onnxruntime>=1.32.0
 onnxruntime-tools>=1.7.0
 onnxscript==0.7.2
 
@@ -20,7 +20,7 @@ typing-extensions>=4.16.0
 # Utils
 pillow>=13.0.0
 requests>=2.34.2
-tqdm>=4.67.3
+tqdm>=4.70.1
 accelerate>=1.15.0
 urllib3>=2.8.0
 filelock>=4.2.9
