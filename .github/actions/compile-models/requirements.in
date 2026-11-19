@@ -13,8 +13,8 @@ onnxruntime-tools>=1.7.0
 onnxscript==0.7.2
 
 # Hugging Face Hub
-huggingface_hub>=1.31.0
-hf-xet==1.7.0
+huggingface_hub>=2.4.0
+hf-xet>=1.8.0
 typing-extensions>=4.16.0
 
 # Utils
@@ -29,3 +29,4 @@ ml-dtypes>=0.6.0
 anyio>=4.16.0
 fsspec>=2026.9.0
 certifi>=2026.10.23
+tokenizers>=0.23.3
