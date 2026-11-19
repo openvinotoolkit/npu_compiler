@@ -23,7 +23,7 @@
 
 ## References
 
-Check out the [main OpenVINO guide](https://github.com/openvinotoolkit/openvino/blob/master/README.md), the [OpenVINO Cheat Sheet](https://docs.openvino.ai/2025/_static/download/OpenVINO_Quick_Start_Guide.pdf) and [Key Features](https://docs.openvino.ai/2025/about-openvino/key-features.html) for a quick reference.
+Check out the [main OpenVINO guide](https://github.com/openvinotoolkit/openvino/blob/master/README.md), the [OpenVINO Cheat Sheet](https://docs.openvino.ai/2026/_static/download/OpenVINO_Quick_Start_Guide.pdf) and [Key Features](https://docs.openvino.ai/2025/about-openvino/key-features.html) for a quick reference.
 
 ## NPU Compiler guides
 
