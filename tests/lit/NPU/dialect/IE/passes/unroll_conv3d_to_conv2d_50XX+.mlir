@@ -153,3 +153,51 @@ func.func @UnrollConvolution3Dto2DwithPerDepthDynDeqParams(%input: tensor<1x1x3x
     // CHECK:        [[CONV_0:%.+]] = IE.Convolution({{.*}}, [[DDQ_0]])
     // CHECK:        [[CONV_1:%.+]] = IE.Convolution({{.*}}, [[DDQ_1]])
 }
+
+// -----
+
+// CHECK-LABEL: @UnrollTransposedConvolution3DNonSplatDepthKernel
+func.func @UnrollTransposedConvolution3DNonSplatDepthKernel(%arg0: tensor<1x2x2x3x3xf16>) -> tensor<1x2x4x3x3xf16> {
+    // Non-splat filter: every depth slice (KZ = 0, 1, 2) holds different values, so the test
+    // catches a wrong depth kernel index (splat filters hide it).
+    %FILTERS = const.Declare tensor<2x2x3x1x1xf16> = dense<[[[[[1.0]], [[2.0]], [[3.0]]], [[[4.0]], [[5.0]], [[6.0]]]], [[[[7.0]], [[8.0]], [[9.0]]], [[[10.0]], [[11.0]], [[12.0]]]]]> : tensor<2x2x3x1x1xf16>
+    %RESULT = IE.TransposedConvolution(%arg0, %FILTERS) {
+        dilations = [1, 1, 1],
+        operandSegmentSizes = array<i32: 1, 1, 0, 0>,
+        spatial_output_padding = [0, 0, 0],
+        pads_begin = [0, 0, 0],
+        pads_end = [0, 0, 0],
+        strides = [1, 1, 1]} : tensor<1x2x2x3x3xf16>, tensor<2x2x3x1x1xf16> -> tensor<1x2x4x3x3xf16>
+
+    return %RESULT : tensor<1x2x4x3x3xf16>
+
+    // The TransposedConvolution filter is spatially reversed, so output depth offset d
+    // (relative to input depth i) must use filter depth slice KZ - 1 - d.
+    // CHECK-DAG:   [[W_KZ0:%.+]] = const.Declare tensor<2x2x1x1xf16> = dense<{{.*}}1.000000e+00{{.*}}4.000000e+00{{.*}}7.000000e+00{{.*}}1.000000e+01{{.*}}> : tensor<2x2x1x1xf16>
+    // CHECK-DAG:   [[W_KZ1:%.+]] = const.Declare tensor<2x2x1x1xf16> = dense<{{.*}}2.000000e+00{{.*}}5.000000e+00{{.*}}8.000000e+00{{.*}}1.100000e+01{{.*}}> : tensor<2x2x1x1xf16>
+    // CHECK-DAG:   [[W_KZ2:%.+]] = const.Declare tensor<2x2x1x1xf16> = dense<{{.*}}3.000000e+00{{.*}}6.000000e+00{{.*}}9.000000e+00{{.*}}1.200000e+01{{.*}}> : tensor<2x2x1x1xf16>
+
+    // Input depth 0 -> output depth 0, 1, 2
+    // CHECK:       IE.Slice {{[^:]+}} [0, 0, 0, 0, 0] [1, 2, 1, 3, 3]
+    // CHECK:       [[TCONV_00:%.+]] = IE.TransposedConvolution({{[^,]+}}, [[W_KZ2]])
+    // CHECK:       IE.Slice {{[^:]+}} [0, 0, 0, 0, 0] [1, 2, 1, 3, 3]
+    // CHECK:       [[TCONV_01:%.+]] = IE.TransposedConvolution({{[^,]+}}, [[W_KZ1]])
+    // CHECK:       IE.Slice {{[^:]+}} [0, 0, 0, 0, 0] [1, 2, 1, 3, 3]
+    // CHECK:       [[TCONV_02:%.+]] = IE.TransposedConvolution({{[^,]+}}, [[W_KZ0]])
+
+    // Input depth 1 -> output depth 1, 2, 3
+    // CHECK:       IE.Slice {{[^:]+}} [0, 0, 1, 0, 0] [1, 2, 1, 3, 3]
+    // CHECK:       [[TCONV_11:%.+]] = IE.TransposedConvolution({{[^,]+}}, [[W_KZ2]])
+    // CHECK:       IE.Slice {{[^:]+}} [0, 0, 1, 0, 0] [1, 2, 1, 3, 3]
+    // CHECK:       [[TCONV_12:%.+]] = IE.TransposedConvolution({{[^,]+}}, [[W_KZ1]])
+    // CHECK:       IE.Slice {{[^:]+}} [0, 0, 1, 0, 0] [1, 2, 1, 3, 3]
+    // CHECK:       [[TCONV_13:%.+]] = IE.TransposedConvolution({{[^,]+}}, [[W_KZ0]])
+
+    // CHECK:       [[OUT_1:%.+]] = IE.Add([[TCONV_01]], [[TCONV_11]])
+    // CHECK:       [[OUT_2:%.+]] = IE.Add([[TCONV_02]], [[TCONV_12]])
+    // CHECK:       [[R_0:%.+]] = IE.AffineReshape([[TCONV_00]])
+    // CHECK:       [[R_1:%.+]] = IE.AffineReshape([[OUT_1]])
+    // CHECK:       [[R_2:%.+]] = IE.AffineReshape([[OUT_2]])
+    // CHECK:       [[R_3:%.+]] = IE.AffineReshape([[TCONV_13]])
+    // CHECK:       IE.Concat([[R_0]], [[R_1]], [[R_2]], [[R_3]])
+}
