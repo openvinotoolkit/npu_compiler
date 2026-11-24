@@ -522,9 +522,21 @@ bool FeasibleMemoryScheduler::freeMemoryResources(const HeapElement& hElement) {
     auto op = _depsInfo.getExecuteOpAtIndex(hElement.op_);
     // free possible buffers, where this is the last user of the buffer
     bool freeMemoryResources = false;
+    const bool trackFreedInputs = _weightsPingPong && hElement.isOriginalOp() && !_isDataOp[hElement.op_];
+    if (trackFreedInputs && hElement.cycleEnd_ != _recentlyFreedCycle) {
+        _recentlyFreedInputRanges.clear();
+        _recentlyFreedCycle = hElement.cycleEnd_;
+    }
     for (auto& buffer : _liveRangeInfo.getUsedBuffers(op)) {
         if (_liveRangeInfo.eraseUser(buffer, op) == 0) {
             _log.nest().trace("Mark buffer as dead, '{0}'", buffer);
+            if (trackFreedInputs) {
+                auto producer = _bufferProducer.find(buffer);
+                if (producer != _bufferProducer.end() && _isDataOp[producer->second]) {
+                    _recentlyFreedInputRanges.push_back(
+                            {_scan.handler().getAddress(buffer), _scan.handler().getSize(buffer)});
+                }
+            }
             _scan.handler().markAsDead(buffer);
             freeMemoryResources = true;
         }
@@ -2636,6 +2648,13 @@ void FeasibleMemoryScheduler::sortAndAllocateBuffers(mlir::DenseSet<mlir::Value>
         _scan.handler().markAsAlive(val);
     }
 
+    if (_smallBufferTopThreshold > 0 || _weightsPingPong) {
+        auto usedBuffers = sortUsedBuffers(buffersToAllocate);
+        if (allocateBuffersKeepingLargeFreeRegion(usedBuffers)) {
+            return;
+        }
+    }
+
     if (_optimizeFragmentation) {
         auto usedBuffers = sortUsedBuffers(buffersToAllocate);
         VPUX_THROW_UNLESS(_scan.alloc(usedBuffers, false, Partitioner::Direction::Up),
@@ -2644,6 +2663,72 @@ void FeasibleMemoryScheduler::sortAndAllocateBuffers(mlir::DenseSet<mlir::Value>
         VPUX_THROW_UNLESS(_scan.alloc(buffersToAllocate, false, Partitioner::Direction::Up),
                           "Failed to statically allocate '{0}' memory", _memKind);
     }
+}
+
+// Allocate small buffers from the top of CMX and the rest from the bottom, avoiding (if possible) the CMX ranges of
+// DMA-loaded inputs freed by the last finished compute op. Returns false (and leaves the allocator unchanged) if this
+// placement is not possible, then the caller falls back to the default allocation.
+bool FeasibleMemoryScheduler::allocateBuffersKeepingLargeFreeRegion(SmallVector<mlir::Value>& usedBuffers) {
+    SmallVector<mlir::Value> small;
+    SmallVector<mlir::Value> big;
+    for (auto& buffer : usedBuffers) {
+        if (_smallBufferTopThreshold > 0 && _scan.handler().getSize(buffer) < _smallBufferTopThreshold) {
+            small.push_back(buffer);
+        } else {
+            big.push_back(buffer);
+        }
+    }
+
+    if (!small.empty()) {
+        if (!_scan.canAlloc(small, Partitioner::Direction::Down) ||
+            !_scan.alloc(small, false, Partitioner::Direction::Down)) {
+            return false;
+        }
+    }
+
+    const auto rollbackSmall = [&]() {
+        for (auto& buffer : small) {
+            _scan.handler().markAsDead(buffer);
+        }
+        _scan.freeDeadRanges();
+        for (auto& buffer : small) {
+            _scan.handler().deallocate(buffer);
+            _scan.handler().markAsAlive(buffer);
+        }
+    };
+
+    if (big.empty()) {
+        return true;
+    }
+
+    if (_weightsPingPong && !_recentlyFreedInputRanges.empty()) {
+        // keep only the parts of the recently freed ranges which are still free
+        SmallVector<std::pair<vpux::AddressType, vpux::AddressType>> excluded;
+        for (const auto& [addr, size] : _recentlyFreedInputRanges) {
+            for (const auto& gap : _scan.gaps()) {
+                const auto begin = std::max(addr, gap.begin);
+                const auto end = std::min(addr + size, gap.end);
+                if (begin < end) {
+                    excluded.push_back({begin, end - begin});
+                }
+            }
+        }
+        llvm::sort(excluded);
+        if (!excluded.empty() && _scan.canAllocWithExcludedRegion(excluded, big)) {
+            VPUX_THROW_UNLESS(_scan.allocWithExcludedRegion(excluded, big, false, Partitioner::Direction::Up),
+                              "Failed to statically allocate '{0}' memory", _memKind);
+            return true;
+        }
+    }
+
+    if (_scan.canAlloc(big, Partitioner::Direction::Up)) {
+        VPUX_THROW_UNLESS(_scan.alloc(big, false, Partitioner::Direction::Up),
+                          "Failed to statically allocate '{0}' memory", _memKind);
+        return true;
+    }
+
+    rollbackSmall();
+    return false;
 }
 
 void FeasibleMemoryScheduler::printFragmentFixCountLog() const {

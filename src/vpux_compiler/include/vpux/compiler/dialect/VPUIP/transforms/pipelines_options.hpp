@@ -45,6 +45,15 @@ struct MemoryAllocationOptionsBase : mlir::PassPipelineOptions<MemoryAllocationO
                                      ::llvm::cl::desc("Enables compiler to optimize CMX fragmentation"),
                                      ::llvm::cl::init(true)};
 
+    Int64Option cmxSmallBufferTopThreshold{
+            *this, "cmx-small-buffer-top-threshold",
+            ::llvm::cl::desc("Allocate CMX buffers smaller than this size (bytes) from the top of CMX, 0 disables"),
+            ::llvm::cl::init(0)};
+
+    BoolOption weightsPingPong{*this, "weights-ping-pong",
+                               ::llvm::cl::desc("Avoid reusing CMX ranges of DMA inputs freed by the last compute op"),
+                               ::llvm::cl::init(false)};
+
     BoolOption optimizeDynamicSpilling{*this, "optimize-dynamic-spilling",
                                        ::llvm::cl::desc("Enables compiler to optimize dynamic spilling DMAs"),
                                        ::llvm::cl::init(true)};

@@ -361,6 +361,10 @@ public:
                             std::shared_ptr<VPUNN::VPUCostModel> costModel, int64_t nceClusterCount, int64_t dmaCount,
                             bool enableScheduleStatistics, bool optimizeFragmentation, bool activelySpillForPrefetching,
                             ComputeRegionsSchedule computeRegionsSchedule, ComputeRegionVec loopRegions = {});
+    void setCmxAllocationHeuristics(vpux::AddressType smallBufferTopThreshold, bool weightsPingPong) {
+        _smallBufferTopThreshold = smallBufferTopThreshold;
+        _weightsPingPong = weightsPingPong;
+    }
 
 public:
     ScheduledOpInfoVec generateSchedule();
@@ -427,6 +431,7 @@ private:
     mlir::DenseSet<mlir::Value> getBuffersToAllocateForOp(operationIdxType opIdx);
     SmallVector<mlir::Value> getNonAliveBuffersUsedByOperation(operationIdxType opIdx);
     SmallVector<mlir::Value> sortUsedBuffers(mlir::DenseSet<mlir::Value>& operationBuffers);
+    bool allocateBuffersKeepingLargeFreeRegion(SmallVector<mlir::Value>& usedBuffers);
     void updateBufferCycleUseAndProducer(size_t opIdx, size_t opCycleEnd, const mlir::Value buffer,
                                          bool isNewProducer = false);
     void createBufferAsyncIdxMap();
@@ -564,6 +569,14 @@ private:
     bool _enableScheduleStatistics;
     // Flag for enabling fragmentation optimization
     bool _optimizeFragmentation;
+    // CMX buffers smaller than this size are allocated from the top of CMX (0 = disabled). Keeps the largest
+    // contiguous region free for big buffers (e.g. weight tiles) so that the next tile can be double-buffered.
+    vpux::AddressType _smallBufferTopThreshold = 0;
+    // Try not to reuse CMX ranges of DMA-loaded inputs freed by the last finished compute op, so the weight DMA of
+    // the next tile does not get a memory control edge on the previous tile's compute task (weights ping-pong).
+    bool _weightsPingPong = false;
+    size_t _recentlyFreedCycle = std::numeric_limits<size_t>::max();
+    SmallVector<std::pair<vpux::AddressType, vpux::AddressType>> _recentlyFreedInputRanges;
     // there are 8 barriers per cluster
     // TODO: E93149 update barrier usage
     const int64_t _barrierPerCluster = 8;

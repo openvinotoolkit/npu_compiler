@@ -205,7 +205,8 @@ public:
     FeasibleAllocationPass(VPUIP::MemKindCreateFunc memKindCb, VPUIP::MemKindCreateFunc secondLevelmemKindCb,
                            bool linearizeSchedule, bool enableLoopAllocation, bool enablePipelining,
                            bool enablePrefetching, bool optimizeFragmentation, bool optimizeDynamicSpilling,
-                           bool enableMultiScheduleHeuristic, bool enableVfUndefinedScheduler, Logger log);
+                           bool enableMultiScheduleHeuristic, bool enableVfUndefinedScheduler, Logger log,
+                           int64_t cmxSmallBufferTopThreshold = 0, bool weightsPingPong = false);
 
 public:
     mlir::LogicalResult initialize(mlir::MLIRContext* ctx) final;
@@ -237,6 +238,8 @@ private:
     bool _optimizeDynamicSpilling{true};
     bool _enableMultiScheduleHeuristic{false};
     bool _enableVfUndefinedScheduler{false};
+    int64_t _cmxSmallBufferTopThreshold{0};
+    bool _weightsPingPong{false};
 };
 
 FeasibleAllocationPass::FeasibleAllocationPass(VPUIP::MemKindCreateFunc memKindCb,
@@ -244,7 +247,7 @@ FeasibleAllocationPass::FeasibleAllocationPass(VPUIP::MemKindCreateFunc memKindC
                                                bool enableLoopAllocation, bool enablePipelining, bool enablePrefetching,
                                                bool optimizeFragmentation, bool optimizeDynamicSpilling,
                                                bool enableMultiScheduleHeuristic, bool enableVfUndefinedScheduler,
-                                               Logger log)
+                                               Logger log, int64_t cmxSmallBufferTopThreshold, bool weightsPingPong)
         : _memKindCb(std::move(memKindCb)),
           _secondLvlMemKindCb(std::move(secondLvlmemKindCb)),
           _linearizeSchedule(linearizeSchedule),
@@ -254,7 +257,9 @@ FeasibleAllocationPass::FeasibleAllocationPass(VPUIP::MemKindCreateFunc memKindC
           _optimizeFragmentation(optimizeFragmentation),
           _optimizeDynamicSpilling(optimizeDynamicSpilling),
           _enableMultiScheduleHeuristic(enableMultiScheduleHeuristic),
-          _enableVfUndefinedScheduler(enableVfUndefinedScheduler) {
+          _enableVfUndefinedScheduler(enableVfUndefinedScheduler),
+          _cmxSmallBufferTopThreshold(cmxSmallBufferTopThreshold),
+          _weightsPingPong(weightsPingPong) {
     Base::initLogger(log, Base::getArgumentName());
 }
 
@@ -292,6 +297,14 @@ mlir::LogicalResult FeasibleAllocationPass::initialize(mlir::MLIRContext* ctx) {
 
     if (linearizeSchedule.hasValue()) {
         _linearizeSchedule = linearizeSchedule.getValue();
+    }
+
+    if (cmxSmallBufferTopThreshold.hasValue()) {
+        _cmxSmallBufferTopThreshold = cmxSmallBufferTopThreshold.getValue();
+    }
+
+    if (weightsPingPong.hasValue()) {
+        _weightsPingPong = weightsPingPong.getValue();
     }
 
     if (enableLoopAllocation.hasValue()) {
@@ -701,6 +714,8 @@ void FeasibleAllocationPass::safeRunOnFunc() {
                                       costModel, tileCount, dmaCount, _enableScheduleStatistics, _optimizeFragmentation,
                                       /*activelySpillForPrefetching*/ false, std::move(predefinedRegionSchedules),
                                       std::move(computeRegionVec));
+    scheduler.setCmxAllocationHeuristics(checked_cast<vpux::AddressType>(_cmxSmallBufferTopThreshold),
+                                         _weightsPingPong);
 
     // 1. initial schedule
     auto scheduledOps = scheduler.generateSchedule();
@@ -740,6 +755,8 @@ void FeasibleAllocationPass::safeRunOnFunc() {
                         costModel, tileCount, dmaCount, _enableScheduleStatistics, _optimizeFragmentation,
                         /*activelySpillForPrefetching*/ false, std::move(taskPredefinedRegionSchedules),
                         std::move(regions));
+                schedulerWithPrefetch.setCmxAllocationHeuristics(
+                        checked_cast<vpux::AddressType>(_cmxSmallBufferTopThreshold), _weightsPingPong);
                 return schedulerWithPrefetch.generateSchedule();
             };
             tasks.emplace_back(scheduleFuncBase, depsInfo, prefetchScan, liveRange);
@@ -764,6 +781,8 @@ void FeasibleAllocationPass::safeRunOnFunc() {
                             costModel, tileCount, dmaCount, _enableScheduleStatistics, _optimizeFragmentation,
                             /*activelySpillForPrefetching*/ true, std::move(taskPredefinedRegionSchedules),
                             std::move(regions));
+                    schedulerWithAggressivePrefetch.setCmxAllocationHeuristics(
+                            checked_cast<vpux::AddressType>(_cmxSmallBufferTopThreshold), _weightsPingPong);
                     const auto& res = schedulerWithAggressivePrefetch.generateSchedule();
                     if (_enableScheduleStatistics) {
                         schedulerWithAggressivePrefetch.printFragmentFixCountLog();
@@ -907,9 +926,10 @@ std::unique_ptr<mlir::Pass> vpux::VPUIP::createFeasibleAllocationPass(
         MemKindCreateFunc memKindCb, MemKindCreateFunc secondLvlmemKindCb, const bool linearizeSchedule,
         const bool enableLoopAllocation, const bool enablePipelining, const bool enablePrefetching,
         const bool optimizeFragmentation, const bool optimizeDynamicSpilling, const bool enableMultiScheduleHeuristic,
-        const bool enableVfUndefinedScheduler, Logger log) {
-    return std::make_unique<FeasibleAllocationPass>(std::move(memKindCb), std::move(secondLvlmemKindCb),
-                                                    linearizeSchedule, enableLoopAllocation, enablePipelining,
-                                                    enablePrefetching, optimizeFragmentation, optimizeDynamicSpilling,
-                                                    enableMultiScheduleHeuristic, enableVfUndefinedScheduler, log);
+        const bool enableVfUndefinedScheduler, Logger log, const int64_t cmxSmallBufferTopThreshold,
+        const bool weightsPingPong) {
+    return std::make_unique<FeasibleAllocationPass>(
+            std::move(memKindCb), std::move(secondLvlmemKindCb), linearizeSchedule, enableLoopAllocation,
+            enablePipelining, enablePrefetching, optimizeFragmentation, optimizeDynamicSpilling,
+            enableMultiScheduleHeuristic, enableVfUndefinedScheduler, log, cmxSmallBufferTopThreshold, weightsPingPong);
 }
