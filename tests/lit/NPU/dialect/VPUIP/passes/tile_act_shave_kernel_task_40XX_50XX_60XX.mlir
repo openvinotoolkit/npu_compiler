@@ -6337,3 +6337,34 @@ func.func @DoNotFuseDimsIntoBroadcastTileDimForAdd(%input1: !Distributed, %input
     // CHECK-SAME:          outputs([[BUF]]
     // CHECK:           return [[CONCAT]]
 }
+
+// -----
+
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+
+module @VPU.SW {
+func.func nested @builtin_ReduceSquare(memref<*xf16, [@CMX_NN, 0]>, memref<*xf16, [@CMX_NN, 0]>, i64, i64, none, f32) attributes {VPU.kernel_code = "reduce_square.cpp", VPU.kernel_entry = "reduce_square", VPU.task_type = @COMPUTE}
+func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"}
+}
+
+// The zero padding of the reduce_square axes (attrs[2]) must not be read as a reduced axis:
+// tiling the output over W must also tile the input over W.
+
+// CHECK-LABEL: func.func @TileReduceSquareOverW(
+// CHECK-SAME:      [[INPUT:%.+]]: memref<1x1x16x16xf16, [@CMX_NN, 0]>,
+// CHECK-SAME:      [[OUTPUT:%.+]]: memref<1x1x1x16xf16, [@CMX_NN, 0]>) -> memref<1x1x1x16xf16, [@CMX_NN, 0]> {
+func.func @TileReduceSquareOverW(%arg0: memref<1x1x16x16xf16, [@CMX_NN, 0]>, %arg1: memref<1x1x1x16xf16, [@CMX_NN, 0]>) -> memref<1x1x1x16xf16, [@CMX_NN, 0]> {
+    %0 = memref.alloc() : memref<1x1x1x16xf16, [@CMX_NN, 0]>
+    %results = VPUIP.SW.Kernel {resultSegmentSizes = array<i32: 1, 0, 0>} @VPU.SW::@builtin_ReduceSquare inputs(%arg0 as %arg2: memref<1x1x16x16xf16, [@CMX_NN, 0]>) outputs(%0 as %arg3: memref<1x1x1x16xf16, [@CMX_NN, 0]>) on tile 0 -> memref<1x1x1x16xf16, [@CMX_NN, 0]>{
+      VPUIP.SW.Kernel.run {attrs = [1, 1, [1, 0, 0, 0], 0.000000e+00 : f32]}(%arg2, %arg3) : memref<1x1x16x16xf16, [@CMX_NN, 0]>, memref<1x1x1x16xf16, [@CMX_NN, 0]>
+    }
+    return %results : memref<1x1x1x16xf16, [@CMX_NN, 0]>
+
+    // CHECK:   [[IN_TILE0:%.+]] = VPUIP.SubView [[INPUT]] [0, 0, 0, 0] [1, 1, 16, 8] : memref<1x1x16x16xf16, [@CMX_NN, 0]> to memref<1x1x16x8xf16, {order = #NCHW, strides = [256, 256, 16, 1]}, [@CMX_NN, 0]>
+    // CHECK:   [[IN_TILE1:%.+]] = VPUIP.SubView [[INPUT]] [0, 0, 0, 8] [1, 1, 16, 8] : memref<1x1x16x16xf16, [@CMX_NN, 0]> to memref<1x1x16x8xf16, {order = #NCHW, strides = [256, 256, 16, 1]}, [@CMX_NN, 0]>
+    // CHECK:   VPUIP.SW.Kernel {resultSegmentSizes = array<i32: 2, 0, 0>} @VPU.SW::@builtin_ReduceSquare
+    // CHECK-SAME:  inputs({{[^:]+}} as [[ARG0:%.+]]: memref<1x1x16x8xf16, [@CMX_NN, 0]>, {{[^:]+}} as [[ARG1:%.+]]: memref<1x1x16x8xf16, [@CMX_NN, 0]>)
+    // CHECK-SAME:  outputs({{[^:]+}} as [[ARG2:%.+]]: memref<1x1x1x8xf16, [@CMX_NN, 0]>, {{[^:]+}} as [[ARG3:%.+]]: memref<1x1x1x8xf16, [@CMX_NN, 0]>)
+    // CHECK:     VPUIP.SW.Kernel.run {attrs = [1, 1, [1, 0, 0, 0], 0.000000e+00 : f32]}([[ARG0]], [[ARG2]]) : memref<1x1x16x8xf16, [@CMX_NN, 0]>, memref<1x1x1x8xf16, [@CMX_NN, 0]>
+    // CHECK:     VPUIP.SW.Kernel.run {attrs = [1, 1, [1, 0, 0, 0], 0.000000e+00 : f32]}([[ARG1]], [[ARG3]]) : memref<1x1x16x8xf16, [@CMX_NN, 0]>, memref<1x1x1x8xf16, [@CMX_NN, 0]>
+}
