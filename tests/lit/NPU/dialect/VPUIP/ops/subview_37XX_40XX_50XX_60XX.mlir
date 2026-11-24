@@ -40,6 +40,39 @@ func.func @Fold(%arg0: memref<1x3x8x4xf32, {order = #NHWC}>) -> memref<1x3x8x4xf
 
 #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
 
+// A strided SubView of a constant must keep its strides when it is folded into the constant.
+// CHECK-LABEL: @FoldStridedSubView
+// CHECK-SAME: ([[ARG_0:%[^:]+]]: memref<1x1x4x2xf16>)
+func.func @FoldStridedSubView(%arg0: memref<1x1x4x2xf16>) -> memref<1x1x4x2xf16> {
+    %0 = const.Declare memref<1x1x8x4xf16> = dense<[[[[0.0, 1.0, 2.0, 3.0], [4.0, 5.0, 6.0, 7.0], [8.0, 9.0, 10.0, 11.0], [12.0, 13.0, 14.0, 15.0], [16.0, 17.0, 18.0, 19.0], [20.0, 21.0, 22.0, 23.0], [24.0, 25.0, 26.0, 27.0], [28.0, 29.0, 30.0, 31.0]]]]> : tensor<1x1x8x4xf16>
+
+    %1 = VPUIP.SubView %0 [0, 0, 1, 1] [1, 1, 4, 2] [1, 1, 2, 2] :
+        memref<1x1x8x4xf16> to memref<1x1x4x2xf16, {order = #NCHW, strides = [32, 32, 8, 2]}>
+
+    %2 = VPUIP.Copy
+        inputs(%1 : memref<1x1x4x2xf16, {order = #NCHW, strides = [32, 32, 8, 2]}>)
+        outputs(%arg0 : memref<1x1x4x2xf16>)
+        -> memref<1x1x4x2xf16>
+
+    return %2 : memref<1x1x4x2xf16>
+
+    // Rows 1, 3, 5, 7 and columns 1, 3: the range [1, 9) x [1, 5) is padded by one row and one column, then every
+    // second element is kept along each strided dim.
+    // CHECK:       [[CST:%.+]] = const.Declare memref<1x1x4x2xf16> = dense<{{.+}}> : tensor<1x1x8x4xf16>,
+    // CHECK-SAME:      [#const.SubView<[0, 0, 1, 1], [1, 1, 7, 3]>, #const.PadWithZero<[0, 0, 0, 0], [0, 0, 1, 1]>,
+    // CHECK-SAME:       #const.Reshape<[1, 1, 4, 2, 4]>, #const.SubView<[0, 0, 0, 0, 0], [1, 1, 4, 1, 4]>,
+    // CHECK-SAME:       #const.Reshape<[1, 1, 4, 2, 2]>, #const.SubView<[0, 0, 0, 0, 0], [1, 1, 4, 2, 1]>,
+    // CHECK-SAME:       #const.Reshape<[1, 1, 4, 2]>]
+    // CHECK-NOT:   VPUIP.SubView
+    // CHECK:       [[COPY:%.+]] = VPUIP.Copy inputs([[CST]] : memref<1x1x4x2xf16>)
+    // CHECK-SAME:      outputs([[ARG_0]] : memref<1x1x4x2xf16>)
+    // CHECK:       return [[COPY]]
+}
+
+// -----
+
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+
 module @VPU.SW {
 func.func nested @builtin_relu(%input : memref<*xf16>, %output : memref<*xf16>) attributes {
         VPU.kernel_code = "activation_relu.cpp", VPU.kernel_entry = "activation_relu", VPU.task_type = @COMPUTE
